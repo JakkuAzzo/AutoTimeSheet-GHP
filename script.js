@@ -73,6 +73,13 @@ const overallTotalsEl = document.getElementById("overall-totals");
 const weeklyTotalsEl = document.getElementById("weekly-totals");
 const issuesOutputEl = document.getElementById("issues-output");
 const errorBannerEl = document.getElementById("error-banner");
+const prevWeekBtn = document.getElementById("prev-week-btn");
+const nextWeekBtn = document.getElementById("next-week-btn");
+const weekIndicator = document.getElementById("week-indicator");
+
+// ===== Week navigation state =====
+let allWeekRows = []; // Array of arrays: [[week1Rows], [week2Rows], ...]
+let currentWeekIndex = 0;
 
 // ===== Table row management =====
 
@@ -257,12 +264,110 @@ function setTableFromRows(rows) {
   renumberRows();
 }
 
+// ===== Week navigation functions =====
+
+function organizeRowsByWeek() {
+  const allRows = getRowsFromTable();
+  const weekMap = new Map();
+  
+  allRows.forEach(row => {
+    const weekKey = row.week && row.week.trim() ? row.week.trim() : "Unspecified";
+    if (!weekMap.has(weekKey)) {
+      weekMap.set(weekKey, []);
+    }
+    weekMap.get(weekKey).push(row);
+  });
+  
+  // Convert to array of arrays, sorted by week key
+  allWeekRows = Array.from(weekMap.entries())
+    .sort((a, b) => {
+      // Try to parse as numbers first
+      const numA = parseInt(a[0]);
+      const numB = parseInt(b[0]);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      return a[0].localeCompare(b[0]);
+    })
+    .map(([weekKey, rows]) => rows);
+  
+  return allWeekRows.length;
+}
+
+function displayCurrentWeek() {
+  if (allWeekRows.length === 0) {
+    tbody.innerHTML = "";
+    updateWeekIndicator();
+    return;
+  }
+  
+  currentWeekIndex = Math.max(0, Math.min(currentWeekIndex, allWeekRows.length - 1));
+  const weekRows = allWeekRows[currentWeekIndex];
+  
+  tbody.innerHTML = "";
+  weekRows.forEach(() => createRow());
+  
+  Array.from(tbody.children).forEach((tr, idx) => {
+    const row = weekRows[idx];
+    const cells = tr.querySelectorAll("td[data-field]");
+    cells.forEach((td) => {
+      const field = td.dataset.field;
+      if (field && row[field] !== undefined) {
+        const value = row[field];
+        
+        if (td.querySelector(".hour-select")) {
+          td.innerHTML = "";
+          const dropdowns = createDurationDropdowns(value);
+          td.appendChild(dropdowns);
+        } else {
+          const input = td.querySelector("input");
+          if (input) {
+            input.value = value;
+          }
+        }
+      }
+    });
+  });
+  
+  renumberRows();
+  updateWeekIndicator();
+}
+
+function updateWeekIndicator() {
+  if (allWeekRows.length === 0) {
+    weekIndicator.textContent = "No weeks";
+    prevWeekBtn.disabled = true;
+    nextWeekBtn.disabled = true;
+  } else {
+    weekIndicator.textContent = `Week ${currentWeekIndex + 1} of ${allWeekRows.length}`;
+    prevWeekBtn.disabled = currentWeekIndex === 0;
+    nextWeekBtn.disabled = currentWeekIndex >= allWeekRows.length - 1;
+  }
+}
+
+function switchToWeek(direction) {
+  // Save current week data before switching
+  if (allWeekRows.length > 0 && currentWeekIndex >= 0 && currentWeekIndex < allWeekRows.length) {
+    allWeekRows[currentWeekIndex] = getRowsFromTable();
+  }
+  
+  currentWeekIndex += direction;
+  displayCurrentWeek();
+}
+
 // ===== Recalculation & validation =====
 
 function recalculate() {
   clearInlineErrors(); // remove previous error highlighting
 
-  const rows = getRowsFromTable();
+  // Save current week before recalculating
+  if (allWeekRows.length > 0 && currentWeekIndex >= 0 && currentWeekIndex < allWeekRows.length) {
+    allWeekRows[currentWeekIndex] = getRowsFromTable();
+  }
+  
+  // Gather all rows from all weeks
+  const rows = allWeekRows.flat();
+  
   if (!rows.length) {
     overallTotalsEl.textContent = "No rows in timesheet.";
     weeklyTotalsEl.textContent = "No rows in timesheet.";
@@ -471,7 +576,14 @@ function submitTimesheet() {
     showBannerError("Please select a start and end date range.");
     return;
   }
-  const rows = getRowsFromTable();
+  
+  // Save current week before submitting
+  if (allWeekRows.length > 0 && currentWeekIndex >= 0 && currentWeekIndex < allWeekRows.length) {
+    allWeekRows[currentWeekIndex] = getRowsFromTable();
+  }
+  
+  // Gather all rows from all weeks
+  const rows = allWeekRows.flat();
   if (!rows.length) {
     showBannerError("No timesheet rows to submit.");
     return;
@@ -654,7 +766,30 @@ function handleDocxFile(file) {
           }
           return;
         }
-        setTableFromRows(rows);
+        
+        // Organize rows by week
+        const weekMap = new Map();
+        rows.forEach(row => {
+          const weekKey = row.week && row.week.trim() ? row.week.trim() : "1";
+          if (!weekMap.has(weekKey)) {
+            weekMap.set(weekKey, []);
+          }
+          weekMap.get(weekKey).push(row);
+        });
+        
+        allWeekRows = Array.from(weekMap.entries())
+          .sort((a, b) => {
+            const numA = parseInt(a[0]);
+            const numB = parseInt(b[0]);
+            if (!isNaN(numA) && !isNaN(numB)) {
+              return numA - numB;
+            }
+            return a[0].localeCompare(b[0]);
+          })
+          .map(([weekKey, rows]) => rows);
+        
+        currentWeekIndex = 0;
+        displayCurrentWeek();
         recalculate();
       })
       .catch((err) => {
@@ -676,18 +811,28 @@ function handleDocxFile(file) {
 // ===== Event wiring =====
 
 addRowBtn.addEventListener("click", () => {
+  // If no weeks exist, create the first week
+  if (allWeekRows.length === 0) {
+    allWeekRows = [[]];
+    currentWeekIndex = 0;
+  }
+  
   createRow();
   renumberRows();
+  updateWeekIndicator();
 });
 
 clearRowsBtn.addEventListener("click", () => {
   if (
-    tbody.children.length &&
-    !confirm("Clear all rows from the timesheet?")
+    allWeekRows.flat().length &&
+    !confirm("Clear all rows from all weeks?")
   ) {
     return;
   }
   tbody.innerHTML = "";
+  allWeekRows = [];
+  currentWeekIndex = 0;
+  updateWeekIndicator();
 });
 
 recalcBtn.addEventListener("click", recalculate);
@@ -720,6 +865,10 @@ modeRadioNodes.forEach((radio) => {
 
 submitTimesheetBtn.addEventListener("click", submitTimesheet);
 
+// Week navigation buttons
+prevWeekBtn.addEventListener("click", () => switchToWeek(-1));
+nextWeekBtn.addEventListener("click", () => switchToWeek(1));
+
 // ===== Auto-fill date/day/week from date range =====
 function generateRowsFromDateRange() {
   const start = rangeStartInput.value;
@@ -743,6 +892,8 @@ function generateRowsFromDateRange() {
   const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
   firstMonday.setDate(firstMonday.getDate() - daysToMonday);
 
+  // Generate all rows first
+  const allRows = [];
   let currentDate = new Date(startDate);
   while (currentDate <= endDate) {
     const weekNumber = Math.floor((currentDate - firstMonday) / MS_PER_DAY / 7) + 1;
@@ -751,10 +902,39 @@ function generateRowsFromDateRange() {
     const yyyy = currentDate.getFullYear();
     const dateStr = `${dd}/${mm}/${yyyy}`;
     const dayStr = dayNames[currentDate.getDay()];
-    createRow(dateStr, dayStr, String(weekNumber));
+    
+    allRows.push({
+      date: dateStr,
+      day: dayStr,
+      week: String(weekNumber),
+      start: "",
+      finish: "",
+      break: "0:00",
+      basic: "0:00",
+      ot15: "0:00",
+      ot20: "0:00",
+      notes: ""
+    });
+    
     currentDate.setDate(currentDate.getDate() + 1);
   }
-  renumberRows();
+  
+  // Organize into weeks
+  const weekMap = new Map();
+  allRows.forEach(row => {
+    const weekKey = row.week;
+    if (!weekMap.has(weekKey)) {
+      weekMap.set(weekKey, []);
+    }
+    weekMap.get(weekKey).push(row);
+  });
+  
+  allWeekRows = Array.from(weekMap.entries())
+    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+    .map(([weekKey, rows]) => rows);
+  
+  currentWeekIndex = 0;
+  displayCurrentWeek();
   hideBanner();
 }
 
@@ -763,8 +943,15 @@ rangeEndInput.addEventListener("change", generateRowsFromDateRange);
 
 // Initialise with a few empty rows (if no dates set)
 if (!rangeStartInput.value && !rangeEndInput.value) {
+  const initialRows = [];
   for (let i = 0; i < 5; i++) {
-    createRow();
+    initialRows.push({
+      date: "", day: "", week: "1",
+      start: "", finish: "", break: "0:00",
+      basic: "0:00", ot15: "0:00", ot20: "0:00", notes: ""
+    });
   }
-  renumberRows();
+  allWeekRows = [initialRows];
+  currentWeekIndex = 0;
+  displayCurrentWeek();
 }
