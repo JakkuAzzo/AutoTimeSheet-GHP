@@ -452,7 +452,8 @@ function extractRowsFromDocxHtml(html) {
   const tables = container.querySelectorAll("table");
   if (!tables.length) return [];
 
-  const headerKeywords = ["date", "work", "start", "finish", "lunch"];
+  // Accept wider header keyword set for robustness.
+  const headerKeywords = ["date", "work", "start", "finish", "lunch", "basic", "o/t", "1.5", "2.0"];
 
   let bestTable = null;
   let bestScore = 0;
@@ -476,31 +477,41 @@ function extractRowsFromDocxHtml(html) {
   if (!bestTable || bestScore === 0) return [];
 
   const weekLabel = extractWeekLabelFromHtml(html);
+
+  // Build header index map for dynamic column detection
+  const headerCells = Array.from(bestTable.querySelectorAll("tr")[0].cells).map((c) => c.textContent.trim().toLowerCase());
+  const findIdx = (...needles) => {
+    return headerCells.findIndex((h) => needles.some((n) => h.includes(n)));
+  };
+  const idxMap = {
+    date: findIdx("date"),
+    worksite: findIdx("work", "address", "site"),
+    start: findIdx("start"),
+    finish: findIdx("finish"),
+    lunch: findIdx("lunch", "break"),
+    basic: findIdx("basic"),
+    ot15: findIdx("1.5", "1.5"),
+    ot20: findIdx("2.0", "2.0"),
+  };
   const rows = [];
   const trs = bestTable.querySelectorAll("tr");
 
   for (let i = 1; i < trs.length; i++) {
     const tds = trs[i].cells;
     if (!tds.length) continue;
+    const text = (idx) => (idx >= 0 && idx < tds.length ? tds[idx].textContent.trim() : "");
 
-    // Simple guard: if there is no START/FINISH cell, skip.
-    if (tds.length < 6) continue;
+    // Prefer header-based indices; fallback to positional mapping if missing
+    const date = text(idxMap.date >= 0 ? idxMap.date : 0);
+    const worksite = text(idxMap.worksite >= 0 ? idxMap.worksite : 1);
+    const start = text(idxMap.start >= 0 ? idxMap.start : 2);
+    const finish = text(idxMap.finish >= 0 ? idxMap.finish : 3);
+    const lunch = text(idxMap.lunch >= 0 ? idxMap.lunch : 4);
+    const basic = text(idxMap.basic >= 0 ? idxMap.basic : 5);
+    const ot15 = text(idxMap.ot15 >= 0 ? idxMap.ot15 : 6);
+    const ot20 = text(idxMap.ot20 >= 0 ? idxMap.ot20 : 7);
 
-    const text = (idx) =>
-      idx >= 0 && idx < tds.length ? tds[idx].textContent.trim() : "";
-
-    const date = text(0);
-    const worksite = text(1);
-    const start = text(2);
-    const finish = text(3);
-    const lunch = text(4);
-    const basic = text(5);
-    const ot15 = text(6) || "";
-    const ot20 = text(7) || "";
-
-    // Skip header/blank rows
-    const hasAnyTime =
-      !!start || !!finish || !!basic || !!ot15 || !!ot20;
+    const hasAnyTime = !!start || !!finish || !!basic || !!ot15 || !!ot20;
     if (!hasAnyTime) continue;
 
     rows.push({
@@ -513,7 +524,7 @@ function extractRowsFromDocxHtml(html) {
       basic,
       ot15,
       ot20,
-      notes: worksite
+      notes: worksite,
     });
   }
 
