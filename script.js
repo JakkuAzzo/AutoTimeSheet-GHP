@@ -61,7 +61,6 @@ const addRowBtn = document.getElementById("add-row-btn");
 const clearRowsBtn = document.getElementById("clear-rows-btn");
 const recalcBtn = document.getElementById("recalculate-btn");
 const uploadDocxInput = document.getElementById("upload-docx-input");
-const downloadCsvBtn = document.getElementById("download-csv-btn");
 const submitTimesheetBtn = document.getElementById("submit-timesheet-btn");
 const employeeNameInput = document.getElementById("employee-name");
 const rangeStartInput = document.getElementById("range-start");
@@ -77,15 +76,15 @@ const errorBannerEl = document.getElementById("error-banner");
 
 // ===== Table row management =====
 
-function createRow() {
+function createRow(dateStr = "", dayStr = "", weekStr = "") {
   const rowIndex = tbody.children.length + 1;
   const tr = document.createElement("tr");
 
   const cols = [
     { key: "index", type: "label" },
-    { key: "date", type: "input" },
-    { key: "day", type: "input" },
-    { key: "week", type: "input" },
+    { key: "date", type: "input", readonly: true, value: dateStr },
+    { key: "day", type: "input", readonly: true, value: dayStr },
+    { key: "week", type: "input", readonly: true, value: weekStr },
     { key: "start", type: "input" },
     { key: "finish", type: "input" },
     { key: "break", type: "input" },
@@ -97,6 +96,7 @@ function createRow() {
 
   cols.forEach((col) => {
     const td = document.createElement("td");
+    td.dataset.field = col.key; // attach field name to td for error highlighting
     if (col.type === "label") {
       td.textContent = rowIndex;
       td.classList.add("row-index");
@@ -104,6 +104,14 @@ function createRow() {
       const input = document.createElement("input");
       input.type = "text";
       input.dataset.field = col.key;
+      if (col.readonly) {
+        input.readOnly = true;
+        input.style.background = "#EFF9E8";
+        input.style.cursor = "default";
+      }
+      if (col.value !== undefined) {
+        input.value = col.value;
+      }
       td.appendChild(input);
     }
     tr.appendChild(td);
@@ -152,6 +160,8 @@ function setTableFromRows(rows) {
 // ===== Recalculation & validation =====
 
 function recalculate() {
+  clearInlineErrors(); // remove previous error highlighting
+
   const rows = getRowsFromTable();
   if (!rows.length) {
     overallTotalsEl.textContent = "No rows in timesheet.";
@@ -165,7 +175,6 @@ function recalculate() {
   let totalBasic = 0;
   let totalOT15 = 0;
   let totalOT20 = 0;
-  let issues = [];
   const weeklyTotals = new Map();
 
   rows.forEach((row) => {
@@ -177,39 +186,33 @@ function recalculate() {
     const ot15Min = parseHoursToMinutes(row.ot15);
     const ot20Min = parseHoursToMinutes(row.ot20);
 
-    const rowLabel = `Row ${row.index}${row.date ? ` (${row.date})` : ""}`;
-
-    if (breakMin === null) {
-      issues.push(`${rowLabel}: Lunch value "${row.break}" is invalid.`);
+    if (breakMin === null && row.break) {
+      highlightCellError(row.index, "break", `Invalid lunch value: "${row.break}"`);
     }
-    if (basicMin === null) {
-      issues.push(`${rowLabel}: Basic hours "${row.basic}" is invalid.`);
+    if (basicMin === null && row.basic) {
+      highlightCellError(row.index, "basic", `Invalid basic hours: "${row.basic}"`);
     }
-    if (ot15Min === null) {
-      issues.push(`${rowLabel}: OT 1.5 hours "${row.ot15}" is invalid.`);
+    if (ot15Min === null && row.ot15) {
+      highlightCellError(row.index, "ot15", `Invalid OT 1.5: "${row.ot15}"`);
     }
-    if (ot20Min === null) {
-      issues.push(`${rowLabel}: OT 2.0 hours "${row.ot20}" is invalid.`);
+    if (ot20Min === null && row.ot20) {
+      highlightCellError(row.index, "ot20", `Invalid OT 2.0: "${row.ot20}"`);
     }
 
     let workedMin = null;
     if (startMin != null && finishMin != null && breakMin != null) {
       workedMin = finishMin - startMin - breakMin;
       if (workedMin < 0) {
-        issues.push(
-          `${rowLabel}: Finish time is before start time after lunch.`
-        );
+        highlightCellError(row.index, "finish", "Finish time is before start time (after lunch)");
       } else {
         const sumEntered =
           (basicMin || 0) + (ot15Min || 0) + (ot20Min || 0);
         const diff = Math.abs(sumEntered - workedMin);
         if (diff > 1) {
-          issues.push(
-            `${rowLabel}: Worked = ${formatMinutesAsHM(
-              workedMin
-            )}, but Basic + OT = ${formatMinutesAsHM(
-              sumEntered
-            )} (difference ${formatMinutesAsHM(diff)}).`
+          highlightCellError(
+            row.index,
+            "basic",
+            `Worked = ${formatMinutesAsHM(workedMin)}, but Basic + OT = ${formatMinutesAsHM(sumEntered)} (diff ${formatMinutesAsHM(diff)})`
           );
         }
       }
@@ -288,14 +291,26 @@ function recalculate() {
   weeklyTotalsEl.textContent =
     weeklyLines.length ? weeklyLines.join("\n") : "No weekly data.";
 
-  if (!issues.length) {
-    issuesOutputEl.textContent = "No issues detected.";
-    issuesOutputEl.classList.remove("error");
-    issuesOutputEl.classList.add("ok");
-  } else {
-    issuesOutputEl.textContent = issues.join("\n");
-    issuesOutputEl.classList.remove("ok");
-    issuesOutputEl.classList.add("error");
+  issuesOutputEl.textContent = "See inline highlights in the table above.";
+  issuesOutputEl.classList.remove("error");
+  issuesOutputEl.classList.add("ok");
+}
+
+// ===== Inline error highlighting =====
+function clearInlineErrors() {
+  Array.from(tbody.querySelectorAll("td.cell-error")).forEach((td) => {
+    td.classList.remove("cell-error");
+    td.removeAttribute("title");
+  });
+}
+
+function highlightCellError(rowIndex, fieldKey, message) {
+  const tr = tbody.children[rowIndex - 1];
+  if (!tr) return;
+  const td = Array.from(tr.children).find((cell) => cell.dataset.field === fieldKey);
+  if (td) {
+    td.classList.add("cell-error");
+    td.setAttribute("title", message);
   }
 }
 
@@ -340,24 +355,6 @@ function rowsToCsv(rows) {
   });
 
   return lines.join("\n");
-}
-
-function downloadCsv() {
-  const rows = getRowsFromTable();
-  if (!rows.length) {
-    alert("No rows to export.");
-    return;
-  }
-  const csv = rowsToCsv(rows);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "timesheet.csv";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 // ===== FormSubmit integration =====
@@ -595,8 +592,6 @@ clearRowsBtn.addEventListener("click", () => {
 
 recalcBtn.addEventListener("click", recalculate);
 
-downloadCsvBtn.addEventListener("click", downloadCsv);
-
 uploadDocxInput.addEventListener("change", (event) => {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
@@ -625,8 +620,51 @@ modeRadioNodes.forEach((radio) => {
 
 submitTimesheetBtn.addEventListener("click", submitTimesheet);
 
-// Initialise with a few empty rows
-for (let i = 0; i < 5; i++) {
-  createRow();
+// ===== Auto-fill date/day/week from date range =====
+function generateRowsFromDateRange() {
+  const start = rangeStartInput.value;
+  const end = rangeEndInput.value;
+  if (!start || !end) return;
+
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (startDate > endDate) {
+    showBannerError("Start date must be before or equal to end date.");
+    return;
+  }
+
+  tbody.innerHTML = ""; // clear existing rows
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MS_PER_DAY = 86400000;
+  const firstMonday = new Date(startDate);
+  // Roll back to the previous Monday (or stay if already Monday)
+  const dayOfWeek = firstMonday.getDay();
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  firstMonday.setDate(firstMonday.getDate() - daysToMonday);
+
+  let currentDate = new Date(startDate);
+  while (currentDate <= endDate) {
+    const weekNumber = Math.floor((currentDate - firstMonday) / MS_PER_DAY / 7) + 1;
+    const dd = String(currentDate.getDate()).padStart(2, "0");
+    const mm = String(currentDate.getMonth() + 1).padStart(2, "0");
+    const yyyy = currentDate.getFullYear();
+    const dateStr = `${dd}/${mm}/${yyyy}`;
+    const dayStr = dayNames[currentDate.getDay()];
+    createRow(dateStr, dayStr, String(weekNumber));
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  renumberRows();
+  hideBanner();
 }
-renumberRows();
+
+rangeStartInput.addEventListener("change", generateRowsFromDateRange);
+rangeEndInput.addEventListener("change", generateRowsFromDateRange);
+
+// Initialise with a few empty rows (if no dates set)
+if (!rangeStartInput.value && !rangeEndInput.value) {
+  for (let i = 0; i < 5; i++) {
+    createRow();
+  }
+  renumberRows();
+}

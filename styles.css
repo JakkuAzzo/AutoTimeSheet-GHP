@@ -146,6 +146,12 @@ input[type="date"]:focus {
   box-shadow: 0 0 0 2px rgba(101, 140, 110, 0.35);
 }
 
+input[type="text"]:read-only {
+  background: #F5F5F5;
+  color: #666;
+  cursor: default;
+}
+
 input[type="file"] {
   margin-top: 0.5rem;
 }
@@ -251,4 +257,13 @@ code {
 .submit-bar {
   margin-top: 1rem;
   text-align: right;
+}
+
+/* Inline error highlighting */
+td.cell-error,
+td.cell-error input {
+  background: #fecaca !important;
+  font-weight: bold;
+  cursor: help;
+  color: #7f1d1d;
 }
