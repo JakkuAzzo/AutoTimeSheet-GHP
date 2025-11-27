@@ -23,7 +23,7 @@ function parseHoursToMinutes(str) {
     const h = Number(parts[0]);
     const m = Number(parts[1]);
     if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-    if (h < 0 || m < 0 || m >= 60) return null;
+    if (h < 0 || m < 0) return null;
     return h * 60 + m;
   }
 
@@ -76,30 +76,99 @@ const errorBannerEl = document.getElementById("error-banner");
 
 // ===== Table row management =====
 
+// Helper: create hour/minute dropdowns for duration fields
+function createDurationDropdowns(initialValue = "") {
+  const wrapper = document.createElement("div");
+  wrapper.style.display = "flex";
+  wrapper.style.gap = "2px";
+  wrapper.style.alignItems = "center";
+
+  const hourSelect = document.createElement("select");
+  hourSelect.className = "hour-select";
+  for (let i = 0; i <= 24; i++) {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = i;
+    hourSelect.appendChild(opt);
+  }
+
+  const minSelect = document.createElement("select");
+  minSelect.className = "min-select";
+  for (let i = 0; i < 60; i++) {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = String(i).padStart(2, "0");
+    minSelect.appendChild(opt);
+  }
+
+  // Parse initial value (e.g., "8:30" or "45" minutes)
+  if (initialValue) {
+    const trimmed = initialValue.trim();
+    if (trimmed.includes(":")) {
+      const [h, m] = trimmed.split(":");
+      hourSelect.value = parseInt(h) || 0;
+      minSelect.value = parseInt(m) || 0;
+    } else {
+      // Assume minutes only
+      const totalMin = parseInt(trimmed) || 0;
+      hourSelect.value = Math.floor(totalMin / 60);
+      minSelect.value = totalMin % 60;
+    }
+  }
+
+  wrapper.appendChild(hourSelect);
+  const colonSpan = document.createElement("span");
+  colonSpan.textContent = ":";
+  colonSpan.style.padding = "0 2px";
+  wrapper.appendChild(colonSpan);
+  wrapper.appendChild(minSelect);
+
+  return wrapper;
+}
+
+// Helper: extract value from duration dropdowns as "H:MM"
+function getDurationValue(td) {
+  const hourSelect = td.querySelector(".hour-select");
+  const minSelect = td.querySelector(".min-select");
+  if (!hourSelect || !minSelect) return "";
+  const h = hourSelect.value;
+  const m = String(minSelect.value).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
 function createRow(dateStr = "", dayStr = "", weekStr = "") {
   const rowIndex = tbody.children.length + 1;
   const tr = document.createElement("tr");
 
   const cols = [
     { key: "index", type: "label" },
-    { key: "date", type: "input", readonly: true, value: dateStr },
-    { key: "day", type: "input", readonly: true, value: dayStr },
-    { key: "week", type: "input", readonly: true, value: weekStr },
-    { key: "start", type: "input" },
-    { key: "finish", type: "input" },
-    { key: "break", type: "input" },
-    { key: "basic", type: "input" },
-    { key: "ot15", type: "input" },
-    { key: "ot20", type: "input" },
-    { key: "notes", type: "input" }
+    { key: "date", type: "text", readonly: true, value: dateStr },
+    { key: "day", type: "text", readonly: true, value: dayStr },
+    { key: "week", type: "text", readonly: true, value: weekStr },
+    { key: "start", type: "time" },
+    { key: "finish", type: "time" },
+    { key: "break", type: "duration" },
+    { key: "basic", type: "duration" },
+    { key: "ot15", type: "duration" },
+    { key: "ot20", type: "duration" },
+    { key: "notes", type: "text" }
   ];
 
   cols.forEach((col) => {
     const td = document.createElement("td");
     td.dataset.field = col.key; // attach field name to td for error highlighting
+    
     if (col.type === "label") {
       td.textContent = rowIndex;
       td.classList.add("row-index");
+    } else if (col.type === "duration") {
+      const dropdowns = createDurationDropdowns(col.value || "");
+      td.appendChild(dropdowns);
+    } else if (col.type === "time") {
+      const input = document.createElement("input");
+      input.type = "time";
+      input.dataset.field = col.key;
+      td.appendChild(input);
     } else {
       const input = document.createElement("input");
       input.type = "text";
@@ -131,11 +200,25 @@ function getRowsFromTable() {
   const rows = [];
   Array.from(tbody.children).forEach((tr, idx) => {
     const row = { index: idx + 1 };
-    const inputs = tr.querySelectorAll("input[type='text']");
-    inputs.forEach((input) => {
-      const field = input.dataset.field;
-      row[field] = input.value || "";
+    
+    // Get all td cells with data-field attribute
+    const cells = tr.querySelectorAll("td[data-field]");
+    cells.forEach((td) => {
+      const field = td.dataset.field;
+      
+      // Handle duration dropdowns
+      if (td.querySelector(".hour-select")) {
+        row[field] = getDurationValue(td);
+      } 
+      // Handle regular inputs (text, time)
+      else {
+        const input = td.querySelector("input");
+        if (input) {
+          row[field] = input.value || "";
+        }
+      }
     });
+    
     rows.push(row);
   });
   return rows;
@@ -146,11 +229,28 @@ function setTableFromRows(rows) {
   rows.forEach(() => createRow());
   Array.from(tbody.children).forEach((tr, idx) => {
     const row = rows[idx];
-    const inputs = tr.querySelectorAll("input[type='text']");
-    inputs.forEach((input) => {
-      const field = input.dataset.field;
+    
+    // Get all td cells with data-field attribute
+    const cells = tr.querySelectorAll("td[data-field]");
+    cells.forEach((td) => {
+      const field = td.dataset.field;
       if (field && row[field] !== undefined) {
-        input.value = row[field];
+        const value = row[field];
+        
+        // Handle duration dropdowns
+        if (td.querySelector(".hour-select")) {
+          // Remove old dropdowns and create new ones with value
+          td.innerHTML = "";
+          const dropdowns = createDurationDropdowns(value);
+          td.appendChild(dropdowns);
+        }
+        // Handle regular inputs (text, time)
+        else {
+          const input = td.querySelector("input");
+          if (input) {
+            input.value = value;
+          }
+        }
       }
     });
   });

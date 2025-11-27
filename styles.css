@@ -152,6 +152,38 @@ input[type="text"]:read-only {
   cursor: default;
 }
 
+input[type="time"] {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #85A898;
+  background: #FFFFFF;
+  color: #000000;
+  font-size: 0.85rem;
+}
+
+input[type="time"]:focus {
+  outline: none;
+  border-color: #658C6E;
+  box-shadow: 0 0 0 2px rgba(101, 140, 110, 0.35);
+}
+
+select {
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.5rem;
+  border: 1px solid #85A898;
+  background: #FFFFFF;
+  color: #000000;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+select:focus {
+  outline: none;
+  border-color: #658C6E;
+  box-shadow: 0 0 0 2px rgba(101, 140, 110, 0.35);
+}
+
 input[type="file"] {
   margin-top: 0.5rem;
 }
