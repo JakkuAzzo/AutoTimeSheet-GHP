@@ -62,6 +62,13 @@ const clearRowsBtn = document.getElementById("clear-rows-btn");
 const recalcBtn = document.getElementById("recalculate-btn");
 const uploadDocxInput = document.getElementById("upload-docx-input");
 const downloadCsvBtn = document.getElementById("download-csv-btn");
+const submitTimesheetBtn = document.getElementById("submit-timesheet-btn");
+const employeeNameInput = document.getElementById("employee-name");
+const rangeStartInput = document.getElementById("range-start");
+const rangeEndInput = document.getElementById("range-end");
+const manualTools = document.getElementById("manual-tools");
+const uploadTools = document.getElementById("upload-tools");
+const modeRadioNodes = document.querySelectorAll("input[name='entry-mode']");
 
 const overallTotalsEl = document.getElementById("overall-totals");
 const weeklyTotalsEl = document.getElementById("weekly-totals");
@@ -353,6 +360,73 @@ function downloadCsv() {
   URL.revokeObjectURL(url);
 }
 
+// ===== FormSubmit integration =====
+// Build a form dynamically and POST to formsubmit.co including CSV, name, date range.
+function submitTimesheet() {
+  const name = employeeNameInput.value.trim();
+  const startDate = rangeStartInput.value;
+  const endDate = rangeEndInput.value;
+  if (!name) {
+    showBannerError("Please enter your name before submitting.");
+    return;
+  }
+  if (!startDate || !endDate) {
+    showBannerError("Please select a start and end date range.");
+    return;
+  }
+  const rows = getRowsFromTable();
+  if (!rows.length) {
+    showBannerError("No timesheet rows to submit.");
+    return;
+  }
+  const csv = rowsToCsv(rows);
+  const subject = `${name} timesheet ${startDate} to ${endDate}`;
+
+  // Clear previous banner
+  hideBanner();
+
+  const form = document.createElement("form");
+  form.action = "https://formsubmit.co/acc.gmtelect@outlook.com";
+  form.method = "POST";
+  form.style.display = "none";
+
+  const field = (name, value) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  };
+
+  field("_subject", subject);
+  field("employee_name", name);
+  field("date_range", `${startDate} to ${endDate}`);
+  field("timesheet_csv", csv);
+  field("_captcha", "false");
+  field("_template", "table");
+
+  document.body.appendChild(form);
+  form.submit();
+  setTimeout(() => {
+    document.body.removeChild(form);
+  }, 2000);
+}
+
+function showBannerError(msg) {
+  if (errorBannerEl) {
+    errorBannerEl.textContent = msg;
+    errorBannerEl.classList.remove("hidden");
+  } else {
+    alert(msg);
+  }
+}
+function hideBanner() {
+  if (errorBannerEl) {
+    errorBannerEl.textContent = "";
+    errorBannerEl.classList.add("hidden");
+  }
+}
+
 // ===== DOCX parsing via Mammoth =====
 
 function extractWeekLabelFromHtml(html) {
@@ -523,6 +597,22 @@ uploadDocxInput.addEventListener("change", (event) => {
   }
   handleDocxFile(file);
 });
+
+// Mode toggle: manual vs upload
+modeRadioNodes.forEach((radio) => {
+  radio.addEventListener("change", () => {
+    const mode = document.querySelector("input[name='entry-mode']:checked").value;
+    if (mode === "manual") {
+      manualTools.classList.remove("hidden");
+      uploadTools.classList.add("hidden");
+    } else {
+      manualTools.classList.add("hidden");
+      uploadTools.classList.remove("hidden");
+    }
+  });
+});
+
+submitTimesheetBtn.addEventListener("click", submitTimesheet);
 
 // Initialise with a few empty rows
 for (let i = 0; i < 5; i++) {
