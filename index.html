@@ -68,6 +68,7 @@
     <!-- Results -->
     <section class="card">
       <h2>3. Results &amp; Validation</h2>
+      <div id="error-banner" class="banner hidden" role="alert" aria-live="polite"></div>
       <button id="recalculate-btn">Recalculate Totals &amp; Check Sheet</button>
 
       <div class="results">
@@ -84,6 +85,23 @@
           <pre id="issues-output" class="output-block ok">No issues detected yet.</pre>
         </div>
       </div>
+    </section>
+
+    <!-- About & Guidance -->
+    <section class="card">
+      <h2>About &amp; Guidance</h2>
+      <p class="small">
+        This tool runs entirely in your browser. To automate checks, upload the original Word <code>.docx</code> weekly timesheet
+        using the GMT template. PDFs and scans are not supported for automatic parsing.
+      </p>
+      <p class="small">
+        Tips for the Word file:
+      </p>
+      <ul class="small">
+        <li>Keep the header row: <code>DATE | WORKSITE ADDRESS | START | FINISH | LUNCH | BASIC HRS | O/T 1.5 | O/T 2.0</code>.</li>
+        <li>Avoid merging columns or changing the order of columns.</li>
+        <li>Include week text like <em>Week Number: 1</em> or <em>Week Beginning: 27th October 2025</em> if possible.</li>
+      </ul>
     </section>
   </main>
 

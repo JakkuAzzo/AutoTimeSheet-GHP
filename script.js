@@ -66,6 +66,7 @@ const downloadCsvBtn = document.getElementById("download-csv-btn");
 const overallTotalsEl = document.getElementById("overall-totals");
 const weeklyTotalsEl = document.getElementById("weekly-totals");
 const issuesOutputEl = document.getElementById("issues-output");
+const errorBannerEl = document.getElementById("error-banner");
 
 // ===== Table row management =====
 
@@ -222,6 +223,39 @@ function recalculate() {
     if (Number.isFinite(ot20Min)) wk.ot20 += ot20Min || 0;
   });
 
+  // Apply weekly rule: reach 40h basic before any overtime counts.
+  // We shift OT minutes into Basic up to 40h. Preference: deduct from OT1.5 first, then OT2.0.
+  const adjustedWeeklyTotals = new Map();
+  weeklyTotals.forEach((t, weekKey) => {
+    const targetBasic = 40 * 60; // 40 hours in minutes
+    let basic = t.basic;
+    let ot15 = t.ot15;
+    let ot20 = t.ot20;
+    if (basic < targetBasic) {
+      const needed = targetBasic - basic;
+      const availableOT = ot15 + ot20;
+      const shift = Math.min(needed, availableOT);
+      // subtract from OT1.5 first
+      const from15 = Math.min(shift, ot15);
+      ot15 -= from15;
+      let remaining = shift - from15;
+      const from20 = Math.min(remaining, ot20);
+      ot20 -= from20;
+      basic += (from15 + from20);
+    }
+    adjustedWeeklyTotals.set(weekKey, { basic, ot15, ot20 });
+  });
+
+  // Recompute overall totals from adjusted weekly totals
+  totalBasic = 0;
+  totalOT15 = 0;
+  totalOT20 = 0;
+  adjustedWeeklyTotals.forEach((t) => {
+    totalBasic += t.basic;
+    totalOT15 += t.ot15;
+    totalOT20 += t.ot20;
+  });
+
   const grandTotal = totalBasic + totalOT15 + totalOT20;
   overallTotalsEl.textContent =
     `Basic:   ${formatMinutesAsHM(totalBasic)}\n` +
@@ -231,7 +265,7 @@ function recalculate() {
     `TOTAL:   ${formatMinutesAsHM(grandTotal)}`;
 
   const weeklyLines = [];
-  Array.from(weeklyTotals.entries())
+  Array.from(adjustedWeeklyTotals.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .forEach(([weekKey, t]) => {
       const weekTotal = t.basic + t.ot15 + t.ot20;
@@ -419,13 +453,23 @@ function handleDocxFile(file) {
     mammoth
       .convertToHtml({ arrayBuffer })
       .then((result) => {
+        // clear any previous error
+        if (errorBannerEl) {
+          errorBannerEl.textContent = "";
+          errorBannerEl.classList.add("hidden");
+        }
         const html = result.value;
         const rows = extractRowsFromDocxHtml(html);
         if (!rows.length) {
-          alert(
-            "Could not find a timesheet table in that Word document. " +
-              "Make sure it's the standard GMT weekly timesheet template."
-          );
+          if (errorBannerEl) {
+            errorBannerEl.textContent =
+              "Could not find a timesheet table in that Word document. Make sure it's the standard GMT weekly timesheet template.";
+            errorBannerEl.classList.remove("hidden");
+          } else {
+            alert(
+              "Could not find a timesheet table in that Word document. Make sure it's the standard GMT weekly timesheet template."
+            );
+          }
           return;
         }
         setTableFromRows(rows);
@@ -433,9 +477,15 @@ function handleDocxFile(file) {
       })
       .catch((err) => {
         console.error(err);
-        alert(
-          "There was a problem reading that .docx file in the browser."
-        );
+        if (errorBannerEl) {
+          errorBannerEl.textContent =
+            "There was a problem reading that .docx file in the browser.";
+          errorBannerEl.classList.remove("hidden");
+        } else {
+          alert(
+            "There was a problem reading that .docx file in the browser."
+          );
+        }
       });
   };
   reader.readAsArrayBuffer(file);
