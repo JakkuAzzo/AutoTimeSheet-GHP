@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GMT Timesheet Checker &amp; Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Mammoth.js for .docx parsing (browser build) -->
+  <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+  <meta name="description" content="Upload GMT Word timesheets or build them in the browser. Validate hours & overtime automatically." />
+</head>
+<body>
+  <header class="app-header">
+    <h1>GMT Timesheet Checker &amp; Builder</h1>
+    <p>Upload weekly Word timesheets or build them here, then verify hours &amp; overtime automatically.</p>
+  </header>
+
+  <main class="app-main">
+    <!-- Manual builder -->
+    <section class="card">
+      <h2>1. Build / Edit Timesheet</h2>
+      <p class="small">
+        Use this table to enter or tweak a timesheet manually. You can still upload a .docx in the next section.
+      </p>
+      <div class="toolbar">
+        <button id="add-row-btn">Add Row</button>
+        <button id="clear-rows-btn">Clear All Rows</button>
+        <button id="download-csv-btn">Download CSV</button>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="timesheet-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Date</th>
+              <th>Day</th>
+              <th>Week</th>
+              <th>Start<br><span class="hint">HH:MM</span></th>
+              <th>Finish<br><span class="hint">HH:MM</span></th>
+              <th>Lunch<br><span class="hint">mins or HH:MM</span></th>
+              <th>Basic<br><span class="hint">H or H:MM</span></th>
+              <th>OT 1.5<br><span class="hint">H or H:MM</span></th>
+              <th>OT 2.0<br><span class="hint">H or H:MM</span></th>
+              <th>Notes (e.g. worksite)</th>
+            </tr>
+          </thead>
+          <tbody id="timesheet-body">
+            <!-- JS will insert rows -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Upload docx -->
+    <section class="card">
+      <h2>2. Upload GMT Weekly Timesheet (.docx)</h2>
+      <p class="small">
+        Supported format: the standard GMT Electrical Services weekly timesheet in Word <code>.docx</code> format,
+        with a table like: DATE | WORKSITE ADDRESS | START | FINISH | LUNCH | BASIC HRS | O/T 1.5 | O/T 2.0.
+      </p>
+      <input type="file" id="upload-docx-input" accept=".docx" />
+      <p class="small warning">
+        PDFs and scanned images are not parsed automatically. Use the original Word file or enter the data above.
+      </p>
+    </section>
+
+    <!-- Results -->
+    <section class="card">
+      <h2>3. Results &amp; Validation</h2>
+      <button id="recalculate-btn">Recalculate Totals &amp; Check Sheet</button>
+
+      <div class="results">
+        <div>
+          <h3>Overall Totals</h3>
+          <pre id="overall-totals" class="output-block">No data yet.</pre>
+        </div>
+        <div>
+          <h3>Weekly Totals</h3>
+          <pre id="weekly-totals" class="output-block">No data yet.</pre>
+        </div>
+        <div>
+          <h3>Issues / Corrections Needed</h3>
+          <pre id="issues-output" class="output-block ok">No issues detected yet.</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>All calculations happen locally in your browser. No data is uploaded to any server.</p>
+  </footer>
+
+  <script src="script.js"></script>
+  <!-- Optional: basic CSP for safer execution (adjust if hosting adds restrictions) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://unpkg.com; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
+</body>
+</html>
