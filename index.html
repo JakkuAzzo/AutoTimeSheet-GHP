@@ -10,10 +10,175 @@
   <meta name="description" content="Upload GMT Word timesheets or build them in the browser. Validate hours & overtime automatically." />
 </head>
 <body>
+  <!-- Login/Register Modal -->
+  <div id="auth-modal" class="modal">
+    <div class="modal-content">
+      <h2 id="auth-title">Login</h2>
+      <form id="auth-form">
+        <div class="form-group">
+          <label for="auth-username">Username or Email</label>
+          <input type="text" id="auth-username" required>
+        </div>
+        <div class="form-group" id="email-group" style="display:none;">
+          <label for="auth-email">Email</label>
+          <input type="email" id="auth-email">
+        </div>
+        <div class="form-group" id="fullname-group" style="display:none;">
+          <label for="auth-fullname">Full Name</label>
+          <input type="text" id="auth-fullname">
+        </div>
+        <div class="form-group">
+          <label for="auth-password">Password</label>
+          <input type="password" id="auth-password" required>
+        </div>
+        <div class="auth-error" id="auth-error"></div>
+        <div class="auth-buttons">
+          <button type="submit" id="auth-submit-btn">Login</button>
+          <button type="button" id="auth-toggle-btn">Need an account? Register</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <header class="app-header">
     <h1>GMT Timesheet Checker &amp; Builder</h1>
     <p>Upload weekly Word timesheets or build them here, then verify hours &amp; overtime automatically.</p>
+    <div class="user-info" id="user-info" style="display:none;">
+      <span id="username-display"></span>
+      <div class="header-buttons">
+        <button id="admin-toggle-btn" class="admin-toggle-btn" style="display:none;">Admin Panel</button>
+        <button id="logout-btn" class="logout-btn">Logout</button>
+      </div>
+    </div>
   </header>
+
+  <!-- Admin Panel (hidden by default) -->
+  <div id="admin-panel" class="admin-panel hidden">
+    <div class="admin-header">
+      <h2>Admin Dashboard</h2>
+      <button id="admin-close-btn" class="close-btn">Close</button>
+    </div>
+    
+    <div class="admin-tabs">
+      <button class="admin-tab-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="admin-tab-btn" data-tab="users">Users</button>
+      <button class="admin-tab-btn" data-tab="timesheets">Timesheets</button>
+    </div>
+
+    <!-- Dashboard Tab -->
+    <div id="dashboard-tab" class="admin-tab-content active">
+      <h3>Overview Statistics</h3>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Users</div>
+          <div class="stat-value" id="stat-total-users">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Timesheets</div>
+          <div class="stat-value" id="stat-total-timesheets">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Submitted (30 days)</div>
+          <div class="stat-value" id="stat-submitted-30">0</div>
+        </div>
+      </div>
+      <h3>Recent Submissions</h3>
+      <div class="table-wrapper">
+        <table id="recent-timesheets-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Period</th>
+              <th>Submitted</th>
+              <th>By User</th>
+            </tr>
+          </thead>
+          <tbody id="recent-timesheets-body">
+            <tr><td colspan="4">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Users Tab -->
+    <div id="users-tab" class="admin-tab-content hidden">
+      <h3>User Management</h3>
+      <button id="create-user-btn" class="create-btn">+ Create New User</button>
+      
+      <div id="user-form-container" class="form-container hidden">
+        <h4 id="user-form-title">Create New User</h4>
+        <form id="user-form">
+          <div class="form-group">
+            <label for="user-username">Username</label>
+            <input type="text" id="user-username" required>
+          </div>
+          <div class="form-group">
+            <label for="user-email">Email</label>
+            <input type="email" id="user-email" required>
+          </div>
+          <div class="form-group">
+            <label for="user-fullname">Full Name</label>
+            <input type="text" id="user-fullname">
+          </div>
+          <div class="form-group">
+            <label for="user-password">Password</label>
+            <input type="password" id="user-password" required>
+          </div>
+          <div class="form-group">
+            <label for="user-role">Role</label>
+            <select id="user-role">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="form-buttons">
+            <button type="submit" id="user-submit-btn">Create</button>
+            <button type="button" id="user-cancel-btn">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="users-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Email</th>
+              <th>Full Name</th>
+              <th>Role</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-body">
+            <tr><td colspan="6">Loading users...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Timesheets Tab -->
+    <div id="timesheets-tab" class="admin-tab-content hidden">
+      <h3>All Timesheets</h3>
+      <div class="table-wrapper">
+        <table id="all-timesheets-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>User</th>
+              <th>Start Date</th>
+              <th>End Date</th>
+              <th>Submitted</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="all-timesheets-body">
+            <tr><td colspan="6">Loading timesheets...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <main class="app-main">
     <!-- Unified builder / upload section -->
@@ -61,9 +226,6 @@
                 <th>Start<br><span class="hint">HH:MM</span></th>
                 <th>Finish<br><span class="hint">HH:MM</span></th>
                 <th>Lunch<br><span class="hint">mins or HH:MM</span></th>
-                <th>Basic<br><span class="hint">H or H:MM</span></th>
-                <th>OT 1.5<br><span class="hint">H or H:MM</span></th>
-                <th>OT 2.0<br><span class="hint">H or H:MM</span></th>
                 <th>Notes (e.g. worksite)</th>
               </tr>
             </thead>
@@ -83,9 +245,6 @@
         </p>
         <input type="file" id="upload-docx-input" accept=".docx" />
         <p class="small warning">PDFs / scans not parsed automatically.</p>
-      </div>
-      <div class="submit-bar">
-        <button id="submit-timesheet-btn" type="button">Submit Timesheet</button>
       </div>
     </section>
 
@@ -109,19 +268,24 @@
           <pre id="issues-output" class="output-block ok">No issues detected yet.</pre>
         </div>
       </div>
+      <div class="action-bar">
+        <button id="download-csv-btn" type="button">Download CSV</button>
+        <button id="submit-timesheet-btn" type="button">Submit Timesheet</button>
+      </div>
     </section>
 
     <!-- About & Guidance -->
     <section class="card">
       <h2>3. About &amp; Guidance</h2>
       <p class="small">
-        All processing happens locally. Enter data manually or upload a Word <code>.docx</code> timesheet. When ready, submit via the <strong>Submit Timesheet</strong> button. The submission email includes your name, date range and the CSV of entries.
+        All processing happens locally, with auto-save to your browser. Hours (Basic, OT 1.5, OT 2.0) are automatically calculated from Start, Finish, and Lunch times. Review calculations in Step 2 before submitting.
       </p>
       <ul class="small">
-        <li>Header row must remain standard.</li>
-        <li>Include week info text where possible.</li>
         <li>Ensure Start/Finish use 24h HH:MM format.</li>
         <li>Lunch: minutes or HH:MM.</li>
+        <li>Overnight shifts supported (finish time next day).</li>
+        <li>40h basic hours per week required before overtime counts.</li>
+        <li>Data auto-saves as you type.</li>
       </ul>
     </section>
   </main>

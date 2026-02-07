@@ -62,6 +62,7 @@ const clearRowsBtn = document.getElementById("clear-rows-btn");
 const recalcBtn = document.getElementById("recalculate-btn");
 const uploadDocxInput = document.getElementById("upload-docx-input");
 const submitTimesheetBtn = document.getElementById("submit-timesheet-btn");
+const downloadCsvBtn = document.getElementById("download-csv-btn");
 const employeeNameInput = document.getElementById("employee-name");
 const rangeStartInput = document.getElementById("range-start");
 const rangeEndInput = document.getElementById("range-end");
@@ -77,70 +78,101 @@ const prevWeekBtn = document.getElementById("prev-week-btn");
 const nextWeekBtn = document.getElementById("next-week-btn");
 const weekIndicator = document.getElementById("week-indicator");
 
+// Auth elements
+const authModal = document.getElementById("auth-modal");
+const authForm = document.getElementById("auth-form");
+const authTitle = document.getElementById("auth-title");
+const authUsername = document.getElementById("auth-username");
+const authEmail = document.getElementById("auth-email");
+const authFullname = document.getElementById("auth-fullname");
+const authPassword = document.getElementById("auth-password");
+const authError = document.getElementById("auth-error");
+const authSubmitBtn = document.getElementById("auth-submit-btn");
+const authToggleBtn = document.getElementById("auth-toggle-btn");
+const emailGroup = document.getElementById("email-group");
+const fullnameGroup = document.getElementById("fullname-group");
+const userInfo = document.getElementById("user-info");
+const usernameDisplay = document.getElementById("username-display");
+const logoutBtn = document.getElementById("logout-btn");
+
+// ===== Auth state =====
+let currentUser = null;
+let isLoginMode = true;
+
 // ===== Week navigation state =====
 let allWeekRows = []; // Array of arrays: [[week1Rows], [week2Rows], ...]
 let currentWeekIndex = 0;
+let autoSaveTimer = null;
+let recalcTimer = null;
+
+// ===== Auto-save to localStorage =====
+function autoSave() {
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    try {
+      if (allWeekRows.length > 0 && currentWeekIndex >= 0 && currentWeekIndex < allWeekRows.length) {
+        allWeekRows[currentWeekIndex] = getRowsFromTable();
+      }
+      const saveData = {
+        allWeekRows,
+        currentWeekIndex,
+        name: employeeNameInput.value,
+        startDate: rangeStartInput.value,
+        endDate: rangeEndInput.value,
+        timestamp: new Date().toISOString()
+      };
+      localStorage.setItem('timesheet_autosave', JSON.stringify(saveData));
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+    }
+  }, 1000);
+}
+
+function loadAutoSave() {
+  try {
+    const saved = localStorage.getItem('timesheet_autosave');
+    if (saved) {
+      const data = JSON.parse(saved);
+      allWeekRows = data.allWeekRows || [];
+      currentWeekIndex = data.currentWeekIndex || 0;
+      if (data.name) employeeNameInput.value = data.name;
+      if (data.startDate) rangeStartInput.value = data.startDate;
+      if (data.endDate) rangeEndInput.value = data.endDate;
+      if (allWeekRows.length > 0) {
+        displayCurrentWeek();
+      }
+    }
+  } catch (error) {
+    console.error('Load auto-save failed:', error);
+  }
+}
+
+function clearAutoSave() {
+  localStorage.removeItem('timesheet_autosave');
+}
 
 // ===== Table row management =====
 
-// Helper: create hour/minute dropdowns for duration fields
-function createDurationDropdowns(initialValue = "") {
-  const wrapper = document.createElement("div");
-  wrapper.style.display = "flex";
-  wrapper.style.gap = "2px";
-  wrapper.style.alignItems = "center";
-
-  const hourSelect = document.createElement("select");
-  hourSelect.className = "hour-select";
-  for (let i = 0; i <= 24; i++) {
-    const opt = document.createElement("option");
-    opt.value = i;
-    opt.textContent = i;
-    hourSelect.appendChild(opt);
+// Helper: calculate worked hours from start, finish, and lunch
+function calculateWorkedHours(startTime, finishTime, lunchMinutes) {
+  const startMin = parseTimeToMinutes(startTime);
+  const finishMin = parseTimeToMinutes(finishTime);
+  const breakMin = parseBreakToMinutes(lunchMinutes);
+  
+  if (startMin === null || finishMin === null || breakMin === null) {
+    return null;
   }
-
-  const minSelect = document.createElement("select");
-  minSelect.className = "min-select";
-  for (let i = 0; i < 60; i++) {
-    const opt = document.createElement("option");
-    opt.value = i;
-    opt.textContent = String(i).padStart(2, "0");
-    minSelect.appendChild(opt);
+  
+  let workedMin;
+  // Support overnight shifts
+  if (finishMin < startMin) {
+    // Overnight: add 24 hours (1440 minutes) to finish time
+    workedMin = (finishMin + 1440) - startMin - breakMin;
+  } else {
+    workedMin = finishMin - startMin - breakMin;
   }
-
-  // Parse initial value (e.g., "8:30" or "45" minutes)
-  if (initialValue) {
-    const trimmed = initialValue.trim();
-    if (trimmed.includes(":")) {
-      const [h, m] = trimmed.split(":");
-      hourSelect.value = parseInt(h) || 0;
-      minSelect.value = parseInt(m) || 0;
-    } else {
-      // Assume minutes only
-      const totalMin = parseInt(trimmed) || 0;
-      hourSelect.value = Math.floor(totalMin / 60);
-      minSelect.value = totalMin % 60;
-    }
-  }
-
-  wrapper.appendChild(hourSelect);
-  const colonSpan = document.createElement("span");
-  colonSpan.textContent = ":";
-  colonSpan.style.padding = "0 2px";
-  wrapper.appendChild(colonSpan);
-  wrapper.appendChild(minSelect);
-
-  return wrapper;
-}
-
-// Helper: extract value from duration dropdowns as "H:MM"
-function getDurationValue(td) {
-  const hourSelect = td.querySelector(".hour-select");
-  const minSelect = td.querySelector(".min-select");
-  if (!hourSelect || !minSelect) return "";
-  const h = hourSelect.value;
-  const m = String(minSelect.value).padStart(2, "0");
-  return `${h}:${m}`;
+  
+  return workedMin >= 0 ? workedMin : null;
 }
 
 function createRow(dateStr = "", dayStr = "", weekStr = "") {
@@ -154,36 +186,40 @@ function createRow(dateStr = "", dayStr = "", weekStr = "") {
     { key: "week", type: "text", readonly: true, value: weekStr },
     { key: "start", type: "time" },
     { key: "finish", type: "time" },
-    { key: "break", type: "duration" },
-    { key: "basic", type: "duration" },
-    { key: "ot15", type: "duration" },
-    { key: "ot20", type: "duration" },
+    { key: "break", type: "text", placeholder: "30 or 0:30" },
     { key: "notes", type: "text" }
   ];
 
   cols.forEach((col) => {
     const td = document.createElement("td");
-    td.dataset.field = col.key; // attach field name to td for error highlighting
+    td.dataset.field = col.key;
     
     if (col.type === "label") {
       td.textContent = rowIndex;
       td.classList.add("row-index");
-    } else if (col.type === "duration") {
-      const dropdowns = createDurationDropdowns(col.value || "");
-      td.appendChild(dropdowns);
     } else if (col.type === "time") {
       const input = document.createElement("input");
       input.type = "time";
       input.dataset.field = col.key;
+      input.addEventListener('input', () => {
+        autoSave();
+        debouncedRecalc();
+      });
       td.appendChild(input);
     } else {
       const input = document.createElement("input");
       input.type = "text";
       input.dataset.field = col.key;
+      if (col.placeholder) input.placeholder = col.placeholder;
       if (col.readonly) {
         input.readOnly = true;
         input.style.background = "#EFF9E8";
         input.style.cursor = "default";
+      } else {
+        input.addEventListener('input', () => {
+          autoSave();
+          if (col.key === 'break') debouncedRecalc();
+        });
       }
       if (col.value !== undefined) {
         input.value = col.value;
@@ -208,21 +244,12 @@ function getRowsFromTable() {
   Array.from(tbody.children).forEach((tr, idx) => {
     const row = { index: idx + 1 };
     
-    // Get all td cells with data-field attribute
     const cells = tr.querySelectorAll("td[data-field]");
     cells.forEach((td) => {
       const field = td.dataset.field;
-      
-      // Handle duration dropdowns
-      if (td.querySelector(".hour-select")) {
-        row[field] = getDurationValue(td);
-      } 
-      // Handle regular inputs (text, time)
-      else {
-        const input = td.querySelector("input");
-        if (input) {
-          row[field] = input.value || "";
-        }
+      const input = td.querySelector("input");
+      if (input) {
+        row[field] = input.value || "";
       }
     });
     
@@ -237,31 +264,27 @@ function setTableFromRows(rows) {
   Array.from(tbody.children).forEach((tr, idx) => {
     const row = rows[idx];
     
-    // Get all td cells with data-field attribute
     const cells = tr.querySelectorAll("td[data-field]");
     cells.forEach((td) => {
       const field = td.dataset.field;
       if (field && row[field] !== undefined) {
         const value = row[field];
-        
-        // Handle duration dropdowns
-        if (td.querySelector(".hour-select")) {
-          // Remove old dropdowns and create new ones with value
-          td.innerHTML = "";
-          const dropdowns = createDurationDropdowns(value);
-          td.appendChild(dropdowns);
-        }
-        // Handle regular inputs (text, time)
-        else {
-          const input = td.querySelector("input");
-          if (input) {
-            input.value = value;
-          }
+        const input = td.querySelector("input");
+        if (input) {
+          input.value = value;
         }
       }
     });
   });
   renumberRows();
+}
+
+// ===== Debounced recalculation =====
+function debouncedRecalc() {
+  clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(() => {
+    recalculate();
+  }, 500);
 }
 
 // ===== Week navigation functions =====
@@ -314,16 +337,9 @@ function displayCurrentWeek() {
       const field = td.dataset.field;
       if (field && row[field] !== undefined) {
         const value = row[field];
-        
-        if (td.querySelector(".hour-select")) {
-          td.innerHTML = "";
-          const dropdowns = createDurationDropdowns(value);
-          td.appendChild(dropdowns);
-        } else {
-          const input = td.querySelector("input");
-          if (input) {
-            input.value = value;
-          }
+        const input = td.querySelector("input");
+        if (input) {
+          input.value = value;
         }
       }
     });
@@ -358,14 +374,12 @@ function switchToWeek(direction) {
 // ===== Recalculation & validation =====
 
 function recalculate() {
-  clearInlineErrors(); // remove previous error highlighting
+  clearInlineErrors();
 
-  // Save current week before recalculating
   if (allWeekRows.length > 0 && currentWeekIndex >= 0 && currentWeekIndex < allWeekRows.length) {
     allWeekRows[currentWeekIndex] = getRowsFromTable();
   }
   
-  // Gather all rows from all weeks
   const rows = allWeekRows.flat();
   
   if (!rows.length) {
@@ -377,94 +391,65 @@ function recalculate() {
     return;
   }
 
+  let hasErrors = false;
+  const weeklyTotals = new Map();
+
+  // Calculate worked hours for each row
+  rows.forEach((row) => {
+    const workedMin = calculateWorkedHours(row.start, row.finish, row.break);
+    
+    if (!row.start && !row.finish) {
+      // Empty row, skip
+      return;
+    }
+    
+    if (!row.start || !row.finish) {
+      highlightCellError(row.index, row.start ? "finish" : "start", "Both start and finish times required");
+      hasErrors = true;
+      return;
+    }
+    
+    if (workedMin === null) {
+      highlightCellError(row.index, "finish", "Invalid time values");
+      hasErrors = true;
+      return;
+    }
+    
+    if (workedMin < 0) {
+      highlightCellError(row.index, "finish", "Worked time cannot be negative");
+      hasErrors = true;
+      return;
+    }
+
+    const weekKey = row.week && row.week.trim() ? row.week.trim() : "Unspecified";
+    if (!weeklyTotals.has(weekKey)) {
+      weeklyTotals.set(weekKey, { totalMin: 0, rows: [] });
+    }
+    weeklyTotals.get(weekKey).totalMin += workedMin;
+    weeklyTotals.get(weekKey).rows.push({ ...row, workedMin });
+  });
+
+  // Apply 40h basic rule per week, then calculate OT
+  const adjustedWeeklyTotals = new Map();
+  weeklyTotals.forEach((weekData, weekKey) => {
+    const targetBasic = 40 * 60; // 40 hours
+    let basic = Math.min(weekData.totalMin, targetBasic);
+    let remaining = weekData.totalMin - basic;
+    
+    // OT 1.5 for hours 40-50 (600 minutes)
+    let ot15 = Math.min(remaining, 10 * 60);
+    remaining -= ot15;
+    
+    // OT 2.0 for hours 50+
+    let ot20 = remaining;
+    
+    adjustedWeeklyTotals.set(weekKey, { basic, ot15, ot20, total: weekData.totalMin });
+  });
+
+  // Overall totals
   let totalBasic = 0;
   let totalOT15 = 0;
   let totalOT20 = 0;
-  const weeklyTotals = new Map();
-
-  rows.forEach((row) => {
-    const startMin = parseTimeToMinutes(row.start);
-    const finishMin = parseTimeToMinutes(row.finish);
-    const breakMin = parseBreakToMinutes(row.break);
-
-    const basicMin = parseHoursToMinutes(row.basic);
-    const ot15Min = parseHoursToMinutes(row.ot15);
-    const ot20Min = parseHoursToMinutes(row.ot20);
-
-    if (breakMin === null && row.break) {
-      highlightCellError(row.index, "break", `Invalid lunch value: "${row.break}"`);
-    }
-    if (basicMin === null && row.basic) {
-      highlightCellError(row.index, "basic", `Invalid basic hours: "${row.basic}"`);
-    }
-    if (ot15Min === null && row.ot15) {
-      highlightCellError(row.index, "ot15", `Invalid OT 1.5: "${row.ot15}"`);
-    }
-    if (ot20Min === null && row.ot20) {
-      highlightCellError(row.index, "ot20", `Invalid OT 2.0: "${row.ot20}"`);
-    }
-
-    let workedMin = null;
-    if (startMin != null && finishMin != null && breakMin != null) {
-      workedMin = finishMin - startMin - breakMin;
-      if (workedMin < 0) {
-        highlightCellError(row.index, "finish", "Finish time is before start time (after lunch)");
-      } else {
-        const sumEntered =
-          (basicMin || 0) + (ot15Min || 0) + (ot20Min || 0);
-        const diff = Math.abs(sumEntered - workedMin);
-        if (diff > 1) {
-          highlightCellError(
-            row.index,
-            "basic",
-            `Worked = ${formatMinutesAsHM(workedMin)}, but Basic + OT = ${formatMinutesAsHM(sumEntered)} (diff ${formatMinutesAsHM(diff)})`
-          );
-        }
-      }
-    }
-
-    if (Number.isFinite(basicMin)) totalBasic += basicMin || 0;
-    if (Number.isFinite(ot15Min)) totalOT15 += ot15Min || 0;
-    if (Number.isFinite(ot20Min)) totalOT20 += ot20Min || 0;
-
-    const weekKey =
-      row.week && row.week.trim() ? row.week.trim() : "Unspecified";
-    if (!weeklyTotals.has(weekKey)) {
-      weeklyTotals.set(weekKey, { basic: 0, ot15: 0, ot20: 0 });
-    }
-    const wk = weeklyTotals.get(weekKey);
-    if (Number.isFinite(basicMin)) wk.basic += basicMin || 0;
-    if (Number.isFinite(ot15Min)) wk.ot15 += ot15Min || 0;
-    if (Number.isFinite(ot20Min)) wk.ot20 += ot20Min || 0;
-  });
-
-  // Apply weekly rule: reach 40h basic before any overtime counts.
-  // We shift OT minutes into Basic up to 40h. Preference: deduct from OT1.5 first, then OT2.0.
-  const adjustedWeeklyTotals = new Map();
-  weeklyTotals.forEach((t, weekKey) => {
-    const targetBasic = 40 * 60; // 40 hours in minutes
-    let basic = t.basic;
-    let ot15 = t.ot15;
-    let ot20 = t.ot20;
-    if (basic < targetBasic) {
-      const needed = targetBasic - basic;
-      const availableOT = ot15 + ot20;
-      const shift = Math.min(needed, availableOT);
-      // subtract from OT1.5 first
-      const from15 = Math.min(shift, ot15);
-      ot15 -= from15;
-      let remaining = shift - from15;
-      const from20 = Math.min(remaining, ot20);
-      ot20 -= from20;
-      basic += (from15 + from20);
-    }
-    adjustedWeeklyTotals.set(weekKey, { basic, ot15, ot20 });
-  });
-
-  // Recompute overall totals from adjusted weekly totals
-  totalBasic = 0;
-  totalOT15 = 0;
-  totalOT20 = 0;
   adjustedWeeklyTotals.forEach((t) => {
     totalBasic += t.basic;
     totalOT15 += t.ot15;
@@ -481,24 +466,34 @@ function recalculate() {
 
   const weeklyLines = [];
   Array.from(adjustedWeeklyTotals.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort((a, b) => {
+      const numA = parseInt(a[0]);
+      const numB = parseInt(b[0]);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a[0].localeCompare(b[0]);
+    })
     .forEach(([weekKey, t]) => {
-      const weekTotal = t.basic + t.ot15 + t.ot20;
       weeklyLines.push(
         `${weekKey}\n` +
           `  Basic:  ${formatMinutesAsHM(t.basic)}\n` +
           `  OT 1.5: ${formatMinutesAsHM(t.ot15)}\n` +
           `  OT 2.0: ${formatMinutesAsHM(t.ot20)}\n` +
-          `  Total:  ${formatMinutesAsHM(weekTotal)}\n`
+          `  Total:  ${formatMinutesAsHM(t.total)}\n`
       );
     });
 
   weeklyTotalsEl.textContent =
     weeklyLines.length ? weeklyLines.join("\n") : "No weekly data.";
 
-  issuesOutputEl.textContent = "See inline highlights in the table above.";
-  issuesOutputEl.classList.remove("error");
-  issuesOutputEl.classList.add("ok");
+  if (hasErrors) {
+    issuesOutputEl.textContent = "⚠️ Errors detected. See highlighted cells above.";
+    issuesOutputEl.classList.add("error");
+    issuesOutputEl.classList.remove("ok");
+  } else {
+    issuesOutputEl.textContent = "✓ No issues detected. Ready to submit.";
+    issuesOutputEl.classList.remove("error");
+    issuesOutputEl.classList.add("ok");
+  }
 }
 
 // ===== Inline error highlighting =====
@@ -529,14 +524,16 @@ function rowsToCsv(rows) {
     "Start",
     "Finish",
     "Lunch",
-    "BasicHours",
-    "OT1_5Hours",
-    "OT2_0Hours",
+    "WorkedHours",
     "Notes"
   ];
   const lines = [header.join(",")];
 
   rows.forEach((row) => {
+    // Calculate worked hours for display
+    const workedMin = calculateWorkedHours(row.start, row.finish, row.break);
+    const workedHours = workedMin !== null ? formatMinutesAsHM(workedMin) : "N/A";
+    
     const values = [
       row.date || "",
       row.day || "",
@@ -544,9 +541,7 @@ function rowsToCsv(rows) {
       row.start || "",
       row.finish || "",
       row.break || "",
-      row.basic || "",
-      row.ot15 || "",
-      row.ot20 || "",
+      workedHours,
       row.notes || ""
     ];
     const escaped = values.map((v) => {
@@ -564,10 +559,16 @@ function rowsToCsv(rows) {
 
 // ===== FormSubmit integration =====
 // Build a form dynamically and POST to formsubmit.co including CSV, name, date range.
-function submitTimesheet() {
+async function submitTimesheet() {
+  if (!currentUser) {
+    showBannerError("Please log in before submitting.");
+    return;
+  }
+  
   const name = employeeNameInput.value.trim();
   const startDate = rangeStartInput.value;
   const endDate = rangeEndInput.value;
+  
   if (!name) {
     showBannerError("Please enter your name before submitting.");
     return;
@@ -577,48 +578,45 @@ function submitTimesheet() {
     return;
   }
   
-  // Save current week before submitting
   if (allWeekRows.length > 0 && currentWeekIndex >= 0 && currentWeekIndex < allWeekRows.length) {
     allWeekRows[currentWeekIndex] = getRowsFromTable();
   }
   
-  // Gather all rows from all weeks
   const rows = allWeekRows.flat();
   if (!rows.length) {
     showBannerError("No timesheet rows to submit.");
     return;
   }
+  
   const csv = rowsToCsv(rows);
-  const subject = `${name} timesheet ${startDate} to ${endDate}`;
-
-  // Clear previous banner
+  
   hideBanner();
-
-  const form = document.createElement("form");
-  form.action = "https://formsubmit.co/acc.gmtelect@outlook.com";
-  form.method = "POST";
-  form.style.display = "none";
-
-  const field = (name, value) => {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = name;
-    input.value = value;
-    form.appendChild(input);
-  };
-
-  field("_subject", subject);
-  field("employee_name", name);
-  field("date_range", `${startDate} to ${endDate}`);
-  field("timesheet_csv", csv);
-  field("_captcha", "false");
-  field("_template", "table");
-
-  document.body.appendChild(form);
-  form.submit();
-  setTimeout(() => {
-    document.body.removeChild(form);
-  }, 2000);
+  
+  try {
+    const response = await fetch('/api/timesheets/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        employeeName: name,
+        startDate,
+        endDate,
+        timesheetCsv: csv
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok) {
+      alert(`Timesheet submitted successfully! ID: ${data.timesheetId}`);
+      clearAutoSave();
+    } else {
+      showBannerError(data.error || 'Submission failed');
+    }
+  } catch (error) {
+    console.error('Submission error:', error);
+    showBannerError('Network error. Please try again.');
+  }
 }
 
 function showBannerError(msg) {
@@ -698,9 +696,6 @@ function extractRowsFromDocxHtml(html) {
     start: findIdx("start"),
     finish: findIdx("finish"),
     lunch: findIdx("lunch", "break"),
-    basic: findIdx("basic"),
-    ot15: findIdx("1.5", "1.5"),
-    ot20: findIdx("2.0", "2.0"),
   };
   const rows = [];
   const trs = bestTable.querySelectorAll("tr");
@@ -716,11 +711,8 @@ function extractRowsFromDocxHtml(html) {
     const start = text(idxMap.start >= 0 ? idxMap.start : 2);
     const finish = text(idxMap.finish >= 0 ? idxMap.finish : 3);
     const lunch = text(idxMap.lunch >= 0 ? idxMap.lunch : 4);
-    const basic = text(idxMap.basic >= 0 ? idxMap.basic : 5);
-    const ot15 = text(idxMap.ot15 >= 0 ? idxMap.ot15 : 6);
-    const ot20 = text(idxMap.ot20 >= 0 ? idxMap.ot20 : 7);
 
-    const hasAnyTime = !!start || !!finish || !!basic || !!ot15 || !!ot20;
+    const hasAnyTime = !!start || !!finish;
     if (!hasAnyTime) continue;
 
     rows.push({
@@ -730,9 +722,6 @@ function extractRowsFromDocxHtml(html) {
       start,
       finish,
       break: lunch,
-      basic,
-      ot15,
-      ot20,
       notes: worksite,
     });
   }
@@ -910,9 +899,6 @@ function generateRowsFromDateRange() {
       start: "",
       finish: "",
       break: "0:00",
-      basic: "0:00",
-      ot15: "0:00",
-      ot20: "0:00",
       notes: ""
     });
     
@@ -947,11 +933,485 @@ if (!rangeStartInput.value && !rangeEndInput.value) {
   for (let i = 0; i < 5; i++) {
     initialRows.push({
       date: "", day: "", week: "1",
-      start: "", finish: "", break: "0:00",
-      basic: "0:00", ot15: "0:00", ot20: "0:00", notes: ""
+      start: "", finish: "", break: "0:00", notes: ""
     });
   }
   allWeekRows = [initialRows];
   currentWeekIndex = 0;
   displayCurrentWeek();
 }
+
+// ===== Authentication Functions =====
+
+async function checkAuthStatus() {
+  try {
+    const response = await fetch('/api/auth/status', {
+      credentials: 'include'
+    });
+    const data = await response.json();
+    
+    if (data.authenticated) {
+      currentUser = data.user;
+      showAuthenticatedState();
+    } else {
+      showUnauthenticatedState();
+    }
+  } catch (error) {
+    console.error('Auth check failed:', error);
+    showUnauthenticatedState();
+  }
+}
+
+function showAuthenticatedState() {
+  authModal.classList.add('hidden');
+  userInfo.style.display = 'flex';
+  usernameDisplay.textContent = `Welcome, ${currentUser.username}`;
+  if (currentUser.fullName) {
+    employeeNameInput.value = currentUser.fullName;
+  }
+  // Update admin UI
+  updateAuthUI(currentUser);
+  // Show/hide sections based on role
+  const mainSections = document.querySelectorAll('.app-main .card');
+  if (currentUser.role === 'admin') {
+    // Hide all timesheet sections for admin users
+    mainSections.forEach(section => section.style.display = 'none');
+  } else {
+    // Show all sections for regular users
+    mainSections.forEach(section => section.style.display = 'block');
+  }
+}
+
+function showUnauthenticatedState() {
+  authModal.classList.remove('hidden');
+  userInfo.style.display = 'none';
+  currentUser = null;
+}
+
+function toggleAuthMode() {
+  isLoginMode = !isLoginMode;
+  if (isLoginMode) {
+    authTitle.textContent = 'Login';
+    authSubmitBtn.textContent = 'Login';
+    authToggleBtn.textContent = 'Need an account? Register';
+    emailGroup.style.display = 'none';
+    fullnameGroup.style.display = 'none';
+    authEmail.required = false;
+  } else {
+    authTitle.textContent = 'Register';
+    authSubmitBtn.textContent = 'Register';
+    authToggleBtn.textContent = 'Already have an account? Login';
+    emailGroup.style.display = 'block';
+    fullnameGroup.style.display = 'block';
+    authEmail.required = true;
+  }
+  authError.textContent = '';
+}
+
+async function handleAuthSubmit(e) {
+  e.preventDefault();
+  authError.textContent = '';
+  
+  const username = authUsername.value.trim();
+  const password = authPassword.value;
+  
+  if (!username || !password) {
+    authError.textContent = 'Please fill in all required fields';
+    return;
+  }
+  
+  try {
+    const endpoint = isLoginMode ? '/api/login' : '/api/register';
+    const body = isLoginMode 
+      ? { username, password }
+      : { 
+          username, 
+          email: authEmail.value.trim(), 
+          password, 
+          fullName: authFullname.value.trim() 
+        };
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body)
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok) {
+      currentUser = data.user;
+      showAuthenticatedState();
+      authForm.reset();
+    } else {
+      authError.textContent = data.error || 'Authentication failed';
+    }
+  } catch (error) {
+    console.error('Auth error:', error);
+    authError.textContent = 'Network error. Please try again.';
+  }
+}
+
+async function handleLogout() {
+  try {
+    await fetch('/api/logout', {
+      method: 'POST',
+      credentials: 'include'
+    });
+    showUnauthenticatedState();
+    authForm.reset();
+  } catch (error) {
+    console.error('Logout error:', error);
+  }
+}
+
+// ===== CSV Download =====
+
+function downloadCSV() {
+  if (allWeekRows.length > 0 && currentWeekIndex >= 0 && currentWeekIndex < allWeekRows.length) {
+    allWeekRows[currentWeekIndex] = getRowsFromTable();
+  }
+  
+  const rows = allWeekRows.flat();
+  if (!rows.length) {
+    showBannerError("No timesheet rows to download.");
+    return;
+  }
+  
+  const csv = rowsToCsv(rows);
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const name = employeeNameInput.value.trim() || 'timesheet';
+  const start = rangeStartInput.value || 'no-date';
+  const end = rangeEndInput.value || 'no-date';
+  a.download = `${name}_${start}_to_${end}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ===== Auth Event Listeners =====
+authForm.addEventListener('submit', handleAuthSubmit);
+authToggleBtn.addEventListener('click', toggleAuthMode);
+logoutBtn.addEventListener('click', handleLogout);
+
+// ===== Download CSV Event Listener =====
+downloadCsvBtn.addEventListener('click', downloadCSV);
+
+// ===== Check auth on page load =====
+checkAuthStatus();
+
+// ===== Load auto-save on page load =====
+loadAutoSave();
+
+// ===== Auto-save on input changes =====
+employeeNameInput.addEventListener('input', autoSave);
+rangeStartInput.addEventListener('change', autoSave);
+rangeEndInput.addEventListener('change', autoSave);
+// ===== ADMIN FUNCTIONS =====
+
+let currentAdminUser = null;
+
+const adminPanel = document.getElementById('admin-panel');
+const adminToggleBtn = document.getElementById('admin-toggle-btn');
+const adminCloseBtn = document.getElementById('admin-close-btn');
+const adminTabs = document.querySelectorAll('.admin-tab-btn');
+const createUserBtn = document.getElementById('create-user-btn');
+const userForm = document.getElementById('user-form');
+const userFormContainer = document.getElementById('user-form-container');
+const userCancelBtn = document.getElementById('user-cancel-btn');
+
+// Toggle admin panel visibility
+function toggleAdminPanel() {
+  adminPanel.classList.toggle('hidden');
+  if (!adminPanel.classList.contains('hidden')) {
+    loadAdminDashboard();
+  }
+}
+
+// Close admin panel
+adminCloseBtn.addEventListener('click', () => {
+  adminPanel.classList.add('hidden');
+});
+
+// Admin tab switching
+adminTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const tabName = tab.dataset.tab;
+    
+    // Remove active class from all tabs and contents
+    adminTabs.forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.admin-tab-content').forEach(content => {
+      content.classList.add('hidden');
+      content.classList.remove('active');
+    });
+    
+    // Add active class to clicked tab and corresponding content
+    tab.classList.add('active');
+    const tabContent = document.getElementById(`${tabName}-tab`);
+    if (tabContent) {
+      tabContent.classList.remove('hidden');
+      tabContent.classList.add('active');
+    }
+    
+    // Load data for specific tab
+    if (tabName === 'users') {
+      loadAdminUsers();
+    } else if (tabName === 'timesheets') {
+      loadAdminTimesheets();
+    }
+  });
+});
+
+// Load admin dashboard
+async function loadAdminDashboard() {
+  try {
+    const response = await fetch('/api/admin/stats');
+    if (!response.ok) throw new Error('Failed to load stats');
+    
+    const data = await response.json();
+    const { stats, recentTimesheets } = data;
+    
+    // Update stats
+    document.getElementById('stat-total-users').textContent = stats.totalUsers;
+    document.getElementById('stat-total-timesheets').textContent = stats.totalTimesheets;
+    document.getElementById('stat-submitted-30').textContent = stats.submittedLast30Days;
+    
+    // Update recent timesheets table
+    const tbody = document.getElementById('recent-timesheets-body');
+    tbody.innerHTML = '';
+    
+    if (recentTimesheets.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4">No recent timesheets</td></tr>';
+    } else {
+      recentTimesheets.forEach(ts => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${ts.employee_name || 'N/A'}</td>
+          <td>${ts.start_date || ''} to ${ts.end_date || ''}</td>
+          <td>${new Date(ts.submitted_at).toLocaleDateString()}</td>
+          <td>${ts.username}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+  } catch (error) {
+    console.error('Error loading dashboard:', error);
+    // Only show error in admin panel, not in main validation section
+    if (currentUser && currentUser.role === 'admin') {
+      alert('Failed to load admin dashboard: ' + error.message);
+    }
+  }
+}
+
+// Load users for admin panel
+async function loadAdminUsers() {
+  try {
+    const response = await fetch('/api/admin/users');
+    if (!response.ok) throw new Error('Failed to load users');
+    
+    const data = await response.json();
+    const users = data.users;
+    
+    const tbody = document.getElementById('users-body');
+    tbody.innerHTML = '';
+    
+    if (users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6">No users found</td></tr>';
+    } else {
+      users.forEach(user => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${user.username}</td>
+          <td>${user.email || 'N/A'}</td>
+          <td>${user.full_name || 'N/A'}</td>
+          <td><span class="role-badge" style="background: ${user.role === 'admin' ? '#658C6E' : '#85A898'}; color: white; padding: 0.2rem 0.5rem; border-radius: 0.3rem; font-size: 0.8rem;">${user.role}</span></td>
+          <td>${new Date(user.created_at).toLocaleDateString()}</td>
+          <td>
+            <div class="action-buttons">
+              <button class="edit-btn" onclick="editUser(${user.id})">Edit</button>
+              <button class="delete-btn" onclick="deleteUser(${user.id}, '${user.username}')">Delete</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+  } catch (error) {
+    console.error('Error loading users:', error);
+    // Only show error in admin panel, not in main validation section
+    if (currentUser && currentUser.role === 'admin') {
+      alert('Failed to load users: ' + error.message);
+    }
+  }
+}
+
+// Load timesheets for admin panel
+async function loadAdminTimesheets() {
+  try {
+    const response = await fetch('/api/admin/timesheets');
+    if (!response.ok) throw new Error('Failed to load timesheets');
+    
+    const data = await response.json();
+    const timesheets = data.timesheets;
+    
+    const tbody = document.getElementById('all-timesheets-body');
+    tbody.innerHTML = '';
+    
+    if (timesheets.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6">No timesheets found</td></tr>';
+    } else {
+      timesheets.forEach(ts => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${ts.employee_name || 'N/A'}</td>
+          <td>${ts.username}</td>
+          <td>${ts.start_date || ''}</td>
+          <td>${ts.end_date || ''}</td>
+          <td>${new Date(ts.submitted_at).toLocaleDateString()}</td>
+          <td><button class="edit-btn" onclick="viewTimesheet(${ts.id})">View</button></td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+  } catch (error) {
+    console.error('Error loading timesheets:', error);
+    // Only show error in admin panel, not in main validation section
+    if (currentUser && currentUser.role === 'admin') {
+      alert('Failed to load timesheets: ' + error.message);
+    }
+  }
+}
+
+// Show/hide create user form
+createUserBtn.addEventListener('click', () => {
+  userFormContainer.classList.toggle('hidden');
+  document.getElementById('user-form-title').textContent = 'Create New User';
+  userForm.reset();
+  userForm.dataset.userId = '';
+  document.getElementById('user-submit-btn').textContent = 'Create';
+});
+
+// Cancel user form
+userCancelBtn.addEventListener('click', () => {
+  userFormContainer.classList.add('hidden');
+  userForm.reset();
+});
+
+// Handle user form submission
+userForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const username = document.getElementById('user-username').value.trim();
+  const email = document.getElementById('user-email').value.trim();
+  const password = document.getElementById('user-password').value.trim();
+  const fullName = document.getElementById('user-fullname').value.trim();
+  const role = document.getElementById('user-role').value;
+  
+  if (!username || !email || !password) {
+    alert('Please fill in all required fields');
+    return;
+  }
+  
+  const userId = userForm.dataset.userId;
+  const method = userId ? 'PUT' : 'POST';
+  const url = userId ? `/api/admin/users/${userId}` : '/api/admin/users';
+  
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password, fullName, role })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to save user');
+    }
+    
+    userFormContainer.classList.add('hidden');
+    userForm.reset();
+    loadAdminUsers();
+    alert('User saved successfully');
+  } catch (error) {
+    console.error('Error saving user:', error);
+    alert(error.message || 'Failed to save user');
+  }
+});
+
+// Edit user
+async function editUser(userId) {
+  try {
+    const response = await fetch(`/api/admin/users/${userId}`);
+    if (!response.ok) throw new Error('Failed to load user');
+    
+    const data = await response.json();
+    const user = data.user;
+    
+    document.getElementById('user-username').value = user.username;
+    document.getElementById('user-email').value = user.email || '';
+    document.getElementById('user-fullname').value = user.full_name || '';
+    document.getElementById('user-role').value = user.role;
+    document.getElementById('user-password').value = '';
+    document.getElementById('user-password').placeholder = 'Leave blank to keep current password';
+    
+    document.getElementById('user-form-title').textContent = 'Edit User';
+    document.getElementById('user-submit-btn').textContent = 'Update';
+    userForm.dataset.userId = userId;
+    userFormContainer.classList.remove('hidden');
+  } catch (error) {
+    console.error('Error loading user:', error);
+    alert('Failed to load user details: ' + error.message);
+  }
+}
+
+// Delete user
+async function deleteUser(userId, username) {
+  if (!confirm(`Are you sure you want to delete user "${username}"? This cannot be undone.`)) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete user');
+    }
+    
+    loadAdminUsers();
+    alert('User deleted successfully');
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    alert(error.message || 'Failed to delete user');
+  }
+}
+
+// View timesheet details
+function viewTimesheet(timesheetId) {
+  alert(`View timesheet details for ID: ${timesheetId} (feature to be implemented)`);
+}
+
+// Update auth flow to show admin panel for admin users
+function updateAuthUI(user) {
+  currentAdminUser = user;
+  usernameDisplay.textContent = `${user.fullName || user.username}`;
+  userInfo.style.display = 'flex';
+  
+  // Show/hide admin toggle button
+  if (user.role === 'admin') {
+    adminToggleBtn.style.display = 'inline-block';
+    // Auto-open admin panel for admin users
+    adminPanel.classList.remove('hidden');
+    loadAdminDashboard();
+  } else {
+    adminToggleBtn.style.display = 'none';
+    adminPanel.classList.add('hidden');
+  }
+}
+
+// Add admin button event listener
+adminToggleBtn.addEventListener('click', toggleAdminPanel);
