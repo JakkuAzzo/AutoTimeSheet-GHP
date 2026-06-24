@@ -2,300 +2,85 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>GMT Timesheet Checker &amp; Builder</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GMT Timesheet</title>
+  <meta name="description" content="Mobile-friendly GMT guest timesheet submission form." />
   <link rel="stylesheet" href="styles.css" />
-  <!-- Mammoth.js for .docx parsing (browser build) -->
-  <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
-  <meta name="description" content="Upload GMT Word timesheets or build them in the browser. Validate hours & overtime automatically." />
 </head>
 <body>
-  <!-- Login/Register Modal -->
-  <div id="auth-modal" class="modal">
-    <div class="modal-content">
-      <h2 id="auth-title">Login</h2>
-      <form id="auth-form">
-        <div class="form-group">
-          <label for="auth-username">Username or Email</label>
-          <input type="text" id="auth-username" required>
-        </div>
-        <div class="form-group" id="email-group" style="display:none;">
-          <label for="auth-email">Email</label>
-          <input type="email" id="auth-email">
-        </div>
-        <div class="form-group" id="fullname-group" style="display:none;">
-          <label for="auth-fullname">Full Name</label>
-          <input type="text" id="auth-fullname">
-        </div>
-        <div class="form-group">
-          <label for="auth-password">Password</label>
-          <input type="password" id="auth-password" required>
-        </div>
-        <div class="auth-error" id="auth-error"></div>
-        <div class="auth-buttons">
-          <button type="submit" id="auth-submit-btn">Login</button>
-          <button type="button" id="auth-toggle-btn">Need an account? Register</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <header class="app-header">
-    <h1>GMT Timesheet Checker &amp; Builder</h1>
-    <p>Upload weekly Word timesheets or build them here, then verify hours &amp; overtime automatically.</p>
-    <div class="user-info" id="user-info" style="display:none;">
-      <span id="username-display"></span>
-      <div class="header-buttons">
-        <button id="admin-toggle-btn" class="admin-toggle-btn" style="display:none;">Admin Panel</button>
-        <button id="logout-btn" class="logout-btn">Logout</button>
-      </div>
+    <div>
+      <p class="eyebrow">GMT Electrical Services</p>
+      <h1>Weekly Timesheet</h1>
+      <p>Fill your week as a guest. No account is required for employees.</p>
     </div>
+    <nav class="header-actions" aria-label="App navigation">
+      <a href="audit/index.html">Audit tool</a>
+      <a href="admin/index.html">Admin</a>
+    </nav>
   </header>
 
-  <!-- Admin Panel (hidden by default) -->
-  <div id="admin-panel" class="admin-panel hidden">
-    <div class="admin-header">
-      <h2>Admin Dashboard</h2>
-      <button id="admin-close-btn" class="close-btn">Close</button>
-    </div>
-    
-    <div class="admin-tabs">
-      <button class="admin-tab-btn active" data-tab="dashboard">Dashboard</button>
-      <button class="admin-tab-btn" data-tab="users">Users</button>
-      <button class="admin-tab-btn" data-tab="timesheets">Timesheets</button>
-    </div>
-
-    <!-- Dashboard Tab -->
-    <div id="dashboard-tab" class="admin-tab-content active">
-      <h3>Overview Statistics</h3>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Total Users</div>
-          <div class="stat-value" id="stat-total-users">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Timesheets</div>
-          <div class="stat-value" id="stat-total-timesheets">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Submitted (30 days)</div>
-          <div class="stat-value" id="stat-submitted-30">0</div>
-        </div>
-      </div>
-      <h3>Recent Submissions</h3>
-      <div class="table-wrapper">
-        <table id="recent-timesheets-table">
-          <thead>
-            <tr>
-              <th>Employee</th>
-              <th>Period</th>
-              <th>Submitted</th>
-              <th>By User</th>
-            </tr>
-          </thead>
-          <tbody id="recent-timesheets-body">
-            <tr><td colspan="4">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Users Tab -->
-    <div id="users-tab" class="admin-tab-content hidden">
-      <h3>User Management</h3>
-      <button id="create-user-btn" class="create-btn">+ Create New User</button>
-      
-      <div id="user-form-container" class="form-container hidden">
-        <h4 id="user-form-title">Create New User</h4>
-        <form id="user-form">
-          <div class="form-group">
-            <label for="user-username">Username</label>
-            <input type="text" id="user-username" required>
-          </div>
-          <div class="form-group">
-            <label for="user-email">Email</label>
-            <input type="email" id="user-email" required>
-          </div>
-          <div class="form-group">
-            <label for="user-fullname">Full Name</label>
-            <input type="text" id="user-fullname">
-          </div>
-          <div class="form-group">
-            <label for="user-password">Password</label>
-            <input type="password" id="user-password" required>
-          </div>
-          <div class="form-group">
-            <label for="user-role">Role</label>
-            <select id="user-role">
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div class="form-buttons">
-            <button type="submit" id="user-submit-btn">Create</button>
-            <button type="button" id="user-cancel-btn">Cancel</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="table-wrapper">
-        <table id="users-table">
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Email</th>
-              <th>Full Name</th>
-              <th>Role</th>
-              <th>Created</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="users-body">
-            <tr><td colspan="6">Loading users...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Timesheets Tab -->
-    <div id="timesheets-tab" class="admin-tab-content hidden">
-      <h3>All Timesheets</h3>
-      <div class="table-wrapper">
-        <table id="all-timesheets-table">
-          <thead>
-            <tr>
-              <th>Employee</th>
-              <th>User</th>
-              <th>Start Date</th>
-              <th>End Date</th>
-              <th>Submitted</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="all-timesheets-body">
-            <tr><td colspan="6">Loading timesheets...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
   <main class="app-main">
-    <!-- Unified builder / upload section -->
-    <section class="card" id="builder-section">
-      <h2>1. Timesheet: Manual Entry or Upload</h2>
-      <form id="timesheet-meta" class="meta-form" onsubmit="return false;">
-        <div class="meta-grid">
-          <div class="field">
-            <label for="employee-name">Name</label>
-            <input type="text" id="employee-name" placeholder="Your full name" />
-          </div>
-          <div class="field">
-            <label for="range-start">Start Date</label>
-            <input type="date" id="range-start" />
-          </div>
-            <div class="field">
-            <label for="range-end">End Date</label>
-            <input type="date" id="range-end" />
-          </div>
-          <div class="field mode-field">
-            <label>Mode</label>
-            <div class="mode-options">
-              <label><input type="radio" name="entry-mode" value="manual" checked /> Manual</label>
-              <label><input type="radio" name="entry-mode" value="upload" /> Upload .docx</label>
-            </div>
-          </div>
-        </div>
-      </form>
-      <p class="small">
-        Choose Manual to enter rows, or Upload to import a GMT Word timesheet (.docx). Date range + name appear in the submitted timesheet.
-      </p>
-      <div id="manual-tools" class="tools-block">
-        <div class="toolbar">
-          <button id="add-row-btn" type="button">Add Row</button>
-          <button id="clear-rows-btn" type="button">Clear All Rows</button>
-        </div>
-        <div class="table-wrapper">
-          <table id="timesheet-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Date</th>
-                <th>Day</th>
-                <th>Week</th>
-                <th>Start<br><span class="hint">HH:MM</span></th>
-                <th>Finish<br><span class="hint">HH:MM</span></th>
-                <th>Lunch<br><span class="hint">mins or HH:MM</span></th>
-                <th>Notes (e.g. worksite)</th>
-              </tr>
-            </thead>
-            <tbody id="timesheet-body"></tbody>
-          </table>
-        </div>
-        <div class="table-nav">
-          <button id="prev-week-btn" type="button">← Previous</button>
-          <span id="week-indicator">Week 1</span>
-          <button id="next-week-btn" type="button">Next →</button>
-        </div>
-      </div>
-      <div id="upload-tools" class="tools-block hidden">
-        <p class="small">
-          Supported format: standard GMT weekly timesheet Word <code>.docx</code> with header:
-          DATE | WORKSITE ADDRESS | START | FINISH | LUNCH | BASIC HRS | O/T 1.5 | O/T 2.0
-        </p>
-        <input type="file" id="upload-docx-input" accept=".docx" />
-        <p class="small warning">PDFs / scans not parsed automatically.</p>
+    <section class="card intro-card">
+      <h2>Guest timesheet entry</h2>
+      <p>Enter your name, week start date, and each worked day. Use the plus button to add the next day of the week.</p>
+      <div class="notice">
+        <strong>Overtime rules used:</strong> weekdays count toward 40h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, and Sunday is OT x2.0.
       </div>
     </section>
 
-    <!-- Results -->
-    <section class="card">
-      <h2>2. Results &amp; Validation</h2>
-      <div id="error-banner" class="banner hidden" role="alert" aria-live="polite"></div>
-      <button id="recalculate-btn">Recalculate Totals &amp; Check Sheet</button>
-
-      <div class="results">
-        <div>
-          <h3>Overall Totals</h3>
-          <pre id="overall-totals" class="output-block">No data yet.</pre>
-        </div>
-        <div>
-          <h3>Weekly Totals</h3>
-          <pre id="weekly-totals" class="output-block">No data yet.</pre>
-        </div>
-        <div>
-          <h3>Issues / Corrections Needed</h3>
-          <pre id="issues-output" class="output-block ok">No issues detected yet.</pre>
-        </div>
+    <form id="timesheet-form" class="card" enctype="multipart/form-data">
+      <h2>1. Employee details</h2>
+      <div class="form-grid">
+        <label>
+          Your full name <span aria-hidden="true">*</span>
+          <input id="employee-name" name="employee_name" type="text" autocomplete="name" required placeholder="e.g. Simon Thornton" />
+        </label>
+        <label>
+          Week starting
+          <input id="week-start" name="week_start" type="date" />
+        </label>
+        <label>
+          Contact number, optional
+          <input id="employee-phone" name="employee_phone" type="tel" autocomplete="tel" placeholder="Optional" />
+        </label>
       </div>
+
+      <div class="section-heading">
+        <div>
+          <h2>2. Daily entries</h2>
+          <p>Add one card per day. Tick absent if you did not work that day.</p>
+        </div>
+        <button id="add-day-btn" type="button" class="round-btn" aria-label="Add next day">+</button>
+      </div>
+
+      <div id="days-container" class="days-container" aria-live="polite"></div>
+
+      <section class="summary-card" aria-labelledby="summary-title">
+        <h2 id="summary-title">3. Calculated totals</h2>
+        <div id="summary-output" class="summary-grid">No days entered yet.</div>
+      </section>
+
+      <input type="hidden" name="_subject" value="GMT Weekly Timesheet Submission" />
+      <input type="hidden" name="_template" value="table" />
+      <input type="hidden" name="timesheet_payload" id="timesheet-payload" />
+      <input type="hidden" name="calculated_summary" id="calculated-summary" />
+
+      <div id="form-error" class="banner hidden" role="alert"></div>
       <div class="action-bar">
-        <button id="download-csv-btn" type="button">Download CSV</button>
-        <button id="submit-timesheet-btn" type="button">Submit Timesheet</button>
+        <button type="button" id="save-draft-btn" class="secondary">Save draft</button>
+        <button type="button" id="clear-draft-btn" class="secondary danger">Clear</button>
+        <button type="submit" id="submit-btn">Submit timesheet</button>
       </div>
-    </section>
-
-    <!-- About & Guidance -->
-    <section class="card">
-      <h2>3. About &amp; Guidance</h2>
-      <p class="small">
-        All processing happens locally, with auto-save to your browser. Hours (Basic, OT 1.5, OT 2.0) are automatically calculated from Start, Finish, and Lunch times. Review calculations in Step 2 before submitting.
-      </p>
-      <ul class="small">
-        <li>Ensure Start/Finish use 24h HH:MM format.</li>
-        <li>Lunch: minutes or HH:MM.</li>
-        <li>Overnight shifts supported (finish time next day).</li>
-        <li>40h basic hours per week required before overtime counts.</li>
-        <li>Data auto-saves as you type.</li>
-      </ul>
-    </section>
+      <p class="small-text">Submission email routing is controlled in <code>config.js</code>.</p>
+    </form>
   </main>
 
   <footer class="app-footer">
-    <p>All calculations happen locally in your browser. No data is uploaded to any server.</p>
+    <p>Guest mode is for employee submissions. Admin record access requires the secure magic-link backend described in <code>docs/admin-magic-link-encrypted-storage.md</code>.</p>
   </footer>
 
+  <script src="config.js"></script>
   <script src="script.js"></script>
-  <!-- Optional: basic CSP for safer execution (adjust if hosting adds restrictions) -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://unpkg.com; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
 </body>
 </html>
