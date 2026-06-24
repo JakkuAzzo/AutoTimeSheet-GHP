@@ -43,8 +43,6 @@ function parseTimeToMinutes(value) {
 }
 function isFullDayAbsence(row) { return row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday'; }
 function hasAbsenceReason(row) { return row.absenceStatus && row.absenceStatus !== 'NA'; }
-function isPaidHoliday(row) { return row.absenceStatus === 'Holiday'; }
-function isTimeOff(row) { return row.absenceStatus === 'Time Off'; }
 function parseLunchMinutes(row) { return row.lunchHad ? 60 : 0; }
 function rawShiftMinutes(row) {
   const start = parseTimeToMinutes(row.start);
@@ -72,7 +70,7 @@ function fmtMinutes(minutes) {
 function splitSaturday(row) {
   let start = parseTimeToMinutes(row.start);
   let finish = parseTimeToMinutes(row.finish);
-  if (start === null || finish === null) return { basic:0, ot15:0, ot20:0, total:null };
+  if (start === null || finish === null) return { basic:0, ot15:0, ot20:0, total:null, workedActual:null };
   if (finish < start) finish += 1440;
   const cutoff = 13 * 60;
   let before = Math.max(0, Math.min(finish, cutoff) - start);
@@ -83,37 +81,41 @@ function splitSaturday(row) {
   lunch -= fromAfter;
   const fromBefore = Math.min(before, lunch);
   before -= fromBefore;
-  return { basic:0, ot15:before, ot20:after, total:before + after };
+  return { basic:0, ot15:before, ot20:after, total:before + after, workedActual:before + after };
 }
 function calculateRows(rows) {
-  let weekdayBasicUsed = 0;
   return rows.map((row) => {
     const day = dayName(row.date);
     if (row.absenceStatus === 'Holiday') {
-      return { ...row, dayName:day, total:HOLIDAY_PAID_MINUTES, basic:HOLIDAY_PAID_MINUTES, ot15:0, ot20:0, absent:true, paid:true, note:'Holiday is paid at basic rate.' };
+      return { ...row, dayName:day, workedActual:0, total:HOLIDAY_PAID_MINUTES, basic:HOLIDAY_PAID_MINUTES, ot15:0, ot20:0, absent:true, paid:true, note:'Holiday is paid as 8h basic.' };
     }
     if (row.absenceStatus === 'Sick') {
-      return { ...row, dayName:day, total:0, basic:0, ot15:0, ot20:0, absent:true, paid:false, sick:true, note:'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
+      return { ...row, dayName:day, workedActual:0, total:0, basic:0, ot15:0, ot20:0, absent:true, paid:false, sick:true, note:'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
     }
 
-    const total = workedMinutes(row);
-    if (total === null) {
-      return { ...row, dayName:day, total:null, basic:0, ot15:0, ot20:0, absent:false, paid:true, error:'Start and finish are required unless absence reason is Sick or Holiday.' };
+    const actual = workedMinutes(row);
+    if (actual === null) {
+      return { ...row, dayName:day, workedActual:null, total:null, basic:0, ot15:0, ot20:0, absent:false, paid:true, error:'Start and finish are required unless absence reason is Sick or Holiday.' };
     }
-    if (row.absenceStatus === 'Time Off' && total >= BASIC_DAY_MINUTES) {
-      return { ...row, dayName:day, total, basic:0, ot15:0, ot20:0, absent:false, paid:true, error:'Time Off can only be selected when the completed hours are less than 8h.' };
+    if (row.absenceStatus === 'Time Off') {
+      if (actual >= BASIC_DAY_MINUTES) {
+        return { ...row, dayName:day, workedActual:actual, total:actual, basic:0, ot15:0, ot20:0, absent:false, paid:true, error:'Time Off can only be selected when the completed hours are less than 8h.' };
+      }
+      return { ...row, dayName:day, workedActual:actual, total:actual, basic:actual, ot15:0, ot20:0, absent:false, paid:true, note:'Partial day with Time Off. Only completed hours are counted as basic.' };
     }
-    if (day === 'Sunday') return { ...row, dayName:day, total, basic:0, ot15:0, ot20:total, absent:false, paid:true, note:'Sunday is OT x2.0.' };
-    if (day === 'Saturday') return { ...row, dayName:day, ...splitSaturday(row), absent:false, paid:true, note:row.absenceStatus === 'Time Off' ? 'Partial day with Time Off. Saturday rules still apply to worked time.' : 'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
-    const allowance = Math.max(0, 40 * 60 - weekdayBasicUsed);
-    const basic = Math.min(total, allowance);
-    const ot15 = total - basic;
-    weekdayBasicUsed += basic;
-    return { ...row, dayName:day, total, basic, ot15, ot20:0, absent:false, paid:true, note:row.absenceStatus === 'Time Off' ? 'Partial day with Time Off. Completed time is calculated.' : (ot15 ? 'Weekday excess after 40h is OT x1.5.' : 'Weekday basic time.') };
+
+    if (day === 'Sunday') return { ...row, dayName:day, workedActual:actual, total:actual, basic:0, ot15:0, ot20:actual, absent:false, paid:true, note:'Sunday is OT x2.0.' };
+    if (day === 'Saturday') return { ...row, dayName:day, ...splitSaturday(row), absent:false, paid:true, note:'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
+
+    const basic = BASIC_DAY_MINUTES;
+    const ot15 = Math.max(0, actual - BASIC_DAY_MINUTES);
+    const total = basic + ot15;
+    return { ...row, dayName:day, workedActual:actual, total, basic, ot15, ot20:0, absent:false, paid:true, note:ot15 ? 'Weekday: 8h basic plus daily excess as OT x1.5.' : 'Weekday: 8h basic minimum for the day.' };
   });
 }
 function totalsFor(calculatedRows) {
   return calculatedRows.reduce((acc, row) => {
+    acc.workedActual += row.workedActual || 0;
     acc.total += row.total || 0;
     acc.basic += row.basic || 0;
     acc.ot15 += row.ot15 || 0;
@@ -124,7 +126,7 @@ function totalsFor(calculatedRows) {
     if (row.absenceStatus === 'Time Off') acc.timeOff += 1;
     if (row.error) acc.errors.push(`${row.label || row.date || 'A day'}: ${row.error}`);
     return acc;
-  }, { total:0, basic:0, ot15:0, ot20:0, absent:0, holiday:0, sick:0, timeOff:0, errors:[] });
+  }, { workedActual:0, total:0, basic:0, ot15:0, ot20:0, absent:0, holiday:0, sick:0, timeOff:0, errors:[] });
 }
 function defaultDateForNextDay() {
   const start = weekStart.value;
@@ -190,7 +192,7 @@ function addDay(data = {}) {
               <option value="Time Off" ${absenceStatus === 'Time Off' ? 'selected' : ''}>Time Off</option>
             </select>
           </label>
-          <p class="small-text absence-help">Holiday pays 8h basic. Sick is recorded for payroll/admin. Time Off can only be used when worked time is less than 8h.</p>
+          <p class="small-text absence-help">Normal weekdays pay 8h basic. Holiday pays 8h basic. Sick is recorded for payroll/admin. Time Off can only be used when worked time is less than 8h.</p>
           <label>Location / site
             <input type="text" name="day_${index}_location" data-field="location" value="${escapeAttr(data.location || '')}" placeholder="Optional site or job address" />
           </label>
@@ -289,12 +291,13 @@ function recalculate() {
     if (row.error) out.innerHTML = `<span class="pill bad">${row.error}</span>`;
     else if (row.absenceStatus === 'Holiday') out.innerHTML = `<span class="pill warn">Holiday</span><span>Paid basic ${fmtMinutes(row.basic)}</span>`;
     else if (row.absenceStatus === 'Sick') out.innerHTML = `<span class="pill warn">Sick</span><span>Recorded for payroll</span>`;
-    else if (row.absenceStatus === 'Time Off') out.innerHTML = `<span class="pill warn">Time Off</span><span>Worked ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span>`;
-    else out.innerHTML = `<span class="pill">${row.dayName || 'No date'}</span><span>Worked ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span><span>OT 1.5 ${fmtMinutes(row.ot15)}</span><span>OT 2.0 ${fmtMinutes(row.ot20)}</span>`;
+    else if (row.absenceStatus === 'Time Off') out.innerHTML = `<span class="pill warn">Time Off</span><span>Worked ${fmtMinutes(row.workedActual)}</span><span>Basic ${fmtMinutes(row.basic)}</span>`;
+    else out.innerHTML = `<span class="pill">${row.dayName || 'No date'}</span><span>Worked ${fmtMinutes(row.workedActual)}</span><span>Paid ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span><span>OT 1.5 ${fmtMinutes(row.ot15)}</span><span>OT 2.0 ${fmtMinutes(row.ot20)}</span>`;
   });
   const weighted = totals.basic / 60 + (totals.ot15 / 60) * 1.5 + (totals.ot20 / 60) * 2;
   summaryOutput.innerHTML = `
-    <div><strong>Actual/paid hours</strong><span>${fmtMinutes(totals.total)}</span></div>
+    <div><strong>Worked hours</strong><span>${fmtMinutes(totals.workedActual)}</span></div>
+    <div><strong>Paid hours</strong><span>${fmtMinutes(totals.total)}</span></div>
     <div><strong>Basic</strong><span>${fmtMinutes(totals.basic)}</span></div>
     <div><strong>OT x1.5</strong><span>${fmtMinutes(totals.ot15)}</span></div>
     <div><strong>OT x2.0</strong><span>${fmtMinutes(totals.ot20)}</span></div>
@@ -305,7 +308,7 @@ function recalculate() {
   `;
   const payload = buildPayload(calculated, totals, weighted);
   payloadInput.value = JSON.stringify(payload, null, 2);
-  calculatedSummaryInput.value = `Paid ${fmtMinutes(totals.total)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
+  calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Paid ${fmtMinutes(totals.total)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
   return { calculated, totals, weighted, payload };
 }
 function buildPayload(calculated, totals, weighted) {
@@ -439,7 +442,9 @@ function buildWorkbook(calculated, totals, weighted) {
     ['Employee email', employeeEmail.value.trim()],
     ['Week start', weekStart.value],
     ['Week end', weekEnd.value],
-    ['Paid/basic hours', totals.basic / 60],
+    ['Worked hours', totals.workedActual / 60],
+    ['Paid hours', totals.total / 60],
+    ['Basic hours', totals.basic / 60],
     ['OT x1.5 hours', totals.ot15 / 60],
     ['OT x2.0 hours', totals.ot20 / 60],
     ['Paid weighted hours', weighted],
@@ -457,7 +462,8 @@ function buildWorkbook(calculated, totals, weighted) {
     'Absence reason': row.absenceStatus,
     Location: row.location,
     Description: row.description,
-    'Paid/worked hours': (row.total || 0) / 60,
+    'Worked actual hours': (row.workedActual || 0) / 60,
+    'Paid hours': (row.total || 0) / 60,
     'Basic hours': (row.basic || 0) / 60,
     'OT x1.5 hours': (row.ot15 || 0) / 60,
     'OT x2.0 hours': (row.ot20 || 0) / 60,
@@ -482,7 +488,8 @@ async function submitTimesheet(event) {
   if (totals.errors.length) return showError(totals.errors.join(' '));
   if (!CONFIG.formSubmitEndpoint) return showError('FormSubmit is not configured yet. Set window.GMT_APP_CONFIG.formSubmitEndpoint in config.js.');
   const formData = new FormData(form);
-  if (CONFIG.formSubmitCc) formData.append('_cc', CONFIG.formSubmitCc);
+  const ccRecipients = [CONFIG.formSubmitCc, employeeEmail.value.trim()].filter(Boolean).join(',');
+  if (ccRecipients) formData.append('_cc', ccRecipients);
   if (employeeEmail.value.trim()) formData.append('_replyto', employeeEmail.value.trim());
   formData.append('attachment', buildWorkbook(calculated, totals, weighted));
   try {
