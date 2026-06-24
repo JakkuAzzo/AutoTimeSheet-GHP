@@ -6,6 +6,7 @@
   <title>GMT Timesheet</title>
   <meta name="description" content="Mobile-friendly GMT guest timesheet submission form." />
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <header class="app-header">
@@ -37,6 +38,10 @@
           <input id="employee-name" name="employee_name" type="text" autocomplete="name" required placeholder="e.g. Nathan Brown-Bennett" />
         </label>
         <label>
+          Your email, optional
+          <input id="employee-email" name="employee_email" type="email" autocomplete="email" placeholder="Send a copy to me" />
+        </label>
+        <label>
           Week starting
           <input id="week-start" name="week_start" type="date" />
         </label>
@@ -46,9 +51,13 @@
         </label>
       </div>
 
-      <section class="planner-panel" aria-labelledby="absence-planner-title">
-        <h2 id="absence-planner-title">2. Absence planner</h2>
-        <p class="small-text">Select a date range and reason. The daily cards below will be generated with those dates marked automatically.</p>
+      <div class="generate-bar">
+        <button type="button" id="generate-days-btn">Generate day cards</button>
+      </div>
+
+      <details class="planner-panel" id="absence-planner" open>
+        <summary id="absence-planner-title">2. Absence planner <span>optional</span></summary>
+        <p class="small-text">Select a date range and reason. Mark absence period also generates or updates the daily cards below.</p>
         <div class="form-grid compact-grid">
           <label>Absence from
             <input id="absence-start" type="date" />
@@ -66,10 +75,9 @@
         </div>
         <div class="action-bar planner-actions">
           <button type="button" id="add-absence-btn" class="secondary">Mark absence period</button>
-          <button type="button" id="generate-days-btn">Generate day cards</button>
         </div>
         <div id="absence-ranges" class="absence-ranges" aria-live="polite"></div>
-      </section>
+      </details>
 
       <div class="section-heading">
         <div>
@@ -97,7 +105,7 @@
         <button type="button" id="clear-draft-btn" class="secondary danger">Clear</button>
         <button type="submit" id="submit-btn">Submit timesheet</button>
       </div>
-      <p class="small-text">Submission email routing is controlled in <code>config.js</code>.</p>
+      <p class="small-text">Submission email routing is controlled in <code>config.js</code>. An Excel spreadsheet is generated and attached at submit time.</p>
     </form>
   </main>
 
