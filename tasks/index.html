@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GMT Tasks</title><link rel="stylesheet" href="../styles.css"><link rel="stylesheet" href="../portal.css"></head>
+<body>
+<header class="app-header"><div><p class="eyebrow">GMT Electrical Services</p><h1>Tasks</h1><p>Manage To-Do, In-Progress, and Completed work.</p></div><nav class="header-actions"><a href="../index.html">Dashboard</a><a href="../timesheets/">Timesheets</a><a href="../jobs/">Job Cards</a><a href="../calendar/">Calendar</a></nav></header>
+<main class="app-main"><section class="card intro-card"><h2>Task Management</h2><p>Create and move tasks across To-Do, In-Progress, and Completed.</p></section><form class="card portal-form" id="task-form"><h3>Create task</h3><div class="form-grid"><label>Task title<input id="task-title" placeholder="Task title"></label><label>Job reference<input id="task-job-ref" placeholder="Optional job ref"></label><label>Assigned to<input id="task-assignee" placeholder="Engineer/admin"></label><label>Due date<input id="task-due" type="date"></label><label>Priority<select id="task-priority"><option>Normal</option><option>High</option><option>Urgent</option><option>Low</option></select></label></div><button type="submit">Create task</button></form><div class="kanban-board" id="task-board"></div></main>
+<script src="../config.js"></script><script src="../portal.js"></script><script src="../portal-extensions.js"></script>
+</body></html>
