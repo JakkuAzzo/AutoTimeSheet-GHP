@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GMT Timesheet</title>
-  <meta name="description" content="Mobile-friendly GMT guest timesheet submission form." />
-  <link rel="stylesheet" href="styles.css?v=readable-workbook-20260624" />
+  <title>GMT Operations Portal</title>
+  <meta name="description" content="GMT operations portal for timesheets, job cards, tasks, organization settings, notifications, and calendar planning." />
+  <link rel="stylesheet" href="styles.css?v=operations-portal-20260624" />
+  <link rel="stylesheet" href="portal.css?v=operations-portal-20260624" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-  <header class="app-header">
+  <header class="app-header portal-header">
     <div>
       <p class="eyebrow">GMT Electrical Services</p>
-      <h1>Weekly Timesheet</h1>
-      <p>Fill your week as a guest. No account is required for employees.</p>
+      <h1>Operations Portal</h1>
+      <p>Manage timesheets, job cards, tasks, calendar planning, and organization settings from one place.</p>
     </div>
     <nav class="header-actions" aria-label="App navigation">
       <a href="audit/index.html">Audit tool</a>
@@ -21,98 +22,214 @@
     </nav>
   </header>
 
-  <main class="app-main">
-    <section class="card intro-card">
-      <h2>Guest timesheet entry</h2>
-      <p>Enter your name, choose the week start and end dates, then mark any absence periods before filling the generated day cards.</p>
-      <div class="notice">
-        <strong>Overtime rules used:</strong> weekdays pay 8h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, and Sunday is OT x2.0. Holiday is paid at basic rate.
+  <nav class="portal-tabs" aria-label="Portal sections">
+    <button type="button" class="portal-tab active" data-tab="timesheets">Timesheets</button>
+    <button type="button" class="portal-tab" data-tab="job-cards">Job Cards</button>
+    <button type="button" class="portal-tab" data-tab="tasks">Tasks</button>
+    <button type="button" class="portal-tab" data-tab="organization">Organization</button>
+    <button type="button" class="portal-tab" data-tab="notifications">Notifications</button>
+    <button type="button" class="portal-tab" data-tab="calendar">Calendar</button>
+  </nav>
+
+  <main class="app-main portal-main">
+    <section class="portal-panel active" data-panel="timesheets">
+      <section id="timesheet-home" class="portal-subpanel active">
+        <div class="card intro-card">
+          <h2>Timesheets</h2>
+          <p>Create new employee timesheets or analyse uploaded timesheet files.</p>
+        </div>
+        <div class="portal-card-grid">
+          <button type="button" class="portal-feature-card" data-open-timesheet-form>
+            <span>Create Timesheet</span>
+            <small>Open the guest weekly timesheet form and submit generated XLSX/CSV attachments.</small>
+          </button>
+          <a class="portal-feature-card" href="audit/index.html">
+            <span>Analyse Sheet/s</span>
+            <small>Open the source-based audit tool to upload, check, and combine timesheet files.</small>
+          </a>
+        </div>
+      </section>
+
+      <section id="timesheet-create" class="portal-subpanel">
+        <button type="button" class="secondary back-button" data-back-to-timesheets>Back to Timesheets</button>
+        <section class="card intro-card">
+          <h2>Guest timesheet entry</h2>
+          <p>Enter your name, choose the week start and end dates, then mark any absence periods before filling the generated day cards.</p>
+          <div class="notice">
+            <strong>Overtime rules used:</strong> weekdays pay 8h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, and Sunday is OT x2.0. Holiday is paid at basic rate.
+          </div>
+        </section>
+
+        <form id="timesheet-form" class="card" enctype="multipart/form-data" novalidate>
+          <h2>1. Employee details</h2>
+          <div class="form-grid">
+            <label>
+              Your full name <span aria-hidden="true">*</span>
+              <input id="employee-name" type="text" autocomplete="name" required placeholder="e.g. Nathan Brown-Bennett" />
+            </label>
+            <label>
+              Your email, optional
+              <input id="employee-email" type="email" autocomplete="email" placeholder="Send a copy to me" />
+            </label>
+            <label>
+              Week starting
+              <input id="week-start" type="date" />
+            </label>
+            <label>
+              Week ending
+              <input id="week-end" type="date" />
+            </label>
+          </div>
+
+          <div class="generate-bar">
+            <button type="button" id="generate-days-btn">Generate day cards</button>
+          </div>
+
+          <details class="planner-panel" id="absence-planner" open>
+            <summary id="absence-planner-title">2. Absence planner <span>optional</span></summary>
+            <p class="small-text">Select a date range and reason. Mark absence period also generates or updates the daily cards below.</p>
+            <div class="form-grid compact-grid">
+              <label>Absence from
+                <input id="absence-start" type="date" />
+              </label>
+              <label>Absence to
+                <input id="absence-end" type="date" />
+              </label>
+              <label>Reason
+                <select id="absence-reason">
+                  <option value="Sick">Sick</option>
+                  <option value="Holiday">Holiday</option>
+                  <option value="Time Off">Time Off</option>
+                </select>
+              </label>
+            </div>
+            <div class="action-bar planner-actions">
+              <button type="button" id="add-absence-btn" class="secondary">Mark absence period</button>
+            </div>
+            <div id="absence-ranges" class="absence-ranges" aria-live="polite"></div>
+          </details>
+
+          <div class="section-heading">
+            <div>
+              <h2>3. Daily entries</h2>
+              <p>Generated from the selected date range. Non-absence days are editable as normal.</p>
+            </div>
+            <button id="add-day-btn" type="button" class="round-btn" aria-label="Add next day">+</button>
+          </div>
+
+          <div id="days-container" class="days-container" aria-live="polite"></div>
+
+          <section class="summary-card" aria-labelledby="summary-title">
+            <h2 id="summary-title">4. Calculated totals</h2>
+            <div id="summary-output" class="summary-grid">No days entered yet.</div>
+          </section>
+
+          <input type="hidden" id="timesheet-payload" />
+          <input type="hidden" id="calculated-summary" />
+
+          <div id="form-error" class="banner hidden" role="alert"></div>
+          <div class="action-bar">
+            <button type="button" id="save-draft-btn" class="secondary">Save draft</button>
+            <button type="button" id="clear-draft-btn" class="secondary danger">Clear</button>
+            <button type="submit" id="submit-btn">Submit timesheet</button>
+          </div>
+          <p class="small-text">The email should contain only a short summary plus generated XLSX and CSV attachments.</p>
+        </form>
+      </section>
+    </section>
+
+    <section class="portal-panel" data-panel="job-cards">
+      <div class="card intro-card"><h2>Job Cards</h2><p>Create job cards for site work, then review and approve them from the admin queue.</p></div>
+      <div class="portal-two-column">
+        <form class="card portal-form" id="job-card-form">
+          <h3>Create job card</h3>
+          <label>Job reference<input id="job-ref" placeholder="e.g. GMT-2026-001" /></label>
+          <label>Customer / client<input id="job-client" placeholder="Customer name" /></label>
+          <label>Site address<input id="job-site" placeholder="Site or job address" /></label>
+          <label>Assigned engineer<input id="job-engineer" placeholder="Engineer name" /></label>
+          <label>Planned date<input id="job-date" type="date" /></label>
+          <label>Work description<textarea id="job-description" rows="4" placeholder="Work requested, access notes, parts, risks"></textarea></label>
+          <button type="submit">Create job card</button>
+        </form>
+        <section class="card">
+          <h3>Admin review queue</h3>
+          <p class="small-text">Local prototype: final approval sync will require the secure admin backend.</p>
+          <div id="job-card-list" class="portal-list"></div>
+        </section>
       </div>
     </section>
 
-    <form id="timesheet-form" class="card" enctype="multipart/form-data" novalidate>
-      <h2>1. Employee details</h2>
-      <div class="form-grid">
-        <label>
-          Your full name <span aria-hidden="true">*</span>
-          <input id="employee-name" type="text" autocomplete="name" required placeholder="e.g. Nathan Brown-Bennett" />
-        </label>
-        <label>
-          Your email, optional
-          <input id="employee-email" type="email" autocomplete="email" placeholder="Send a copy to me" />
-        </label>
-        <label>
-          Week starting
-          <input id="week-start" type="date" />
-        </label>
-        <label>
-          Week ending
-          <input id="week-end" type="date" />
-        </label>
-      </div>
-
-      <div class="generate-bar">
-        <button type="button" id="generate-days-btn">Generate day cards</button>
-      </div>
-
-      <details class="planner-panel" id="absence-planner" open>
-        <summary id="absence-planner-title">2. Absence planner <span>optional</span></summary>
-        <p class="small-text">Select a date range and reason. Mark absence period also generates or updates the daily cards below.</p>
-        <div class="form-grid compact-grid">
-          <label>Absence from
-            <input id="absence-start" type="date" />
-          </label>
-          <label>Absence to
-            <input id="absence-end" type="date" />
-          </label>
-          <label>Reason
-            <select id="absence-reason">
-              <option value="Sick">Sick</option>
-              <option value="Holiday">Holiday</option>
-              <option value="Time Off">Time Off</option>
-            </select>
-          </label>
+    <section class="portal-panel" data-panel="tasks">
+      <div class="card intro-card"><h2>Task Management</h2><p>Create, modify, delete, and move tasks across To-Do, In-Progress, and Completed.</p></div>
+      <form class="card portal-form" id="task-form">
+        <h3>Create task</h3>
+        <div class="form-grid">
+          <label>Task title<input id="task-title" placeholder="Task title" /></label>
+          <label>Job reference<input id="task-job-ref" placeholder="Optional job ref" /></label>
+          <label>Assigned to<input id="task-assignee" placeholder="Engineer/admin" /></label>
+          <label>Due date<input id="task-due" type="date" /></label>
+          <label>Priority<select id="task-priority"><option>Normal</option><option>High</option><option>Urgent</option><option>Low</option></select></label>
         </div>
-        <div class="action-bar planner-actions">
-          <button type="button" id="add-absence-btn" class="secondary">Mark absence period</button>
-        </div>
-        <div id="absence-ranges" class="absence-ranges" aria-live="polite"></div>
-      </details>
+        <button type="submit">Create task</button>
+      </form>
+      <div class="kanban-board" id="task-board"></div>
+    </section>
 
-      <div class="section-heading">
-        <div>
-          <h2>3. Daily entries</h2>
-          <p>Generated from the selected date range. Non-absence days are editable as normal.</p>
-        </div>
-        <button id="add-day-btn" type="button" class="round-btn" aria-label="Add next day">+</button>
+    <section class="portal-panel" data-panel="organization">
+      <div class="card intro-card"><h2>Organization Management</h2><p>Manage organization settings, upload a logo preview, and request company-name changes.</p></div>
+      <div class="portal-two-column">
+        <form class="card portal-form" id="org-form">
+          <h3>Organization settings</h3>
+          <label>Current company name<input id="org-current-name" placeholder="GMT Electrical Services" /></label>
+          <label>Requested company name<input id="org-request-name" placeholder="Optional requested change" /></label>
+          <label>Admin notification email<input id="org-admin-email" type="email" placeholder="accounts/admin email" /></label>
+          <label>Upload company logo<input id="org-logo" type="file" accept="image/*" /></label>
+          <button type="submit">Save organization settings</button>
+        </form>
+        <section class="card"><h3>Organization preview</h3><div id="org-preview" class="org-preview"></div></section>
       </div>
+    </section>
 
-      <div id="days-container" class="days-container" aria-live="polite"></div>
+    <section class="portal-panel" data-panel="notifications">
+      <div class="card intro-card"><h2>Email Notifications</h2><p>Configure notification categories and view a local notification log.</p></div>
+      <form class="card portal-form" id="notification-form">
+        <h3>Notification settings</h3>
+        <div class="portal-check-grid">
+          <label><input type="checkbox" id="notify-login" /> Login, registration, and password changes</label>
+          <label><input type="checkbox" id="notify-task" /> Task updates</label>
+          <label><input type="checkbox" id="notify-timesheet" /> Timesheet submissions</label>
+          <label><input type="checkbox" id="notify-job-card" /> Job card submissions</label>
+          <label><input type="checkbox" id="notify-critical" /> Critical admin changes</label>
+        </div>
+        <button type="submit">Save notification settings</button>
+      </form>
+      <section class="card"><h3>Notification log</h3><div id="notification-log" class="portal-list"></div></section>
+    </section>
 
-      <section class="summary-card" aria-labelledby="summary-title">
-        <h2 id="summary-title">4. Calculated totals</h2>
-        <div id="summary-output" class="summary-grid">No days entered yet.</div>
-      </section>
-
-      <input type="hidden" id="timesheet-payload" />
-      <input type="hidden" id="calculated-summary" />
-
-      <div id="form-error" class="banner hidden" role="alert"></div>
-      <div class="action-bar">
-        <button type="button" id="save-draft-btn" class="secondary">Save draft</button>
-        <button type="button" id="clear-draft-btn" class="secondary danger">Clear</button>
-        <button type="submit" id="submit-btn">Submit timesheet</button>
+    <section class="portal-panel" data-panel="calendar">
+      <div class="card intro-card"><h2>Calendar Integration</h2><p>Shared calendar prototype for events, sick-day requests, holiday requests, and admin approval status.</p></div>
+      <div class="portal-two-column">
+        <form class="card portal-form" id="calendar-form">
+          <h3>Add calendar event</h3>
+          <label>Event title<input id="calendar-title" placeholder="Event title" /></label>
+          <label>Date<input id="calendar-date" type="date" /></label>
+          <label>Type<select id="calendar-type"><option>General</option><option>Job</option><option>Sick Day</option><option>Holiday</option><option>Training</option></select></label>
+          <label>Owner / requester<input id="calendar-owner" placeholder="Name" /></label>
+          <label>Notes<textarea id="calendar-notes" rows="3" placeholder="Event notes"></textarea></label>
+          <button type="submit">Add event</button>
+        </form>
+        <section class="card"><h3>Linked calendar</h3><div id="calendar-list" class="portal-list"></div></section>
       </div>
-      <p class="small-text">The email should contain only a short summary plus generated XLSX and CSV attachments.</p>
-    </form>
+    </section>
   </main>
 
   <footer class="app-footer">
-    <p>Guest mode is for employee submissions. Admin record access requires the secure magic-link backend described in <code>docs/admin-magic-link-encrypted-storage.md</code>.</p>
+    <p>Static preview stores new job/task/calendar data in this browser. Shared admin approval, real notifications, and organization-wide sync require the secure backend described in <code>docs/admin-magic-link-encrypted-storage.md</code>.</p>
   </footer>
 
-  <script src="config.js?v=readable-workbook-20260624"></script>
-  <script src="script.js?v=readable-workbook-20260624"></script>
-  <script src="workbook-format.js?v=readable-workbook-20260624"></script>
+  <script src="config.js?v=portal-20260624"></script>
+  <script src="script.js?v=portal-20260624"></script>
+  <script src="workbook-format.js?v=portal-20260624"></script>
+  <script src="portal.js?v=portal-20260624"></script>
 </body>
 </html>
