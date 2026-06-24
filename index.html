@@ -23,9 +23,9 @@
   <main class="app-main">
     <section class="card intro-card">
       <h2>Guest timesheet entry</h2>
-      <p>Enter your name, week start date, and each worked day. Use the plus button to add the next day of the week.</p>
+      <p>Enter your name, choose the week start and end dates, then mark any absence periods before filling the generated day cards.</p>
       <div class="notice">
-        <strong>Overtime rules used:</strong> weekdays count toward 40h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, and Sunday is OT x2.0.
+        <strong>Overtime rules used:</strong> weekdays count toward 40h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, and Sunday is OT x2.0. Holiday is paid at basic rate.
       </div>
     </section>
 
@@ -40,12 +40,41 @@
           Week starting
           <input id="week-start" name="week_start" type="date" />
         </label>
+        <label>
+          Week ending
+          <input id="week-end" name="week_end" type="date" />
+        </label>
       </div>
+
+      <section class="planner-panel" aria-labelledby="absence-planner-title">
+        <h2 id="absence-planner-title">2. Absence planner</h2>
+        <p class="small-text">Select a date range and reason. The daily cards below will be generated with those dates marked automatically.</p>
+        <div class="form-grid compact-grid">
+          <label>Absence from
+            <input id="absence-start" type="date" />
+          </label>
+          <label>Absence to
+            <input id="absence-end" type="date" />
+          </label>
+          <label>Reason
+            <select id="absence-reason">
+              <option value="Sick">Sick</option>
+              <option value="Holiday">Holiday</option>
+              <option value="Time Off">Time Off</option>
+            </select>
+          </label>
+        </div>
+        <div class="action-bar planner-actions">
+          <button type="button" id="add-absence-btn" class="secondary">Mark absence period</button>
+          <button type="button" id="generate-days-btn">Generate day cards</button>
+        </div>
+        <div id="absence-ranges" class="absence-ranges" aria-live="polite"></div>
+      </section>
 
       <div class="section-heading">
         <div>
-          <h2>2. Daily entries</h2>
-          <p>Add one card per day. Core fields are date, start, finish, lunch and absence status.</p>
+          <h2>3. Daily entries</h2>
+          <p>Generated from the selected date range. Non-absence days are editable as normal.</p>
         </div>
         <button id="add-day-btn" type="button" class="round-btn" aria-label="Add next day">+</button>
       </div>
@@ -53,7 +82,7 @@
       <div id="days-container" class="days-container" aria-live="polite"></div>
 
       <section class="summary-card" aria-labelledby="summary-title">
-        <h2 id="summary-title">3. Calculated totals</h2>
+        <h2 id="summary-title">4. Calculated totals</h2>
         <div id="summary-output" class="summary-grid">No days entered yet.</div>
       </section>
 
