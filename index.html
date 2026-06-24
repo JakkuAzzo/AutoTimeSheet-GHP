@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GMT Timesheet</title>
   <meta name="description" content="Mobile-friendly GMT guest timesheet submission form." />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=clean-submit-20260624" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -26,28 +26,28 @@
       <h2>Guest timesheet entry</h2>
       <p>Enter your name, choose the week start and end dates, then mark any absence periods before filling the generated day cards.</p>
       <div class="notice">
-        <strong>Overtime rules used:</strong> weekdays count toward 40h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, and Sunday is OT x2.0. Holiday is paid at basic rate.
+        <strong>Overtime rules used:</strong> weekdays pay 8h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, and Sunday is OT x2.0. Holiday is paid at basic rate.
       </div>
     </section>
 
-    <form id="timesheet-form" class="card" enctype="multipart/form-data">
+    <form id="timesheet-form" class="card" enctype="multipart/form-data" novalidate>
       <h2>1. Employee details</h2>
       <div class="form-grid">
         <label>
           Your full name <span aria-hidden="true">*</span>
-          <input id="employee-name" name="employee_name" type="text" autocomplete="name" required placeholder="e.g. Nathan Brown-Bennett" />
+          <input id="employee-name" type="text" autocomplete="name" required placeholder="e.g. Nathan Brown-Bennett" />
         </label>
         <label>
           Your email, optional
-          <input id="employee-email" name="employee_email" type="email" autocomplete="email" placeholder="Send a copy to me" />
+          <input id="employee-email" type="email" autocomplete="email" placeholder="Send a copy to me" />
         </label>
         <label>
           Week starting
-          <input id="week-start" name="week_start" type="date" />
+          <input id="week-start" type="date" />
         </label>
         <label>
           Week ending
-          <input id="week-end" name="week_end" type="date" />
+          <input id="week-end" type="date" />
         </label>
       </div>
 
@@ -94,10 +94,8 @@
         <div id="summary-output" class="summary-grid">No days entered yet.</div>
       </section>
 
-      <input type="hidden" name="_subject" value="GMT Weekly Timesheet Submission" />
-      <input type="hidden" name="_template" value="table" />
-      <input type="hidden" name="timesheet_payload" id="timesheet-payload" />
-      <input type="hidden" name="calculated_summary" id="calculated-summary" />
+      <input type="hidden" id="timesheet-payload" />
+      <input type="hidden" id="calculated-summary" />
 
       <div id="form-error" class="banner hidden" role="alert"></div>
       <div class="action-bar">
@@ -105,7 +103,7 @@
         <button type="button" id="clear-draft-btn" class="secondary danger">Clear</button>
         <button type="submit" id="submit-btn">Submit timesheet</button>
       </div>
-      <p class="small-text">Submission email routing is controlled in <code>config.js</code>. An Excel spreadsheet is generated and attached at submit time.</p>
+      <p class="small-text">The email should contain only a short summary plus generated XLSX and CSV attachments.</p>
     </form>
   </main>
 
@@ -113,7 +111,7 @@
     <p>Guest mode is for employee submissions. Admin record access requires the secure magic-link backend described in <code>docs/admin-magic-link-encrypted-storage.md</code>.</p>
   </footer>
 
-  <script src="config.js"></script>
-  <script src="script.js"></script>
+  <script src="config.js?v=clean-submit-20260624"></script>
+  <script src="script.js?v=clean-submit-20260624"></script>
 </body>
 </html>
