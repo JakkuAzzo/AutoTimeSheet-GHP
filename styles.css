@@ -70,6 +70,11 @@ input, textarea, select {
   color: var(--ink);
   min-height: 44px;
 }
+input:disabled, textarea:disabled, select:disabled {
+  background: #eef0ec;
+  color: #6b7280;
+  cursor: not-allowed;
+}
 input[type="date"], input[type="time"] { min-width: 0; }
 textarea { resize: vertical; }
 button, .button {
@@ -86,7 +91,7 @@ button, .button {
 button.secondary { background: #eaf3e7; color: var(--ink); border: 1px solid var(--green); }
 button.danger { border-color: var(--danger); color: var(--danger); }
 button:hover { filter: brightness(1.06); }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
@@ -119,6 +124,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   padding: .85rem;
   transition: box-shadow .15s ease, transform .15s ease;
 }
+.day-card.is-absence { background: #fffaf0; border-color: #e0c46d; }
 .day-card:focus-within { box-shadow: 0 0 0 3px rgba(33,77,47,.18); }
 .day-card-header {
   display: grid;
@@ -152,7 +158,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .day-card-body { margin-top: .85rem; display: grid; gap: .75rem; }
 .day-card.is-collapsed .day-card-body { display: none; }
 .day-card.is-collapsed { padding-bottom: .65rem; }
+.core-fields { margin-bottom: 0; }
 .toggle-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .55rem; margin: 0; }
+.lunch-row-core { grid-template-columns: 1fr; }
 .check-card {
   display: flex;
   align-items: center;
@@ -163,6 +171,37 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   background: #fff;
 }
 .check-card input { width: 1.45rem; min-height: auto; height: 1.45rem; margin: 0; flex: 0 0 1.45rem; }
+.hint-inline { color: var(--muted); font-size: .82rem; font-weight: 700; }
+.additional-fields {
+  border: 1px dashed var(--line);
+  border-radius: .85rem;
+  background: #fff;
+  overflow: hidden;
+}
+.additional-fields summary {
+  list-style: none;
+  cursor: pointer;
+  padding: .72rem .8rem;
+  color: var(--green);
+  font-weight: 900;
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+}
+.additional-fields summary::-webkit-details-marker { display: none; }
+.additional-fields summary::after { content: '+'; font-size: 1.15rem; }
+.additional-fields[open] summary::after { content: '−'; }
+.additional-fields summary span { color: var(--muted); font-size: .82rem; }
+.additional-fields-body {
+  border-top: 1px solid var(--line);
+  padding: .8rem;
+  display: grid;
+  gap: .75rem;
+}
+.additional-fields.is-disabled {
+  opacity: .65;
+  pointer-events: none;
+}
 .file-pick input[type="file"] {
   position: absolute;
   inline-size: 1px;
@@ -213,6 +252,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   font-weight: 800;
 }
 .pill.bad { background: var(--danger-bg); color: var(--danger); }
+.pill.warn { background: #fff1b8; color: #5a4100; }
 .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: .7rem; }
 .summary-grid div { background: #f8fbf5; border: 1px solid var(--line); border-radius: .8rem; padding: .75rem; }
 .summary-grid strong { display: block; color: var(--green); font-size: .84rem; }
@@ -242,6 +282,7 @@ code { background: #eef5ec; border: 1px solid var(--line); padding: .1rem .35rem
   .icon-btn { padding: .42rem .6rem; }
   .day-card h3 { font-size: 1.1rem; }
   .day-mini-summary { max-width: 100%; }
+  .additional-fields-body { padding: .65rem; }
   .day-result { font-size: .8rem; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
   .summary-grid div { padding: .65rem; }
