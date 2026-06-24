@@ -5,10 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GMT Operations Portal</title>
   <meta name="description" content="GMT operations portal for timesheets, job cards, tasks, organization settings, notifications, and calendar planning." />
-  <link rel="stylesheet" href="styles.css?v=clean-nav-20260624" />
-  <link rel="stylesheet" href="portal.css?v=clean-nav-20260624" />
-  <link rel="stylesheet" href="ux-upgrades.css?v=clean-nav-20260624" />
-  <link rel="stylesheet" href="navigation-cleanup.css?v=clean-nav-20260624" />
+  <link rel="stylesheet" href="styles.css?v=fast-nav-20260624" />
+  <link rel="stylesheet" href="portal.css?v=fast-nav-20260624" />
+  <link rel="stylesheet" href="navigation-cleanup.css?v=fast-nav-20260624" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -23,13 +22,11 @@
     <section class="portal-panel" data-panel="calendar"><div class="card intro-card"><h2>Calendar Integration</h2><p>Shared calendar prototype for events, sick-day requests, holiday requests, and admin approval status.</p></div><div class="portal-two-column"><form class="card portal-form" id="calendar-form"><h3>Add calendar event</h3><label>Event title<input id="calendar-title" placeholder="Event title" /></label><label>Date<input id="calendar-date" type="date" /></label><label>Type<select id="calendar-type"><option>General</option><option>Job</option><option>Sick Day</option><option>Holiday</option><option>Training</option></select></label><label>Owner / requester<input id="calendar-owner" placeholder="Name" /></label><label>Notes<textarea id="calendar-notes" rows="3" placeholder="Event notes"></textarea></label><button type="submit">Add event</button></form><section class="card"><h3>Linked calendar</h3><p class="small-text">Export a universal .ics file for Outlook, Apple Calendar, Google Calendar, and other calendar apps.</p><div class="action-bar" style="justify-content:flex-start;"><button type="button" id="export-ics-btn" class="secondary">Export Calendar .ics</button></div><div id="calendar-list" class="portal-list"></div></section></div></section>
   </main>
   <footer class="app-footer"><p>Static preview stores new job/task/calendar data in this browser. Shared admin approval, real notifications, and organization-wide sync require the secure backend described in <code>docs/admin-magic-link-encrypted-storage.md</code>.</p></footer>
-  <script src="config.js?v=clean-nav-20260624"></script>
-  <script src="script.js?v=clean-nav-20260624"></script>
-  <script src="workbook-format.js?v=clean-nav-20260624"></script>
-  <script src="portal.js?v=clean-nav-20260624"></script>
-  <script src="portal-extensions.js?v=clean-nav-20260624"></script>
-  <script src="ux-upgrades.js?v=clean-nav-20260624"></script>
-  <script src="shared-data.js?v=clean-nav-20260624"></script>
-  <script src="navigation-cleanup.js?v=clean-nav-20260624"></script>
+  <script src="config.js?v=fast-nav-20260624"></script>
+  <script src="script.js?v=fast-nav-20260624"></script>
+  <script src="workbook-format.js?v=fast-nav-20260624"></script>
+  <script src="portal.js?v=fast-nav-20260624"></script>
+  <script src="portal-extensions.js?v=fast-nav-20260624"></script>
+  <script src="navigation-cleanup.js?v=fast-nav-20260624"></script>
 </body>
 </html>
