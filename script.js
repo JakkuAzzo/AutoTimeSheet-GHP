@@ -101,47 +101,61 @@ function defaultDateForNextDay() {
   date.setDate(date.getDate() + dayCount);
   return isoDate(date);
 }
+function escapeAttr(value) {
+  return String(value).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function escapeHtml(value) { return escapeAttr(value); }
 function addDay(data = {}) {
   dayCount += 1;
   const index = dayCount;
   const dateValue = data.date || defaultDateForNextDay();
   const card = document.createElement('article');
-  card.className = 'day-card';
+  card.className = data.collapsed ? 'day-card is-collapsed' : 'day-card';
   card.dataset.dayIndex = String(index);
   card.innerHTML = `
     <div class="day-card-header">
-      <h3>Day ${index}</h3>
+      <button type="button" class="collapse-day" aria-expanded="${data.collapsed ? 'false' : 'true'}" aria-controls="day_body_${index}">
+        <span class="collapse-icon" aria-hidden="true">${data.collapsed ? '+' : '−'}</span>
+        <span class="sr-only">Toggle day ${index}</span>
+      </button>
+      <div class="day-title-block">
+        <h3>Day ${index}</h3>
+        <p class="day-mini-summary">Not filled in yet</p>
+      </div>
       <button type="button" class="icon-btn remove-day" aria-label="Remove day ${index}">Remove</button>
     </div>
-    <div class="form-grid day-grid">
-      <label>Date
-        <input type="date" name="day_${index}_date" data-field="date" value="${dateValue}" />
-      </label>
-      <label>Location / site
-        <input type="text" name="day_${index}_location" data-field="location" value="${escapeAttr(data.location || '')}" placeholder="Site or job address" />
-      </label>
-      <label>Start time
-        <input type="time" name="day_${index}_start" data-field="start" value="${escapeAttr(data.start || '')}" />
-      </label>
-      <label>Finish time
-        <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeAttr(data.finish || '')}" />
+    <div class="day-card-body" id="day_body_${index}">
+      <div class="form-grid day-grid compact-grid">
+        <label>Date
+          <input type="date" name="day_${index}_date" data-field="date" value="${dateValue}" />
+        </label>
+        <label>Location / site
+          <input type="text" name="day_${index}_location" data-field="location" value="${escapeAttr(data.location || '')}" placeholder="Site or job address" />
+        </label>
+        <label>Start
+          <input type="time" name="day_${index}_start" data-field="start" value="${escapeAttr(data.start || '')}" />
+        </label>
+        <label>Finish
+          <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeAttr(data.finish || '')}" />
+        </label>
+      </div>
+      <div class="toggle-row">
+        <label class="check-card"><input type="checkbox" data-field="lunchHad" ${data.lunchHad ? 'checked' : ''} /> Lunch had?</label>
+        <label class="check-card"><input type="checkbox" data-field="absent" ${data.absent ? 'checked' : ''} /> Absent this day?</label>
+      </div>
+      <div class="form-grid lunch-row compact-grid">
+        <label>Lunch minutes
+          <input type="number" min="0" step="5" inputmode="numeric" data-field="lunchMinutes" value="${escapeAttr(data.lunchMinutes || (data.lunchHad ? '60' : ''))}" placeholder="e.g. 60" />
+        </label>
+        <label class="file-pick">Images / job photos
+          <span class="file-control"><span class="file-button">Choose photos</span><span class="file-name">No photos selected</span></span>
+          <input type="file" data-field="images" name="day_${index}_images" accept="image/*" multiple />
+        </label>
+      </div>
+      <label>Description
+        <textarea data-field="description" name="day_${index}_description" rows="3" placeholder="Work completed, issues, materials, notes">${escapeHtml(data.description || '')}</textarea>
       </label>
     </div>
-    <div class="toggle-row">
-      <label class="check-card"><input type="checkbox" data-field="lunchHad" ${data.lunchHad ? 'checked' : ''} /> Lunch had?</label>
-      <label class="check-card"><input type="checkbox" data-field="absent" ${data.absent ? 'checked' : ''} /> Absent this day?</label>
-    </div>
-    <div class="form-grid lunch-row">
-      <label>Lunch length, minutes
-        <input type="number" min="0" step="5" data-field="lunchMinutes" value="${escapeAttr(data.lunchMinutes || (data.lunchHad ? '60' : ''))}" placeholder="e.g. 60" />
-      </label>
-      <label>Images / job photos
-        <input type="file" data-field="images" name="day_${index}_images" accept="image/*" multiple />
-      </label>
-    </div>
-    <label>Description of work / notes
-      <textarea data-field="description" name="day_${index}_description" rows="3" placeholder="Work completed, issues, materials, notes">${escapeHtml(data.description || '')}</textarea>
-    </label>
     <div class="day-result" aria-live="polite"></div>
   `;
   daysContainer.appendChild(card);
@@ -152,17 +166,31 @@ function addDay(data = {}) {
     recalculate();
     saveDraft();
   });
+  card.querySelector('.collapse-day').addEventListener('click', () => toggleDayCard(card));
+  card.querySelector('[data-field="images"]').addEventListener('change', (event) => updateFileLabel(event.currentTarget));
   recalculate();
 }
-function escapeAttr(value) {
-  return String(value).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+function toggleDayCard(card, forceCollapsed = null) {
+  const willCollapse = forceCollapsed === null ? !card.classList.contains('is-collapsed') : forceCollapsed;
+  card.classList.toggle('is-collapsed', willCollapse);
+  const button = card.querySelector('.collapse-day');
+  const icon = card.querySelector('.collapse-icon');
+  if (button) button.setAttribute('aria-expanded', String(!willCollapse));
+  if (icon) icon.textContent = willCollapse ? '+' : '−';
+  saveDraft();
 }
-function escapeHtml(value) { return escapeAttr(value); }
+function updateFileLabel(input) {
+  const label = input.closest('.file-pick')?.querySelector('.file-name');
+  if (!label) return;
+  const count = input.files ? input.files.length : 0;
+  label.textContent = count === 0 ? 'No photos selected' : `${count} photo${count === 1 ? '' : 's'} selected`;
+}
 function getRows() {
   return [...document.querySelectorAll('.day-card')].map((card, i) => {
     const get = (field) => card.querySelector(`[data-field="${field}"]`);
     return {
       label:`Day ${i + 1}`,
+      collapsed:card.classList.contains('is-collapsed'),
       date:get('date')?.value || '',
       location:get('location')?.value || '',
       start:get('start')?.value || '',
@@ -174,6 +202,17 @@ function getRows() {
     };
   });
 }
+function updateMiniSummary(card, row) {
+  const summary = card.querySelector('.day-mini-summary');
+  if (!summary) return;
+  const bits = [];
+  if (row.dayName) bits.push(row.dayName);
+  if (row.date) bits.push(row.date);
+  if (row.absent) bits.push('Absent');
+  else if (row.start || row.finish) bits.push(`${row.start || '?'}–${row.finish || '?'}`);
+  if (row.location) bits.push(row.location);
+  summary.textContent = bits.length ? bits.join(' · ') : 'Not filled in yet';
+}
 function recalculate() {
   const calculated = calculateRows(getRows());
   const totals = totalsFor(calculated);
@@ -181,6 +220,7 @@ function recalculate() {
     const card = document.querySelectorAll('.day-card')[i];
     const out = card?.querySelector('.day-result');
     if (!out) return;
+    updateMiniSummary(card, row);
     if (row.error) out.innerHTML = `<span class="pill bad">${row.error}</span>`;
     else out.innerHTML = `<span class="pill">${row.dayName || 'No date'}</span><span>Worked ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span><span>OT 1.5 ${fmtMinutes(row.ot15)}</span><span>OT 2.0 ${fmtMinutes(row.ot20)}</span>`;
   });
@@ -215,9 +255,12 @@ function showError(message) {
 function clearError() {
   formError.textContent = '';
   formError.classList.add('hidden');
+  formError.classList.remove('success');
+  formError.classList.add('banner');
 }
-function handleInput() {
+function handleInput(event) {
   clearError();
+  if (event?.target?.matches('[data-field="images"]')) updateFileLabel(event.target);
   recalculate();
   scheduleDraftSave();
 }
@@ -284,7 +327,12 @@ async function submitTimesheet(event) {
   }
 }
 
-addDayBtn.addEventListener('click', () => { addDay(); saveDraft(); });
+addDayBtn.addEventListener('click', () => {
+  document.querySelectorAll('.day-card').forEach((card) => toggleDayCard(card, true));
+  addDay();
+  saveDraft();
+  daysContainer.lastElementChild?.scrollIntoView({ behavior:'smooth', block:'start' });
+});
 saveDraftBtn.addEventListener('click', () => { saveDraft(); showError('Draft saved on this device.'); });
 clearDraftBtn.addEventListener('click', () => { if (confirm('Clear this draft?')) clearDraft(); });
 form.addEventListener('submit', submitTimesheet);
