@@ -27,6 +27,55 @@
     renderNotifications();
   }
 
+  function formSubmitEndpoint() {
+    return String(window.GMT_APP_CONFIG?.formSubmitEndpoint || '').replace('/ajax/', '/');
+  }
+
+  function ensurePortalSubmitFrame() {
+    let iframe = document.getElementById('portal-formsubmit-frame');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'portal-formsubmit-frame';
+      iframe.name = 'portal-formsubmit-frame';
+      iframe.hidden = true;
+      document.body.appendChild(iframe);
+    }
+    return iframe;
+  }
+
+  function sendPortalFormSubmit(kind, fields) {
+    const endpoint = formSubmitEndpoint();
+    if (!endpoint) {
+      logNotification(kind, `${kind} stored locally only. FormSubmit is not configured.`);
+      return false;
+    }
+    ensurePortalSubmitFrame();
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = endpoint;
+    form.target = 'portal-formsubmit-frame';
+    form.hidden = true;
+
+    const add = (name, value) => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value == null ? '' : String(value);
+      form.appendChild(input);
+    };
+
+    add('_subject', `GMT ${kind} Submission`);
+    add('_template', 'box');
+    add('_captcha', 'false');
+    if (window.GMT_APP_CONFIG?.formSubmitCc) add('_cc', window.GMT_APP_CONFIG.formSubmitCc);
+    add('submission_type', kind);
+    Object.entries(fields).forEach(([name, value]) => add(name, value));
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(() => form.remove(), 2000);
+    return true;
+  }
+
   function setTab(name) {
     $$('.portal-tab').forEach((button) => button.classList.toggle('active', button.dataset.tab === name));
     $$('.portal-panel').forEach((panel) => panel.classList.toggle('active', panel.dataset.panel === name));
@@ -110,13 +159,7 @@
 
   function renderNotifications() {
     const settings = store.get(keys.notifications, {});
-    const fields = {
-      'notify-login': 'login',
-      'notify-task': 'task',
-      'notify-timesheet': 'timesheet',
-      'notify-job-card': 'jobCard',
-      'notify-critical': 'critical'
-    };
+    const fields = { 'notify-login': 'login', 'notify-task': 'task', 'notify-timesheet': 'timesheet', 'notify-job-card': 'jobCard', 'notify-critical': 'critical' };
     Object.entries(fields).forEach(([fieldId, key]) => {
       const input = document.getElementById(fieldId);
       if (input) input.checked = !!settings[key];
@@ -164,19 +207,22 @@
       event.preventDefault();
       const jobs = store.get(keys.jobs, []);
       const job = {
-        id: id(),
-        ref: $('#job-ref').value.trim(),
-        client: $('#job-client').value.trim(),
-        site: $('#job-site').value.trim(),
-        engineer: $('#job-engineer').value.trim(),
-        date: $('#job-date').value,
-        description: $('#job-description').value.trim(),
-        status: 'Pending'
+        id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), status: 'Pending'
       };
       jobs.unshift(job);
       store.set(keys.jobs, jobs);
       event.target.reset();
-      logNotification('Job card', `Job card ${job.ref || job.client || job.id} created for admin review.`);
+      sendPortalFormSubmit('Job Card', {
+        job_reference: job.ref,
+        client: job.client,
+        site_address: job.site,
+        assigned_engineer: job.engineer,
+        planned_date: job.date,
+        status: job.status,
+        description: job.description,
+        submitted_at: new Date().toISOString()
+      });
+      logNotification('Job card', `Job card ${job.ref || job.client || job.id} created and emailed for admin review.`);
       renderJobs();
     });
     $('#job-card-list')?.addEventListener('click', (event) => {
@@ -190,6 +236,7 @@
       if (job && action.jobPending) job.status = 'Pending';
       if (job && action.jobReject) job.status = 'Rejected';
       if (!action.jobDelete) store.set(keys.jobs, jobs);
+      if (job) sendPortalFormSubmit('Job Card Update', { job_reference: job.ref, client: job.client, status: action.jobDelete ? 'Deleted' : job.status, updated_at: new Date().toISOString() });
       logNotification('Job card', `Job card ${job?.ref || jobId} updated.`);
       renderJobs();
     });
@@ -199,20 +246,21 @@
     $('#task-form')?.addEventListener('submit', (event) => {
       event.preventDefault();
       const tasks = store.get(keys.tasks, []);
-      const task = {
-        id: id(),
-        title: $('#task-title').value.trim(),
-        jobRef: $('#task-job-ref').value.trim(),
-        assignee: $('#task-assignee').value.trim(),
-        due: $('#task-due').value,
-        priority: $('#task-priority').value,
-        status: 'To-Do'
-      };
+      const task = { id: id(), title: $('#task-title').value.trim(), jobRef: $('#task-job-ref').value.trim(), assignee: $('#task-assignee').value.trim(), due: $('#task-due').value, priority: $('#task-priority').value, status: 'To-Do' };
       if (!task.title) return;
       tasks.unshift(task);
       store.set(keys.tasks, tasks);
       event.target.reset();
-      logNotification('Task', `Task created: ${task.title}.`);
+      sendPortalFormSubmit('Task', {
+        task_title: task.title,
+        job_reference: task.jobRef,
+        assigned_to: task.assignee,
+        due_date: task.due,
+        priority: task.priority,
+        status: task.status,
+        submitted_at: new Date().toISOString()
+      });
+      logNotification('Task', `Task created and emailed: ${task.title}.`);
       renderTasks();
     });
     $('#task-board')?.addEventListener('click', (event) => {
@@ -221,11 +269,16 @@
       const tasks = store.get(keys.tasks, []);
       if (move) {
         const task = tasks.find((item) => item.id === move.dataset.taskMove);
-        if (task) task.status = move.dataset.to;
+        if (task) {
+          task.status = move.dataset.to;
+          sendPortalFormSubmit('Task Update', { task_title: task.title, job_reference: task.jobRef, assigned_to: task.assignee, status: task.status, updated_at: new Date().toISOString() });
+        }
         store.set(keys.tasks, tasks);
         logNotification('Task', `Task moved to ${move.dataset.to}.`);
       }
       if (del) {
+        const task = tasks.find((item) => item.id === del.dataset.taskDelete);
+        if (task) sendPortalFormSubmit('Task Update', { task_title: task.title, status: 'Deleted', updated_at: new Date().toISOString() });
         store.set(keys.tasks, tasks.filter((item) => item.id !== del.dataset.taskDelete));
         logNotification('Task', 'Task deleted.');
       }
@@ -238,12 +291,7 @@
       const file = event.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
-        const org = store.get(keys.org, {});
-        org.logo = reader.result;
-        store.set(keys.org, org);
-        renderOrg();
-      };
+      reader.onload = () => { const org = store.get(keys.org, {}); org.logo = reader.result; store.set(keys.org, org); renderOrg(); };
       reader.readAsDataURL(file);
     });
     $('#org-form')?.addEventListener('submit', (event) => {
@@ -261,17 +309,45 @@
   function bindNotifications() {
     $('#notification-form')?.addEventListener('submit', (event) => {
       event.preventDefault();
-      const settings = {
-        login: $('#notify-login').checked,
-        task: $('#notify-task').checked,
-        timesheet: $('#notify-timesheet').checked,
-        jobCard: $('#notify-job-card').checked,
-        critical: $('#notify-critical').checked
-      };
+      const settings = { login: $('#notify-login').checked, task: $('#notify-task').checked, timesheet: $('#notify-timesheet').checked, jobCard: $('#notify-job-card').checked, critical: $('#notify-critical').checked };
       store.set(keys.notifications, settings);
       logNotification('Notifications', 'Notification settings updated.');
       renderNotifications();
     });
+  }
+
+  function icsText(value) {
+    return String(value || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+  }
+
+  function ymd(date) {
+    return String(date || '').replace(/-/g, '');
+  }
+
+  function nextDay(date) {
+    const d = new Date(`${date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return date;
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function exportCalendarIcs() {
+    const events = store.get(keys.calendar, []);
+    if (!events.length) {
+      logNotification('Calendar', 'No calendar events to export.');
+      return;
+    }
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const body = events.map((event) => `BEGIN:VEVENT\r\nUID:${event.id}@gmt-portal\r\nDTSTAMP:${stamp}\r\nDTSTART;VALUE=DATE:${ymd(event.date)}\r\nDTEND;VALUE=DATE:${ymd(nextDay(event.date))}\r\nSUMMARY:${icsText(`${event.type}: ${event.title}`)}\r\nLOCATION:${icsText(event.location || '')}\r\nDESCRIPTION:${icsText(`Owner: ${event.owner || 'Unassigned'} | Status: ${event.status} | Notes: ${event.notes || ''}`)}\r\nEND:VEVENT`).join('\r\n');
+    const calendar = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//GMT Electrical Services//Operations Portal//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:GMT Operations Calendar\r\n${body}\r\nEND:VCALENDAR\r\n`;
+    const blob = new Blob([calendar], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'gmt-operations-calendar.ics';
+    a.click();
+    URL.revokeObjectURL(url);
+    logNotification('Calendar', 'Calendar .ics exported. Import it into Outlook, Apple Calendar, or Google Calendar.');
   }
 
   function bindCalendar() {
@@ -279,15 +355,7 @@
       event.preventDefault();
       const events = store.get(keys.calendar, []);
       const type = $('#calendar-type').value;
-      const entry = {
-        id: id(),
-        title: $('#calendar-title').value.trim(),
-        date: $('#calendar-date').value,
-        type,
-        owner: $('#calendar-owner').value.trim(),
-        notes: $('#calendar-notes').value.trim(),
-        status: ['Sick Day', 'Holiday'].includes(type) ? 'Pending' : 'Approved'
-      };
+      const entry = { id: id(), title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: ['Sick Day', 'Holiday'].includes(type) ? 'Pending' : 'Approved' };
       if (!entry.title || !entry.date) return;
       events.push(entry);
       store.set(keys.calendar, events);
@@ -311,19 +379,11 @@
       }
       renderCalendar();
     });
+    $('#export-ics-btn')?.addEventListener('click', exportCalendarIcs);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    bindTabs();
-    bindJobs();
-    bindTasks();
-    bindOrg();
-    bindNotifications();
-    bindCalendar();
-    renderJobs();
-    renderTasks();
-    renderOrg();
-    renderNotifications();
-    renderCalendar();
+    bindTabs(); bindJobs(); bindTasks(); bindOrg(); bindNotifications(); bindCalendar();
+    renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
   });
 })();
