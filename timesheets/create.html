@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Create GMT Timesheet</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="../portal.css">
+</head>
+<body>
+<header class="app-header">
+<div><p class="eyebrow">GMT Electrical Services</p><h1>Create Timesheet</h1><p>Fill a weekly timesheet and send generated XLSX/CSV attachments.</p></div>
+<nav class="header-actions"><a href="../index.html">Dashboard</a><a href="./">Timesheets</a><a href="../jobs/">Job Cards</a><a href="../tasks/">Tasks</a><a href="../calendar/">Calendar</a></nav>
+</header>
+<main class="app-main">
+<section class="card intro-card"><h2>Guest timesheet entry</h2><p>Enter your name, choose week dates, mark absences, then complete daily entries.</p><div class="notice"><strong>Overtime rules:</strong> weekdays pay 8h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, Sunday is OT x2.0. Holiday is paid basic.</div></section>
+<form id="timesheet-form" class="card" enctype="multipart/form-data" novalidate>
+<h2>1. Employee details</h2>
+<div class="form-grid">
+<label>Your full name <span aria-hidden="true">*</span><input id="employee-name" type="text" autocomplete="name" required placeholder="e.g. Nathan Brown-Bennett"></label>
+<label>Your email, optional<input id="employee-email" type="email" autocomplete="email" placeholder="Send a copy to me"></label>
+<label>Week starting<input id="week-start" type="date"></label>
+<label>Week ending<input id="week-end" type="date"></label>
+</div>
+<div class="generate-bar"><button type="button" id="generate-days-btn">Generate day cards</button></div>
+<details class="planner-panel" id="absence-planner" open>
+<summary id="absence-planner-title">2. Absence planner <span>optional</span></summary>
+<p class="small-text">Select a date range and reason. Mark absence period also generates or updates the daily cards below.</p>
+<div class="form-grid compact-grid">
+<label>Absence from<input id="absence-start" type="date"></label>
+<label>Absence to<input id="absence-end" type="date"></label>
+<label>Reason<select id="absence-reason"><option value="Sick">Sick</option><option value="Holiday">Holiday</option><option value="Time Off">Time Off</option></select></label>
+</div>
+<div class="action-bar planner-actions"><button type="button" id="add-absence-btn" class="secondary">Mark absence period</button></div>
+<div id="absence-ranges" class="absence-ranges" aria-live="polite"></div>
+</details>
+<div class="section-heading"><div><h2>3. Daily entries</h2><p>Generated from the selected date range.</p></div><button id="add-day-btn" type="button" class="round-btn" aria-label="Add next day">+</button></div>
+<div id="days-container" class="days-container" aria-live="polite"></div>
+<section class="summary-card" aria-labelledby="summary-title"><h2 id="summary-title">4. Calculated totals</h2><div id="summary-output" class="summary-grid">No days entered yet.</div></section>
+<input type="hidden" id="timesheet-payload"><input type="hidden" id="calculated-summary">
+<div id="form-error" class="banner hidden" role="alert"></div>
+<div class="action-bar"><button type="button" id="save-draft-btn" class="secondary">Save draft</button><button type="button" id="clear-draft-btn" class="secondary danger">Clear</button><button type="submit" id="submit-btn">Submit timesheet</button></div>
+<p class="small-text">The email contains a short summary plus generated XLSX and CSV attachments.</p>
+</form>
+</main>
+<script src="../config.js"></script>
+<script src="../lazy-xlsx.js"></script>
+<script src="../script.js"></script>
+<script src="../workbook-format.js"></script>
+</body>
+</html>
