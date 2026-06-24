@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GMT Timesheet Audit & Reconciliation</title>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.mjs" type="module"></script>
+  <style>
+    :root { --green:#214d2f; --green2:#3f6b4d; --light:#f6fbf2; --gold:#d4b343; --red:#8a1f11; --blue:#0f4c81; --border:#cbd5c0; --text:#111; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif; color:var(--text); background:#f3f6ef; }
+    header { background:linear-gradient(135deg,var(--green),var(--green2)); color:white; padding:22px 28px; border-bottom:4px solid var(--gold); }
+    header h1 { margin:0 0 6px; font-size:1.8rem; }
+    header p { margin:0; max-width:1100px; }
+    main { max-width:1280px; margin:0 auto; padding:18px; }
+    .card { background:white; border:1px solid var(--border); border-radius:14px; padding:16px; margin:14px 0; box-shadow:0 8px 22px rgba(0,0,0,.08); }
+    .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+    .kpi { border-left:6px solid var(--green); background:var(--light); padding:12px; border-radius:10px; }
+    .kpi b { display:block; font-size:1.55rem; }
+    label { font-weight:700; font-size:.9rem; display:block; margin:8px 0 4px; }
+    input[type=file], input[type=search], select { width:100%; max-width:520px; padding:9px 10px; border:1px solid #6b7d6b; border-radius:8px; background:#fff; }
+    button, .button-link { padding:10px 14px; border:0; background:var(--green); color:#fff; border-radius:999px; font-weight:800; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:.35rem; }
+    button.secondary { background:#e9f3e4; color:#111; border:1px solid var(--green); }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline:3px solid #000; outline-offset:3px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px; }
+    .small { font-size:.9rem; color:#333; }
+    .warning { background:#fff1b8; color:#5a4100; border:1px solid #d4b343; padding:10px; border-radius:10px; }
+    .error { background:#ffe0d8; color:#80200d; border:1px solid #d98a72; padding:10px; border-radius:10px; }
+    .ok { background:#dff4df; color:#0d4c16; border:1px solid #7dc47d; padding:10px; border-radius:10px; }
+    table { width:100%; border-collapse:collapse; font-size:.88rem; }
+    th,td { border-bottom:1px solid #d8dfd2; padding:8px; vertical-align:top; }
+    th { background:#e9f3e4; text-align:left; position:sticky; top:0; z-index:1; }
+    .table-wrap { max-height:620px; overflow:auto; border:1px solid #d8dfd2; border-radius:10px; }
+    .badge { display:inline-block; border-radius:999px; padding:3px 8px; font-weight:800; font-size:.78rem; }
+    .match { background:#dff4df; color:#0d4c16; }
+    .mismatch { background:#ffe0d8; color:#80200d; }
+    .warn { background:#fff1b8; color:#5a4100; }
+    .code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre-wrap; background:#f8faf6; padding:10px; border-radius:8px; border:1px solid #d8dfd2; max-height:340px; overflow:auto; }
+    details { margin:8px 0; }
+    summary { cursor:pointer; font-weight:800; color:var(--green); }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    .tab { background:#e9f3e4; color:#111; }
+    .tab.active { background:var(--green); color:white; }
+    .hidden { display:none; }
+    .row-issues { margin:0; padding-left:18px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>GMT Timesheet Audit & Reconciliation</h1>
+  <p>Upload a GMT archive zip and, optionally, the corrected workbook. The page recalculates each employee/week, traces each number to source rows, compares the summary sheet, and can export a bundled audit package.</p>
+</header>
+<main>
+  <section class="card">
+    <h2>1. Upload audit sources</h2>
+    <p class="small">This runs locally in the browser. It supports the current GMT weekly Word/PDF timesheets, the Guys summary PDF, and the corrected totals workbook.</p>
+    <label for="archiveInput">Timesheet archive zip</label>
+    <input id="archiveInput" type="file" accept=".zip" />
+    <label for="workbookInput">Corrected workbook, optional</label>
+    <input id="workbookInput" type="file" accept=".xlsx,.xls" />
+    <div class="toolbar">
+      <button id="runBtn" type="button">Build audit</button>
+      <button id="downloadReportBtn" type="button" class="secondary" disabled>Download interactive audit HTML</button>
+      <button id="downloadPackageBtn" type="button" class="secondary" disabled>Download bundled audit zip</button>
+      <a class="button-link" href="../index.html">Back to timesheet app</a>
+    </div>
+    <div id="status" class="warning" style="margin-top:12px;">Choose the archive zip, then build the audit.</div>
+  </section>
+
+  <section id="resultsCard" class="card hidden">
+    <h2>2. Audit results</h2>
+    <p><b>Policy used:</b> <span id="policyText"></span></p>
+    <div class="grid" id="kpis"></div>
+    <div class="toolbar">
+      <div><label for="employeeFilter">Employee</label><select id="employeeFilter"><option value="">All</option></select></div>
+      <div><label for="weekFilter">Week</label><select id="weekFilter"><option value="">All</option></select></div>
+      <div><label for="searchBox">Search source / issue</label><input id="searchBox" type="search" placeholder="Ainsley, mismatch, 2h 30m" /></div>
+      <button type="button" class="secondary" onclick="resetFilters()">Reset</button>
+    </div>
+    <div class="tabs" style="margin-top:16px;">
+      <button class="tab active" data-tab="weekly">Weekly audit</button>
+      <button class="tab" data-tab="rows">Source row trace</button>
+      <button class="tab" data-tab="docs">Source documents</button>
+    </div>
+    <div id="weekly" class="tabpane"><div class="table-wrap"><table id="weeklyTable"></table></div></div>
+    <div id="rows" class="tabpane hidden"><div class="table-wrap"><table id="rowsTable"></table></div></div>
+    <div id="docs" class="tabpane hidden"><div id="docsList"></div></div>
+  </section>
+</main>
+<script>
+const POLICY = 'Weekday normal/basic hours first; weekday excess OT x1.5; Saturday before 13:00 OT x1.5; Saturday after 13:00 OT x2.0; Sunday all OT x2.0; lunch on Saturday crossing 13:00 is deducted from the later segment first unless exact lunch time is supplied.';
+const RATES = { 'ainsley': 12.21, 'ainsley williams': 12.21, 'jason': 14.50, 'jason brown-bennett': 14.50, 'jason brown- bennent': 14.50, 'matt': 12.71, 'matt brown': 12.71, 'matthew': 12.71, 'matthew brown': 12.71, 'simon': 14.50, 'simon thornton': 14.50 };
+let AUDIT = null;
+let sourceFiles = [];
+let workbookRows = [];
+let bundledArchiveFile = null;
+
+const fmt = m => { m = Math.round(Number(m || 0)); const h = Math.floor(Math.abs(m) / 60), mm = Math.abs(m) % 60, sign = m < 0 ? '-' : ''; return mm ? `${sign}${h}h ${mm}m` : `${sign}${h}h`; };
+const money = n => '£' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const escapeHtml = s => String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+function statusBox(kind, text) { const el = document.getElementById('status'); el.className = kind; el.textContent = text; }
+function parseTimeToMinutes(value) { if (value == null) return null; let s = String(value).trim().replace(/[–—]/g, '-'); if (!s || /^x$/i.test(s)) return null; const m = s.match(/^(\d{1,2})(?::|\.)(\d{2})$/) || s.match(/^(\d{1,2})$/); if (!m) return null; const h = Number(m[1]), min = m[2] == null ? 0 : Number(m[2]); if (!Number.isFinite(h) || !Number.isFinite(min) || min < 0 || min >= 60) return null; return h * 60 + min; }
+function parseDurationToMinutes(value) { if (value == null) return 0; const s = String(value).trim().toLowerCase(); if (!s || s === 'x' || s === '-') return 0; const hm = s.match(/(\d+(?:\.\d+)?)\s*h(?:ours?)?\s*(?:(\d+)\s*m)?/) || s.match(/(\d+)\s*:\s*(\d{2})/); if (hm) return hm[2] ? Number(hm[1]) * 60 + Number(hm[2]) : Math.round(Number(hm[1]) * 60); const n = Number(s.replace(/[^0-9.]/g, '')); return Number.isFinite(n) ? Math.round(n * 60) : 0; }
+function workedMinutes(start, finish, lunch) { let a = parseTimeToMinutes(start), b = parseTimeToMinutes(finish); const l = parseDurationToMinutes(lunch); if (a == null || b == null) return null; if (b < a) b += 1440; const out = b - a - l; return out >= 0 ? out : null; }
+function dateFromRow(dateText, weekBeginning) { const s = String(dateText || ''); const d = s.match(/(\d{1,2})(?:st|nd|rd|th)?/i); if (!d || !weekBeginning) return null; const base = new Date(weekBeginning + 'T00:00:00Z'); if (Number.isNaN(base.getTime())) return null; const month = base.getUTCMonth(), year = base.getUTCFullYear(); let dt = new Date(Date.UTC(year, month, Number(d[1]))); if (dt < new Date(base.getTime() - 3 * 86400000)) dt = new Date(Date.UTC(year, month + 1, Number(d[1]))); return dt; }
+function dayNameFromDate(dt, fallback) { if (dt && !Number.isNaN(dt.getTime())) return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dt.getUTCDay()]; const f = norm(fallback); if (f.startsWith('mon')) return 'Monday'; if (f.startsWith('tue')) return 'Tuesday'; if (f.startsWith('wed')) return 'Wednesday'; if (f.startsWith('thu')) return 'Thursday'; if (f.startsWith('fri')) return 'Friday'; if (f.startsWith('sat')) return 'Saturday'; if (f.startsWith('sun')) return 'Sunday'; return '';
+}
+function splitSaturday(start, finish, lunch) { let a = parseTimeToMinutes(start), b = parseTimeToMinutes(finish); const l = parseDurationToMinutes(lunch); if (a == null || b == null) return { basic:0, ot15:0, ot20:0, total:0 }; if (b < a) b += 1440; const cutoff = 13 * 60; let before = Math.max(0, Math.min(b, cutoff) - a); let after = Math.max(0, b - Math.max(a, cutoff)); let remainingLunch = l; const fromAfter = Math.min(after, remainingLunch); after -= fromAfter; remainingLunch -= fromAfter; const fromBefore = Math.min(before, remainingLunch); before -= fromBefore; return { basic:0, ot15:before, ot20:after, total:before + after };
+}
+function classify(row, state) { const total = workedMinutes(row.start, row.finish, row.lunch); if (total == null) { const basic = row.claimedBasic || 0, ot15 = row.claimedOt15 || 0, ot20 = row.claimedOt20 || 0; return { basic, ot15, ot20, total: basic + ot15 + ot20, explanation:'No complete start/finish time. Used claimed hours only.' }; }
+  const day = row.dayName; if (day === 'Sunday') return { basic:0, ot15:0, ot20:total, total, explanation:'Sunday: all worked time is OT x2.0.' };
+  if (day === 'Saturday') { const s = splitSaturday(row.start, row.finish, row.lunch); return { ...s, explanation:'Saturday: before 13:00 is OT x1.5, after 13:00 is OT x2.0; lunch deducted from later segment first.' }; }
+  const allowance = Math.max(0, 2400 - state.weekdayBasicUsed); const basic = Math.min(total, allowance); const ot15 = total - basic; state.weekdayBasicUsed += basic; return { basic, ot15, ot20:0, total, explanation: ot15 ? 'Weekday: remaining 40h basic allowance used first; excess is OT x1.5.' : 'Weekday: within 40h basic allowance.' };
+}
+function guessEmployee(file, text) { const m = text.match(/Name\s+([^\n\r]+)/i); if (m) return cleanName(m[1]); const f = file.toLowerCase(); if (f.includes('ainsley')) return 'Ainsley Williams'; if (f.includes('simon') || f.includes('siomon')) return 'Simon Thornton'; if (f.includes('matt')) return 'Matt Brown'; if (f.includes('jason')) return 'Jason Brown-Bennett'; return 'Unknown'; }
+function cleanName(s) { return String(s || '').replace(/[.…_]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+function guessWeekBeginning(file, text) { const m = text.match(/Week\s+Beginning\s*[:.]*\s*([^\n\r]+)/i); const raw = cleanName(m ? m[1] : file); const known = [ ['25','may','2026-05-25'], ['1','june','2026-06-01'], ['8','june','2026-06-08'], ['15','june','2026-06-15'], ['22','june','2026-06-22'] ]; const low = raw.toLowerCase() + ' ' + file.toLowerCase(); for (const [d, mon, iso] of known) if (low.includes(d) && low.includes(mon)) return iso; return ''; }
+function weekLabel(iso) { return ({ '2026-05-25':'WK1', '2026-06-01':'WK2', '2026-06-08':'WK3', '2026-06-15':'WK4', '2026-06-22':'WK5' })[iso] || iso || 'Unspecified'; }
+function rateFor(name) { return RATES[norm(name)] || RATES[norm(String(name).split(' ')[0])] || 0; }
+function numberLike(token) { const n = Number(String(token || '').replace(/[^0-9.]/g, '')); return Number.isFinite(n) ? n : null; }
+function extractTimeTokens(block) { return Array.from(block.matchAll(/\b\d{1,2}[.:]\d{2}\b|\b\d{1,2}\b/g)).map(m => m[0]); }
+function parseTimesheetRows(file, text) { const employee = guessEmployee(file, text); const weekBeginning = guessWeekBeginning(file, text); const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean); const starts = []; lines.forEach((line, i) => { if (/^(mon|tue|wed|thur|thu|fri|sat|sun)\b/i.test(line)) starts.push(i); }); const rows = [];
+  for (let x = 0; x < starts.length; x++) { const startIdx = starts[x], endIdx = starts[x+1] || lines.length; const blockLines = lines.slice(startIdx, endIdx); const block = blockLines.join('\n'); if (/total normal|overtime hrs|please hand/i.test(block)) continue; const first = blockLines[0]; const day = dayNameFromDate(null, first); const date = dateFromRow(first, weekBeginning); const tokens = extractTimeTokens(block); let start = '', finish = '', lunch = '', claimedBasic = 0, claimedOt15 = 0, claimedOt20 = 0;
+    if (tokens.length >= 2 && /[.:]/.test(tokens[0]) && /[.:]/.test(tokens[1])) { start = tokens[0].replace('.', ':'); finish = tokens[1].replace('.', ':'); lunch = tokens[2] || '0'; const rest = tokens.slice(3).map(numberLike).filter(v => v != null); if (rest.length) claimedBasic = Math.round(rest[0] * 60); if (rest.length > 1) claimedOt15 = Math.round(rest[1] * 60); if (rest.length > 2) claimedOt20 = Math.round(rest[2] * 60); }
+    else { const rest = tokens.map(numberLike).filter(v => v != null); if (rest.length) claimedBasic = Math.round(rest[rest.length - 1] * 60); }
+    const worksite = blockLines.slice(1).filter(l => !/^[\d.:]+$/.test(l)).slice(0,2).join(', ');
+    rows.push({ employee, file, sourceRow:`${first} in ${file}`, dateText:first, dateISO: date ? date.toISOString().slice(0,10) : '', dayName: day, week: weekLabel(weekBeginning), weekBeginning, worksite, start, finish, lunch, claimedBasic, claimedOt15, claimedOt20, raw:block }); }
+  return rows;
+}
+function minutesNear(a,b) { return Math.abs(Number(a||0)-Number(b||0)) <= 1; }
+function aggregateRows(rows) { const groups = new Map(); for (const r of rows) { const key = `${r.employee}|${r.week}|${r.weekBeginning}`; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(r); } const weekly = [], calcRows = [];
+  for (const [key, list] of groups.entries()) { const [employee, week, weekBeginning] = key.split('|'); const state = { weekdayBasicUsed:0 }; let basic=0, ot15=0, ot20=0, actual=0, claimedBasic=0, claimedOt15=0, claimedOt20=0; list.forEach(row => { const c = classify(row, state); row.calc = c; row.issues = []; if (!minutesNear(row.claimedBasic, c.basic)) row.issues.push(`Basic claimed ${fmt(row.claimedBasic)} vs calculated ${fmt(c.basic)}`); if (!minutesNear(row.claimedOt15, c.ot15)) row.issues.push(`OT x1.5 claimed ${fmt(row.claimedOt15)} vs calculated ${fmt(c.ot15)}`); if (!minutesNear(row.claimedOt20, c.ot20)) row.issues.push(`OT x2.0 claimed ${fmt(row.claimedOt20)} vs calculated ${fmt(c.ot20)}`); row.status = row.issues.length ? 'Mismatch' : 'Match'; basic += c.basic; ot15 += c.ot15; ot20 += c.ot20; actual += c.total; claimedBasic += row.claimedBasic || 0; claimedOt15 += row.claimedOt15 || 0; claimedOt20 += row.claimedOt20 || 0; calcRows.push(row); }); const rate = rateFor(employee); const weighted = basic/60 + ot15/60*1.5 + ot20/60*2; weekly.push({ employee, week, weekBeginning, files:[...new Set(list.map(r=>r.file))], rowCount:list.length, calc:{ basic, ot15, ot20, actual, weighted, pay: weighted * rate }, claimed:{ basic:claimedBasic, ot15:claimedOt15, ot20:claimedOt20 }, rate }); }
+  return { weekly, rows:calcRows };
+}
+function parseSummary(text) { const out = []; const employees = ['Ainsley Williams','Jason Brown-Bennett','Matt Brown','Simon Thornton']; const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean); let current = ''; for (const line of lines) { const low = line.toLowerCase(); if (low.includes('ainsley')) current='Ainsley Williams'; else if (low.includes('jason')) current='Jason Brown-Bennett'; else if (low.includes('matt')) current='Matt Brown'; else if (low.includes('simon')) current='Simon Thornton'; const m = line.match(/(\d{1,2}-[A-Za-z]{3})\s+(WK\d)\s+(\d+(?:\.\d+)?)(?:\s+(.+))?/i); if (current && m) { const otText = m[4] || ''; const ot = parseDurationToMinutes(otText); out.push({ employee:current, week:m[2].toUpperCase(), basic:Math.round(Number(m[3])*60), ot15:ot, ot20:0, raw:line }); } } return out; }
+function compareSummary(weekly, summary) { for (const w of weekly) { const s = summary.find(x => norm(x.employee) === norm(w.employee) && x.week === w.week); w.summary = s || null; w.summaryIssues = []; if (!s) { w.summaryStatus = 'Missing'; continue; } if (!minutesNear(w.calc.basic, s.basic)) w.summaryIssues.push(`Basic: calculated ${fmt(w.calc.basic)} vs summary ${fmt(s.basic)}`); if (!minutesNear(w.calc.ot15, s.ot15)) w.summaryIssues.push(`OT x1.5: calculated ${fmt(w.calc.ot15)} vs summary ${fmt(s.ot15)}`); if (!minutesNear(w.calc.ot20, s.ot20)) w.summaryIssues.push(`OT x2.0: calculated ${fmt(w.calc.ot20)} vs summary ${fmt(s.ot20)}`); w.summaryStatus = w.summaryIssues.length ? 'Mismatch' : 'Match'; } }
+function parseWorkbook(buffer) { const wb = XLSX.read(buffer, { type:'array' }); const first = wb.SheetNames[0]; return XLSX.utils.sheet_to_json(wb.Sheets[first], { defval:'' }); }
+function compareWorkbook(weekly, rows) { for (const w of weekly) { const r = rows.find(x => norm(x.Employee) === norm(w.employee) && String(x.Week || '').toUpperCase() === w.week); w.workbook = r || null; w.workbookIssues = []; if (!r) { w.workbookStatus = rows.length ? 'Missing' : 'Not supplied'; continue; } const basic = Number(r['Basic hrs'] || 0) * 60, ot15 = Number(r['OT x1.5 hrs'] || 0) * 60, ot20 = Number(r['OT x2.0 hrs'] || 0) * 60, pay = Number(r['Weekly pay total'] || 0); if (!minutesNear(w.calc.basic, basic)) w.workbookIssues.push(`Basic: calculated ${fmt(w.calc.basic)} vs workbook ${fmt(basic)}`); if (!minutesNear(w.calc.ot15, ot15)) w.workbookIssues.push(`OT x1.5: calculated ${fmt(w.calc.ot15)} vs workbook ${fmt(ot15)}`); if (!minutesNear(w.calc.ot20, ot20)) w.workbookIssues.push(`OT x2.0: calculated ${fmt(w.calc.ot20)} vs workbook ${fmt(ot20)}`); if (Math.abs(w.calc.pay - pay) > 0.02) w.workbookIssues.push(`Pay: calculated ${money(w.calc.pay)} vs workbook ${money(pay)}`); w.workbookStatus = w.workbookIssues.length ? 'Mismatch' : 'Match'; } }
+async function extractPdfText(file) { const pdfjs = globalThis.pdfjsLib; if (!pdfjs) throw new Error('PDF.js failed to load'); pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.mjs'; const bytes = await file.async('arraybuffer'); const pdf = await pdfjs.getDocument({ data:bytes }).promise; let text = ''; for (let p = 1; p <= pdf.numPages; p++) { const page = await pdf.getPage(p); const content = await page.getTextContent(); text += content.items.map(i => i.str).join('\n') + '\n'; } return text; }
+async function extractDocxText(file) { const buffer = await file.async('arraybuffer'); const result = await mammoth.extractRawText({ arrayBuffer: buffer }); return result.value || ''; }
+async function readArchive(zipFile) { bundledArchiveFile = zipFile; const zip = await JSZip.loadAsync(zipFile); const extracts = []; const rows = []; let summaryText = ''; let foundWorkbook = null; for (const path of Object.keys(zip.files)) { const entry = zip.files[path]; if (entry.dir) continue; const name = path.split('/').pop(); const lower = name.toLowerCase(); try { if (lower.endsWith('.docx')) { const text = await extractDocxText(entry); extracts.push({ file:name, path, type:'docx', text }); if (!lower.includes('duplicate')) rows.push(...parseTimesheetRows(name, text)); } else if (lower.endsWith('.pdf')) { const text = await extractPdfText(entry); extracts.push({ file:name, path, type:'pdf', text }); if (lower.includes('summery') || lower.includes('summary')) summaryText += '\n' + text; else rows.push(...parseTimesheetRows(name, text)); } else if (lower.endsWith('.xlsx') && !foundWorkbook) { foundWorkbook = await entry.async('arraybuffer'); extracts.push({ file:name, path, type:'xlsx', text:'Workbook parsed for comparison.' }); } } catch (err) { extracts.push({ file:name, path, type:'error', text:`Could not parse: ${err.message}` }); } }
+  if (!workbookRows.length && foundWorkbook) workbookRows = parseWorkbook(foundWorkbook); sourceFiles = extracts; const ag = aggregateRows(rows.filter(r => !r.file.endsWith('_5.docx'))); const summary = parseSummary(summaryText); compareSummary(ag.weekly, summary); compareWorkbook(ag.weekly, workbookRows); return { ...ag, summary, extracts, policy:POLICY, createdAt:new Date().toISOString() };
+}
+function populateFilters() { const emp = document.getElementById('employeeFilter'), wk = document.getElementById('weekFilter'); emp.innerHTML = '<option value="">All</option>'; wk.innerHTML = '<option value="">All</option>'; [...new Set(AUDIT.weekly.map(w=>w.employee))].sort().forEach(v => emp.add(new Option(v,v))); [...new Set(AUDIT.weekly.map(w=>w.week))].sort().forEach(v => wk.add(new Option(v,v))); }
+function filteredWeekly() { const emp=document.getElementById('employeeFilter').value, wk=document.getElementById('weekFilter').value, q=norm(document.getElementById('searchBox').value); return AUDIT.weekly.filter(w => (!emp || w.employee === emp) && (!wk || w.week === wk) && (!q || norm(JSON.stringify(w)).includes(q))); }
+function resetFilters() { ['employeeFilter','weekFilter','searchBox'].forEach(id=>document.getElementById(id).value=''); render(); }
+function badge(status) { const cls = status === 'Match' ? 'match' : status === 'Missing' || status === 'Not supplied' ? 'warn' : 'mismatch'; return `<span class="badge ${cls}">${escapeHtml(status)}</span>`; }
+function render() { if (!AUDIT) return; renderKpis(); renderWeekly(); renderRows(); renderDocs(); }
+function renderKpis() { const summaryMismatches = AUDIT.weekly.filter(w => w.summaryStatus === 'Mismatch').length; const workbookMismatches = AUDIT.weekly.filter(w => w.workbookStatus === 'Mismatch').length; const rowMismatches = AUDIT.rows.filter(r => r.status === 'Mismatch').length; document.getElementById('policyText').textContent = POLICY; document.getElementById('kpis').innerHTML = `<div class="kpi"><span>Weekly lines audited</span><b>${AUDIT.weekly.length}</b></div><div class="kpi"><span>Summary mismatches</span><b>${summaryMismatches}</b></div><div class="kpi"><span>Workbook mismatches</span><b>${workbookMismatches}</b></div><div class="kpi"><span>Row-level mismatches</span><b>${rowMismatches}</b></div>`; }
+function renderWeekly() { document.getElementById('weeklyTable').innerHTML = `<thead><tr><th>Employee</th><th>Week</th><th>Source</th><th>Calculated</th><th>Summary PDF</th><th>Corrected workbook</th><th>Formula</th></tr></thead><tbody>` + filteredWeekly().map(w => { const calc = `Basic ${fmt(w.calc.basic)}<br>OT x1.5 ${fmt(w.calc.ot15)}<br>OT x2.0 ${fmt(w.calc.ot20)}<br>Actual ${fmt(w.calc.actual)}<br>Weighted ${w.calc.weighted.toFixed(2)}h<br><b>${money(w.calc.pay)}</b>`; const s = w.summary ? `${escapeHtml(w.summary.raw)}<br>${badge(w.summaryStatus)}${w.summaryIssues.length ? '<ul class="row-issues">'+w.summaryIssues.map(i=>`<li>${escapeHtml(i)}</li>`).join('')+'</ul>' : ''}` : badge('Missing'); const wb = w.workbook ? `${badge(w.workbookStatus)}${w.workbookIssues.length ? '<ul class="row-issues">'+w.workbookIssues.map(i=>`<li>${escapeHtml(i)}</li>`).join('')+'</ul>' : ''}` : badge(w.workbookStatus); return `<tr><td>${escapeHtml(w.employee)}</td><td>${escapeHtml(w.week)}<br><span class="small">${escapeHtml(w.weekBeginning)}</span></td><td>${w.files.map(escapeHtml).join('<br>')}</td><td>${calc}</td><td>${s}</td><td>${wb}</td><td>Weighted = Basic + OT1.5×1.5 + OT2.0×2<br>Pay = weighted hours × ${money(w.rate)}/hr</td></tr>`; }).join('') + '</tbody>'; }
+function renderRows() { const allowed = new Set(filteredWeekly().map(w => `${w.employee}|${w.week}`)); const q = norm(document.getElementById('searchBox').value); const rows = AUDIT.rows.filter(r => allowed.has(`${r.employee}|${r.week}`) && (!q || norm(JSON.stringify(r)).includes(q))); document.getElementById('rowsTable').innerHTML = `<thead><tr><th>Employee</th><th>Source row</th><th>Date</th><th>Input</th><th>Claimed columns</th><th>Calculated</th><th>Status</th><th>Raw source text</th></tr></thead><tbody>` + rows.map(r => `<tr><td>${escapeHtml(r.employee)}</td><td>${escapeHtml(r.file)}<br><span class="small">${escapeHtml(r.sourceRow)}</span></td><td>${escapeHtml(r.dateText)}<br><span class="small">${escapeHtml(r.dateISO)}</span></td><td>${escapeHtml(r.worksite)}<br>Start ${escapeHtml(r.start || '-')} / Finish ${escapeHtml(r.finish || '-')} / Lunch ${escapeHtml(r.lunch || '-')}</td><td>Basic ${fmt(r.claimedBasic)}<br>OT x1.5 ${fmt(r.claimedOt15)}<br>OT x2.0 ${fmt(r.claimedOt20)}</td><td>Worked ${fmt(r.calc.total)}<br>Basic ${fmt(r.calc.basic)}<br>OT x1.5 ${fmt(r.calc.ot15)}<br>OT x2.0 ${fmt(r.calc.ot20)}<br><span class="small">${escapeHtml(r.calc.explanation)}</span></td><td>${badge(r.status)}${r.issues.length ? '<ul class="row-issues">'+r.issues.map(i=>`<li>${escapeHtml(i)}</li>`).join('')+'</ul>' : ''}</td><td><details><summary>Open row extract</summary><div class="code">${escapeHtml(r.raw)}</div></details></td></tr>`).join('') + '</tbody>'; }
+function renderDocs() { document.getElementById('docsList').innerHTML = sourceFiles.map(d => `<details><summary>${escapeHtml(d.file)} <span class="small">${escapeHtml(d.type)}</span></summary><p class="small">Path in uploaded archive: ${escapeHtml(d.path)}</p><div class="code">${escapeHtml(d.text)}</div></details>`).join(''); }
+async function fileToArrayBuffer(file) { return await file.arrayBuffer(); }
+async function runAudit() { const archive = document.getElementById('archiveInput').files[0]; const workbook = document.getElementById('workbookInput').files[0]; if (!archive) { statusBox('error','Please choose a timesheet archive zip.'); return; } try { statusBox('warning','Reading archive and recalculating totals...'); workbookRows = workbook ? parseWorkbook(await fileToArrayBuffer(workbook)) : []; AUDIT = await readArchive(archive); populateFilters(); document.getElementById('resultsCard').classList.remove('hidden'); document.getElementById('downloadReportBtn').disabled = false; document.getElementById('downloadPackageBtn').disabled = false; bindFilters(); render(); statusBox('ok', `Audit complete: ${AUDIT.weekly.length} weekly totals and ${AUDIT.rows.length} source rows processed.`); } catch (err) { console.error(err); statusBox('error', `Audit failed: ${err.message}`); } }
+function bindFilters() { ['employeeFilter','weekFilter','searchBox'].forEach(id => { const el = document.getElementById(id); el.oninput = render; }); document.querySelectorAll('.tab').forEach(b => { b.onclick = () => { document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.querySelectorAll('.tabpane').forEach(p=>p.classList.add('hidden')); document.getElementById(b.dataset.tab).classList.remove('hidden'); }; }); }
+function auditHtmlDocument() { const clone = document.documentElement.cloneNode(true); clone.querySelector('#archiveInput')?.remove(); clone.querySelector('#workbookInput')?.remove(); return '<!doctype html>\n' + clone.outerHTML; }
+function downloadBlob(name, blob) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+async function downloadReport() { if (!AUDIT) return; downloadBlob('gmt_timesheet_audit_report.html', new Blob([auditHtmlDocument()], { type:'text/html' })); }
+async function downloadPackage() { if (!AUDIT || !bundledArchiveFile) return; const zip = new JSZip(); zip.file('index.html', auditHtmlDocument()); zip.file('audit_data.json', JSON.stringify(AUDIT, null, 2)); zip.file('source_documents/original_archive.zip', bundledArchiveFile); const wb = document.getElementById('workbookInput').files[0]; if (wb) zip.file('source_documents/' + wb.name, wb); const blob = await zip.generateAsync({ type:'blob' }); downloadBlob('gmt_timesheet_interactive_audit_package.zip', blob); }
+document.getElementById('runBtn').addEventListener('click', runAudit);
+document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
+document.getElementById('downloadPackageBtn').addEventListener('click', downloadPackage);
+</script>
+</body>
+</html>
