@@ -1,0 +1,75 @@
+.header-actions.clean-main-nav {
+  display: flex;
+  gap: .45rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+.clean-nav-btn {
+  border: 1px solid rgba(255,255,255,.45);
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  border-radius: 999px;
+  padding: .55rem .85rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+.clean-nav-btn.active,
+.clean-nav-btn:hover {
+  background: #fff;
+  color: var(--green);
+}
+.portal-tabs.clean-hidden-tabs,
+#ux-dashboard.clean-removed-dashboard {
+  display: none !important;
+}
+.clean-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: .8rem;
+  margin-top: .85rem;
+}
+.clean-dashboard-action {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: #fbfdf9;
+  padding: .9rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.clean-dashboard-action strong {
+  display: block;
+  color: var(--green);
+  font-size: 1.1rem;
+  margin-bottom: .25rem;
+}
+.clean-dashboard-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: .7rem;
+  margin-top: .85rem;
+}
+.clean-dashboard-kpi {
+  border-left: 6px solid var(--green);
+  border-radius: .85rem;
+  background: #fff;
+  padding: .8rem;
+}
+.clean-dashboard-kpi b {
+  display: block;
+  font-size: 1.45rem;
+  color: var(--green);
+}
+@media (max-width: 760px) {
+  .app-header.portal-header {
+    gap: 1rem;
+  }
+  .header-actions.clean-main-nav {
+    justify-content: flex-start;
+  }
+  .clean-nav-btn {
+    padding: .5rem .75rem;
+    font-size: .9rem;
+  }
+}
