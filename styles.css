@@ -46,7 +46,7 @@ body {
 .header-actions a:hover { background: rgba(255,255,255,.15); }
 
 .app-main { max-width: 980px; margin: 0 auto; padding: 1rem; }
-.card, .summary-card {
+.card, .summary-card, .planner-panel {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 1rem;
@@ -54,7 +54,7 @@ body {
   margin: 1rem 0;
   box-shadow: 0 10px 24px rgba(0,0,0,.08);
 }
-.card h2, .summary-card h2 { margin-top: 0; color: var(--green); }
+.card h2, .summary-card h2, .planner-panel h2 { margin-top: 0; color: var(--green); }
 .notice { background: #fff7c7; border: 1px solid var(--gold); border-radius: .8rem; padding: .85rem; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .75rem; }
 .compact-grid { grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); }
@@ -106,6 +106,36 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   white-space: nowrap;
   border: 0;
 }
+.planner-panel {
+  background: #fbfdf9;
+  box-shadow: none;
+}
+.planner-actions { justify-content: flex-start; }
+.absence-ranges {
+  display: grid;
+  gap: .5rem;
+  margin-top: .8rem;
+}
+.absence-chip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+  border-radius: .8rem;
+  padding: .65rem;
+  border: 1px solid var(--line);
+  font-weight: 800;
+}
+.absence-chip button {
+  min-height: 36px;
+  padding: .35rem .7rem;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid currentColor;
+}
+.absence-chip-sick, .absence-sick { background: #ffe5de; border-color: #c76d57; }
+.absence-chip-holiday, .absence-holiday { background: #e4f4ff; border-color: #71a9c9; }
+.absence-chip-time-off, .absence-time-off { background: #fff1b8; border-color: #d5b64a; }
 .section-heading {
   display: flex;
   align-items: center;
@@ -271,7 +301,7 @@ code { background: #eef5ec; border: 1px solid var(--line); padding: .1rem .35rem
   .header-actions { width: 100%; }
   .header-actions a { flex: 1; text-align: center; }
   .app-main { padding: .55rem; }
-  .card, .summary-card { border-radius: .85rem; padding: .8rem; margin: .75rem 0; }
+  .card, .summary-card, .planner-panel { border-radius: .85rem; padding: .8rem; margin: .75rem 0; }
   .day-card { border-radius: .85rem; padding: .7rem; }
   .form-grid, .compact-grid, .toggle-row { grid-template-columns: 1fr; gap: .62rem; }
   .section-heading { align-items: center; }
@@ -289,4 +319,6 @@ code { background: #eef5ec; border: 1px solid var(--line); padding: .1rem .35rem
   .summary-grid span { font-size: 1.05rem; }
   .action-bar { flex-direction: column; }
   .action-bar button { width: 100%; }
+  .absence-chip { align-items: stretch; flex-direction: column; }
+  .absence-chip button { width: 100%; }
 }
