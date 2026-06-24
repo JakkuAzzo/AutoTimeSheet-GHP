@@ -7,7 +7,6 @@ const summaryOutput = document.getElementById('summary-output');
 const formError = document.getElementById('form-error');
 const employeeName = document.getElementById('employee-name');
 const weekStart = document.getElementById('week-start');
-const employeePhone = document.getElementById('employee-phone');
 const payloadInput = document.getElementById('timesheet-payload');
 const calculatedSummaryInput = document.getElementById('calculated-summary');
 const saveDraftBtn = document.getElementById('save-draft-btn');
@@ -28,13 +27,14 @@ function parseTimeToMinutes(value) {
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return h * 60 + m;
 }
+function isAbsent(row) {
+  return row.absenceStatus && row.absenceStatus !== 'NA';
+}
 function parseLunchMinutes(row) {
-  if (!row.lunchHad) return 0;
-  const mins = Number(row.lunchMinutes || 0);
-  return Number.isFinite(mins) && mins > 0 ? mins : 0;
+  return row.lunchHad ? 60 : 0;
 }
 function workedMinutes(row) {
-  if (row.absent) return 0;
+  if (isAbsent(row)) return 0;
   const start = parseTimeToMinutes(row.start);
   const finish = parseTimeToMinutes(row.finish);
   if (start === null || finish === null) return null;
@@ -71,16 +71,17 @@ function calculateRows(rows) {
   let weekdayBasicUsed = 0;
   return rows.map((row) => {
     const day = dayName(row.date);
+    const absent = isAbsent(row);
     const total = workedMinutes(row);
-    if (row.absent) return { ...row, dayName:day, total:0, basic:0, ot15:0, ot20:0, note:'Absent day.' };
-    if (total === null) return { ...row, dayName:day, total:null, basic:0, ot15:0, ot20:0, error:'Start and finish are required unless absent.' };
-    if (day === 'Sunday') return { ...row, dayName:day, total, basic:0, ot15:0, ot20:total, note:'Sunday is OT x2.0.' };
-    if (day === 'Saturday') return { ...row, dayName:day, ...splitSaturday(row), note:'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
+    if (absent) return { ...row, dayName:day, total:0, basic:0, ot15:0, ot20:0, absent:true, note:`${row.absenceStatus} day.` };
+    if (total === null) return { ...row, dayName:day, total:null, basic:0, ot15:0, ot20:0, absent:false, error:'Start and finish are required unless absence status is Sick, Holiday or Time Off.' };
+    if (day === 'Sunday') return { ...row, dayName:day, total, basic:0, ot15:0, ot20:total, absent:false, note:'Sunday is OT x2.0.' };
+    if (day === 'Saturday') return { ...row, dayName:day, ...splitSaturday(row), absent:false, note:'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
     const allowance = Math.max(0, 40 * 60 - weekdayBasicUsed);
     const basic = Math.min(total, allowance);
     const ot15 = total - basic;
     weekdayBasicUsed += basic;
-    return { ...row, dayName:day, total, basic, ot15, ot20:0, note:ot15 ? 'Weekday excess after 40h is OT x1.5.' : 'Weekday basic time.' };
+    return { ...row, dayName:day, total, basic, ot15, ot20:0, absent:false, note:ot15 ? 'Weekday excess after 40h is OT x1.5.' : 'Weekday basic time.' };
   });
 }
 function totalsFor(calculatedRows) {
@@ -109,6 +110,7 @@ function addDay(data = {}) {
   dayCount += 1;
   const index = dayCount;
   const dateValue = data.date || defaultDateForNextDay();
+  const absenceStatus = data.absenceStatus || 'NA';
   const card = document.createElement('article');
   card.className = data.collapsed ? 'day-card is-collapsed' : 'day-card';
   card.dataset.dayIndex = String(index);
@@ -125,12 +127,9 @@ function addDay(data = {}) {
       <button type="button" class="icon-btn remove-day" aria-label="Remove day ${index}">Remove</button>
     </div>
     <div class="day-card-body" id="day_body_${index}">
-      <div class="form-grid day-grid compact-grid">
+      <div class="form-grid day-grid compact-grid core-fields">
         <label>Date
           <input type="date" name="day_${index}_date" data-field="date" value="${dateValue}" />
-        </label>
-        <label>Location / site
-          <input type="text" name="day_${index}_location" data-field="location" value="${escapeAttr(data.location || '')}" placeholder="Site or job address" />
         </label>
         <label>Start
           <input type="time" name="day_${index}_start" data-field="start" value="${escapeAttr(data.start || '')}" />
@@ -138,23 +137,33 @@ function addDay(data = {}) {
         <label>Finish
           <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeAttr(data.finish || '')}" />
         </label>
-      </div>
-      <div class="toggle-row">
-        <label class="check-card"><input type="checkbox" data-field="lunchHad" ${data.lunchHad ? 'checked' : ''} /> Lunch had?</label>
-        <label class="check-card"><input type="checkbox" data-field="absent" ${data.absent ? 'checked' : ''} /> Absent this day?</label>
-      </div>
-      <div class="form-grid lunch-row compact-grid">
-        <label>Lunch minutes
-          <input type="number" min="0" step="5" inputmode="numeric" data-field="lunchMinutes" value="${escapeAttr(data.lunchMinutes || (data.lunchHad ? '60' : ''))}" placeholder="e.g. 60" />
-        </label>
-        <label class="file-pick">Images / job photos
-          <span class="file-control"><span class="file-button">Choose photos</span><span class="file-name">No photos selected</span></span>
-          <input type="file" data-field="images" name="day_${index}_images" accept="image/*" multiple />
+        <label>Absence
+          <select name="day_${index}_absence_status" data-field="absenceStatus">
+            <option value="NA" ${absenceStatus === 'NA' ? 'selected' : ''}>NA</option>
+            <option value="Sick" ${absenceStatus === 'Sick' ? 'selected' : ''}>Sick</option>
+            <option value="Holiday" ${absenceStatus === 'Holiday' ? 'selected' : ''}>Holiday</option>
+            <option value="Time Off" ${absenceStatus === 'Time Off' ? 'selected' : ''}>Time Off</option>
+          </select>
         </label>
       </div>
-      <label>Description
-        <textarea data-field="description" name="day_${index}_description" rows="3" placeholder="Work completed, issues, materials, notes">${escapeHtml(data.description || '')}</textarea>
-      </label>
+      <div class="toggle-row lunch-row-core">
+        <label class="check-card"><input type="checkbox" data-field="lunchHad" ${data.lunchHad ? 'checked' : ''} /> Lunch had? <span class="hint-inline">Deducts 1 hour</span></label>
+      </div>
+      <details class="additional-fields">
+        <summary>Additional fields <span>optional</span></summary>
+        <div class="additional-fields-body">
+          <label>Location / site
+            <input type="text" name="day_${index}_location" data-field="location" value="${escapeAttr(data.location || '')}" placeholder="Optional site or job address" />
+          </label>
+          <label class="file-pick">Images / job photos
+            <span class="file-control"><span class="file-button">Choose photos</span><span class="file-name">No photos selected</span></span>
+            <input type="file" data-field="images" name="day_${index}_images" accept="image/*" multiple />
+          </label>
+          <label>Description of work / notes
+            <textarea data-field="description" name="day_${index}_description" rows="3" placeholder="Optional notes">${escapeHtml(data.description || '')}</textarea>
+          </label>
+        </div>
+      </details>
     </div>
     <div class="day-result" aria-live="polite"></div>
   `;
@@ -168,6 +177,7 @@ function addDay(data = {}) {
   });
   card.querySelector('.collapse-day').addEventListener('click', () => toggleDayCard(card));
   card.querySelector('[data-field="images"]').addEventListener('change', (event) => updateFileLabel(event.currentTarget));
+  applyAbsenceState(card);
   recalculate();
 }
 function toggleDayCard(card, forceCollapsed = null) {
@@ -185,6 +195,25 @@ function updateFileLabel(input) {
   const count = input.files ? input.files.length : 0;
   label.textContent = count === 0 ? 'No photos selected' : `${count} photo${count === 1 ? '' : 's'} selected`;
 }
+function applyAbsenceState(card) {
+  const status = card.querySelector('[data-field="absenceStatus"]')?.value || 'NA';
+  const locked = status !== 'NA';
+  card.classList.toggle('is-absence', locked);
+  ['start', 'finish', 'lunchHad', 'location', 'images', 'description'].forEach((field) => {
+    const input = card.querySelector(`[data-field="${field}"]`);
+    if (!input) return;
+    input.disabled = locked;
+    if (locked) {
+      if (input.type === 'checkbox') input.checked = false;
+      else if (input.type !== 'file') input.value = '';
+    }
+  });
+  const details = card.querySelector('.additional-fields');
+  if (details) {
+    if (locked) details.removeAttribute('open');
+    details.classList.toggle('is-disabled', locked);
+  }
+}
 function getRows() {
   return [...document.querySelectorAll('.day-card')].map((card, i) => {
     const get = (field) => card.querySelector(`[data-field="${field}"]`);
@@ -192,12 +221,11 @@ function getRows() {
       label:`Day ${i + 1}`,
       collapsed:card.classList.contains('is-collapsed'),
       date:get('date')?.value || '',
-      location:get('location')?.value || '',
       start:get('start')?.value || '',
       finish:get('finish')?.value || '',
       lunchHad:!!get('lunchHad')?.checked,
-      lunchMinutes:get('lunchMinutes')?.value || '',
-      absent:!!get('absent')?.checked,
+      absenceStatus:get('absenceStatus')?.value || 'NA',
+      location:get('location')?.value || '',
       description:get('description')?.value || ''
     };
   });
@@ -208,8 +236,9 @@ function updateMiniSummary(card, row) {
   const bits = [];
   if (row.dayName) bits.push(row.dayName);
   if (row.date) bits.push(row.date);
-  if (row.absent) bits.push('Absent');
+  if (isAbsent(row)) bits.push(row.absenceStatus);
   else if (row.start || row.finish) bits.push(`${row.start || '?'}–${row.finish || '?'}`);
+  if (!isAbsent(row) && row.lunchHad) bits.push('Lunch 1h');
   if (row.location) bits.push(row.location);
   summary.textContent = bits.length ? bits.join(' · ') : 'Not filled in yet';
 }
@@ -222,6 +251,7 @@ function recalculate() {
     if (!out) return;
     updateMiniSummary(card, row);
     if (row.error) out.innerHTML = `<span class="pill bad">${row.error}</span>`;
+    else if (row.absent) out.innerHTML = `<span class="pill warn">${row.absenceStatus}</span><span>Worked 0h 00m</span>`;
     else out.innerHTML = `<span class="pill">${row.dayName || 'No date'}</span><span>Worked ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span><span>OT 1.5 ${fmtMinutes(row.ot15)}</span><span>OT 2.0 ${fmtMinutes(row.ot20)}</span>`;
   });
   const weighted = totals.basic / 60 + (totals.ot15 / 60) * 1.5 + (totals.ot20 / 60) * 2;
@@ -231,18 +261,17 @@ function recalculate() {
     <div><strong>OT x1.5</strong><span>${fmtMinutes(totals.ot15)}</span></div>
     <div><strong>OT x2.0</strong><span>${fmtMinutes(totals.ot20)}</span></div>
     <div><strong>Paid weighted hours</strong><span>${weighted.toFixed(2)}h</span></div>
-    <div><strong>Absent days</strong><span>${totals.absent}</span></div>
+    <div><strong>Absence days</strong><span>${totals.absent}</span></div>
   `;
   const payload = buildPayload(calculated, totals, weighted);
   payloadInput.value = JSON.stringify(payload, null, 2);
-  calculatedSummaryInput.value = `Actual ${fmtMinutes(totals.total)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h`;
+  calculatedSummaryInput.value = `Actual ${fmtMinutes(totals.total)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Absence days ${totals.absent}`;
   return { calculated, totals, weighted, payload };
 }
 function buildPayload(calculated, totals, weighted) {
   return {
     submittedAt:new Date().toISOString(),
     employeeName:employeeName.value.trim(),
-    employeePhone:employeePhone.value.trim(),
     weekStart:weekStart.value,
     totals:{ ...totals, weightedHours:weighted },
     rows:calculated
@@ -260,6 +289,8 @@ function clearError() {
 }
 function handleInput(event) {
   clearError();
+  const card = event?.target?.closest('.day-card');
+  if (event?.target?.matches('[data-field="absenceStatus"]') && card) applyAbsenceState(card);
   if (event?.target?.matches('[data-field="images"]')) updateFileLabel(event.target);
   recalculate();
   scheduleDraftSave();
@@ -273,7 +304,6 @@ function saveDraft() {
   const draft = {
     employeeName:employeeName.value,
     weekStart:weekStart.value,
-    employeePhone:employeePhone.value,
     rows:getRows()
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
@@ -285,7 +315,6 @@ function loadDraft() {
     const draft = JSON.parse(raw);
     employeeName.value = draft.employeeName || '';
     weekStart.value = draft.weekStart || '';
-    employeePhone.value = draft.employeePhone || '';
     daysContainer.innerHTML = '';
     dayCount = 0;
     (draft.rows || []).forEach(addDay);
@@ -336,7 +365,7 @@ addDayBtn.addEventListener('click', () => {
 saveDraftBtn.addEventListener('click', () => { saveDraft(); showError('Draft saved on this device.'); });
 clearDraftBtn.addEventListener('click', () => { if (confirm('Clear this draft?')) clearDraft(); });
 form.addEventListener('submit', submitTimesheet);
-[employeeName, weekStart, employeePhone].forEach((el) => {
+[employeeName, weekStart].forEach((el) => {
   el.addEventListener('input', handleInput);
   el.addEventListener('change', handleInput);
 });
