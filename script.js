@@ -117,7 +117,7 @@ function addDay(data = {}) {
   card.innerHTML = `
     <div class="day-card-header">
       <button type="button" class="collapse-day" aria-expanded="${data.collapsed ? 'false' : 'true'}" aria-controls="day_body_${index}">
-        <span class="collapse-icon" aria-hidden="true">${data.collapsed ? '+' : '−'}</span>
+        <span class="collapse-icon" aria-hidden="true">${data.collapsed ? '-' : '^'}</span>
         <span class="sr-only">Toggle day ${index}</span>
       </button>
       <div class="day-title-block">
@@ -186,7 +186,7 @@ function toggleDayCard(card, forceCollapsed = null) {
   const button = card.querySelector('.collapse-day');
   const icon = card.querySelector('.collapse-icon');
   if (button) button.setAttribute('aria-expanded', String(!willCollapse));
-  if (icon) icon.textContent = willCollapse ? '+' : '−';
+  if (icon) icon.textContent = willCollapse ? '-' : '^';
   saveDraft();
 }
 function updateFileLabel(input) {
