@@ -5,10 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GMT Operations Portal</title>
   <meta name="description" content="GMT operations portal for timesheets, job cards, tasks, organization settings, notifications, and calendar planning." />
-  <link rel="stylesheet" href="styles.css?v=fast-nav-20260624" />
-  <link rel="stylesheet" href="portal.css?v=fast-nav-20260624" />
-  <link rel="stylesheet" href="navigation-cleanup.css?v=fast-nav-20260624" />
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css?v=lazy-xlsx-20260624" />
+  <link rel="stylesheet" href="portal.css?v=lazy-xlsx-20260624" />
+  <link rel="stylesheet" href="navigation-cleanup.css?v=lazy-xlsx-20260624" />
 </head>
 <body>
   <header class="app-header portal-header"><div><p class="eyebrow">GMT Electrical Services</p><h1>Operations Portal</h1><p>Manage timesheets, job cards, tasks, calendar planning, and organization settings from one place.</p></div><nav class="header-actions clean-main-nav" aria-label="Main navigation"><button type="button" class="clean-nav-btn active" data-clean-tab="dashboard">Dashboard</button><button type="button" class="clean-nav-btn" data-clean-tab="timesheets">Timesheets</button><button type="button" class="clean-nav-btn" data-clean-tab="job-cards">Job Cards</button><button type="button" class="clean-nav-btn" data-clean-tab="tasks">Tasks</button><button type="button" class="clean-nav-btn" data-clean-tab="calendar">Calendar</button></nav></header>
@@ -22,11 +21,12 @@
     <section class="portal-panel" data-panel="calendar"><div class="card intro-card"><h2>Calendar Integration</h2><p>Shared calendar prototype for events, sick-day requests, holiday requests, and admin approval status.</p></div><div class="portal-two-column"><form class="card portal-form" id="calendar-form"><h3>Add calendar event</h3><label>Event title<input id="calendar-title" placeholder="Event title" /></label><label>Date<input id="calendar-date" type="date" /></label><label>Type<select id="calendar-type"><option>General</option><option>Job</option><option>Sick Day</option><option>Holiday</option><option>Training</option></select></label><label>Owner / requester<input id="calendar-owner" placeholder="Name" /></label><label>Notes<textarea id="calendar-notes" rows="3" placeholder="Event notes"></textarea></label><button type="submit">Add event</button></form><section class="card"><h3>Linked calendar</h3><p class="small-text">Export a universal .ics file for Outlook, Apple Calendar, Google Calendar, and other calendar apps.</p><div class="action-bar" style="justify-content:flex-start;"><button type="button" id="export-ics-btn" class="secondary">Export Calendar .ics</button></div><div id="calendar-list" class="portal-list"></div></section></div></section>
   </main>
   <footer class="app-footer"><p>Static preview stores new job/task/calendar data in this browser. Shared admin approval, real notifications, and organization-wide sync require the secure backend described in <code>docs/admin-magic-link-encrypted-storage.md</code>.</p></footer>
-  <script src="config.js?v=fast-nav-20260624"></script>
-  <script src="script.js?v=fast-nav-20260624"></script>
-  <script src="workbook-format.js?v=fast-nav-20260624"></script>
-  <script src="portal.js?v=fast-nav-20260624"></script>
-  <script src="portal-extensions.js?v=fast-nav-20260624"></script>
-  <script src="navigation-cleanup.js?v=fast-nav-20260624"></script>
+  <script src="config.js?v=lazy-xlsx-20260624"></script>
+  <script src="lazy-xlsx.js?v=lazy-xlsx-20260624"></script>
+  <script src="script.js?v=lazy-xlsx-20260624"></script>
+  <script src="workbook-format.js?v=lazy-xlsx-20260624"></script>
+  <script src="portal.js?v=lazy-xlsx-20260624"></script>
+  <script src="portal-extensions.js?v=lazy-xlsx-20260624"></script>
+  <script src="navigation-cleanup.js?v=lazy-xlsx-20260624"></script>
 </body>
 </html>
