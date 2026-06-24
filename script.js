@@ -1,5 +1,5 @@
 const CONFIG = window.GMT_APP_CONFIG || {};
-const STORAGE_KEY = 'gmt_guest_timesheet_draft_v3';
+const STORAGE_KEY = 'gmt_guest_timesheet_draft_v4';
 const HOLIDAY_PAID_MINUTES = 8 * 60;
 const BASIC_DAY_MINUTES = 8 * 60;
 
@@ -92,7 +92,6 @@ function calculateRows(rows) {
     if (row.absenceStatus === 'Sick') {
       return { ...row, dayName:day, workedActual:0, total:0, basic:0, ot15:0, ot20:0, absent:true, paid:false, sick:true, note:'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
     }
-
     const actual = workedMinutes(row);
     if (actual === null) {
       return { ...row, dayName:day, workedActual:null, total:null, basic:0, ot15:0, ot20:0, absent:false, paid:true, error:'Start and finish are required unless absence reason is Sick or Holiday.' };
@@ -103,10 +102,8 @@ function calculateRows(rows) {
       }
       return { ...row, dayName:day, workedActual:actual, total:actual, basic:actual, ot15:0, ot20:0, absent:false, paid:true, note:'Partial day with Time Off. Only completed hours are counted as basic.' };
     }
-
     if (day === 'Sunday') return { ...row, dayName:day, workedActual:actual, total:actual, basic:0, ot15:0, ot20:actual, absent:false, paid:true, note:'Sunday is OT x2.0.' };
     if (day === 'Saturday') return { ...row, dayName:day, ...splitSaturday(row), absent:false, paid:true, note:'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
-
     const basic = BASIC_DAY_MINUTES;
     const ot15 = Math.max(0, actual - BASIC_DAY_MINUTES);
     const total = basic + ot15;
@@ -298,7 +295,7 @@ function recalculate() {
   summaryOutput.innerHTML = `
     <div><strong>Worked hours</strong><span>${fmtMinutes(totals.workedActual)}</span></div>
     <div><strong>Paid hours</strong><span>${fmtMinutes(totals.total)}</span></div>
-    <div><strong>Basic</strong><span>${fmtMinutes(totals.basic)}</span></div>
+    <div><strong>Paid Basic</strong><span>${fmtMinutes(totals.basic)}</span></div>
     <div><strong>OT x1.5</strong><span>${fmtMinutes(totals.ot15)}</span></div>
     <div><strong>OT x2.0</strong><span>${fmtMinutes(totals.ot20)}</span></div>
     <div><strong>Paid weighted hours</strong><span>${weighted.toFixed(2)}h</span></div>
@@ -308,7 +305,7 @@ function recalculate() {
   `;
   const payload = buildPayload(calculated, totals, weighted);
   payloadInput.value = JSON.stringify(payload, null, 2);
-  calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Paid ${fmtMinutes(totals.total)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
+  calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Paid ${fmtMinutes(totals.total)} | Paid Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
   return { calculated, totals, weighted, payload };
 }
 function buildPayload(calculated, totals, weighted) {
@@ -373,6 +370,11 @@ function clearError() {
   formError.classList.add('hidden');
   formError.classList.remove('success');
   formError.classList.add('banner');
+}
+function showSuccess(message) {
+  formError.textContent = message;
+  formError.classList.remove('hidden', 'banner');
+  formError.classList.add('success');
 }
 function handleInput(event) {
   clearError();
@@ -444,7 +446,7 @@ function buildWorkbook(calculated, totals, weighted) {
     ['Week end', weekEnd.value],
     ['Worked hours', totals.workedActual / 60],
     ['Paid hours', totals.total / 60],
-    ['Basic hours', totals.basic / 60],
+    ['Paid Basic hours', totals.basic / 60],
     ['OT x1.5 hours', totals.ot15 / 60],
     ['OT x2.0 hours', totals.ot20 / 60],
     ['Paid weighted hours', weighted],
@@ -464,7 +466,7 @@ function buildWorkbook(calculated, totals, weighted) {
     Description: row.description,
     'Worked actual hours': (row.workedActual || 0) / 60,
     'Paid hours': (row.total || 0) / 60,
-    'Basic hours': (row.basic || 0) / 60,
+    'Paid Basic hours': (row.basic || 0) / 60,
     'OT x1.5 hours': (row.ot15 || 0) / 60,
     'OT x2.0 hours': (row.ot20 || 0) / 60,
     Note: row.note || row.error || ''
@@ -479,6 +481,85 @@ function buildWorkbook(calculated, totals, weighted) {
     type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   });
 }
+function csvEscape(value) {
+  const text = String(value ?? '');
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+function buildCsvFile(calculated, totals, weighted) {
+  const header = ['Day','Date','Weekday','Start','Finish','Lunch','Absence reason','Location','Description','Worked actual hours','Paid hours','Paid Basic hours','OT x1.5 hours','OT x2.0 hours','Note'];
+  const rows = calculated.map((row) => [
+    row.label,
+    row.date,
+    row.dayName,
+    row.start,
+    row.finish,
+    row.lunchHad ? 'Yes - 1h deducted' : 'No',
+    row.absenceStatus,
+    row.location,
+    row.description,
+    ((row.workedActual || 0) / 60).toFixed(2),
+    ((row.total || 0) / 60).toFixed(2),
+    ((row.basic || 0) / 60).toFixed(2),
+    ((row.ot15 || 0) / 60).toFixed(2),
+    ((row.ot20 || 0) / 60).toFixed(2),
+    row.note || row.error || ''
+  ]);
+  const summary = [
+    ['Summary'],
+    ['Employee', employeeName.value.trim()],
+    ['Employee email', employeeEmail.value.trim()],
+    ['Week start', weekStart.value],
+    ['Week end', weekEnd.value],
+    ['Worked hours', (totals.workedActual / 60).toFixed(2)],
+    ['Paid hours', (totals.total / 60).toFixed(2)],
+    ['Paid Basic hours', (totals.basic / 60).toFixed(2)],
+    ['OT x1.5 hours', (totals.ot15 / 60).toFixed(2)],
+    ['OT x2.0 hours', (totals.ot20 / 60).toFixed(2)],
+    ['Paid weighted hours', weighted.toFixed(2)],
+    [],
+    header,
+    ...rows
+  ];
+  const csv = summary.map((row) => row.map(csvEscape).join(',')).join('\r\n');
+  return new File([csv], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - ${weekStart.value || 'week'}.csv`, { type:'text/csv' });
+}
+function setFileInputFiles(input, files) {
+  const dt = new DataTransfer();
+  files.forEach((file) => dt.items.add(file));
+  input.files = dt.files;
+}
+function formSubmitEndpoint() {
+  return String(CONFIG.formSubmitEndpoint || '').replace('/ajax/', '/');
+}
+function ensureEmailForm() {
+  let emailForm = document.getElementById('formsubmit-clean-form');
+  if (emailForm) return emailForm;
+  const iframe = document.createElement('iframe');
+  iframe.name = 'formsubmit-frame';
+  iframe.hidden = true;
+  document.body.appendChild(iframe);
+  emailForm = document.createElement('form');
+  emailForm.id = 'formsubmit-clean-form';
+  emailForm.method = 'POST';
+  emailForm.enctype = 'multipart/form-data';
+  emailForm.target = 'formsubmit-frame';
+  emailForm.hidden = true;
+  emailForm.innerHTML = `
+    <input type="hidden" name="_subject" value="GMT Weekly Timesheet Submission">
+    <input type="hidden" name="_template" value="box">
+    <input type="hidden" name="_captcha" value="false">
+    <input type="hidden" name="_replyto" data-clean-field="replyto">
+    <input type="hidden" name="_cc" data-clean-field="cc">
+    <input type="hidden" name="employee_name" data-clean-field="employeeName">
+    <input type="hidden" name="email" data-clean-field="employeeEmail">
+    <input type="hidden" name="summary" data-clean-field="summary">
+    <input type="hidden" name="message" data-clean-field="message">
+    <input type="file" name="attachment" data-clean-field="xlsx">
+    <input type="file" name="attachment_csv" data-clean-field="csv">
+  `;
+  document.body.appendChild(emailForm);
+  return emailForm;
+}
 async function submitTimesheet(event) {
   event.preventDefault();
   clearError();
@@ -487,24 +568,24 @@ async function submitTimesheet(event) {
   if (!getRows().length) return showError('Please add at least one day.');
   if (totals.errors.length) return showError(totals.errors.join(' '));
   if (!CONFIG.formSubmitEndpoint) return showError('FormSubmit is not configured yet. Set window.GMT_APP_CONFIG.formSubmitEndpoint in config.js.');
-  const formData = new FormData(form);
-  const ccRecipients = [CONFIG.formSubmitCc, employeeEmail.value.trim()].filter(Boolean).join(',');
-  if (ccRecipients) formData.append('_cc', ccRecipients);
-  if (employeeEmail.value.trim()) formData.append('_replyto', employeeEmail.value.trim());
-  formData.append('attachment', buildWorkbook(calculated, totals, weighted));
   try {
-    const response = await fetch(CONFIG.formSubmitEndpoint, { method:'POST', body:formData, headers:{ Accept:'application/json' } });
-    if (!response.ok) throw new Error('FormSubmit rejected the submission.');
-    localStorage.removeItem(STORAGE_KEY);
-    form.reset();
-    absenceRanges = [];
-    renderAbsenceRanges();
-    daysContainer.innerHTML = '';
-    dayCount = 0;
-    addDay();
-    showError('Timesheet submitted successfully.');
-    formError.classList.remove('banner');
-    formError.classList.add('success');
+    const endpoint = formSubmitEndpoint();
+    const xlsxFile = buildWorkbook(calculated, totals, weighted);
+    const csvFile = buildCsvFile(calculated, totals, weighted);
+    const emailForm = ensureEmailForm();
+    emailForm.action = endpoint;
+    const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
+    const userEmail = employeeEmail.value.trim();
+    field('replyto').value = userEmail;
+    field('cc').value = [CONFIG.formSubmitCc, userEmail].filter(Boolean).join(',');
+    field('employeeName').value = employeeName.value.trim();
+    field('employeeEmail').value = userEmail;
+    field('summary').value = calculatedSummaryInput.value;
+    field('message').value = 'Timesheet spreadsheets are attached. Please use the XLSX or CSV attachment for payroll/audit. The visible form field table has been intentionally reduced to avoid confusion.';
+    setFileInputFiles(field('xlsx'), [xlsxFile]);
+    setFileInputFiles(field('csv'), [csvFile]);
+    emailForm.submit();
+    showSuccess('Timesheet sent with generated XLSX and CSV attachments. Check the inbox for the spreadsheet files.');
   } catch (err) {
     showError(err.message || 'Submission failed.');
   }
