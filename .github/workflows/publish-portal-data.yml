@@ -1,0 +1,96 @@
+name: Publish portal data
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_kind:
+        description: "Data type to publish"
+        required: true
+        default: "job-cards"
+        type: choice
+        options:
+          - job-cards
+          - tasks
+          - calendar-events
+          - calendar-ics
+      json_payload:
+        description: "JSON payload for job-cards, tasks, or calendar-events. Use [] to leave unchanged."
+        required: false
+        default: "[]"
+        type: string
+      ics_payload:
+        description: "ICS payload for calendar-ics. Leave blank unless publishing calendar feed."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish selected data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/job-cards data/tasks data/calendar
+          kind='${{ inputs.data_kind }}'
+          json_payload='${{ inputs.json_payload }}'
+          ics_payload='${{ inputs.ics_payload }}'
+
+          write_json_and_csv () {
+            local json_path="$1"
+            local csv_path="$2"
+            local headers="$3"
+            printf '%s' "$json_payload" > "$json_path"
+            python3 - "$json_path" "$csv_path" "$headers" <<'PY'
+import csv, json, sys
+json_path, csv_path, headers_arg = sys.argv[1:]
+headers = headers_arg.split(',')
+with open(json_path, encoding='utf-8') as f:
+    data = json.load(f)
+if not isinstance(data, list):
+    raise SystemExit('JSON payload must be a list of records')
+with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+    writer = csv.DictWriter(f, fieldnames=headers, extrasaction='ignore')
+    writer.writeheader()
+    for row in data:
+        if isinstance(row, dict):
+            writer.writerow(row)
+PY
+          }
+
+          case "$kind" in
+            job-cards)
+              write_json_and_csv data/job-cards/job-cards.json data/job-cards/job-cards.csv 'id,ref,client,site,engineer,date,status,description,updatedAt'
+              ;;
+            tasks)
+              write_json_and_csv data/tasks/tasks.json data/tasks/tasks.csv 'id,title,jobRef,assignee,due,priority,status,updatedAt'
+              ;;
+            calendar-events)
+              write_json_and_csv data/calendar/events.json data/calendar/events.csv 'id,title,date,type,owner,status,notes,updatedAt'
+              ;;
+            calendar-ics)
+              if [ -z "$ics_payload" ]; then echo 'ICS payload is empty' >&2; exit 1; fi
+              printf '%s' "$ics_payload" > data/calendar/gmt-calendar.ics
+              ;;
+          esac
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/
+          if git diff --cached --quiet; then
+            echo 'No data changes to commit.'
+          else
+            git commit -m "Publish portal data"
+            git push
+          fi
