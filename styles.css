@@ -3,8 +3,8 @@
   --card: #ffffff;
   --ink: #111111;
   --muted: #4b5563;
-  --green: #214d2f;
-  --green-2: #376843;
+  --green: #123d1d;
+  --green-2: #1f5a31;
   --gold: #d5b64a;
   --danger: #8a1f11;
   --danger-bg: #ffe5de;
@@ -40,6 +40,7 @@ button.secondary { background: #eaf3e7; color: var(--ink); border: 1px solid var
 button.danger { border-color: var(--danger); color: var(--danger); }
 button:hover { filter: brightness(1.06); }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.in-progress-badge { display: inline-flex; align-items: center; width: fit-content; margin-top: .45rem; border-radius: 999px; padding: .2rem .55rem; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); font-size: .82rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
 .days-container { display: grid; gap: 1rem; }
 .day-card { background: #fff; border: 2px solid var(--line); border-radius: 1.15rem; padding: 1rem; margin: 1rem 0; box-shadow: 0 10px 24px rgba(0,0,0,.08); overflow: hidden; }
 .day-card-header { display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center; }
