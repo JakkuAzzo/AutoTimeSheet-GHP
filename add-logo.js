@@ -1,7 +1,7 @@
 (() => {
   function logoPath() {
     const nested = location.pathname.includes('/timesheets/') || location.pathname.includes('/jobs/') || location.pathname.includes('/tasks/') || location.pathname.includes('/calendar/');
-    return nested ? '../assets/gmt-logo.svg' : 'assets/gmt-logo.svg';
+    return nested ? '../image.png' : 'image.png';
   }
   function addLogo() {
     const header = document.querySelector('.app-header');
