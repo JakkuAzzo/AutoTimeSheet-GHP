@@ -16,8 +16,8 @@ html { font-size: 15px; }
 body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
 .app-header { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: 1.2rem; background: linear-gradient(135deg, var(--green), var(--green-2)); color: #fff; border-bottom: 4px solid var(--gold); }
 .brand-block { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.site-logo { width: 140px; max-width: 100%; height: auto; display: block; background: #fff; border-radius: .75rem; padding: .35rem; box-shadow: 0 8px 20px rgba(0,0,0,.16); }
-.site-logo.small-logo { width: 105px; }
+.site-logo { width: min(290px, 46vw); height: auto; display: block; background: #fff; border-radius: .75rem; padding: .4rem; box-shadow: 0 8px 20px rgba(0,0,0,.16); object-fit: contain; }
+.site-logo.small-logo { width: min(210px, 40vw); }
 .app-header h1 { margin: .1rem 0; font-size: clamp(1.6rem, 5vw, 2.6rem); }
 .app-header p { margin: 0; max-width: 60rem; }
 .eyebrow { font-size: .8rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; color: #fff3b8; }
@@ -64,8 +64,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .app-main { padding: .65rem; }
   .app-header { align-items: flex-start; flex-direction: column; }
   .brand-block { align-items: flex-start; flex-direction: column; }
-  .site-logo { width: 110px; }
-  .site-logo.small-logo { width: 92px; }
+  .site-logo { width: min(260px, 72vw); }
+  .site-logo.small-logo { width: min(210px, 64vw); }
   .day-card { padding: .85rem; border-radius: 1rem; margin: .85rem 0; }
   .day-card-header { grid-template-columns: auto 1fr; }
   .remove-day { grid-column: 1 / -1; justify-self: start; }
