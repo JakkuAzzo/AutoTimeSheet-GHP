@@ -21,6 +21,23 @@
     document.querySelectorAll('.day-card').forEach(syncBreakControl);
   }
 
+  function syncCardVisibility(card) {
+    if (!card) return;
+    const collapsed = card.classList.contains('is-collapsed');
+    const body = card.querySelector('.day-card-body');
+    const result = card.querySelector('.day-result');
+    if (body) body.hidden = collapsed;
+    if (result) result.hidden = collapsed;
+    const button = card.querySelector('.collapse-day');
+    const icon = card.querySelector('.collapse-icon');
+    if (button) button.setAttribute('aria-expanded', String(!collapsed));
+    if (icon) icon.textContent = collapsed ? '-' : '^';
+  }
+
+  function syncAllCardVisibility() {
+    document.querySelectorAll('.day-card').forEach(syncCardVisibility);
+  }
+
   function patchAbsenceState() {
     if (window.__gmtAbsencePatchInstalled) return;
     window.__gmtAbsencePatchInstalled = true;
@@ -37,10 +54,7 @@
     if (!card) return;
     const willCollapse = !card.classList.contains('is-collapsed');
     card.classList.toggle('is-collapsed', willCollapse);
-    const button = card.querySelector('.collapse-day');
-    const icon = card.querySelector('.collapse-icon');
-    if (button) button.setAttribute('aria-expanded', String(!willCollapse));
-    if (icon) icon.textContent = willCollapse ? '-' : '^';
+    syncCardVisibility(card);
     if (typeof saveDraft === 'function') saveDraft();
   }
 
@@ -58,6 +72,15 @@
       toggleCard(button.closest('.day-card'));
     }, true);
 
+    container.addEventListener('touchend', (event) => {
+      const button = event.target.closest('.collapse-day');
+      if (!button) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      lastPointerToggle = Date.now();
+      toggleCard(button.closest('.day-card'));
+    }, { capture: true, passive: false });
+
     container.addEventListener('click', (event) => {
       const button = event.target.closest('.collapse-day');
       if (!button) return;
@@ -70,6 +93,7 @@
   function boot() {
     patchAbsenceState();
     syncAllBreakControls();
+    syncAllCardVisibility();
     installCollapseFix();
     document.addEventListener('change', (event) => {
       const card = event.target.closest('.day-card');
@@ -84,6 +108,7 @@
     const observer = new MutationObserver(() => {
       patchAbsenceState();
       syncAllBreakControls();
+      syncAllCardVisibility();
       installCollapseFix();
     });
     observer.observe(document.body, { childList: true, subtree: true });
