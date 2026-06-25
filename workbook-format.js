@@ -22,6 +22,17 @@ function workbookText(value) {
   return value == null ? '' : String(value);
 }
 
+function lunchMinutesFromRow(row) {
+  if (row && row.lunchMinutes !== undefined && row.lunchMinutes !== null && row.lunchMinutes !== '') return Number(row.lunchMinutes) || 0;
+  return row && row.lunchHad ? 60 : 0;
+}
+
+function workbookLunchLabel(row) {
+  const minutes = lunchMinutesFromRow(row);
+  if (!minutes) return 'No break';
+  return `${minutes} minutes deducted`;
+}
+
 function workbookCategory(row) {
   if (row.error) return 'Issue';
   if (row.absenceStatus === 'Holiday') return 'Holiday';
@@ -41,6 +52,74 @@ function workbookStatus(row) {
 
 function workbookWeighted(row) {
   return workbookHours(row.basic) + workbookHours(row.ot15) * 1.5 + workbookHours(row.ot20) * 2;
+}
+
+function installBreakDurationSupport() {
+  if (window.__gmtBreakDurationInstalled) return;
+  window.__gmtBreakDurationInstalled = true;
+
+  if (typeof parseLunchMinutes === 'function') {
+    parseLunchMinutes = function patchedParseLunchMinutes(row) {
+      return lunchMinutesFromRow(row);
+    };
+  }
+
+  if (typeof getRows === 'function') {
+    const originalGetRows = getRows;
+    getRows = function patchedGetRows() {
+      const rows = originalGetRows();
+      const cards = [...document.querySelectorAll('.day-card')];
+      return rows.map((row, index) => {
+        const lunchControl = cards[index]?.querySelector('[data-field="lunchHad"]');
+        const lunchMinutes = lunchControl?.tagName === 'SELECT' ? Number(lunchControl.value || 0) : (row.lunchHad ? 60 : 0);
+        return { ...row, lunchMinutes, lunchHad: lunchMinutes > 0 };
+      });
+    };
+  }
+
+  if (typeof addDay === 'function') {
+    const originalAddDay = addDay;
+    addDay = function patchedAddDay(data = {}) {
+      originalAddDay(data);
+      enhanceBreakControls();
+      if (typeof recalculate === 'function') recalculate();
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      enhanceBreakControls();
+      if (typeof recalculate === 'function') recalculate();
+    });
+  } else {
+    enhanceBreakControls();
+    if (typeof recalculate === 'function') recalculate();
+  }
+}
+
+function enhanceBreakControls() {
+  document.querySelectorAll('.day-card').forEach((card) => {
+    const existing = card.querySelector('[data-field="lunchHad"]');
+    if (!existing || existing.tagName === 'SELECT') return;
+    const label = existing.closest('label') || existing.parentElement;
+    if (!label) return;
+    const selected = existing.checked ? '60' : '0';
+    const select = document.createElement('select');
+    select.dataset.field = 'lunchHad';
+    select.name = existing.name || '';
+    select.innerHTML = '<option value="0">No break</option><option value="30">30 minute break</option><option value="60">1 hour break</option>';
+    select.value = selected;
+    label.textContent = 'Break taken? ';
+    label.appendChild(select);
+    const hint = document.createElement('span');
+    hint.className = 'hint-inline';
+    hint.textContent = ' Deducts selected break time';
+    label.appendChild(hint);
+    select.addEventListener('change', (event) => {
+      if (typeof handleInput === 'function') handleInput(event);
+      if (typeof recalculate === 'function') recalculate();
+    });
+  });
 }
 
 function applySheetBasics(ws, rowCount, colCount) {
@@ -89,8 +168,6 @@ function makeAllRows(calculated) {
   return calculated.map((row) => ({
     Status: workbookStatus(row),
     Category: workbookCategory(row),
-    Employee: workbookEmployeeName(),
-    'Employee email': workbookEmployeeEmail(),
     'Week start': workbookWeekStart(),
     'Week end': workbookWeekEnd(),
     Day: row.label,
@@ -98,10 +175,8 @@ function makeAllRows(calculated) {
     Weekday: row.dayName,
     Start: row.start,
     Finish: row.finish,
-    Lunch: row.lunchHad ? 'Yes - 1h deducted' : 'No',
+    Break: workbookLunchLabel(row),
     'Absence reason': row.absenceStatus || 'NA',
-    Location: row.location || '',
-    Description: row.description || '',
     'Worked hours': workbookHours(row.workedActual),
     'Paid hours': workbookHours(row.total),
     'Paid Basic hours': workbookHours(row.basic),
@@ -174,6 +249,7 @@ function makeNotesRows(calculated) {
       row.dayName,
       workbookCategory(row),
       row.absenceStatus || 'NA',
+      workbookLunchLabel(row),
       row.note || '',
       row.error || ''
     ]);
@@ -182,18 +258,16 @@ function makeNotesRows(calculated) {
     ['GMT Timesheet Notes'],
     [],
     ['How to read this workbook'],
-    ['All', 'Every day appears here. Use the filter arrows to filter by Status, Category, date, weekday, or absence reason.'],
+    ['All', 'Every day appears here. Use the filter arrows to filter by Status, Category, date, weekday, break, or absence reason.'],
     ['Totals', 'Payroll-friendly summary and category totals.'],
     ['Notes', 'Absence notes, sick-day notes, time-off warnings, and validation messages.'],
     [],
-    ['Colour key'],
-    ['Blue', 'Holiday'],
-    ['Red / peach', 'Sick'],
-    ['Yellow', 'Time Off'],
-    ['Purple', 'Weekend overtime'],
-    ['Green', 'Weekday overtime'],
+    ['Break options'],
+    ['No break', '0 minutes deducted'],
+    ['30 minute break', '30 minutes deducted'],
+    ['1 hour break', '60 minutes deducted'],
     [],
-    ['Day', 'Date', 'Weekday', 'Category', 'Absence reason', 'Note', 'Issue'],
+    ['Day', 'Date', 'Weekday', 'Category', 'Absence reason', 'Break', 'Note', 'Issue'],
     ...noteRows
   ];
 }
@@ -211,13 +285,12 @@ function buildWorkbook(calculated, totals, weighted) {
   const notesSheet = XLSX.utils.aoa_to_sheet(notesRows);
 
   allSheet['!cols'] = [
-    { wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 28 }, { wch: 12 }, { wch: 12 },
-    { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 18 },
-    { wch: 16 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 16 },
-    { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 42 }
+    { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+    { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 22 }, { wch: 16 }, { wch: 14 },
+    { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 42 }
   ];
   totalsSheet['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
-  notesSheet['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 48 }, { wch: 48 }];
+  notesSheet['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 22 }, { wch: 48 }, { wch: 48 }];
 
   applySheetBasics(allSheet, allRows.length + 1, Object.keys(allRows[0] || {}).length);
   applyAllSheetStyles(allSheet, allRows.length + 1, 1);
@@ -242,3 +315,5 @@ function buildCsvFile(calculated, totals, weighted) {
   const csv = [header, ...rows].map((row) => row.map(csvEscape).join(',')).join('\r\n');
   return new File([csv], `GMT Timesheet - ${workbookEmployeeName()} - ${workbookWeekStart() || 'week'}.csv`, { type: 'text/csv' });
 }
+
+installBreakDurationSupport();
