@@ -57,6 +57,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .day-result .bad { background: #ffe0d8; color: #80200d; }
 .day-card.is-collapsed .day-card-body,
 .day-card.is-collapsed .day-result { display: none !important; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem; }
+.summary-grid div { display: flex; justify-content: space-between; align-items: center; gap: .75rem; border: 1px solid var(--line); border-radius: .75rem; padding: .65rem .75rem; background: #fbfdf9; }
+.summary-grid strong { color: var(--green); line-height: 1.2; }
+.summary-grid span { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .additional-fields { border: 1px solid var(--line); border-radius: .8rem; padding: .65rem; background: #fbfdf9; }
 .additional-fields summary { cursor: pointer; font-weight: 900; }
 .small-text, .hint-inline { color: var(--muted); font-size: .92rem; }
@@ -71,6 +75,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .day-card-header { grid-template-columns: auto 1fr; }
   .remove-day { grid-column: 1 / -1; justify-self: start; }
   .form-grid, .compact-grid, .day-grid { grid-template-columns: 1fr; }
+  .summary-grid { grid-template-columns: 1fr; }
   .day-result { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
   .day-result span { justify-content: center; text-align: center; }
 }

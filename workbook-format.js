@@ -77,15 +77,6 @@ function installBreakDurationSupport() {
     };
   }
 
-  if (typeof addDay === 'function') {
-    const originalAddDay = addDay;
-    addDay = function patchedAddDay(data = {}) {
-      originalAddDay(data);
-      enhanceBreakControls();
-      if (typeof recalculate === 'function') recalculate();
-    };
-  }
-
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       enhanceBreakControls();

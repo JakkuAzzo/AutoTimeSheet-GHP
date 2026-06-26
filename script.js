@@ -1,5 +1,7 @@
 const CONFIG = window.GMT_APP_CONFIG || {};
 const STORAGE_KEY = 'gmt_guest_timesheet_draft_v4';
+const MAX_DRAFT_SIZE = 180000;
+const MAX_DRAFT_ROWS = 45;
 const HOLIDAY_PAID_MINUTES = 8 * 60;
 const BASIC_DAY_MINUTES = 8 * 60;
 
@@ -26,6 +28,7 @@ const clearDraftBtn = document.getElementById('clear-draft-btn');
 
 let dayCount = 0;
 let absenceRanges = [];
+let isBulkRendering = false;
 
 function pad(num) { return String(num).padStart(2, '0'); }
 function isoDate(date) { return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; }
@@ -43,7 +46,20 @@ function parseTimeToMinutes(value) {
 }
 function isFullDayAbsence(row) { return row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday'; }
 function hasAbsenceReason(row) { return row.absenceStatus && row.absenceStatus !== 'NA'; }
-function parseLunchMinutes(row) { return row.lunchHad ? 60 : 0; }
+function normaliseBreakMinutes(value) {
+  const minutes = Number(value || 0);
+  return [0, 30, 60].includes(minutes) ? minutes : 0;
+}
+function parseLunchMinutes(row) {
+  if (row?.lunchMinutes !== undefined) return normaliseBreakMinutes(row.lunchMinutes);
+  return row?.lunchHad ? 60 : 0;
+}
+function breakLabel(minutes) {
+  const value = normaliseBreakMinutes(minutes);
+  if (value === 30) return '30 minute break';
+  if (value === 60) return '1 hour break';
+  return 'No break';
+}
 function rawShiftMinutes(row) {
   const start = parseTimeToMinutes(row.start);
   const finish = parseTimeToMinutes(row.finish);
@@ -143,18 +159,30 @@ function dateInRange(date, start, end) {
 function absenceForDate(date) {
   return absenceRanges.find((range) => dateInRange(date, range.start, range.end))?.reason || 'NA';
 }
+function renderRows(rows) {
+  daysContainer.innerHTML = '';
+  dayCount = 0;
+  isBulkRendering = true;
+  try {
+    rows.forEach(addDay);
+  } finally {
+    isBulkRendering = false;
+  }
+  recalculate();
+}
 function addDay(data = {}) {
   dayCount += 1;
   const index = dayCount;
   const dateValue = data.date || defaultDateForNextDay();
   const absenceStatus = data.absenceStatus || 'NA';
+  const breakMinutes = normaliseBreakMinutes(data.lunchMinutes ?? (data.lunchHad ? 60 : 0));
   const card = document.createElement('article');
   card.className = data.collapsed ? 'day-card is-collapsed' : 'day-card';
   card.dataset.dayIndex = String(index);
   card.innerHTML = `
     <div class="day-card-header">
       <button type="button" class="collapse-day" aria-expanded="${data.collapsed ? 'false' : 'true'}" aria-controls="day_body_${index}">
-        <span class="collapse-icon" aria-hidden="true">${data.collapsed ? '-' : '^'}</span>
+        <span class="collapse-icon" aria-hidden="true">${data.collapsed ? '+' : '^'}</span>
         <span class="sr-only">Toggle day ${index}</span>
       </button>
       <div class="day-title-block">
@@ -175,8 +203,14 @@ function addDay(data = {}) {
           <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeAttr(data.finish || '')}" />
         </label>
       </div>
-      <div class="toggle-row lunch-row-core">
-        <label class="check-card"><input type="checkbox" data-field="lunchHad" ${data.lunchHad ? 'checked' : ''} /> Lunch had? <span class="hint-inline">Deducts 1 hour</span></label>
+      <div class="form-grid compact-grid break-row-core">
+        <label>Break
+          <select name="day_${index}_break" data-field="lunchHad">
+            <option value="0" ${breakMinutes === 0 ? 'selected' : ''}>No break</option>
+            <option value="30" ${breakMinutes === 30 ? 'selected' : ''}>30 minute break</option>
+            <option value="60" ${breakMinutes === 60 ? 'selected' : ''}>1 hour break</option>
+          </select>
+        </label>
       </div>
       <details class="additional-fields">
         <summary>Additional fields <span>optional</span></summary>
@@ -216,16 +250,25 @@ function addDay(data = {}) {
   card.querySelector('.collapse-day').addEventListener('click', () => toggleDayCard(card));
   card.querySelector('[data-field="images"]').addEventListener('change', (event) => updateFileLabel(event.currentTarget));
   applyAbsenceState(card);
-  recalculate();
+  syncDayCardCollapse(card);
+  if (!isBulkRendering) recalculate();
+}
+function syncDayCardCollapse(card) {
+  const collapsed = card.classList.contains('is-collapsed');
+  const body = card.querySelector('.day-card-body');
+  const result = card.querySelector('.day-result');
+  const button = card.querySelector('.collapse-day');
+  const icon = card.querySelector('.collapse-icon');
+  if (body) body.hidden = collapsed;
+  if (result) result.hidden = collapsed;
+  if (button) button.setAttribute('aria-expanded', String(!collapsed));
+  if (icon) icon.textContent = collapsed ? '+' : '^';
 }
 function toggleDayCard(card, forceCollapsed = null) {
   const willCollapse = forceCollapsed === null ? !card.classList.contains('is-collapsed') : forceCollapsed;
   card.classList.toggle('is-collapsed', willCollapse);
-  const button = card.querySelector('.collapse-day');
-  const icon = card.querySelector('.collapse-icon');
-  if (button) button.setAttribute('aria-expanded', String(!willCollapse));
-  if (icon) icon.textContent = willCollapse ? '-' : '^';
-  saveDraft();
+  syncDayCardCollapse(card);
+  if (!isBulkRendering) saveDraft();
 }
 function updateFileLabel(input) {
   const label = input.closest('.file-pick')?.querySelector('.file-name');
@@ -245,20 +288,23 @@ function applyAbsenceState(card) {
     input.disabled = locked;
     if (locked) {
       if (input.type === 'checkbox') input.checked = false;
-      else input.value = '';
+      else input.value = input.tagName === 'SELECT' ? '0' : '';
     }
   });
 }
 function getRows() {
   return [...document.querySelectorAll('.day-card')].map((card, i) => {
     const get = (field) => card.querySelector(`[data-field="${field}"]`);
+    const breakControl = get('lunchHad');
+    const lunchMinutes = breakControl?.tagName === 'SELECT' ? normaliseBreakMinutes(breakControl.value) : (breakControl?.checked ? 60 : 0);
     return {
       label:`Day ${i + 1}`,
       collapsed:card.classList.contains('is-collapsed'),
       date:get('date')?.value || '',
       start:get('start')?.value || '',
       finish:get('finish')?.value || '',
-      lunchHad:!!get('lunchHad')?.checked,
+      lunchHad:lunchMinutes > 0,
+      lunchMinutes,
       absenceStatus:get('absenceStatus')?.value || 'NA',
       location:get('location')?.value || '',
       description:get('description')?.value || ''
@@ -273,7 +319,7 @@ function updateMiniSummary(card, row) {
   if (row.date) bits.push(row.date);
   if (hasAbsenceReason(row)) bits.push(row.absenceStatus === 'Holiday' ? 'Holiday paid basic' : row.absenceStatus);
   if (!isFullDayAbsence(row) && (row.start || row.finish)) bits.push(`${row.start || '?'}–${row.finish || '?'}`);
-  if (!isFullDayAbsence(row) && row.lunchHad) bits.push('Lunch 1h');
+  if (!isFullDayAbsence(row) && row.lunchHad) bits.push(breakLabel(row.lunchMinutes));
   if (row.location) bits.push(row.location);
   summary.textContent = bits.length ? bits.join(' · ') : 'Not filled in yet';
 }
@@ -348,17 +394,16 @@ function generateDaysFromRange(preserveManualRows = false) {
   const end = dateObj(weekEnd.value);
   if (start > end) return showError('Week starting must be before or equal to week ending.');
   const existing = preserveManualRows ? new Map(getRows().map((row) => [row.date, row])) : new Map();
-  daysContainer.innerHTML = '';
-  dayCount = 0;
   const cursor = new Date(start);
+  const rows = [];
   while (cursor <= end) {
     const date = isoDate(cursor);
     const existingRow = existing.get(date) || {};
     const reason = absenceForDate(date);
-    addDay({ ...existingRow, date, absenceStatus: reason, collapsed: dayCount > 0 });
+    rows.push({ ...existingRow, date, absenceStatus: reason, collapsed: rows.length > 0 });
     cursor.setDate(cursor.getDate() + 1);
   }
-  recalculate();
+  renderRows(rows);
   saveDraft();
 }
 function showError(message) {
@@ -376,6 +421,12 @@ function showSuccess(message) {
   formError.classList.remove('hidden', 'banner');
   formError.classList.add('success');
 }
+function showStoredRecoveryNotice() {
+  const message = sessionStorage.getItem('gmt_timesheet_recovered');
+  if (!message) return;
+  sessionStorage.removeItem('gmt_timesheet_recovered');
+  showError(message);
+}
 function handleInput(event) {
   clearError();
   const card = event?.target?.closest('.day-card');
@@ -390,41 +441,60 @@ function handleInput(event) {
     }
   }
   if (event?.target?.matches('[data-field="images"]')) updateFileLabel(event.target);
-  recalculate();
+  scheduleRecalculate();
   scheduleDraftSave();
 }
 let saveTimer = null;
+let recalculateTimer = null;
+function scheduleRecalculate() {
+  clearTimeout(recalculateTimer);
+  recalculateTimer = setTimeout(recalculate, 80);
+}
 function scheduleDraftSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveDraft, 700);
 }
 function saveDraft() {
-  const draft = {
-    employeeName:employeeName.value,
-    employeeEmail:employeeEmail.value,
-    weekStart:weekStart.value,
-    weekEnd:weekEnd.value,
-    absenceRanges,
-    rows:getRows()
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+  try {
+    const draft = {
+      employeeName:employeeName.value,
+      employeeEmail:employeeEmail.value,
+      weekStart:weekStart.value,
+      weekEnd:weekEnd.value,
+      absenceRanges,
+      rows:getRows().slice(0, MAX_DRAFT_ROWS)
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+  } catch (err) {
+    showError('Draft could not be saved on this device. The form can still be submitted.');
+  }
 }
 function loadDraft() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return false;
   try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    if (raw.length > MAX_DRAFT_SIZE) {
+      localStorage.removeItem(STORAGE_KEY);
+      showError('Large saved draft was cleared to keep the form responsive.');
+      return false;
+    }
     const draft = JSON.parse(raw);
+    if (!draft || typeof draft !== 'object' || (draft.rows && !Array.isArray(draft.rows))) {
+      localStorage.removeItem(STORAGE_KEY);
+      showError('Damaged saved draft was cleared to keep the form responsive.');
+      return false;
+    }
     employeeName.value = draft.employeeName || '';
     employeeEmail.value = draft.employeeEmail || '';
     weekStart.value = draft.weekStart || '';
     weekEnd.value = draft.weekEnd || '';
-    absenceRanges = draft.absenceRanges || [];
+    absenceRanges = Array.isArray(draft.absenceRanges) ? draft.absenceRanges : [];
     renderAbsenceRanges();
-    daysContainer.innerHTML = '';
-    dayCount = 0;
-    (draft.rows || []).forEach(addDay);
+    renderRows((draft.rows || []).slice(0, MAX_DRAFT_ROWS));
     return true;
   } catch {
+    localStorage.removeItem(STORAGE_KEY);
+    showError('Damaged saved draft was cleared to keep the form responsive.');
     return false;
   }
 }
@@ -432,10 +502,7 @@ function clearDraft() {
   localStorage.removeItem(STORAGE_KEY);
   absenceRanges = [];
   renderAbsenceRanges();
-  daysContainer.innerHTML = '';
-  dayCount = 0;
-  addDay();
-  recalculate();
+  renderRows([{}]);
 }
 function buildWorkbook(calculated, totals, weighted) {
   if (!window.XLSX) throw new Error('Excel generator is still loading. Please try again.');
@@ -625,5 +692,6 @@ weekStart.addEventListener('change', () => {
 
 renderAbsenceRanges();
 if (!loadDraft()) addDay();
+showStoredRecoveryNotice();
 document.body.classList.toggle('absence-planner-open', absencePlanner.open);
 recalculate();
