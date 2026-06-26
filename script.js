@@ -1,18 +1,17 @@
 const CONFIG = window.GMT_APP_CONFIG || {};
-const STORAGE_KEY = 'gmt_guest_timesheet_draft_v4';
-const MAX_DRAFT_SIZE = 180000;
-const MAX_DRAFT_ROWS = 45;
+const STORAGE_KEY = 'gmt_guest_timesheet_manual_draft_v1';
 const HOLIDAY_PAID_MINUTES = 8 * 60;
 const BASIC_DAY_MINUTES = 8 * 60;
+const XLSX_SRC = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
 
-const daysContainer = document.getElementById('days-container');
 const form = document.getElementById('timesheet-form');
+const daysContainer = document.getElementById('days-container');
+const summaryOutput = document.getElementById('summary-output');
+const formError = document.getElementById('form-error');
 const addDayBtn = document.getElementById('add-day-btn');
 const generateDaysBtn = document.getElementById('generate-days-btn');
 const addAbsenceBtn = document.getElementById('add-absence-btn');
 const absenceRangesEl = document.getElementById('absence-ranges');
-const summaryOutput = document.getElementById('summary-output');
-const formError = document.getElementById('form-error');
 const employeeName = document.getElementById('employee-name');
 const employeeEmail = document.getElementById('employee-email');
 const weekStart = document.getElementById('week-start');
@@ -20,162 +19,143 @@ const weekEnd = document.getElementById('week-end');
 const absenceStart = document.getElementById('absence-start');
 const absenceEnd = document.getElementById('absence-end');
 const absenceReason = document.getElementById('absence-reason');
-const absencePlanner = document.getElementById('absence-planner');
-const payloadInput = document.getElementById('timesheet-payload');
-const calculatedSummaryInput = document.getElementById('calculated-summary');
 const saveDraftBtn = document.getElementById('save-draft-btn');
 const clearDraftBtn = document.getElementById('clear-draft-btn');
+const payloadInput = document.getElementById('timesheet-payload');
+const calculatedSummaryInput = document.getElementById('calculated-summary');
 
 let dayCount = 0;
 let absenceRanges = [];
-let isBulkRendering = false;
+let recalculateTimer = null;
+let xlsxPromise = null;
 
-function pad(num) { return String(num).padStart(2, '0'); }
-function isoDate(date) { return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; }
-function dateObj(value) { return value ? new Date(`${value}T00:00:00`) : null; }
-function dayName(dateString) {
-  const date = dateObj(dateString);
-  if (!date || Number.isNaN(date.getTime())) return '';
-  return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][date.getDay()];
+function pad(value) {
+  return String(value).padStart(2, '0');
 }
+
+function isoDate(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function dateObj(value) {
+  return value ? new Date(`${value}T00:00:00`) : null;
+}
+
+function dayName(value) {
+  const date = dateObj(value);
+  if (!date || Number.isNaN(date.getTime())) return '';
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
+}
+
 function parseTimeToMinutes(value) {
   if (!value) return null;
-  const [h, m] = String(value).split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return h * 60 + m;
+  const [hours, minutes] = String(value).split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
 }
-function isFullDayAbsence(row) { return row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday'; }
-function hasAbsenceReason(row) { return row.absenceStatus && row.absenceStatus !== 'NA'; }
+
 function normaliseBreakMinutes(value) {
   const minutes = Number(value || 0);
   return [0, 30, 60].includes(minutes) ? minutes : 0;
 }
-function parseLunchMinutes(row) {
-  if (row?.lunchMinutes !== undefined) return normaliseBreakMinutes(row.lunchMinutes);
-  return row?.lunchHad ? 60 : 0;
-}
-function breakLabel(minutes) {
-  const value = normaliseBreakMinutes(minutes);
-  if (value === 30) return '30 minute break';
-  if (value === 60) return '1 hour break';
-  return 'No break';
-}
-function rawShiftMinutes(row) {
-  const start = parseTimeToMinutes(row.start);
-  const finish = parseTimeToMinutes(row.finish);
-  if (start === null || finish === null) return null;
-  let adjustedFinish = finish;
-  if (adjustedFinish < start) adjustedFinish += 1440;
-  return adjustedFinish - start;
-}
-function workedMinutes(row) {
-  if (isFullDayAbsence(row)) return 0;
-  const raw = rawShiftMinutes(row);
-  if (raw === null) return null;
-  const total = raw - parseLunchMinutes(row);
-  return total >= 0 ? total : null;
-}
+
 function fmtMinutes(minutes) {
   const value = Math.round(Number(minutes || 0));
   const sign = value < 0 ? '-' : '';
   const abs = Math.abs(value);
-  const h = Math.floor(abs / 60);
-  const m = abs % 60;
-  return `${sign}${h}h ${pad(m)}m`;
+  return `${sign}${Math.floor(abs / 60)}h ${pad(abs % 60)}m`;
 }
-function splitSaturday(row) {
-  let start = parseTimeToMinutes(row.start);
-  let finish = parseTimeToMinutes(row.finish);
-  if (start === null || finish === null) return { basic:0, ot15:0, ot20:0, total:null, workedActual:null };
-  if (finish < start) finish += 1440;
-  const cutoff = 13 * 60;
-  let before = Math.max(0, Math.min(finish, cutoff) - start);
-  let after = Math.max(0, finish - Math.max(start, cutoff));
-  let lunch = parseLunchMinutes(row);
-  const fromAfter = Math.min(after, lunch);
-  after -= fromAfter;
-  lunch -= fromAfter;
-  const fromBefore = Math.min(before, lunch);
-  before -= fromBefore;
-  return { basic:0, ot15:before, ot20:after, total:before + after, workedActual:before + after };
+
+function hours(minutes) {
+  return Number((Number(minutes || 0) / 60).toFixed(2));
 }
-function calculateRows(rows) {
-  return rows.map((row) => {
-    const day = dayName(row.date);
-    if (row.absenceStatus === 'Holiday') {
-      return { ...row, dayName:day, workedActual:0, total:HOLIDAY_PAID_MINUTES, basic:HOLIDAY_PAID_MINUTES, ot15:0, ot20:0, absent:true, paid:true, note:'Holiday is paid as 8h basic.' };
-    }
-    if (row.absenceStatus === 'Sick') {
-      return { ...row, dayName:day, workedActual:0, total:0, basic:0, ot15:0, ot20:0, absent:true, paid:false, sick:true, note:'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
-    }
-    const actual = workedMinutes(row);
-    if (actual === null) {
-      return { ...row, dayName:day, workedActual:null, total:null, basic:0, ot15:0, ot20:0, absent:false, paid:true, error:'Start and finish are required unless absence reason is Sick or Holiday.' };
-    }
-    if (row.absenceStatus === 'Time Off') {
-      if (actual >= BASIC_DAY_MINUTES) {
-        return { ...row, dayName:day, workedActual:actual, total:actual, basic:0, ot15:0, ot20:0, absent:false, paid:true, error:'Time Off can only be selected when the completed hours are less than 8h.' };
-      }
-      return { ...row, dayName:day, workedActual:actual, total:actual, basic:actual, ot15:0, ot20:0, absent:false, paid:true, note:'Partial day with Time Off. Only completed hours are counted as basic.' };
-    }
-    if (day === 'Sunday') return { ...row, dayName:day, workedActual:actual, total:actual, basic:0, ot15:0, ot20:actual, absent:false, paid:true, note:'Sunday is OT x2.0.' };
-    if (day === 'Saturday') return { ...row, dayName:day, ...splitSaturday(row), absent:false, paid:true, note:'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
-    const basic = BASIC_DAY_MINUTES;
-    const ot15 = Math.max(0, actual - BASIC_DAY_MINUTES);
-    const total = basic + ot15;
-    return { ...row, dayName:day, workedActual:actual, total, basic, ot15, ot20:0, absent:false, paid:true, note:ot15 ? 'Weekday: 8h basic plus daily excess as OT x1.5.' : 'Weekday: 8h basic minimum for the day.' };
-  });
+
+function csvEscape(value) {
+  const text = String(value ?? '');
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
-function totalsFor(calculatedRows) {
-  return calculatedRows.reduce((acc, row) => {
-    acc.workedActual += row.workedActual || 0;
-    acc.total += row.total || 0;
-    acc.basic += row.basic || 0;
-    acc.ot15 += row.ot15 || 0;
-    acc.ot20 += row.ot20 || 0;
-    if (row.absent) acc.absent += 1;
-    if (row.absenceStatus === 'Holiday') acc.holiday += 1;
-    if (row.absenceStatus === 'Sick') acc.sick += 1;
-    if (row.absenceStatus === 'Time Off') acc.timeOff += 1;
-    if (row.error) acc.errors.push(`${row.label || row.date || 'A day'}: ${row.error}`);
-    return acc;
-  }, { workedActual:0, total:0, basic:0, ot15:0, ot20:0, absent:0, holiday:0, sick:0, timeOff:0, errors:[] });
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
 }
-function defaultDateForNextDay() {
-  const start = weekStart.value;
-  if (!start) return '';
-  const date = dateObj(start);
-  date.setDate(date.getDate() + dayCount);
-  return isoDate(date);
+
+function isFullDayAbsence(row) {
+  return row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday';
 }
-function escapeAttr(value) {
-  return String(value || '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+function breakLabel(minutes) {
+  const value = normaliseBreakMinutes(minutes);
+  if (value === 30) return '30 minutes deducted';
+  if (value === 60) return '60 minutes deducted';
+  return 'No break';
 }
-function escapeHtml(value) { return escapeAttr(value); }
+
 function dateInRange(date, start, end) {
-  if (!date || !start || !end) return false;
-  return date >= start && date <= end;
+  return !!date && !!start && !!end && date >= start && date <= end;
 }
+
 function absenceForDate(date) {
   return absenceRanges.find((range) => dateInRange(date, range.start, range.end))?.reason || 'NA';
 }
+
+function clearMessage() {
+  formError.textContent = '';
+  formError.classList.add('hidden');
+  formError.classList.remove('success');
+  formError.classList.add('banner');
+}
+
+function showError(message) {
+  formError.textContent = message;
+  formError.classList.remove('hidden', 'success');
+  formError.classList.add('banner');
+}
+
+function showSuccess(message) {
+  formError.textContent = message;
+  formError.classList.remove('hidden', 'banner');
+  formError.classList.add('success');
+}
+
+function defaultDateForNextDay() {
+  const start = dateObj(weekStart.value);
+  if (!start) return '';
+  start.setDate(start.getDate() + dayCount);
+  return isoDate(start);
+}
+
+function renderAbsenceRanges() {
+  if (!absenceRanges.length) {
+    absenceRangesEl.innerHTML = '<p class="small-text">No absence periods marked.</p>';
+    return;
+  }
+  absenceRangesEl.innerHTML = absenceRanges.map((range, index) => `
+    <div class="absence-chip absence-chip-${range.reason.toLowerCase().replace(/\s+/g, '-')}">
+      <span>${escapeHtml(range.reason)}: ${escapeHtml(range.start)} to ${escapeHtml(range.end)}</span>
+      <button type="button" data-remove-absence="${index}" aria-label="Remove absence period">Remove</button>
+    </div>
+  `).join('');
+}
+
 function renderRows(rows) {
   daysContainer.innerHTML = '';
   dayCount = 0;
-  isBulkRendering = true;
-  try {
-    rows.forEach(addDay);
-  } finally {
-    isBulkRendering = false;
-  }
+  rows.forEach(addDay);
   recalculate();
 }
+
 function addDay(data = {}) {
   dayCount += 1;
   const index = dayCount;
   const dateValue = data.date || defaultDateForNextDay();
   const absenceStatus = data.absenceStatus || 'NA';
-  const breakMinutes = normaliseBreakMinutes(data.lunchMinutes ?? (data.lunchHad ? 60 : 0));
+  const breakMinutes = normaliseBreakMinutes(data.lunchMinutes);
   const card = document.createElement('article');
   card.className = data.collapsed ? 'day-card is-collapsed' : 'day-card';
   card.dataset.dayIndex = String(index);
@@ -194,16 +174,14 @@ function addDay(data = {}) {
     <div class="day-card-body" id="day_body_${index}">
       <div class="form-grid day-grid compact-grid core-fields">
         <label>Date
-          <input type="date" name="day_${index}_date" data-field="date" value="${dateValue}" />
+          <input type="date" name="day_${index}_date" data-field="date" value="${escapeHtml(dateValue)}">
         </label>
         <label>Start
-          <input type="time" name="day_${index}_start" data-field="start" value="${escapeAttr(data.start || '')}" />
+          <input type="time" name="day_${index}_start" data-field="start" value="${escapeHtml(data.start || '')}">
         </label>
         <label>Finish
-          <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeAttr(data.finish || '')}" />
+          <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeHtml(data.finish || '')}">
         </label>
-      </div>
-      <div class="form-grid compact-grid break-row-core">
         <label>Break
           <select name="day_${index}_break" data-field="lunchHad">
             <option value="0" ${breakMinutes === 0 ? 'selected' : ''}>No break</option>
@@ -211,27 +189,20 @@ function addDay(data = {}) {
             <option value="60" ${breakMinutes === 60 ? 'selected' : ''}>1 hour break</option>
           </select>
         </label>
+        <label>Absence reason
+          <select name="day_${index}_absence_status" data-field="absenceStatus">
+            <option value="NA" ${absenceStatus === 'NA' ? 'selected' : ''}>NA</option>
+            <option value="Sick" ${absenceStatus === 'Sick' ? 'selected' : ''}>Sick</option>
+            <option value="Holiday" ${absenceStatus === 'Holiday' ? 'selected' : ''}>Holiday</option>
+            <option value="Time Off" ${absenceStatus === 'Time Off' ? 'selected' : ''}>Time Off</option>
+          </select>
+        </label>
       </div>
       <details class="additional-fields">
         <summary>Additional fields <span>optional</span></summary>
         <div class="additional-fields-body">
-          <label>Absence reason
-            <select name="day_${index}_absence_status" data-field="absenceStatus">
-              <option value="NA" ${absenceStatus === 'NA' ? 'selected' : ''}>NA</option>
-              <option value="Sick" ${absenceStatus === 'Sick' ? 'selected' : ''}>Sick</option>
-              <option value="Holiday" ${absenceStatus === 'Holiday' ? 'selected' : ''}>Holiday</option>
-              <option value="Time Off" ${absenceStatus === 'Time Off' ? 'selected' : ''}>Time Off</option>
-            </select>
-          </label>
-          <p class="small-text absence-help">Normal weekdays pay 8h basic. Holiday pays 8h basic. Sick is recorded for payroll/admin. Time Off can only be used when worked time is less than 8h.</p>
-          <label>Location / site
-            <input type="text" name="day_${index}_location" data-field="location" value="${escapeAttr(data.location || '')}" placeholder="Optional site or job address" />
-          </label>
-          <label class="file-pick">Images / job photos
-            <span class="file-control"><span class="file-button">Choose photos</span><span class="file-name">No photos selected</span></span>
-            <input type="file" data-field="images" name="day_${index}_images" accept="image/*" multiple />
-          </label>
-          <label>Description of work / notes
+          <p class="small-text absence-help">Holiday pays 8h basic. Sick is recorded for payroll/admin. Time Off can only be used when worked time is less than 8h.</p>
+          <label>Notes
             <textarea data-field="description" name="day_${index}_description" rows="3" placeholder="Optional notes">${escapeHtml(data.description || '')}</textarea>
           </label>
         </div>
@@ -240,20 +211,11 @@ function addDay(data = {}) {
     <div class="day-result" aria-live="polite"></div>
   `;
   daysContainer.appendChild(card);
-  card.addEventListener('input', handleInput);
-  card.addEventListener('change', handleInput);
-  card.querySelector('.remove-day').addEventListener('click', () => {
-    card.remove();
-    recalculate();
-    saveDraft();
-  });
-  card.querySelector('.collapse-day').addEventListener('click', () => toggleDayCard(card));
-  card.querySelector('[data-field="images"]').addEventListener('change', (event) => updateFileLabel(event.currentTarget));
   applyAbsenceState(card);
-  syncDayCardCollapse(card);
-  if (!isBulkRendering) recalculate();
+  syncCardCollapse(card);
 }
-function syncDayCardCollapse(card) {
+
+function syncCardCollapse(card) {
   const collapsed = card.classList.contains('is-collapsed');
   const body = card.querySelector('.day-card-body');
   const result = card.querySelector('.day-result');
@@ -264,18 +226,13 @@ function syncDayCardCollapse(card) {
   if (button) button.setAttribute('aria-expanded', String(!collapsed));
   if (icon) icon.textContent = collapsed ? '+' : '^';
 }
+
 function toggleDayCard(card, forceCollapsed = null) {
-  const willCollapse = forceCollapsed === null ? !card.classList.contains('is-collapsed') : forceCollapsed;
-  card.classList.toggle('is-collapsed', willCollapse);
-  syncDayCardCollapse(card);
-  if (!isBulkRendering) saveDraft();
+  const collapsed = forceCollapsed === null ? !card.classList.contains('is-collapsed') : forceCollapsed;
+  card.classList.toggle('is-collapsed', collapsed);
+  syncCardCollapse(card);
 }
-function updateFileLabel(input) {
-  const label = input.closest('.file-pick')?.querySelector('.file-name');
-  if (!label) return;
-  const count = input.files ? input.files.length : 0;
-  label.textContent = count === 0 ? 'No photos selected' : `${count} photo${count === 1 ? '' : 's'} selected`;
-}
+
 function applyAbsenceState(card) {
   const status = card.querySelector('[data-field="absenceStatus"]')?.value || 'NA';
   const locked = status === 'Sick' || status === 'Holiday';
@@ -286,56 +243,146 @@ function applyAbsenceState(card) {
     const input = card.querySelector(`[data-field="${field}"]`);
     if (!input) return;
     input.disabled = locked;
-    if (locked) {
-      if (input.type === 'checkbox') input.checked = false;
-      else input.value = input.tagName === 'SELECT' ? '0' : '';
-    }
+    if (locked) input.value = field === 'lunchHad' ? '0' : '';
   });
 }
+
 function getRows() {
-  return [...document.querySelectorAll('.day-card')].map((card, i) => {
+  return [...daysContainer.querySelectorAll('.day-card')].map((card, index) => {
     const get = (field) => card.querySelector(`[data-field="${field}"]`);
-    const breakControl = get('lunchHad');
-    const lunchMinutes = breakControl?.tagName === 'SELECT' ? normaliseBreakMinutes(breakControl.value) : (breakControl?.checked ? 60 : 0);
+    const lunchMinutes = normaliseBreakMinutes(get('lunchHad')?.value);
     return {
-      label:`Day ${i + 1}`,
-      collapsed:card.classList.contains('is-collapsed'),
-      date:get('date')?.value || '',
-      start:get('start')?.value || '',
-      finish:get('finish')?.value || '',
-      lunchHad:lunchMinutes > 0,
+      label: `Day ${index + 1}`,
+      collapsed: card.classList.contains('is-collapsed'),
+      date: get('date')?.value || '',
+      start: get('start')?.value || '',
+      finish: get('finish')?.value || '',
+      lunchHad: lunchMinutes > 0,
       lunchMinutes,
-      absenceStatus:get('absenceStatus')?.value || 'NA',
-      location:get('location')?.value || '',
-      description:get('description')?.value || ''
+      absenceStatus: get('absenceStatus')?.value || 'NA',
+      description: get('description')?.value || ''
     };
   });
 }
+
+function rawShiftMinutes(row) {
+  const start = parseTimeToMinutes(row.start);
+  const finish = parseTimeToMinutes(row.finish);
+  if (start === null || finish === null) return null;
+  return finish < start ? finish + 1440 - start : finish - start;
+}
+
+function workedMinutes(row) {
+  if (isFullDayAbsence(row)) return 0;
+  const raw = rawShiftMinutes(row);
+  if (raw === null) return null;
+  const total = raw - normaliseBreakMinutes(row.lunchMinutes);
+  return total >= 0 ? total : null;
+}
+
+function splitSaturday(row) {
+  const start = parseTimeToMinutes(row.start);
+  let finish = parseTimeToMinutes(row.finish);
+  if (start === null || finish === null) return { basic: 0, ot15: 0, ot20: 0, total: null, workedActual: null };
+  if (finish < start) finish += 1440;
+  const cutoff = 13 * 60;
+  let before = Math.max(0, Math.min(finish, cutoff) - start);
+  let after = Math.max(0, finish - Math.max(start, cutoff));
+  let lunch = normaliseBreakMinutes(row.lunchMinutes);
+  const fromAfter = Math.min(after, lunch);
+  after -= fromAfter;
+  lunch -= fromAfter;
+  before -= Math.min(before, lunch);
+  return { basic: 0, ot15: before, ot20: after, total: before + after, workedActual: before + after };
+}
+
+function calculateRows(rows) {
+  return rows.map((row) => {
+    const day = dayName(row.date);
+    if (row.absenceStatus === 'Holiday') {
+      return { ...row, dayName: day, workedActual: 0, total: HOLIDAY_PAID_MINUTES, basic: HOLIDAY_PAID_MINUTES, ot15: 0, ot20: 0, absent: true, note: 'Holiday is paid as 8h basic.' };
+    }
+    if (row.absenceStatus === 'Sick') {
+      return { ...row, dayName: day, workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: true, note: 'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
+    }
+    const actual = workedMinutes(row);
+    if (actual === null) {
+      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish are required unless absence reason is Sick or Holiday.' };
+    }
+    if (row.absenceStatus === 'Time Off') {
+      if (actual >= BASIC_DAY_MINUTES) {
+        return { ...row, dayName: day, workedActual: actual, total: actual, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Time Off can only be selected when the completed hours are less than 8h.' };
+      }
+      return { ...row, dayName: day, workedActual: actual, total: actual, basic: actual, ot15: 0, ot20: 0, absent: false, note: 'Partial day with Time Off. Only completed hours are counted as basic.' };
+    }
+    if (day === 'Sunday') return { ...row, dayName: day, workedActual: actual, total: actual, basic: 0, ot15: 0, ot20: actual, absent: false, note: 'Sunday is OT x2.0.' };
+    if (day === 'Saturday') return { ...row, dayName: day, ...splitSaturday(row), absent: false, note: 'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
+    const basic = BASIC_DAY_MINUTES;
+    const ot15 = Math.max(0, actual - BASIC_DAY_MINUTES);
+    return { ...row, dayName: day, workedActual: actual, total: basic + ot15, basic, ot15, ot20: 0, absent: false, note: ot15 ? 'Weekday: 8h basic plus daily excess as OT x1.5.' : 'Weekday: 8h basic minimum for the day.' };
+  });
+}
+
+function totalsFor(rows) {
+  return rows.reduce((acc, row) => {
+    acc.workedActual += row.workedActual || 0;
+    acc.total += row.total || 0;
+    acc.basic += row.basic || 0;
+    acc.ot15 += row.ot15 || 0;
+    acc.ot20 += row.ot20 || 0;
+    if (row.absent) acc.absent += 1;
+    if (row.absenceStatus === 'Holiday') acc.holiday += 1;
+    if (row.absenceStatus === 'Sick') acc.sick += 1;
+    if (row.absenceStatus === 'Time Off') acc.timeOff += 1;
+    if (row.error) acc.errors.push(`${row.label}: ${row.error}`);
+    return acc;
+  }, { workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: 0, holiday: 0, sick: 0, timeOff: 0, errors: [] });
+}
+
+function statusFor(row) {
+  if (row.error) return 'Check';
+  if (row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday') return 'Absent';
+  return 'Recorded';
+}
+
+function categoryFor(row) {
+  if (row.error) return 'Issue';
+  if (row.absenceStatus === 'Holiday') return 'Holiday';
+  if (row.absenceStatus === 'Sick') return 'Sick';
+  if (row.absenceStatus === 'Time Off') return 'Time Off';
+  if (row.dayName === 'Sunday') return 'Sunday OT x2.0';
+  if (row.dayName === 'Saturday') return 'Saturday OT';
+  if ((row.ot15 || 0) > 0) return 'Weekday OT x1.5';
+  return 'Basic day';
+}
+
+function weightedFor(row) {
+  return hours(row.basic) + hours(row.ot15) * 1.5 + hours(row.ot20) * 2;
+}
+
 function updateMiniSummary(card, row) {
   const summary = card.querySelector('.day-mini-summary');
-  if (!summary) return;
   const bits = [];
   if (row.dayName) bits.push(row.dayName);
   if (row.date) bits.push(row.date);
-  if (hasAbsenceReason(row)) bits.push(row.absenceStatus === 'Holiday' ? 'Holiday paid basic' : row.absenceStatus);
-  if (!isFullDayAbsence(row) && (row.start || row.finish)) bits.push(`${row.start || '?'}–${row.finish || '?'}`);
-  if (!isFullDayAbsence(row) && row.lunchHad) bits.push(breakLabel(row.lunchMinutes));
-  if (row.location) bits.push(row.location);
+  if (row.absenceStatus !== 'NA') bits.push(row.absenceStatus);
+  if (!isFullDayAbsence(row) && (row.start || row.finish)) bits.push(`${row.start || '?'}-${row.finish || '?'}`);
+  if (!isFullDayAbsence(row) && row.lunchMinutes) bits.push(breakLabel(row.lunchMinutes));
   summary.textContent = bits.length ? bits.join(' · ') : 'Not filled in yet';
 }
+
 function recalculate() {
   const calculated = calculateRows(getRows());
   const totals = totalsFor(calculated);
-  calculated.forEach((row, i) => {
-    const card = document.querySelectorAll('.day-card')[i];
-    const out = card?.querySelector('.day-result');
-    if (!out) return;
+  calculated.forEach((row, index) => {
+    const card = daysContainer.querySelectorAll('.day-card')[index];
+    if (!card) return;
+    const output = card.querySelector('.day-result');
     updateMiniSummary(card, row);
-    if (row.error) out.innerHTML = `<span class="pill bad">${row.error}</span>`;
-    else if (row.absenceStatus === 'Holiday') out.innerHTML = `<span class="pill warn">Holiday</span><span>Paid basic ${fmtMinutes(row.basic)}</span>`;
-    else if (row.absenceStatus === 'Sick') out.innerHTML = `<span class="pill warn">Sick</span><span>Recorded for payroll</span>`;
-    else if (row.absenceStatus === 'Time Off') out.innerHTML = `<span class="pill warn">Time Off</span><span>Worked ${fmtMinutes(row.workedActual)}</span><span>Basic ${fmtMinutes(row.basic)}</span>`;
-    else out.innerHTML = `<span class="pill">${row.dayName || 'No date'}</span><span>Worked ${fmtMinutes(row.workedActual)}</span><span>Paid ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span><span>OT 1.5 ${fmtMinutes(row.ot15)}</span><span>OT 2.0 ${fmtMinutes(row.ot20)}</span>`;
+    if (row.error) output.innerHTML = `<span class="pill bad">${escapeHtml(row.error)}</span>`;
+    else if (row.absenceStatus === 'Holiday') output.innerHTML = `<span class="pill warn">Holiday</span><span>Paid basic ${fmtMinutes(row.basic)}</span>`;
+    else if (row.absenceStatus === 'Sick') output.innerHTML = '<span class="pill warn">Sick</span><span>Recorded for payroll</span>';
+    else output.innerHTML = `<span class="pill">${row.dayName || 'No date'}</span><span>Worked ${fmtMinutes(row.workedActual)}</span><span>Paid ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span><span>OT 1.5 ${fmtMinutes(row.ot15)}</span><span>OT 2.0 ${fmtMinutes(row.ot20)}</span>`;
   });
   const weighted = totals.basic / 60 + (totals.ot15 / 60) * 1.5 + (totals.ot20 / 60) * 2;
   summaryOutput.innerHTML = `
@@ -349,264 +396,149 @@ function recalculate() {
     <div><strong>Sick days</strong><span>${totals.sick}</span></div>
     <div><strong>Time Off days</strong><span>${totals.timeOff}</span></div>
   `;
-  const payload = buildPayload(calculated, totals, weighted);
-  payloadInput.value = JSON.stringify(payload, null, 2);
+  const payload = { employeeName: employeeName.value.trim(), employeeEmail: employeeEmail.value.trim(), weekStart: weekStart.value, weekEnd: weekEnd.value, absenceRanges, totals: { ...totals, weightedHours: weighted }, rows: calculated };
+  payloadInput.value = JSON.stringify(payload);
   calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Paid ${fmtMinutes(totals.total)} | Paid Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
-  return { calculated, totals, weighted, payload };
+  return { calculated, totals, weighted };
 }
-function buildPayload(calculated, totals, weighted) {
-  return {
-    submittedAt:new Date().toISOString(),
-    employeeName:employeeName.value.trim(),
-    employeeEmail:employeeEmail.value.trim(),
-    weekStart:weekStart.value,
-    weekEnd:weekEnd.value,
-    absenceRanges:absenceRanges.map((range) => ({ start:range.start, end:range.end, reason:range.reason })),
-    totals:{ ...totals, weightedHours:weighted },
-    rows:calculated
-  };
+
+function scheduleRecalculate() {
+  window.clearTimeout(recalculateTimer);
+  recalculateTimer = window.setTimeout(recalculate, 120);
 }
-function renderAbsenceRanges() {
-  if (!absenceRanges.length) {
-    absenceRangesEl.innerHTML = '<p class="small-text">No absence periods marked.</p>';
-    return;
-  }
-  absenceRangesEl.innerHTML = absenceRanges.map((range, index) => `
-    <div class="absence-chip absence-chip-${range.reason.toLowerCase().replace(/\s+/g, '-')}">
-      <span>${escapeHtml(range.reason)}: ${escapeHtml(range.start)} to ${escapeHtml(range.end)}</span>
-      <button type="button" data-remove-absence="${index}" aria-label="Remove absence period">Remove</button>
-    </div>
-  `).join('');
-}
+
 function addAbsenceRange() {
-  clearError();
+  clearMessage();
   if (!absenceStart.value || !absenceEnd.value) return showError('Choose an absence start and end date.');
   if (dateObj(absenceStart.value) > dateObj(absenceEnd.value)) return showError('Absence start must be before or equal to absence end.');
-  absenceRanges.push({ start:absenceStart.value, end:absenceEnd.value, reason:absenceReason.value });
+  absenceRanges.push({ start: absenceStart.value, end: absenceEnd.value, reason: absenceReason.value });
   renderAbsenceRanges();
   generateDaysFromRange(true);
-  saveDraft();
 }
-function generateDaysFromRange(preserveManualRows = false) {
-  clearError();
+
+function generateDaysFromRange(preserveRows = false) {
+  clearMessage();
   if (!weekStart.value || !weekEnd.value) return showError('Choose a week starting and week ending date first.');
   const start = dateObj(weekStart.value);
   const end = dateObj(weekEnd.value);
   if (start > end) return showError('Week starting must be before or equal to week ending.');
-  const existing = preserveManualRows ? new Map(getRows().map((row) => [row.date, row])) : new Map();
-  const cursor = new Date(start);
+  const existing = preserveRows ? new Map(getRows().map((row) => [row.date, row])) : new Map();
   const rows = [];
+  const cursor = new Date(start);
   while (cursor <= end) {
     const date = isoDate(cursor);
-    const existingRow = existing.get(date) || {};
     const reason = absenceForDate(date);
-    rows.push({ ...existingRow, date, absenceStatus: reason, collapsed: rows.length > 0 });
+    rows.push({ ...(existing.get(date) || {}), date, absenceStatus: reason, collapsed: rows.length > 0 });
     cursor.setDate(cursor.getDate() + 1);
   }
   renderRows(rows);
-  saveDraft();
 }
-function showError(message) {
-  formError.textContent = message;
-  formError.classList.remove('hidden');
-}
-function clearError() {
-  formError.textContent = '';
-  formError.classList.add('hidden');
-  formError.classList.remove('success');
-  formError.classList.add('banner');
-}
-function showSuccess(message) {
-  formError.textContent = message;
-  formError.classList.remove('hidden', 'banner');
-  formError.classList.add('success');
-}
-function showStoredRecoveryNotice() {
-  const message = sessionStorage.getItem('gmt_timesheet_recovered');
-  if (!message) return;
-  sessionStorage.removeItem('gmt_timesheet_recovered');
-  showError(message);
-}
-function handleInput(event) {
-  clearError();
-  const card = event?.target?.closest('.day-card');
-  if (event?.target?.matches('[data-field="absenceStatus"]') && card) applyAbsenceState(card);
-  if (event?.target?.matches('[data-field="date"]') && card) {
-    const newDate = event.target.value;
-    const reason = absenceForDate(newDate);
-    const absenceSelect = card.querySelector('[data-field="absenceStatus"]');
-    if (absenceSelect && reason !== 'NA') {
-      absenceSelect.value = reason;
-      applyAbsenceState(card);
-    }
+
+function ensureXlsxLoaded() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!xlsxPromise) {
+    xlsxPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = XLSX_SRC;
+      script.async = true;
+      script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('Excel generator loaded but was not available.'));
+      script.onerror = () => reject(new Error('Could not load Excel generator. Please check the connection and try again.'));
+      document.head.appendChild(script);
+    });
   }
-  if (event?.target?.matches('[data-field="images"]')) updateFileLabel(event.target);
-  scheduleRecalculate();
-  scheduleDraftSave();
+  return xlsxPromise;
 }
-let saveTimer = null;
-let recalculateTimer = null;
-function scheduleRecalculate() {
-  clearTimeout(recalculateTimer);
-  recalculateTimer = setTimeout(recalculate, 80);
-}
-function scheduleDraftSave() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveDraft, 700);
-}
-function saveDraft() {
-  try {
-    const draft = {
-      employeeName:employeeName.value,
-      employeeEmail:employeeEmail.value,
-      weekStart:weekStart.value,
-      weekEnd:weekEnd.value,
-      absenceRanges,
-      rows:getRows().slice(0, MAX_DRAFT_ROWS)
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
-  } catch (err) {
-    showError('Draft could not be saved on this device. The form can still be submitted.');
-  }
-}
-function loadDraft() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return false;
-    if (raw.length > MAX_DRAFT_SIZE) {
-      localStorage.removeItem(STORAGE_KEY);
-      showError('Large saved draft was cleared to keep the form responsive.');
-      return false;
-    }
-    const draft = JSON.parse(raw);
-    if (!draft || typeof draft !== 'object' || (draft.rows && !Array.isArray(draft.rows))) {
-      localStorage.removeItem(STORAGE_KEY);
-      showError('Damaged saved draft was cleared to keep the form responsive.');
-      return false;
-    }
-    employeeName.value = draft.employeeName || '';
-    employeeEmail.value = draft.employeeEmail || '';
-    weekStart.value = draft.weekStart || '';
-    weekEnd.value = draft.weekEnd || '';
-    absenceRanges = Array.isArray(draft.absenceRanges) ? draft.absenceRanges : [];
-    renderAbsenceRanges();
-    renderRows((draft.rows || []).slice(0, MAX_DRAFT_ROWS));
-    return true;
-  } catch {
-    localStorage.removeItem(STORAGE_KEY);
-    showError('Damaged saved draft was cleared to keep the form responsive.');
-    return false;
-  }
-}
-function clearDraft() {
-  localStorage.removeItem(STORAGE_KEY);
-  absenceRanges = [];
-  renderAbsenceRanges();
-  renderRows([{}]);
-}
-function buildWorkbook(calculated, totals, weighted) {
-  if (!window.XLSX) throw new Error('Excel generator is still loading. Please try again.');
-  const summaryRows = [
-    ['Employee', employeeName.value.trim()],
-    ['Employee email', employeeEmail.value.trim()],
-    ['Week start', weekStart.value],
-    ['Week end', weekEnd.value],
-    ['Worked hours', totals.workedActual / 60],
-    ['Paid hours', totals.total / 60],
-    ['Paid Basic hours', totals.basic / 60],
-    ['OT x1.5 hours', totals.ot15 / 60],
-    ['OT x2.0 hours', totals.ot20 / 60],
-    ['Paid weighted hours', weighted],
-    ['Holiday days', totals.holiday],
-    ['Sick days', totals.sick],
-    ['Time Off days', totals.timeOff]
-  ];
-  const dayRows = calculated.map((row) => ({
+
+function allRowsForExport(calculated) {
+  return calculated.map((row) => ({
+    Status: statusFor(row),
+    Category: categoryFor(row),
+    'Week start': weekStart.value,
+    'Week end': weekEnd.value,
     Day: row.label,
     Date: row.date,
     Weekday: row.dayName,
     Start: row.start,
     Finish: row.finish,
-    Lunch: row.lunchHad ? 'Yes - 1h deducted' : 'No',
-    'Absence reason': row.absenceStatus,
-    Location: row.location,
-    Description: row.description,
-    'Worked actual hours': (row.workedActual || 0) / 60,
-    'Paid hours': (row.total || 0) / 60,
-    'Paid Basic hours': (row.basic || 0) / 60,
-    'OT x1.5 hours': (row.ot15 || 0) / 60,
-    'OT x2.0 hours': (row.ot20 || 0) / 60,
-    Note: row.note || row.error || ''
+    Break: breakLabel(row.lunchMinutes),
+    'Absence reason': row.absenceStatus || 'NA',
+    'Worked hours': hours(row.workedActual),
+    'Paid hours': hours(row.total),
+    'Paid Basic hours': hours(row.basic),
+    'OT x1.5 hours': hours(row.ot15),
+    'OT x2.0 hours': hours(row.ot20),
+    'Weighted hours': Number(weightedFor(row).toFixed(2)),
+    Note: row.note || row.error || row.description || ''
   }));
-  const absenceRows = absenceRanges.map((range) => ({ From: range.start, To: range.end, Reason: range.reason }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), 'Summary');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dayRows), 'Daily Entries');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(absenceRows.length ? absenceRows : [{ From:'', To:'', Reason:'No absence periods marked' }]), 'Absence Periods');
-  const array = XLSX.write(wb, { bookType:'xlsx', type:'array' });
-  return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - ${weekStart.value || 'week'}.xlsx`, {
-    type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  });
 }
-function csvEscape(value) {
-  const text = String(value ?? '');
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-function buildCsvFile(calculated, totals, weighted) {
-  const header = ['Day','Date','Weekday','Start','Finish','Lunch','Absence reason','Location','Description','Worked actual hours','Paid hours','Paid Basic hours','OT x1.5 hours','OT x2.0 hours','Note'];
-  const rows = calculated.map((row) => [
-    row.label,
-    row.date,
-    row.dayName,
-    row.start,
-    row.finish,
-    row.lunchHad ? 'Yes - 1h deducted' : 'No',
-    row.absenceStatus,
-    row.location,
-    row.description,
-    ((row.workedActual || 0) / 60).toFixed(2),
-    ((row.total || 0) / 60).toFixed(2),
-    ((row.basic || 0) / 60).toFixed(2),
-    ((row.ot15 || 0) / 60).toFixed(2),
-    ((row.ot20 || 0) / 60).toFixed(2),
-    row.note || row.error || ''
-  ]);
-  const summary = [
-    ['Summary'],
+
+function buildWorkbook(calculated, totals, weighted) {
+  const allRows = allRowsForExport(calculated);
+  const totalsRows = [
+    ['GMT Weekly Timesheet Totals'],
+    [],
     ['Employee', employeeName.value.trim()],
     ['Employee email', employeeEmail.value.trim()],
     ['Week start', weekStart.value],
     ['Week end', weekEnd.value],
-    ['Worked hours', (totals.workedActual / 60).toFixed(2)],
-    ['Paid hours', (totals.total / 60).toFixed(2)],
-    ['Paid Basic hours', (totals.basic / 60).toFixed(2)],
-    ['OT x1.5 hours', (totals.ot15 / 60).toFixed(2)],
-    ['OT x2.0 hours', (totals.ot20 / 60).toFixed(2)],
-    ['Paid weighted hours', weighted.toFixed(2)],
     [],
-    header,
-    ...rows
+    ['Metric', 'Hours / Count'],
+    ['Worked hours', hours(totals.workedActual)],
+    ['Paid hours', hours(totals.total)],
+    ['Paid Basic hours', hours(totals.basic)],
+    ['OT x1.5 hours', hours(totals.ot15)],
+    ['OT x2.0 hours', hours(totals.ot20)],
+    ['Paid weighted hours', Number(weighted.toFixed(2))],
+    ['Holiday days', totals.holiday],
+    ['Sick days', totals.sick],
+    ['Time Off days', totals.timeOff]
   ];
-  const csv = summary.map((row) => row.map(csvEscape).join(',')).join('\r\n');
-  return new File([csv], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - ${weekStart.value || 'week'}.csv`, { type:'text/csv' });
+  const notesRows = [
+    ['GMT Timesheet Notes'],
+    [],
+    ['Day', 'Date', 'Weekday', 'Category', 'Absence reason', 'Break', 'Note', 'Issue'],
+    ...calculated.filter((row) => row.note || row.error || row.description || row.absenceStatus !== 'NA').map((row) => [
+      row.label,
+      row.date,
+      row.dayName,
+      categoryFor(row),
+      row.absenceStatus || 'NA',
+      breakLabel(row.lunchMinutes),
+      row.description || row.note || '',
+      row.error || ''
+    ])
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(allRows), 'All');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(totalsRows), 'Totals');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(notesRows), 'Notes');
+  const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - ${weekStart.value || 'week'}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
+
+function buildCsvFile(calculated) {
+  const rows = allRowsForExport(calculated);
+  const header = Object.keys(rows[0] || {});
+  const csv = [header, ...rows.map((row) => header.map((key) => row[key]))].map((row) => row.map(csvEscape).join(',')).join('\r\n');
+  return new File([csv], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - ${weekStart.value || 'week'}.csv`, { type: 'text/csv' });
+}
+
 function setFileInputFiles(input, files) {
-  const dt = new DataTransfer();
-  files.forEach((file) => dt.items.add(file));
-  input.files = dt.files;
+  const dataTransfer = new DataTransfer();
+  files.forEach((file) => dataTransfer.items.add(file));
+  input.files = dataTransfer.files;
 }
+
 function formSubmitEndpoint() {
   return String(CONFIG.formSubmitEndpoint || '').replace('/ajax/', '/');
 }
-function ensureEmailForm() {
-  let emailForm = document.getElementById('formsubmit-clean-form');
-  if (emailForm) return emailForm;
+
+function createEmailForm() {
   const iframe = document.createElement('iframe');
   iframe.name = 'formsubmit-frame';
   iframe.hidden = true;
   document.body.appendChild(iframe);
-  emailForm = document.createElement('form');
-  emailForm.id = 'formsubmit-clean-form';
+  const emailForm = document.createElement('form');
   emailForm.method = 'POST';
   emailForm.enctype = 'multipart/form-data';
   emailForm.target = 'formsubmit-frame';
@@ -627,71 +559,119 @@ function ensureEmailForm() {
   document.body.appendChild(emailForm);
   return emailForm;
 }
+
 async function submitTimesheet(event) {
   event.preventDefault();
-  clearError();
+  clearMessage();
   const { calculated, totals, weighted } = recalculate();
   if (!employeeName.value.trim()) return showError('Please enter your full name before submitting.');
-  if (!getRows().length) return showError('Please add at least one day.');
+  if (!calculated.length) return showError('Please add at least one day.');
   if (totals.errors.length) return showError(totals.errors.join(' '));
-  if (!CONFIG.formSubmitEndpoint) return showError('FormSubmit is not configured yet. Set window.GMT_APP_CONFIG.formSubmitEndpoint in config.js.');
+  if (!CONFIG.formSubmitEndpoint) return showError('FormSubmit is not configured yet.');
   try {
-    const endpoint = formSubmitEndpoint();
+    await ensureXlsxLoaded();
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
-    const csvFile = buildCsvFile(calculated, totals, weighted);
-    const emailForm = ensureEmailForm();
-    emailForm.action = endpoint;
+    const csvFile = buildCsvFile(calculated);
+    const emailForm = createEmailForm();
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
+    emailForm.action = formSubmitEndpoint();
     field('replyto').value = userEmail;
     field('cc').value = [CONFIG.formSubmitCc, userEmail].filter(Boolean).join(',');
     field('employeeName').value = employeeName.value.trim();
     field('employeeEmail').value = userEmail;
     field('summary').value = calculatedSummaryInput.value;
-    field('message').value = 'Timesheet spreadsheets are attached. Please use the XLSX or CSV attachment for payroll/audit. The visible form field table has been intentionally reduced to avoid confusion.';
+    field('message').value = 'Timesheet spreadsheets are attached. Please use the XLSX or CSV attachment for payroll/audit.';
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
     emailForm.submit();
-    showSuccess('Timesheet sent with generated XLSX and CSV attachments. Check the inbox for the spreadsheet files.');
-  } catch (err) {
-    showError(err.message || 'Submission failed.');
+    showSuccess('Timesheet sent with generated XLSX and CSV attachments.');
+  } catch (error) {
+    showError(error.message || 'Submission failed.');
   }
 }
 
-addDayBtn.addEventListener('click', () => {
-  document.querySelectorAll('.day-card').forEach((card) => toggleDayCard(card, true));
-  addDay();
-  saveDraft();
-  daysContainer.lastElementChild?.scrollIntoView({ behavior:'smooth', block:'start' });
+function saveDraftManually() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      employeeName: employeeName.value,
+      employeeEmail: employeeEmail.value,
+      weekStart: weekStart.value,
+      weekEnd: weekEnd.value,
+      absenceRanges,
+      rows: getRows()
+    }));
+    showSuccess('Draft saved on this device. Draft loading is temporarily disabled while mobile input stability is verified.');
+  } catch {
+    showError('Draft could not be saved on this device. The form can still be submitted.');
+  }
+}
+
+function clearDraft() {
+  localStorage.removeItem(STORAGE_KEY);
+  showSuccess('Saved draft cleared on this device.');
+}
+
+form.addEventListener('input', (event) => {
+  clearMessage();
+  if (event.target.closest('.day-card')) scheduleRecalculate();
 });
-generateDaysBtn.addEventListener('click', () => generateDaysFromRange(true));
-addAbsenceBtn.addEventListener('click', addAbsenceRange);
-absencePlanner.addEventListener('toggle', () => document.body.classList.toggle('absence-planner-open', absencePlanner.open));
+
+form.addEventListener('change', (event) => {
+  clearMessage();
+  const target = event.target;
+  const card = target.closest('.day-card');
+  if (target === weekStart && weekStart.value && !weekEnd.value) {
+    const end = dateObj(weekStart.value);
+    end.setDate(end.getDate() + 6);
+    weekEnd.value = isoDate(end);
+  }
+  if (card && target.matches('[data-field="absenceStatus"]')) applyAbsenceState(card);
+  if (card && target.matches('[data-field="date"]')) {
+    const reason = absenceForDate(target.value);
+    if (reason !== 'NA') {
+      const select = card.querySelector('[data-field="absenceStatus"]');
+      select.value = reason;
+      applyAbsenceState(card);
+    }
+  }
+  scheduleRecalculate();
+});
+
+daysContainer.addEventListener('click', (event) => {
+  const collapseButton = event.target.closest('.collapse-day');
+  if (collapseButton) {
+    toggleDayCard(collapseButton.closest('.day-card'));
+    return;
+  }
+  const removeButton = event.target.closest('.remove-day');
+  if (removeButton) {
+    removeButton.closest('.day-card').remove();
+    recalculate();
+  }
+});
+
 absenceRangesEl.addEventListener('click', (event) => {
   const button = event.target.closest('[data-remove-absence]');
   if (!button) return;
   absenceRanges.splice(Number(button.dataset.removeAbsence), 1);
   renderAbsenceRanges();
   generateDaysFromRange(true);
-  saveDraft();
-});
-saveDraftBtn.addEventListener('click', () => { saveDraft(); showError('Draft saved on this device.'); });
-clearDraftBtn.addEventListener('click', () => { if (confirm('Clear this draft?')) clearDraft(); });
-form.addEventListener('submit', submitTimesheet);
-[employeeName, employeeEmail, weekStart, weekEnd, absenceStart, absenceEnd, absenceReason].forEach((el) => {
-  el.addEventListener('input', handleInput);
-  el.addEventListener('change', handleInput);
-});
-weekStart.addEventListener('change', () => {
-  if (weekStart.value && !weekEnd.value) {
-    const end = dateObj(weekStart.value);
-    end.setDate(end.getDate() + 6);
-    weekEnd.value = isoDate(end);
-  }
 });
 
+addDayBtn.addEventListener('click', () => {
+  daysContainer.querySelectorAll('.day-card').forEach((card) => toggleDayCard(card, true));
+  addDay({ collapsed: false });
+  recalculate();
+  daysContainer.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+generateDaysBtn.addEventListener('click', () => generateDaysFromRange(true));
+addAbsenceBtn.addEventListener('click', addAbsenceRange);
+saveDraftBtn.addEventListener('click', saveDraftManually);
+clearDraftBtn.addEventListener('click', clearDraft);
+form.addEventListener('submit', submitTimesheet);
+
 renderAbsenceRanges();
-if (!loadDraft()) addDay();
-showStoredRecoveryNotice();
-document.body.classList.toggle('absence-planner-open', absencePlanner.open);
+addDay();
 recalculate();
