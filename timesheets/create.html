@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Create GMT Timesheet</title>
-<link rel="stylesheet" href="../styles.css?v=collapse-fix-20260625">
-<link rel="stylesheet" href="../portal.css?v=collapse-fix-20260625">
+<link rel="stylesheet" href="../styles.css?v=input-stability-20260626">
+<link rel="stylesheet" href="../portal.css?v=input-stability-20260626">
 </head>
 <body>
 <header class="app-header">
 <div><p class="eyebrow">GMT Electrical Services</p><h1>Create Timesheet</h1><p>Fill a weekly timesheet and send generated XLSX/CSV attachments.</p></div>
-<nav class="header-actions"><a href="../index.html">Dashboard</a><a href="./">Timesheets</a><a href="../jobs/">Job Cards</a><a href="../tasks/">Tasks</a><a href="../calendar/">Calendar</a></nav>
+<nav class="header-actions"><a href="../index.html">Dashboard</a><a href="./">Timesheets</a><a href="../jobs/">Job Cards</a><a href="../tools/">Tools</a></nav>
 </header>
 <main class="app-main">
 <section class="card intro-card"><h2>Guest timesheet entry</h2><p>Enter your name, choose week dates, mark absences, then complete daily entries.</p><div class="notice"><strong>Overtime rules:</strong> weekdays pay 8h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, Sunday is OT x2.0. Holiday is paid basic.</div></section>
@@ -43,11 +43,13 @@
 <p class="small-text">The email contains a short summary plus generated XLSX and CSV attachments.</p>
 </form>
 </main>
-<script src="../config.js?v=collapse-fix-20260625"></script>
-<script src="../lazy-xlsx.js?v=collapse-fix-20260625"></script>
-<script src="../script.js?v=collapse-fix-20260625"></script>
-<script src="../workbook-format.js?v=collapse-fix-20260625"></script>
-<script src="../timesheet-status-labels.js?v=collapse-fix-20260625"></script>
-<script src="../timesheet-mobile-fixes.js?v=collapse-fix-20260625"></script>
+<script src="../config.js?v=input-stability-20260626"></script>
+<script src="../timesheet-preflight.js?v=input-stability-20260626"></script>
+<script src="../lazy-xlsx.js?v=input-stability-20260626"></script>
+<script src="../script.js?v=input-stability-20260626"></script>
+<script src="../workbook-format.js?v=input-stability-20260626"></script>
+<script src="../timesheet-status-labels.js?v=input-stability-20260626"></script>
+<script src="../timesheet-mobile-fixes.js?v=input-stability-20260626"></script>
+<script src="../timesheet-input-fix.js?v=input-stability-20260626"></script>
 </body>
 </html>
