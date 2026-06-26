@@ -14,14 +14,14 @@
 * { box-sizing: border-box; }
 html { font-size: 15px; }
 body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
-.app-header { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: 1.2rem; background: linear-gradient(135deg, var(--green), var(--green-2)); color: #fff; border-bottom: 4px solid var(--gold); }
-.brand-block { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.site-logo { width: min(290px, 46vw); height: auto; display: block; background: #fff; border-radius: .75rem; padding: .4rem; box-shadow: 0 8px 20px rgba(0,0,0,.16); object-fit: contain; }
-.site-logo.small-logo { width: min(210px, 40vw); }
+.app-header { display: flex; justify-content: center; gap: 1rem; align-items: center; padding: 1.2rem; background: linear-gradient(135deg, var(--green), var(--green-2)); color: #fff; border-bottom: 4px solid var(--gold); text-align: center; }
+.brand-block { display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap; width: 100%; }
+.logo-crop, .brand-block .site-logo { width: min(380px, 78vw); height: 128px; display: block; background: #fff; border-radius: .75rem; padding: 0; box-shadow: 0 8px 20px rgba(0,0,0,.16); object-fit: cover; object-position: center center; overflow: hidden; }
+.site-logo.small-logo { width: min(260px, 64vw); height: 88px; }
 .app-header h1 { margin: .1rem 0; font-size: clamp(1.6rem, 5vw, 2.6rem); }
 .app-header p { margin: 0; max-width: 60rem; }
 .eyebrow { font-size: .8rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; color: #fff3b8; }
-.header-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.header-actions { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; }
 .header-actions a { color: #fff; border: 1px solid rgba(255,255,255,.8); border-radius: 999px; padding: .55rem .85rem; text-decoration: none; font-weight: 800; }
 .header-actions a:hover { background: rgba(255,255,255,.15); }
 .app-main { max-width: 980px; margin: 0 auto; padding: 1rem; }
@@ -63,10 +63,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 640px) {
   .app-main { padding: .65rem; }
-  .app-header { align-items: flex-start; flex-direction: column; }
-  .brand-block { align-items: flex-start; flex-direction: column; }
-  .site-logo { width: min(260px, 72vw); }
-  .site-logo.small-logo { width: min(210px, 64vw); }
+  .app-header { align-items: center; flex-direction: column; }
+  .brand-block { align-items: center; flex-direction: column; text-align: center; }
+  .logo-crop, .brand-block .site-logo { width: min(360px, 84vw); height: 122px; }
+  .site-logo.small-logo { width: min(260px, 72vw); height: 88px; }
   .day-card { padding: .85rem; border-radius: 1rem; margin: .85rem 0; }
   .day-card-header { grid-template-columns: auto 1fr; }
   .remove-day { grid-column: 1 / -1; justify-self: start; }
