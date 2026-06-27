@@ -13,6 +13,7 @@ The audit page lets an accounts/admin user upload a GMT timesheet archive and ge
 - file-level parse status separate from audit mismatch warnings
 - row categories for worked rows, bank holidays, ignored empty weekends, month markers, total rows, and footer rows
 - downloadable combined audit workbook and JSON
+- optional submit flow that emails accounts the calculated workbook and warning CSV through FormSubmit
 
 ## GMT rules implemented
 
@@ -41,12 +42,23 @@ The audit page lets an accounts/admin user upload a GMT timesheet archive and ge
 4. Review:
    - parsed row count and parse error count
    - audit warnings for source/calculation mismatches
+   - admin correction notes
    - combined totals
    - source row checks
    - parsed file details and ignored row categories
 5. Download either:
    - the combined Excel audit workbook
    - the audit JSON
+6. Click **Submit corrected audit to accounts** to send the calculated workbook and warning CSV to the configured FormSubmit accounts endpoint.
+
+## Email submission
+
+- The audit page reuses `window.GMT_APP_CONFIG.formSubmitEndpoint`, the same configuration used by the timesheet form.
+- The hidden multipart FormSubmit form and iframe are created only when the submit button is clicked.
+- The email subject is `GMT Corrected Timesheet Audit`.
+- The email includes the audit summary, parsed file count, parsed row count, audit warning count, parse error count, source filenames, and admin correction notes.
+- The XLSX workbook and CSV warning summary are attached.
+- Real FormSubmit email delivery remains a manual release gate.
 
 ## Libraries used in-browser
 
@@ -65,4 +77,4 @@ The Jason June 26 ZIP contains employee data and should not be committed to the 
 AUDIT_ZIP_PATH="/path/to/Jason June 26 Time Sheets.zip" npm run test:audit:jason-zip
 ```
 
-Expected assertions include 4 Word files parsed, 2 `.docx`, 2 `.docm`, 20 source rows, 4 combined total lines, 0 file-level parse errors, 3 audit mismatches, 1 suspicious overnight warning, and exported sheets `Combined Totals`, `Source Row Checks`, and `Sources`.
+Expected assertions include 4 Word files parsed, 2 `.docx`, 2 `.docm`, 20 source rows, 4 combined total lines, 0 file-level parse errors, 3 audit mismatches, 1 suspicious overnight warning, exported sheets `Combined Totals`, `Source Row Checks`, and `Sources`, and a stubbed FormSubmit payload with XLSX/CSV attachments.

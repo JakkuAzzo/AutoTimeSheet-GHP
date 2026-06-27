@@ -67,8 +67,10 @@ try {
   await page.evaluate(() => {
     const original = XLSX.writeFile;
     window.__auditDownloadedSheets = null;
+    window.__auditDownloadedRows = null;
     XLSX.writeFile = (workbook, filename) => {
       window.__auditDownloadedSheets = workbook.SheetNames.slice();
+      window.__auditDownloadedRows = XLSX.utils.sheet_to_json(workbook.Sheets['Source Row Checks'], { defval: '' });
       return original(workbook, filename);
     };
   });
@@ -76,8 +78,29 @@ try {
   await page.locator('#downloadXlsxBtn').click();
   await downloadPromise;
 
-  const result = await page.evaluate(() => {
+  const beforeSubmit = await page.evaluate(() => ({
+    forms: document.querySelectorAll('form').length,
+    iframes: document.querySelectorAll('iframe').length,
+    submitDisabled: document.querySelector('#submitAuditBtn')?.disabled,
+    corrections: [...document.querySelectorAll('#adminCorrections li')].map((li) => li.textContent.trim())
+  }));
+  await page.evaluate(() => {
+    window.__auditSubmitted = false;
+    HTMLFormElement.prototype.submit = function submitStub() {
+      window.__auditSubmitted = true;
+    };
+  });
+  await page.locator('#submitAuditBtn').click();
+  await page.waitForFunction(() => window.__auditSubmitted === true, null, { timeout: 5000 });
+
+  const result = await page.evaluate((beforeSubmit) => {
     const wordFiles = AUDIT.files.filter((file) => ['docx', 'docm'].includes(file.type));
+    const form = document.querySelector('form[enctype="multipart/form-data"]');
+    const field = (name) => form?.querySelector(`[name="${name}"]`)?.value || '';
+    const files = [...(form?.querySelectorAll('input[type="file"]') || [])].map((input) => ({
+      name: input.name,
+      files: [...input.files].map((file) => ({ name: file.name, size: file.size, type: file.type }))
+    }));
     return {
       title: document.title,
       status: document.querySelector('#status')?.textContent || '',
@@ -90,9 +113,26 @@ try {
       auditMismatches: AUDIT.rows.filter((row) => row.issues.length).length,
       overnightWarnings: AUDIT.rows.filter((row) => row.issues.some((issue) => issue.includes('overnight shift'))).length,
       downloadedSheets: window.__auditDownloadedSheets,
-      categories: wordFiles.map((file) => file.meta?.categories || {})
+      downloadedRows: window.__auditDownloadedRows,
+      categories: wordFiles.map((file) => file.meta?.categories || {}),
+      beforeSubmit,
+      submitStatus: document.querySelector('#submitAuditStatus')?.textContent || '',
+      form: {
+        action: form?.action || '',
+        method: form?.method || '',
+        target: form?.target || '',
+        subject: field('_subject'),
+        summary: field('summary'),
+        parsedFiles: field('parsed_files_count'),
+        parsedRows: field('parsed_rows_count'),
+        auditWarnings: field('audit_warnings_count'),
+        parseErrors: field('parse_errors_count'),
+        sourceFilenames: field('source_filenames'),
+        adminCorrectionNotes: field('admin_correction_notes'),
+        files
+      }
     };
-  });
+  }, beforeSubmit);
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
   assert.equal(result.title, 'GMT Timesheet Audit Checker');
@@ -106,6 +146,32 @@ try {
   assert.equal(result.auditMismatches, 3);
   assert.equal(result.overnightWarnings, 1);
   assert.deepEqual(result.downloadedSheets, ['Combined Totals', 'Source Row Checks', 'Sources']);
+  assert.match(result.downloadedRows.find((row) => row.Source.includes('Friday 12th'))['Recommended action'], /Likely correction: check whether start should be 7:00am/);
+  assert.equal(result.downloadedRows.find((row) => row.Source.includes('Friday 12th')).Start, '7:00pm');
+  assert.equal(result.downloadedRows.find((row) => row.Source.includes('Friday 12th')).Finish, '6:00pm');
+  assert.equal(result.beforeSubmit.forms, 0);
+  assert.equal(result.beforeSubmit.iframes, 0);
+  assert.equal(result.beforeSubmit.submitDisabled, false);
+  assert.equal(result.beforeSubmit.corrections.length, 3);
+  assert.match(result.beforeSubmit.corrections.join('\n'), /Friday 12th: Source has 7:00pm to 6:00pm/);
+  assert.equal(result.submitStatus, 'Corrected audit sent to accounts with Excel attachment.');
+  assert.equal(result.form.action, 'https://formsubmit.co/acc.gmtelect@outlook.com');
+  assert.equal(result.form.method, 'post');
+  assert.equal(result.form.subject, 'GMT Corrected Timesheet Audit');
+  assert.match(result.form.summary, /Parsed successfully: 20 rows from 4 Word files/);
+  assert.equal(result.form.parsedFiles, '4');
+  assert.equal(result.form.parsedRows, '20');
+  assert.equal(result.form.auditWarnings, '3');
+  assert.equal(result.form.parseErrors, '0');
+  assert.match(result.form.sourceFilenames, /wk beg 25th May 2026\.docx/);
+  assert.match(result.form.adminCorrectionNotes, /Friday 12th: Source has 7:00pm to 6:00pm/);
+  assert.deepEqual(result.form.files.map((fileInput) => fileInput.name), ['attachment', 'attachment_csv']);
+  assert.equal(result.form.files[0].files[0].name, 'GMT corrected timesheet audit.xlsx');
+  assert.equal(result.form.files[0].files[0].type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  assert.equal(result.form.files[1].files[0].name, 'GMT audit correction warnings.csv');
+  assert.equal(result.form.files[1].files[0].type, 'text/csv');
+  assert.ok(result.form.files[0].files[0].size > 1000);
+  assert.ok(result.form.files[1].files[0].size > 100);
   assert.equal(result.categories.reduce((total, item) => total + (item['Bank Holiday row'] || 0), 0), 1);
   assert.equal(result.categories.reduce((total, item) => total + (item['Empty weekend row ignored'] || 0), 0), 8);
   assert.equal(result.categories.reduce((total, item) => total + (item['Month marker row ignored'] || 0), 0), 4);
