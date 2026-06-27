@@ -74,15 +74,17 @@ try {
       return original(workbook, filename);
     };
   });
+  await page.locator('[data-tab="exportsPane"]').click();
   const downloadPromise = page.waitForEvent('download');
   await page.locator('#downloadXlsxBtn').click();
   await downloadPromise;
+  await page.waitForFunction(() => Array.isArray(window.__auditDownloadedSheets), null, { timeout: 5000 });
 
   const beforeSubmit = await page.evaluate(() => ({
     forms: document.querySelectorAll('form').length,
     iframes: document.querySelectorAll('iframe').length,
     submitDisabled: document.querySelector('#submitAuditBtn')?.disabled,
-    corrections: [...document.querySelectorAll('#adminCorrections li')].map((li) => li.textContent.trim())
+    corrections: [...document.querySelectorAll('#adminCorrections .correction-card')].map((card) => card.textContent.trim())
   }));
   await page.evaluate(() => {
     window.__auditSubmitted = false;
@@ -130,7 +132,15 @@ try {
         sourceFilenames: field('source_filenames'),
         adminCorrectionNotes: field('admin_correction_notes'),
         files
-      }
+      },
+      ui: {
+        statusBanner: document.querySelector('#statusBanner')?.textContent || '',
+        sourceCardOpen: document.querySelector('#sourcesCard')?.open,
+        rowsCards: document.querySelectorAll('#rowsCards .row-card').length,
+        correctionCards: document.querySelectorAll('#adminCorrections .correction-card').length,
+        horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+      },
+      jsonMetadata: auditJsonPayload().metadata
     };
   }, beforeSubmit);
 
@@ -165,6 +175,15 @@ try {
   assert.equal(result.form.parseErrors, '0');
   assert.match(result.form.sourceFilenames, /wk beg 25th May 2026\.docx/);
   assert.match(result.form.adminCorrectionNotes, /Friday 12th: Source has 7:00pm to 6:00pm/);
+  assert.match(result.ui.statusBanner, /Parsed 20 rows from 4 files. 3 warnings need review. 0 parse errors./);
+  assert.equal(result.ui.sourceCardOpen, false);
+  assert.equal(result.ui.rowsCards, 20);
+  assert.equal(result.ui.correctionCards, 3);
+  assert.equal(result.ui.horizontalOverflow, false);
+  assert.equal(result.jsonMetadata.parser_version, 'audit-openxml-v2');
+  assert.equal(result.jsonMetadata.policy_version, 'gmt-daily-basic-v1');
+  assert.equal(result.jsonMetadata.row_count, 20);
+  assert.equal(result.jsonMetadata.totals.audit_warnings, 3);
   assert.deepEqual(result.form.files.map((fileInput) => fileInput.name), ['attachment', 'attachment_csv']);
   assert.equal(result.form.files[0].files[0].name, 'GMT corrected timesheet audit.xlsx');
   assert.equal(result.form.files[0].files[0].type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
