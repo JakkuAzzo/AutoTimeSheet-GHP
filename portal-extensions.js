@@ -8,6 +8,7 @@
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
+  const JOB_CARD_CC = 'gmtelectricalservices@outlook.com';
   const get = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -35,6 +36,15 @@
     }
   }
 
+  function recipientList(...values) {
+    const seen = new Set();
+    return values
+      .flatMap((value) => String(value || '').split(','))
+      .map((value) => value.trim())
+      .filter((value) => value && !seen.has(value.toLowerCase()) && seen.add(value.toLowerCase()))
+      .join(',');
+  }
+
   function sendFormSubmit(subject, fields, file) {
     const url = endpoint();
     if (!url) return false;
@@ -55,6 +65,10 @@
     add('_subject', subject);
     add('_template', 'box');
     add('_captcha', 'false');
+    const cc = subject.startsWith('GMT Job Card')
+      ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, JOB_CARD_CC)
+      : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);
+    if (cc) add('_cc', cc);
     add('submitted_at', new Date().toISOString());
     Object.entries(fields || {}).forEach(([name, value]) => add(name, value));
     if (file) {

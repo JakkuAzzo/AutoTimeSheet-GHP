@@ -19,6 +19,7 @@
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const id = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const JOB_CARD_CC = 'gmtelectricalservices@outlook.com';
 
   function logNotification(type, message) {
     const log = store.get(keys.log, []);
@@ -41,6 +42,15 @@
       document.body.appendChild(iframe);
     }
     return iframe;
+  }
+
+  function recipientList(...values) {
+    const seen = new Set();
+    return values
+      .flatMap((value) => String(value || '').split(','))
+      .map((value) => value.trim())
+      .filter((value) => value && !seen.has(value.toLowerCase()) && seen.add(value.toLowerCase()))
+      .join(',');
   }
 
   function sendPortalFormSubmit(kind, fields) {
@@ -67,7 +77,10 @@
     add('_subject', `GMT ${kind} Submission`);
     add('_template', 'box');
     add('_captcha', 'false');
-    if (window.GMT_APP_CONFIG?.formSubmitCc) add('_cc', window.GMT_APP_CONFIG.formSubmitCc);
+    const cc = kind.startsWith('Job Card')
+      ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, JOB_CARD_CC)
+      : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);
+    if (cc) add('_cc', cc);
     add('submission_type', kind);
     Object.entries(fields).forEach(([name, value]) => add(name, value));
     document.body.appendChild(form);

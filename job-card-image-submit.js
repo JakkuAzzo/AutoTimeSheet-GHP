@@ -1,4 +1,6 @@
 (() => {
+  const JOB_CARD_CC = 'gmtelectricalservices@outlook.com';
+
   function endpoint() {
     return String(window.GMT_APP_CONFIG?.formSubmitEndpoint || '').replace('/ajax/', '/');
   }
@@ -22,8 +24,16 @@
     form.appendChild(input);
   }
 
-  function sendImageEmail() {
-    const file = document.getElementById('job-image')?.files?.[0];
+  function recipientList(...values) {
+    const seen = new Set();
+    return values
+      .flatMap((value) => String(value || '').split(','))
+      .map((value) => value.trim())
+      .filter((value) => value && !seen.has(value.toLowerCase()) && seen.add(value.toLowerCase()))
+      .join(',');
+  }
+
+  function sendImageEmail(file, fields = {}) {
     const url = endpoint();
     if (!file || !url) return;
     ensureFrame();
@@ -37,12 +47,13 @@
     addHidden(form, '_subject', 'GMT Job Card Image Attachment');
     addHidden(form, '_template', 'box');
     addHidden(form, '_captcha', 'false');
+    addHidden(form, '_cc', recipientList(window.GMT_APP_CONFIG?.formSubmitCc, JOB_CARD_CC));
     addHidden(form, 'submission_type', 'Job Card Image');
-    addHidden(form, 'job_reference', document.getElementById('job-ref')?.value || '');
-    addHidden(form, 'client', document.getElementById('job-client')?.value || '');
-    addHidden(form, 'site_address', document.getElementById('job-site')?.value || '');
-    addHidden(form, 'assigned_engineer', document.getElementById('job-engineer')?.value || '');
-    addHidden(form, 'planned_date', document.getElementById('job-date')?.value || '');
+    addHidden(form, 'job_reference', fields.ref);
+    addHidden(form, 'client', fields.client);
+    addHidden(form, 'site_address', fields.site);
+    addHidden(form, 'assigned_engineer', fields.engineer);
+    addHidden(form, 'planned_date', fields.date);
     addHidden(form, 'message', 'Optional job card image attached. Match this to the main job card submission using the job reference/client/site.');
 
     const input = document.createElement('input');
@@ -62,6 +73,16 @@
     const form = document.getElementById('job-card-form');
     const image = document.getElementById('job-image');
     if (!form || !image) return;
-    form.addEventListener('submit', () => setTimeout(sendImageEmail, 250), true);
+    form.addEventListener('submit', () => {
+      const file = image.files?.[0];
+      const fields = {
+        ref: document.getElementById('job-ref')?.value || '',
+        client: document.getElementById('job-client')?.value || '',
+        site: document.getElementById('job-site')?.value || '',
+        engineer: document.getElementById('job-engineer')?.value || '',
+        date: document.getElementById('job-date')?.value || ''
+      };
+      setTimeout(() => sendImageEmail(file, fields), 250);
+    }, true);
   });
 })();
