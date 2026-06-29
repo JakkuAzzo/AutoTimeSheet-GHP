@@ -324,15 +324,19 @@ function calculateRows(rows) {
 }
 
 function applyWeeklyOvertimeThreshold(rows) {
-  const weeklyBasic = rows.reduce((sum, row) => sum + (row.basic || 0), 0);
-  const allowOvertime = weeklyBasic >= 40 * 60;
+  const weekdayNames = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+  const weekdayBasic = rows.reduce((sum, row) => sum + (weekdayNames.has(row.dayName) ? (row.basic || 0) : 0), 0);
+  const allowOvertime = weekdayBasic >= 40 * 60;
   return rows.map((row) => {
-    const appliedOt15 = allowOvertime ? (row.ot15 || 0) : 0;
-    const appliedOt20 = allowOvertime ? (row.ot20 || 0) : 0;
-    const appliedBasic = row.basic || 0;
-    const overtimeHeld = !allowOvertime && ((row.ot15 || 0) > 0 || (row.ot20 || 0) > 0);
+    const potentialOt15 = row.ot15 || 0;
+    const potentialOt20 = row.ot20 || 0;
+    const appliedOt15 = allowOvertime ? potentialOt15 : 0;
+    const appliedOt20 = allowOvertime ? potentialOt20 : 0;
+    const appliedBasic = (row.basic || 0) + (allowOvertime ? 0 : potentialOt15 + potentialOt20);
+    const overtimeHeld = !allowOvertime && (potentialOt15 > 0 || potentialOt20 > 0);
     return {
       ...row,
+      weekdayBasicThreshold: weekdayBasic,
       appliedBasic,
       appliedOt15,
       appliedOt20,
@@ -398,9 +402,9 @@ function resultPill(label, minutes, className = '') {
 function resultPills(row) {
   return [
     resultPill('Worked', row.workedActual),
-    resultPill('Basic', row.basic),
-    resultPill('OT 1.5', row.ot15),
-    resultPill('OT 2.0', row.ot20)
+    resultPill('Basic', row.appliedBasic ?? row.basic),
+    resultPill('OT 1.5', row.appliedOt15 ?? row.ot15),
+    resultPill('OT 2.0', row.appliedOt20 ?? row.ot20)
   ].join('');
 }
 
@@ -499,7 +503,7 @@ function allRowsForExport(calculated) {
     'OT x1.5 hours': hours(row.appliedOt15 ?? row.ot15),
     'OT x2.0 hours': hours(row.appliedOt20 ?? row.ot20),
     'Weighted hours': Number(weightedFor(row).toFixed(2)),
-    Note: [row.note || row.error || row.description || '', row.overtimeHeld ? 'Overtime calculated on this day but not added because weekly basic total is below 40h.' : ''].filter(Boolean).join(' ')
+    Note: [row.note || row.error || row.description || '', row.overtimeHeld ? 'Overtime calculated on this day but counted as basic because Monday-Friday basic total is below 40h.' : ''].filter(Boolean).join(' ')
   }));
 }
 

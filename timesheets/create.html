@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Create GMT Timesheet</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="../styles.css?v=iphone-safe-baseline-20260626">
-<link rel="stylesheet" href="../portal.css?v=iphone-safe-baseline-20260626">
+<link rel="stylesheet" href="../styles.css?v=threshold-basic-20260629">
+<link rel="stylesheet" href="../portal.css?v=threshold-basic-20260629">
 </head>
 <body>
 <header class="app-header">
@@ -14,7 +14,7 @@
 <nav class="header-actions"><a href="../index.html">Dashboard</a><a href="./">Timesheets</a><a href="../jobs/">Job Cards</a><a href="../tools/">Tools</a></nav>
 </header>
 <main class="app-main">
-<section class="card intro-card"><h2>Guest timesheet entry</h2><p>Enter your name, choose week dates, mark absences, then complete daily entries.</p><div class="notice"><strong>Overtime rules:</strong> weekdays count 8h basic, weekday excess is OT x1.5, Saturday before 1pm is OT x1.5, Saturday after 1pm is OT x2.0, Sunday is OT x2.0. Holiday counts as basic.</div></section>
+<section class="card intro-card"><h2>Guest timesheet entry</h2><p>Enter your name, choose week dates, mark absences, then complete daily entries.</p><div class="notice"><strong>Overtime rules:</strong> overtime is only applied once Monday-Friday basic hours reach 40h. If the threshold is not met, weekday excess and weekend hours count as basic. Holiday counts as basic.</div></section>
 <form id="timesheet-form" class="card" enctype="multipart/form-data" novalidate>
 <h2>1. Employee details</h2>
 <div class="form-grid">
@@ -44,7 +44,7 @@
 <p class="small-text">The email contains a short summary plus generated XLSX and CSV attachments.</p>
 </form>
 </main>
-<script src="../config.js?v=iphone-safe-baseline-20260626"></script>
-<script src="../script.js?v=iphone-safe-baseline-20260626"></script>
+<script src="../config.js?v=threshold-basic-20260629"></script>
+<script src="../script.js?v=threshold-basic-20260629"></script>
 </body>
 </html>

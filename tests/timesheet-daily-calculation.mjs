@@ -121,9 +121,9 @@ try {
   }));
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
-  assert.match(result.pills[0], /Friday Worked - 9h 00m Basic - 8h 00m OT 1\.5 - 1h 00m OT 2\.0 - 0h 00m/);
-  assert.match(result.pills[1], /Saturday Worked - 8h 00m Basic - 0h 00m OT 1\.5 - 5h 00m OT 2\.0 - 3h 00m/);
-  assert.match(result.pills[2], /Sunday Worked - 8h 00m Basic - 0h 00m OT 1\.5 - 0h 00m OT 2\.0 - 8h 00m/);
+  assert.match(result.pills[0], /Friday Worked - 9h 00m Basic - 9h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[1], /Saturday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[2], /Sunday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
   assert.match(result.pills[3], /Monday Worked - 5h 00m Basic - 5h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
   assert.match(result.pills[4], /Tuesday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
   assert.equal(result.pills.some((text) => text.includes('Paid -')), false);
@@ -139,19 +139,19 @@ try {
     appliedOt20: row.appliedOt20,
     overtimeHeld: row.overtimeHeld
   })), [
+    { appliedBasic: 540, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
     { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
-    { appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
-    { appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
+    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
     { appliedBasic: 300, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false },
     { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false }
   ]);
-  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 2280, total: 1260, basic: 1260, ot15: 0, ot20: 0 });
+  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 2280, total: 2280, basic: 2280, ot15: 0, ot20: 0 });
   assert.deepEqual(result.summary.slice(0, 5), [
     { label: 'Worked hours', value: '38h 00m' },
-    { label: 'Basic', value: '21h 00m' },
+    { label: 'Basic', value: '38h 00m' },
     { label: 'OT x1.5', value: '0h 00m' },
     { label: 'OT x2.0', value: '0h 00m' },
-    { label: 'Weighted hours', value: '21.00h' }
+    { label: 'Weighted hours', value: '38.00h' }
   ]);
   assert.equal(result.summary.some((item) => /paid/i.test(item.label)), false);
   assert.equal(/paid/i.test(result.calculatedSummary), false);
