@@ -104,7 +104,9 @@ try {
       label: item.querySelector('strong')?.textContent.trim(),
       value: item.querySelector('span')?.textContent.trim()
     })),
-    payload: JSON.parse(document.querySelector('#timesheet-payload').value)
+    calculatedSummary: document.querySelector('#calculated-summary')?.value || '',
+    payload: JSON.parse(document.querySelector('#timesheet-payload').value),
+    exportHeaders: Object.keys(allRowsForExport(JSON.parse(document.querySelector('#timesheet-payload').value).rows)[0] || {})
   }));
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
@@ -119,14 +121,25 @@ try {
   assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 1500, total: 1500, basic: 480, ot15: 360, ot20: 660 });
   assert.deepEqual(result.summary.slice(0, 5), [
     { label: 'Worked hours', value: '25h 00m' },
-    { label: 'Paid hours', value: '25h 00m' },
-    { label: 'Paid Basic', value: '8h 00m' },
+    { label: 'Basic', value: '8h 00m' },
     { label: 'OT x1.5', value: '6h 00m' },
-    { label: 'OT x2.0', value: '11h 00m' }
+    { label: 'OT x2.0', value: '11h 00m' },
+    { label: 'Weighted hours', value: '39.00h' }
+  ]);
+  assert.equal(result.summary.some((item) => /paid/i.test(item.label)), false);
+  assert.equal(/paid/i.test(result.calculatedSummary), false);
+  assert.equal(result.exportHeaders.some((header) => /paid/i.test(header)), false);
+  assert.deepEqual(result.exportHeaders.filter((header) => /Basic|Worked|OT/.test(header)), [
+    'Worked hours',
+    'Basic hours',
+    'OT x1.5 hours',
+    'OT x2.0 hours'
   ]);
 
   console.log(JSON.stringify({
     pills: result.pills,
+    summary: result.summary,
+    exportHeaders: result.exportHeaders,
     totals: valuesFor(result.payload.totals)
   }, null, 2));
 } finally {

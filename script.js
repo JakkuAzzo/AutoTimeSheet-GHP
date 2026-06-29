@@ -302,7 +302,7 @@ function calculateRows(rows) {
   return rows.map((row) => {
     const day = dayName(row.date);
     if (row.absenceStatus === 'Holiday') {
-      return { ...row, dayName: day, workedActual: 0, total: HOLIDAY_PAID_MINUTES, basic: HOLIDAY_PAID_MINUTES, ot15: 0, ot20: 0, absent: true, note: 'Holiday is paid as 8h basic.' };
+      return { ...row, dayName: day, workedActual: 0, total: HOLIDAY_PAID_MINUTES, basic: HOLIDAY_PAID_MINUTES, ot15: 0, ot20: 0, absent: true, note: 'Holiday counts as 8h basic.' };
     }
     if (row.absenceStatus === 'Sick') {
       return { ...row, dayName: day, workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: true, note: 'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
@@ -403,18 +403,17 @@ function recalculate() {
   const weighted = totals.basic / 60 + (totals.ot15 / 60) * 1.5 + (totals.ot20 / 60) * 2;
   summaryOutput.innerHTML = `
     <div><strong>Worked hours</strong><span>${fmtMinutes(totals.workedActual)}</span></div>
-    <div><strong>Paid hours</strong><span>${fmtMinutes(totals.total)}</span></div>
-    <div><strong>Paid Basic</strong><span>${fmtMinutes(totals.basic)}</span></div>
+    <div><strong>Basic</strong><span>${fmtMinutes(totals.basic)}</span></div>
     <div><strong>OT x1.5</strong><span>${fmtMinutes(totals.ot15)}</span></div>
     <div><strong>OT x2.0</strong><span>${fmtMinutes(totals.ot20)}</span></div>
-    <div><strong>Paid weighted hours</strong><span>${weighted.toFixed(2)}h</span></div>
+    <div><strong>Weighted hours</strong><span>${weighted.toFixed(2)}h</span></div>
     <div><strong>Holiday days</strong><span>${totals.holiday}</span></div>
     <div><strong>Sick days</strong><span>${totals.sick}</span></div>
     <div><strong>Time Off days</strong><span>${totals.timeOff}</span></div>
   `;
   const payload = { employeeName: employeeName.value.trim(), employeeEmail: employeeEmail.value.trim(), weekStart: weekStart.value, weekEnd: weekEnd.value, absenceRanges, totals: { ...totals, weightedHours: weighted }, rows: calculated };
   payloadInput.value = JSON.stringify(payload);
-  calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Paid ${fmtMinutes(totals.total)} | Paid Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
+  calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
   return { calculated, totals, weighted };
 }
 
@@ -479,8 +478,7 @@ function allRowsForExport(calculated) {
     Break: breakLabel(row.lunchMinutes),
     'Absence reason': row.absenceStatus || 'NA',
     'Worked hours': hours(row.workedActual),
-    'Paid hours': hours(row.total),
-    'Paid Basic hours': hours(row.basic),
+    'Basic hours': hours(row.basic),
     'OT x1.5 hours': hours(row.ot15),
     'OT x2.0 hours': hours(row.ot20),
     'Weighted hours': Number(weightedFor(row).toFixed(2)),
@@ -500,11 +498,10 @@ function buildWorkbook(calculated, totals, weighted) {
     [],
     ['Metric', 'Hours / Count'],
     ['Worked hours', hours(totals.workedActual)],
-    ['Paid hours', hours(totals.total)],
-    ['Paid Basic hours', hours(totals.basic)],
+    ['Basic hours', hours(totals.basic)],
     ['OT x1.5 hours', hours(totals.ot15)],
     ['OT x2.0 hours', hours(totals.ot20)],
-    ['Paid weighted hours', Number(weighted.toFixed(2))],
+    ['Weighted hours', Number(weighted.toFixed(2))],
     ['Holiday days', totals.holiday],
     ['Sick days', totals.sick],
     ['Time Off days', totals.timeOff]
