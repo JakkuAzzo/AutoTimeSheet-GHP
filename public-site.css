@@ -193,25 +193,60 @@ footer {
   border: 1px solid var(--line);
   background: #e8eee4;
   overflow: hidden;
+  isolation: isolate;
+}
+
+.workshop-map.leaflet-container {
+  font: inherit;
+}
+
+.workshop-map .leaflet-control-container,
+.workshop-map .leaflet-pane {
+  max-width: 100%;
+}
+
+.workshop-map .leaflet-control-zoom {
+  border: 0;
+  box-shadow: 0 2px 8px rgba(17, 24, 39, .16);
+  margin-left: 8px;
+  margin-top: 8px;
+}
+
+.workshop-map .leaflet-control-zoom a {
+  width: 30px;
+  height: 30px;
+  line-height: 28px;
+  border: 1px solid rgba(18, 61, 29, .18);
+  color: var(--green);
+  font-size: 18px;
+  font-weight: 800;
 }
 
 .workshop-map .leaflet-control-attribution {
-  font-size: .62rem;
+  max-width: calc(100% - 16px);
+  margin: 0;
+  padding: 2px 5px;
+  border-radius: 4px 0 0 0;
+  background: rgba(255, 255, 255, .82);
+  color: #374151;
+  font-size: .58rem;
+  line-height: 1.15;
+  white-space: normal;
+  box-shadow: none;
 }
 
-.map-center-pin {
-  position: absolute;
-  left: 50%;
-  top: 50%;
+.workshop-map .leaflet-control-attribution a {
+  color: var(--green);
+}
+
+.gmt-map-pin {
+  display: block;
   width: 24px;
   height: 24px;
   border-radius: 999px;
   background: var(--green);
   border: 5px solid var(--gold);
-  transform: translate(-50%, -50%);
   box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
-  z-index: 500;
-  pointer-events: none;
 }
 
 .quick-panel h2 {
@@ -251,7 +286,7 @@ footer {
   line-height: 1.25;
 }
 
-.quick-panel a {
+.quick-panel > a {
   display: inline-flex;
   justify-content: center;
   align-items: center;
@@ -464,6 +499,23 @@ footer {
     height: 300px;
   }
 
+  .workshop-map .leaflet-control-zoom {
+    margin-left: 7px;
+    margin-top: 7px;
+  }
+
+  .workshop-map .leaflet-control-zoom a {
+    width: 28px;
+    height: 28px;
+    line-height: 26px;
+    font-size: 16px;
+  }
+
+  .workshop-map .leaflet-control-attribution {
+    max-width: min(78%, 260px);
+    font-size: .52rem;
+  }
+
   .services-carousel {
     overflow: hidden;
     position: relative;
@@ -498,14 +550,21 @@ footer {
   }
 
   .service-carousel-button {
-    min-height: 42px;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 2px solid var(--green);
-    border-radius: 8px;
+    border-radius: 999px;
     background: #fff;
     color: var(--green);
     font: inherit;
     font-weight: 900;
-    padding: .55rem .8rem;
+    font-size: 1.9rem;
+    line-height: 1;
+    padding: 0 0 .16rem;
   }
 
   .service-dots {
@@ -551,7 +610,7 @@ footer {
   }
 
   .hero h1 {
-    font-size: clamp(2rem, 12vw, 3.2rem);
+    font-size: clamp(2rem, 11vw, 3rem);
   }
 
   .hero-actions,
@@ -604,6 +663,24 @@ footer {
     align-items: center;
     gap: .65rem;
     margin-top: .8rem;
+  }
+
+  .service-carousel-button {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--green);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--green);
+    font: inherit;
+    font-weight: 900;
+    font-size: 1.9rem;
+    line-height: 1;
+    padding: 0 0 .16rem;
   }
 }
 

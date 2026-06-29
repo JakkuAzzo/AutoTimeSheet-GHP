@@ -16,6 +16,7 @@ Browser proof used Playwright because the in-app Browser surface was not availab
 - Added a customer-facing GMT public homepage at `/`.
 - Added mobile homepage stability fixes for orientation changes, Leaflet map resizing, and horizontal overflow.
 - Changed the public homepage services section to a manual mobile carousel while keeping the desktop grid.
+- Polished the public homepage headline, mobile carousel controls, and Leaflet map control rendering.
 - Moved the staff dashboard entry point to `/portal/`.
 - Imported useful service imagery from the supplied `gmt-services.co.uk` asset ZIP into `assets/website/`.
 - Kept the existing higher-quality `image.png` logo and ignored the lower-quality `asset-20.png` duplicate logo.
@@ -57,6 +58,10 @@ git diff --check
 - Mobile homepage landscape after resize: `docs/reports/assets/public-homepage-mobile-landscape.png`
 - Mobile homepage portrait after landscape rotation: `docs/reports/assets/public-homepage-mobile-portrait-after-rotate.png`
 - Desktop services grid layout: `docs/reports/assets/public-homepage-desktop-services-layout.png`
+- Mobile polished heading and map: `docs/reports/assets/public-homepage-polish-mobile-heading-map.png`
+- Mobile polished carousel controls: `docs/reports/assets/public-homepage-polish-mobile-carousel-controls.png`
+- Mobile polished map close view: `docs/reports/assets/public-homepage-polish-mobile-map.png`
+- Landscape polished map: `docs/reports/assets/public-homepage-polish-landscape-map.png`
 - Mobile staff portal dashboard: `docs/reports/assets/portal-dashboard-mobile.png`
 - Desktop staff portal dashboard: `docs/reports/assets/portal-dashboard-desktop.png`
 
@@ -71,6 +76,17 @@ git diff --check
 | Carousel after rotation | Passed: next button still advanced the slide |
 | Desktop 1366x900 | Passed: services remained a grid, carousel controls hidden, no horizontal overflow |
 | Console/page errors | Passed: none captured during local Playwright run |
+
+## Public Homepage Polish Proof
+
+| Check | Result |
+| --- | --- |
+| Mobile heading | Passed: heading reads `Motor, pump, fan and gearbox specialists since 1985` |
+| Mobile carousel controls | Passed: previous/next controls are equal 44x44 compact buttons with aria labels |
+| Mobile map controls | Passed: Leaflet zoom controls measured 28x28 in portrait and 30x30 in landscape |
+| Mobile attribution | Passed: attribution stays compact while preserving OpenStreetMap and CARTO text |
+| Mobile zoom simulation | Passed: no horizontal overflow after page scale factor 1.35 |
+| Rotation | Passed: portrait -> landscape -> portrait kept map, marker, carousel, and links stable |
 
 ## Remaining Manual Gates
 

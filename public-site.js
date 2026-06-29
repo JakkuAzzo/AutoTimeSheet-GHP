@@ -17,10 +17,12 @@
     var map = window.L.map(el, {
       center: location,
       zoom: 16,
+      attributionControl: true,
       scrollWheelZoom: false,
       dragging: true,
       tap: true
     });
+    map.attributionControl.setPrefix(false);
     window.gmtMap = map;
 
     window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -28,12 +30,16 @@
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     }).addTo(map);
 
-    window.L.circleMarker(location, {
-      radius: 9,
-      color: '#123d1d',
-      weight: 4,
-      fillColor: '#c49a2f',
-      fillOpacity: 1
+    var pinIcon = window.L.divIcon({
+      className: '',
+      html: '<span class="gmt-map-pin" aria-hidden="true"></span>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    window.L.marker(location, {
+      icon: pinIcon,
+      keyboard: false
     })
       .addTo(map)
       .bindPopup('GMT Electrical Services<br>93-95 Gloucester Rd, Croydon CR0 2DN');
