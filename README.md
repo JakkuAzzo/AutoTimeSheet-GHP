@@ -43,6 +43,15 @@ window.GMT_APP_CONFIG = {
 
 Do not commit private tokens or secrets to a public repository.
 
+Submission email routing uses plus-addressed aliases derived from `formSubmitEndpoint` so Outlook or Power Automate can filter by recipient:
+
+- To contains `+timesheets` -> Timesheets folder
+- To contains `+audit` -> Audit folder
+- To contains `+jobcards` -> Job Cards folder
+- To contains `+jobcard-images` -> Job Card Images folder
+
+FormSubmit may treat each plus-addressed alias as a separate destination. Confirm one test email to each alias before relying on the rules in production.
+
 ## Current structure
 
 - `index.html` — guest employee timesheet form

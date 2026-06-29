@@ -1,8 +1,12 @@
 (() => {
-  const JOB_CARD_CC = 'gmtelectricalservices@outlook.com';
+  const GMT_JOB_CARD_IMAGE_CC = 'gmtelectricalservices+jobcard-images@outlook.com';
 
   function endpoint() {
     return String(window.GMT_APP_CONFIG?.formSubmitEndpoint || '').replace('/ajax/', '/');
+  }
+
+  function taggedEndpoint(tag) {
+    return endpoint().replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
   }
 
   function ensureFrame() {
@@ -34,7 +38,7 @@
   }
 
   function sendImageEmail(file, fields = {}) {
-    const url = endpoint();
+    const url = taggedEndpoint('jobcard-images');
     if (!file || !url) return;
     ensureFrame();
     const form = document.createElement('form');
@@ -44,10 +48,10 @@
     form.enctype = 'multipart/form-data';
     form.hidden = true;
 
-    addHidden(form, '_subject', 'GMT Job Card Image Attachment');
+    addHidden(form, '_subject', '[GMT][JOBCARD][IMAGE] Job card image attachment');
     addHidden(form, '_template', 'box');
     addHidden(form, '_captcha', 'false');
-    addHidden(form, '_cc', recipientList(window.GMT_APP_CONFIG?.formSubmitCc, JOB_CARD_CC));
+    addHidden(form, '_cc', recipientList(window.GMT_APP_CONFIG?.formSubmitCc, GMT_JOB_CARD_IMAGE_CC));
     addHidden(form, 'submission_type', 'Job Card Image');
     addHidden(form, 'job_reference', fields.ref);
     addHidden(form, 'client', fields.client);

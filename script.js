@@ -530,7 +530,12 @@ function setFileInputFiles(input, files) {
 }
 
 function formSubmitEndpoint() {
-  return String(CONFIG.formSubmitEndpoint || '').replace('/ajax/', '/');
+  return taggedFormSubmitEndpoint('timesheets');
+}
+
+function taggedFormSubmitEndpoint(tag) {
+  const base = String(CONFIG.formSubmitEndpoint || '').replace('/ajax/', '/');
+  return base.replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
 }
 
 function createEmailForm() {
@@ -544,7 +549,7 @@ function createEmailForm() {
   emailForm.target = 'formsubmit-frame';
   emailForm.hidden = true;
   emailForm.innerHTML = `
-    <input type="hidden" name="_subject" value="GMT Weekly Timesheet Submission">
+    <input type="hidden" name="_subject" data-clean-field="subject">
     <input type="hidden" name="_template" value="box">
     <input type="hidden" name="_captcha" value="false">
     <input type="hidden" name="_replyto" data-clean-field="replyto">
@@ -576,6 +581,7 @@ async function submitTimesheet(event) {
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
     emailForm.action = formSubmitEndpoint();
+    field('subject').value = `[GMT][TIMESHEET][SUBMISSION] ${employeeName.value.trim()} | Week ${weekStart.value || 'unspecified'}`;
     field('replyto').value = userEmail;
     field('cc').value = [CONFIG.formSubmitCc, userEmail].filter(Boolean).join(',');
     field('employeeName').value = employeeName.value.trim();

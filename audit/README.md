@@ -53,9 +53,10 @@ The audit page lets an accounts/admin user upload a GMT timesheet archive and ge
 
 ## Email submission
 
-- The audit page reuses `window.GMT_APP_CONFIG.formSubmitEndpoint`, the same configuration used by the timesheet form.
+- The audit page reuses `window.GMT_APP_CONFIG.formSubmitEndpoint`, then routes corrected audit exports to the plus-addressed audit alias.
 - The hidden multipart FormSubmit form and iframe are created only when the submit button is clicked.
-- The email subject is `GMT Corrected Timesheet Audit`.
+- The FormSubmit target is derived as `acc.gmtelect+audit@outlook.com` when the configured accounts endpoint is `acc.gmtelect@outlook.com`.
+- The email subject is `[GMT][AUDIT][CORRECTED] Corrected timesheet audit`.
 - The email includes the audit summary, parsed file count, parsed row count, audit warning count, parse error count, source filenames, and admin correction notes.
 - The XLSX workbook and CSV warning summary are attached.
 - Real FormSubmit email delivery remains a manual release gate.

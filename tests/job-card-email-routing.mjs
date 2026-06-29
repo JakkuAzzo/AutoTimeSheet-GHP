@@ -84,23 +84,23 @@ try {
   await page.locator('#job-card-form button[type="submit"]').click();
   await page.waitForFunction(() => window.__submittedForms.length >= 2, null, { timeout: 5000 });
   await page.locator('[data-job-approve]').first().click();
-  await page.waitForFunction(() => window.__submittedForms.some((form) => form.subject === 'GMT Job Card Update Submission'), null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__submittedForms.some((form) => form.subject === '[GMT][JOBCARD][UPDATE] Job card update'), null, { timeout: 5000 });
 
   const result = await page.evaluate(() => window.__submittedForms);
-  const jobForm = result.find((form) => form.subject === 'GMT Job Card Submission');
-  const imageForm = result.find((form) => form.subject === 'GMT Job Card Image Attachment');
-  const updateForm = result.find((form) => form.subject === 'GMT Job Card Update Submission');
+  const jobForm = result.find((form) => form.subject === '[GMT][JOBCARD][NEW] New job card');
+  const imageForm = result.find((form) => form.subject === '[GMT][JOBCARD][IMAGE] Job card image attachment');
+  const updateForm = result.find((form) => form.subject === '[GMT][JOBCARD][UPDATE] Job card update');
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
   assert.ok(jobForm, 'main job card FormSubmit payload was created');
   assert.ok(imageForm, 'job card image FormSubmit payload was created');
   assert.ok(updateForm, 'job card update FormSubmit payload was created');
-  assert.equal(jobForm.action, 'https://formsubmit.co/acc.gmtelect@outlook.com');
-  assert.equal(imageForm.action, 'https://formsubmit.co/acc.gmtelect@outlook.com');
-  assert.equal(updateForm.action, 'https://formsubmit.co/acc.gmtelect@outlook.com');
-  assert.equal(jobForm.cc, 'gmtelectricalservices@outlook.com');
-  assert.equal(imageForm.cc, 'gmtelectricalservices@outlook.com');
-  assert.equal(updateForm.cc, 'gmtelectricalservices@outlook.com');
+  assert.equal(jobForm.action, 'https://formsubmit.co/acc.gmtelect+jobcards@outlook.com');
+  assert.equal(imageForm.action, 'https://formsubmit.co/acc.gmtelect+jobcard-images@outlook.com');
+  assert.equal(updateForm.action, 'https://formsubmit.co/acc.gmtelect+jobcards@outlook.com');
+  assert.equal(jobForm.cc, 'gmtelectricalservices+jobcards@outlook.com');
+  assert.equal(imageForm.cc, 'gmtelectricalservices+jobcard-images@outlook.com');
+  assert.equal(updateForm.cc, 'gmtelectricalservices+jobcards@outlook.com');
   assert.deepEqual(imageForm.files, [{ name: 'attachment', files: ['completion-photo.png'] }]);
 
   console.log(JSON.stringify({

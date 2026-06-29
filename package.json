@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "test:audit:jason-zip": "node tests/audit-jason-zip-regression.mjs",
     "test:audit:fixtures": "node tests/audit-fixture-matrix.mjs",
-    "test:jobs:email-routing": "node tests/job-card-email-routing.mjs"
+    "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
+    "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs"
   },
   "keywords": ["timesheet", "authentication"],
   "author": "",

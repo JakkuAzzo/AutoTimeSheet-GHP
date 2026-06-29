@@ -165,9 +165,9 @@ try {
   assert.equal(result.beforeSubmit.corrections.length, 3);
   assert.match(result.beforeSubmit.corrections.join('\n'), /Friday 12th: Source has 7:00pm to 6:00pm/);
   assert.equal(result.submitStatus, 'Corrected audit sent to accounts with Excel attachment.');
-  assert.equal(result.form.action, 'https://formsubmit.co/acc.gmtelect@outlook.com');
+  assert.equal(result.form.action, 'https://formsubmit.co/acc.gmtelect+audit@outlook.com');
   assert.equal(result.form.method, 'post');
-  assert.equal(result.form.subject, 'GMT Corrected Timesheet Audit');
+  assert.equal(result.form.subject, '[GMT][AUDIT][CORRECTED] Corrected timesheet audit');
   assert.match(result.form.summary, /Parsed successfully: 20 rows from 4 Word files/);
   assert.equal(result.form.parsedFiles, '4');
   assert.equal(result.form.parsedRows, '20');

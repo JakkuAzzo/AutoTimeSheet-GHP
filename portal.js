@@ -19,7 +19,7 @@
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const id = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-  const JOB_CARD_CC = 'gmtelectricalservices@outlook.com';
+  const GMT_JOB_CARD_CC = 'gmtelectricalservices+jobcards@outlook.com';
 
   function logNotification(type, message) {
     const log = store.get(keys.log, []);
@@ -30,6 +30,10 @@
 
   function formSubmitEndpoint() {
     return String(window.GMT_APP_CONFIG?.formSubmitEndpoint || '').replace('/ajax/', '/');
+  }
+
+  function taggedFormSubmitEndpoint(tag) {
+    return formSubmitEndpoint().replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
   }
 
   function ensurePortalSubmitFrame() {
@@ -54,7 +58,7 @@
   }
 
   function sendPortalFormSubmit(kind, fields) {
-    const endpoint = formSubmitEndpoint();
+    const endpoint = kind.startsWith('Job Card') ? taggedFormSubmitEndpoint('jobcards') : formSubmitEndpoint();
     if (!endpoint) {
       logNotification(kind, `${kind} stored locally only. FormSubmit is not configured.`);
       return false;
@@ -74,11 +78,11 @@
       form.appendChild(input);
     };
 
-    add('_subject', `GMT ${kind} Submission`);
+    add('_subject', subjectForKind(kind));
     add('_template', 'box');
     add('_captcha', 'false');
     const cc = kind.startsWith('Job Card')
-      ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, JOB_CARD_CC)
+      ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, GMT_JOB_CARD_CC)
       : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);
     if (cc) add('_cc', cc);
     add('submission_type', kind);
@@ -87,6 +91,12 @@
     form.submit();
     setTimeout(() => form.remove(), 2000);
     return true;
+  }
+
+  function subjectForKind(kind) {
+    if (kind === 'Job Card') return '[GMT][JOBCARD][NEW] New job card';
+    if (kind === 'Job Card Update') return '[GMT][JOBCARD][UPDATE] Job card update';
+    return `GMT ${kind} Submission`;
   }
 
   function setTab(name) {

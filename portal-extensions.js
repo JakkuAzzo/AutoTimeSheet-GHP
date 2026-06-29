@@ -8,7 +8,7 @@
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
-  const JOB_CARD_CC = 'gmtelectricalservices@outlook.com';
+  const GMT_JOB_CARD_CC = 'gmtelectricalservices+jobcards@outlook.com';
   const get = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   };
@@ -17,6 +17,10 @@
 
   function endpoint() {
     return String(window.GMT_APP_CONFIG?.formSubmitEndpoint || '').replace('/ajax/', '/');
+  }
+
+  function taggedEndpoint(tag) {
+    return endpoint().replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
   }
 
   function addLog(type, message) {
@@ -46,7 +50,8 @@
   }
 
   function sendFormSubmit(subject, fields, file) {
-    const url = endpoint();
+    const isJobCard = subject.startsWith('GMT Job Card');
+    const url = isJobCard ? taggedEndpoint('jobcards') : endpoint();
     if (!url) return false;
     ensureFrame();
     const form = document.createElement('form');
@@ -62,11 +67,11 @@
       input.value = String(value ?? '');
       form.appendChild(input);
     };
-    add('_subject', subject);
+    add('_subject', subjectForEmail(subject));
     add('_template', 'box');
     add('_captcha', 'false');
-    const cc = subject.startsWith('GMT Job Card')
-      ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, JOB_CARD_CC)
+    const cc = isJobCard
+      ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, GMT_JOB_CARD_CC)
       : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);
     if (cc) add('_cc', cc);
     add('submitted_at', new Date().toISOString());
@@ -84,6 +89,11 @@
     form.submit();
     setTimeout(() => form.remove(), 2000);
     return true;
+  }
+
+  function subjectForEmail(subject) {
+    if (subject === 'GMT Job Card Update') return '[GMT][JOBCARD][UPDATE] Job card update';
+    return subject;
   }
 
   function renderJobEditButtons() {
