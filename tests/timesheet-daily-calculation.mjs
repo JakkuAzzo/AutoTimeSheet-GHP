@@ -133,13 +133,25 @@ try {
   assert.deepEqual(valuesFor(result.payload.rows[2]), { workedActual: 480, total: 480, basic: 0, ot15: 0, ot20: 480 });
   assert.deepEqual(valuesFor(result.payload.rows[3]), { workedActual: 300, total: 300, basic: 300, ot15: 0, ot20: 0 });
   assert.deepEqual(valuesFor(result.payload.rows[4]), { workedActual: 480, total: 480, basic: 480, ot15: 0, ot20: 0 });
-  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 2280, total: 2280, basic: 1260, ot15: 360, ot20: 660 });
+  assert.deepEqual(result.payload.rows.map((row) => ({
+    appliedBasic: row.appliedBasic,
+    appliedOt15: row.appliedOt15,
+    appliedOt20: row.appliedOt20,
+    overtimeHeld: row.overtimeHeld
+  })), [
+    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
+    { appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
+    { appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
+    { appliedBasic: 300, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false },
+    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false }
+  ]);
+  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 2280, total: 1260, basic: 1260, ot15: 0, ot20: 0 });
   assert.deepEqual(result.summary.slice(0, 5), [
     { label: 'Worked hours', value: '38h 00m' },
     { label: 'Basic', value: '21h 00m' },
-    { label: 'OT x1.5', value: '6h 00m' },
-    { label: 'OT x2.0', value: '11h 00m' },
-    { label: 'Weighted hours', value: '52.00h' }
+    { label: 'OT x1.5', value: '0h 00m' },
+    { label: 'OT x2.0', value: '0h 00m' },
+    { label: 'Weighted hours', value: '21.00h' }
   ]);
   assert.equal(result.summary.some((item) => /paid/i.test(item.label)), false);
   assert.equal(/paid/i.test(result.calculatedSummary), false);
@@ -151,11 +163,37 @@ try {
     'OT x2.0 hours'
   ]);
 
+  await page.locator('#week-start').fill('2026-06-22');
+  await page.locator('#week-end').fill('2026-06-26');
+  await page.locator('#generate-days-btn').click();
+  await page.waitForFunction(() => document.querySelectorAll('.day-card').length === 5, null, { timeout: 5000 });
+  await page.waitForTimeout(250);
+
+  const thresholdResult = await page.evaluate(() => ({
+    summary: [...document.querySelectorAll('#summary-output > div')].map((item) => ({
+      label: item.querySelector('strong')?.textContent.trim(),
+      value: item.querySelector('span')?.textContent.trim()
+    })),
+    payload: JSON.parse(document.querySelector('#timesheet-payload').value),
+    exportRows: allRowsForExport(JSON.parse(document.querySelector('#timesheet-payload').value).rows)
+  }));
+  assert.deepEqual(valuesFor(thresholdResult.payload.totals), { workedActual: 2700, total: 2700, basic: 2400, ot15: 300, ot20: 0 });
+  assert.deepEqual(thresholdResult.summary.slice(0, 5), [
+    { label: 'Worked hours', value: '45h 00m' },
+    { label: 'Basic', value: '40h 00m' },
+    { label: 'OT x1.5', value: '5h 00m' },
+    { label: 'OT x2.0', value: '0h 00m' },
+    { label: 'Weighted hours', value: '47.50h' }
+  ]);
+  assert.equal(thresholdResult.exportRows.reduce((sum, row) => sum + row['OT x1.5 hours'], 0), 5);
+  assert.equal(thresholdResult.exportRows.some((row) => /below 40h/.test(row.Note)), false);
+
   console.log(JSON.stringify({
     pills: result.pills,
     summary: result.summary,
     exportHeaders: result.exportHeaders,
-    totals: valuesFor(result.payload.totals)
+    totals: valuesFor(result.payload.totals),
+    thresholdTotals: valuesFor(thresholdResult.payload.totals)
   }, null, 2));
 } finally {
   await browser?.close();

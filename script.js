@@ -323,13 +323,32 @@ function calculateRows(rows) {
   });
 }
 
+function applyWeeklyOvertimeThreshold(rows) {
+  const weeklyBasic = rows.reduce((sum, row) => sum + (row.basic || 0), 0);
+  const allowOvertime = weeklyBasic >= 40 * 60;
+  return rows.map((row) => {
+    const appliedOt15 = allowOvertime ? (row.ot15 || 0) : 0;
+    const appliedOt20 = allowOvertime ? (row.ot20 || 0) : 0;
+    const appliedBasic = row.basic || 0;
+    const overtimeHeld = !allowOvertime && ((row.ot15 || 0) > 0 || (row.ot20 || 0) > 0);
+    return {
+      ...row,
+      appliedBasic,
+      appliedOt15,
+      appliedOt20,
+      appliedTotal: appliedBasic + appliedOt15 + appliedOt20,
+      overtimeHeld
+    };
+  });
+}
+
 function totalsFor(rows) {
   return rows.reduce((acc, row) => {
     acc.workedActual += row.workedActual || 0;
-    acc.total += row.total || 0;
-    acc.basic += row.basic || 0;
-    acc.ot15 += row.ot15 || 0;
-    acc.ot20 += row.ot20 || 0;
+    acc.total += row.appliedTotal ?? row.total ?? 0;
+    acc.basic += row.appliedBasic ?? row.basic ?? 0;
+    acc.ot15 += row.appliedOt15 ?? row.ot15 ?? 0;
+    acc.ot20 += row.appliedOt20 ?? row.ot20 ?? 0;
     if (row.absent) acc.absent += 1;
     if (row.absenceStatus === 'Holiday') acc.holiday += 1;
     if (row.absenceStatus === 'Sick') acc.sick += 1;
@@ -357,7 +376,7 @@ function categoryFor(row) {
 }
 
 function weightedFor(row) {
-  return hours(row.basic) + hours(row.ot15) * 1.5 + hours(row.ot20) * 2;
+  return hours(row.appliedBasic ?? row.basic) + hours(row.appliedOt15 ?? row.ot15) * 1.5 + hours(row.appliedOt20 ?? row.ot20) * 2;
 }
 
 function updateMiniSummary(card, row) {
@@ -386,7 +405,7 @@ function resultPills(row) {
 }
 
 function recalculate() {
-  const calculated = calculateRows(getRows());
+  const calculated = applyWeeklyOvertimeThreshold(calculateRows(getRows()));
   const totals = totalsFor(calculated);
   calculated.forEach((row, index) => {
     const card = daysContainer.querySelectorAll('.day-card')[index];
@@ -476,11 +495,11 @@ function allRowsForExport(calculated) {
     Break: breakLabel(row.lunchMinutes),
     'Absence reason': row.absenceStatus || 'NA',
     'Worked hours': hours(row.workedActual),
-    'Basic hours': hours(row.basic),
-    'OT x1.5 hours': hours(row.ot15),
-    'OT x2.0 hours': hours(row.ot20),
+    'Basic hours': hours(row.appliedBasic ?? row.basic),
+    'OT x1.5 hours': hours(row.appliedOt15 ?? row.ot15),
+    'OT x2.0 hours': hours(row.appliedOt20 ?? row.ot20),
     'Weighted hours': Number(weightedFor(row).toFixed(2)),
-    Note: row.note || row.error || row.description || ''
+    Note: [row.note || row.error || row.description || '', row.overtimeHeld ? 'Overtime calculated on this day but not added because weekly basic total is below 40h.' : ''].filter(Boolean).join(' ')
   }));
 }
 
