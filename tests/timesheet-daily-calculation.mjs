@@ -72,9 +72,9 @@ try {
   assert.deepEqual(initialDefaults, { start: '08:00', finish: '17:00' });
 
   await page.locator('#week-start').fill('2026-06-26');
-  await page.locator('#week-end').fill('2026-06-28');
+  await page.locator('#week-end').fill('2026-06-30');
   await page.locator('#generate-days-btn').click();
-  await page.waitForFunction(() => document.querySelectorAll('.day-card').length === 3, null, { timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll('.day-card').length === 5, null, { timeout: 5000 });
 
   const generatedDefaults = await page.evaluate(() => [...document.querySelectorAll('.day-card')].map((card) => ({
     date: card.querySelector('[data-field="date"]')?.value,
@@ -84,7 +84,9 @@ try {
   assert.deepEqual(generatedDefaults, [
     { date: '2026-06-26', start: '08:00', finish: '17:00' },
     { date: '2026-06-27', start: '08:00', finish: '17:00' },
-    { date: '2026-06-28', start: '08:00', finish: '17:00' }
+    { date: '2026-06-28', start: '08:00', finish: '17:00' },
+    { date: '2026-06-29', start: '08:00', finish: '17:00' },
+    { date: '2026-06-30', start: '08:00', finish: '17:00' }
   ]);
 
   await page.evaluate(() => {
@@ -92,7 +94,16 @@ try {
     breaks[0].value = '0';
     breaks[1].value = '60';
     breaks[2].value = '60';
+    breaks[3].value = '0';
+    breaks[4].value = '0';
+    const finishes = [...document.querySelectorAll('[data-field="finish"]')];
+    finishes[3].value = '13:00';
+    finishes[4].value = '13:00';
+    const absences = [...document.querySelectorAll('[data-field="absenceStatus"]')];
+    absences[3].value = 'Time Off';
     breaks.forEach((select) => select.dispatchEvent(new Event('change', { bubbles: true })));
+    finishes.forEach((input) => input.dispatchEvent(new Event('input', { bubbles: true })));
+    absences.forEach((select) => select.dispatchEvent(new Event('change', { bubbles: true })));
   });
   await page.waitForTimeout(250);
 
@@ -113,18 +124,22 @@ try {
   assert.match(result.pills[0], /Friday Worked - 9h 00m Basic - 8h 00m OT 1\.5 - 1h 00m OT 2\.0 - 0h 00m/);
   assert.match(result.pills[1], /Saturday Worked - 8h 00m Basic - 0h 00m OT 1\.5 - 5h 00m OT 2\.0 - 3h 00m/);
   assert.match(result.pills[2], /Sunday Worked - 8h 00m Basic - 0h 00m OT 1\.5 - 0h 00m OT 2\.0 - 8h 00m/);
+  assert.match(result.pills[3], /Monday Worked - 5h 00m Basic - 5h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[4], /Tuesday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
   assert.equal(result.pills.some((text) => text.includes('Paid -')), false);
 
   assert.deepEqual(valuesFor(result.payload.rows[0]), { workedActual: 540, total: 540, basic: 480, ot15: 60, ot20: 0 });
   assert.deepEqual(valuesFor(result.payload.rows[1]), { workedActual: 480, total: 480, basic: 0, ot15: 300, ot20: 180 });
   assert.deepEqual(valuesFor(result.payload.rows[2]), { workedActual: 480, total: 480, basic: 0, ot15: 0, ot20: 480 });
-  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 1500, total: 1500, basic: 480, ot15: 360, ot20: 660 });
+  assert.deepEqual(valuesFor(result.payload.rows[3]), { workedActual: 300, total: 300, basic: 300, ot15: 0, ot20: 0 });
+  assert.deepEqual(valuesFor(result.payload.rows[4]), { workedActual: 480, total: 480, basic: 480, ot15: 0, ot20: 0 });
+  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 2280, total: 2280, basic: 1260, ot15: 360, ot20: 660 });
   assert.deepEqual(result.summary.slice(0, 5), [
-    { label: 'Worked hours', value: '25h 00m' },
-    { label: 'Basic', value: '8h 00m' },
+    { label: 'Worked hours', value: '38h 00m' },
+    { label: 'Basic', value: '21h 00m' },
     { label: 'OT x1.5', value: '6h 00m' },
     { label: 'OT x2.0', value: '11h 00m' },
-    { label: 'Weighted hours', value: '39.00h' }
+    { label: 'Weighted hours', value: '52.00h' }
   ]);
   assert.equal(result.summary.some((item) => /paid/i.test(item.label)), false);
   assert.equal(/paid/i.test(result.calculatedSummary), false);

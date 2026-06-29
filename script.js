@@ -312,16 +312,14 @@ function calculateRows(rows) {
       return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish are required unless absence reason is Sick or Holiday.' };
     }
     if (row.absenceStatus === 'Time Off') {
-      if (actual >= BASIC_DAY_MINUTES) {
-        return { ...row, dayName: day, workedActual: actual, total: actual, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Time Off can only be selected when the completed hours are less than 8h.' };
-      }
-      return { ...row, dayName: day, workedActual: actual, total: actual, basic: actual, ot15: 0, ot20: 0, absent: false, note: 'Partial day with Time Off. Only completed hours are counted as basic.' };
+      return { ...row, dayName: day, workedActual: actual, total: actual, basic: actual, ot15: 0, ot20: 0, absent: false, note: 'Time Off records the completed worked hours only.' };
     }
     if (day === 'Sunday') return { ...row, dayName: day, workedActual: actual, total: actual, basic: 0, ot15: 0, ot20: actual, absent: false, note: 'Sunday is OT x2.0.' };
     if (day === 'Saturday') return { ...row, dayName: day, ...splitSaturday(row), absent: false, note: 'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
     const basic = BASIC_DAY_MINUTES;
     const ot15 = Math.max(0, actual - BASIC_DAY_MINUTES);
-    return { ...row, dayName: day, workedActual: actual, total: basic + ot15, basic, ot15, ot20: 0, absent: false, note: ot15 ? 'Weekday: 8h basic plus daily excess as OT x1.5.' : 'Weekday: 8h basic minimum for the day.' };
+    const workedActual = Math.max(actual, BASIC_DAY_MINUTES);
+    return { ...row, dayName: day, workedActual, total: basic + ot15, basic, ot15, ot20: 0, absent: false, note: ot15 ? 'Weekday: 8h basic plus daily excess as OT x1.5.' : 'Weekday without absence records an 8h minimum.' };
   });
 }
 
