@@ -84,7 +84,7 @@ try {
   const result = await page.evaluate(() => window.__submittedForms[0]);
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
-  assert.equal(result.action, 'https://formsubmit.co/acc.gmtelect+timesheets@outlook.com');
+  assert.equal(result.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'routing.tester@example.com');
   assert.equal(result.replyTo, 'routing.tester@example.com');

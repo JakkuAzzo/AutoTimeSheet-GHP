@@ -5,6 +5,10 @@ window.GMT_APP_CONFIG = {
   // Example: "https://formsubmit.co/ajax/your-submission-mailbox@example.com"
   formSubmitEndpoint: "",
 
+  // Optional activated FormSubmit token endpoint for timesheets.
+  // Example: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN"
+  formSubmitTimesheetEndpoint: "",
+
   // Example: "second-admin@example.com"
   formSubmitCc: "",
 

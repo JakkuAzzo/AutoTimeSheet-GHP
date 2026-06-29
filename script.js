@@ -564,6 +564,9 @@ function setFileInputFiles(input, files) {
 }
 
 function formSubmitEndpoint() {
+  if (CONFIG.formSubmitTimesheetEndpoint) {
+    return String(CONFIG.formSubmitTimesheetEndpoint).replace('/ajax/', '/');
+  }
   return taggedFormSubmitEndpoint('timesheets');
 }
 

@@ -21,11 +21,12 @@ Employees can submit timesheets without an account. The public form is designed 
 
 The app uses these GMT rules:
 
-- Weekday hours count toward the 40h weekly basic threshold.
-- Weekday hours above 40h are OT x1.5.
-- Saturday before 13:00 is OT x1.5.
-- Saturday after 13:00 is OT x2.0.
-- Sunday is OT x2.0 all day.
+- Monday-Friday basic hours must reach at least 40h before overtime is applied.
+- If the Monday-Friday threshold is not met, weekday excess and weekend hours count as basic.
+- Once the threshold is met, weekday excess is OT x1.5.
+- Once the threshold is met, Saturday before 13:00 is OT x1.5.
+- Once the threshold is met, Saturday after 13:00 is OT x2.0.
+- Once the threshold is met, Sunday is OT x2.0 all day.
 - Hours over 50 are not automatically OT x2.0.
 
 ## Configuration
@@ -35,6 +36,7 @@ Copy `config.example.js` to `config.js` for deployment and set:
 ```js
 window.GMT_APP_CONFIG = {
   formSubmitEndpoint: "https://formsubmit.co/ajax/YOUR_SUBMISSION_MAILBOX",
+  formSubmitTimesheetEndpoint: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN",
   formSubmitCc: "OPTIONAL_CC_MAILBOX",
   allowedAdminEmails: [],
   magicLinkApiBase: ""
@@ -42,6 +44,8 @@ window.GMT_APP_CONFIG = {
 ```
 
 Do not commit private tokens or secrets to a public repository.
+
+`formSubmitTimesheetEndpoint` is optional. When set, the Timesheets form uses that activated token endpoint directly. Audit and Job Cards continue to derive their plus-addressed aliases from `formSubmitEndpoint` unless their own activated token endpoints are added later.
 
 Submission email routing uses plus-addressed aliases derived from `formSubmitEndpoint` so Outlook or Power Automate can filter by recipient:
 
@@ -52,6 +56,8 @@ Submission email routing uses plus-addressed aliases derived from `formSubmitEnd
 Job card photos are attached to the same `+jobcards` email as the job card details when an image is selected.
 
 FormSubmit may treat each plus-addressed alias as a separate destination. Confirm one test email to each alias before relying on the rules in production.
+
+See `docs/outlook-onedrive-filing-and-index-plan.md` for the recommended Outlook rules, OneDrive folder structure, Power Automate flow, and Microsoft Lists or Excel metadata index plan.
 
 ## Current structure
 

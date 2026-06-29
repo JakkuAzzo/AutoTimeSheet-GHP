@@ -36,6 +36,14 @@ const cleanWeekRows = [
   row('Friday 5th', '8:00am', '4:00pm', '0 mins', '8h 00m', '0h 00m', '0h 00m')
 ];
 
+const ainsleyWeekRows = [
+  row('Mon 01', '8.00am', '17.00pm', '1hr', '8', '', '', 'GMT'),
+  row('Tues 02', '8.00am', '17.00pm', '1hr', '8', '', '', 'GMT'),
+  row('Wed 03', '8.00am', '17.00pm', '1hr', '8', '', '', 'GMT'),
+  row('Thur 04', '8.00am', '17.00pm', '1hr', '8', '', '', 'GMT'),
+  row('Fri 05', '8.00am', '17.00pm', '1hr', '8', '', '', 'GMT')
+];
+
 const cases = [];
 
 function row(label, start = '', finish = '', lunch = '', basic = '', ot15 = '', ot20 = '', site = 'Fixture site') {
@@ -150,6 +158,7 @@ function buildFixtures(root) {
   const saturdaySplit = createWordFile(root, 'saturday-split.docx', { employee: 'Fixture Saturday Split', rows: [row('Saturday 6th', '10:00am', '3:00pm', '0 mins', '0h 00m', '3h 00m', '2h 00m')] });
   const sundayOt = createWordFile(root, 'sunday-ot.docx', { employee: 'Fixture Sunday Ot', rows: [row('Sunday 7th', '9:00am', '1:00pm', '0 mins', '0h 00m', '0h 00m', '4h 00m')] });
   const overnight = createWordFile(root, 'overnight-typo.docx', { employee: 'Fixture Overnight', rows: [row('Friday 5th', '7:00pm', '6:00pm', '30 mins', '8h 00m', '2h 30m', '0h 00m')] });
+  const ainsley = createWordFile(root, 'AINSLEY TIMESHEET GMT WEEK 1st June 2026 (2).docx', { employee: 'Ainsley Williams', rows: ainsleyWeekRows });
   const unsupportedDoc = join(root, 'unsupported-legacy.doc');
   writeFileSync(unsupportedDoc, 'legacy binary placeholder');
 
@@ -158,6 +167,7 @@ function buildFixtures(root) {
   addCase({ name: 'mixed-docx-docm', zip: createZip(root, 'mixed-docx-docm.zip', [mixedDocx, mixedDocm]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 2, actual: 80, basic: 80, employees: ['fixture mixed alpha', 'fixture mixed beta'] }) });
   addCase({ name: 'multiple-employees', zip: createZip(root, 'multiple-employees.zip', [employeeOne, employeeTwo]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 2, actual: 80, basic: 80, employees: ['fixture person one', 'fixture person two'] }) });
   addCase({ name: 'clean-week-no-warnings', zip: createZip(root, 'clean-week-no-warnings.zip', [cleanDocx]), expected: expected({ parsedRows: 5, actual: 40, basic: 40, employees: ['fixture alpha'] }) });
+  addCase({ name: 'ainsley-dot-am-pm-blank-ot', zip: createZip(root, 'ainsley-dot-am-pm-blank-ot.zip', [ainsley]), expected: expected({ parsedRows: 5, actual: 40, basic: 40, employees: ['ainsley williams'] }) });
   addCase({ name: 'weekday-ot-x15', zip: createZip(root, 'weekday-ot-x15.zip', [weekdayOt]), expected: expected({ parsedRows: 1, actual: 9.5, basic: 8, ot15: 1.5, employees: ['fixture weekday ot'] }) });
   addCase({ name: 'saturday-before-after-1300', zip: createZip(root, 'saturday-before-after-1300.zip', [saturdaySplit]), expected: expected({ parsedRows: 1, actual: 5, basic: 0, ot15: 3, ot20: 2, employees: ['fixture saturday split'] }) });
   addCase({ name: 'sunday-ot-x20', zip: createZip(root, 'sunday-ot-x20.zip', [sundayOt]), expected: expected({ parsedRows: 1, actual: 4, basic: 0, ot20: 4, employees: ['fixture sunday ot'] }) });
