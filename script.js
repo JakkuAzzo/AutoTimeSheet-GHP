@@ -155,6 +155,8 @@ function addDay(data = {}) {
   const index = dayCount;
   const dateValue = data.date || defaultDateForNextDay();
   const absenceStatus = data.absenceStatus || 'NA';
+  const startValue = data.start ?? '08:00';
+  const finishValue = data.finish ?? '17:00';
   const breakMinutes = normaliseBreakMinutes(data.lunchMinutes);
   const card = document.createElement('article');
   card.className = data.collapsed ? 'day-card is-collapsed' : 'day-card';
@@ -177,10 +179,10 @@ function addDay(data = {}) {
           <input type="date" name="day_${index}_date" data-field="date" value="${escapeHtml(dateValue)}">
         </label>
         <label>Start
-          <input type="time" name="day_${index}_start" data-field="start" value="${escapeHtml(data.start || '')}">
+          <input type="time" name="day_${index}_start" data-field="start" value="${escapeHtml(startValue)}">
         </label>
         <label>Finish
-          <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeHtml(data.finish || '')}">
+          <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeHtml(finishValue)}">
         </label>
         <label>Break
           <select name="day_${index}_break" data-field="lunchHad">
@@ -371,6 +373,21 @@ function updateMiniSummary(card, row) {
   summary.textContent = bits.length ? bits.join(' · ') : 'Not filled in yet';
 }
 
+function resultPill(label, minutes, className = '') {
+  const classAttr = className ? ` class="${className}"` : '';
+  return `<span${classAttr}>${escapeHtml(label)} - ${fmtMinutes(minutes)}</span>`;
+}
+
+function resultPills(row) {
+  return [
+    resultPill('Worked', row.workedActual),
+    resultPill('Paid', row.total),
+    resultPill('Basic', row.basic),
+    resultPill('OT 1.5', row.ot15),
+    resultPill('OT 2.0', row.ot20)
+  ].join('');
+}
+
 function recalculate() {
   const calculated = calculateRows(getRows());
   const totals = totalsFor(calculated);
@@ -380,9 +397,9 @@ function recalculate() {
     const output = card.querySelector('.day-result');
     updateMiniSummary(card, row);
     if (row.error) output.innerHTML = `<span class="pill bad">${escapeHtml(row.error)}</span>`;
-    else if (row.absenceStatus === 'Holiday') output.innerHTML = `<span class="pill warn">Holiday</span><span>Paid basic ${fmtMinutes(row.basic)}</span>`;
-    else if (row.absenceStatus === 'Sick') output.innerHTML = '<span class="pill warn">Sick</span><span>Recorded for payroll</span>';
-    else output.innerHTML = `<span class="pill">${row.dayName || 'No date'}</span><span>Worked ${fmtMinutes(row.workedActual)}</span><span>Paid ${fmtMinutes(row.total)}</span><span>Basic ${fmtMinutes(row.basic)}</span><span>OT 1.5 ${fmtMinutes(row.ot15)}</span><span>OT 2.0 ${fmtMinutes(row.ot20)}</span>`;
+    else if (row.absenceStatus === 'Holiday') output.innerHTML = `<span class="pill warn">Holiday</span>${resultPills(row)}`;
+    else if (row.absenceStatus === 'Sick') output.innerHTML = `<span class="pill warn">Sick</span>${resultPills(row)}`;
+    else output.innerHTML = `<span class="pill">${escapeHtml(row.dayName || 'No date')}</span>${resultPills(row)}`;
   });
   const weighted = totals.basic / 60 + (totals.ot15 / 60) * 1.5 + (totals.ot20 / 60) * 2;
   summaryOutput.innerHTML = `
