@@ -57,8 +57,15 @@
       .join(',');
   }
 
-  function sendPortalFormSubmit(kind, fields) {
-    const endpoint = kind.startsWith('Job Card') ? taggedFormSubmitEndpoint('jobcards') : formSubmitEndpoint();
+  function setFileInputFiles(input, files) {
+    const dataTransfer = new DataTransfer();
+    files.forEach((file) => dataTransfer.items.add(file));
+    input.files = dataTransfer.files;
+  }
+
+  function sendPortalFormSubmit(kind, fields, options = {}) {
+    const isJobCard = kind.startsWith('Job Card');
+    const endpoint = isJobCard ? taggedFormSubmitEndpoint('jobcards') : formSubmitEndpoint();
     if (!endpoint) {
       logNotification(kind, `${kind} stored locally only. FormSubmit is not configured.`);
       return false;
@@ -68,7 +75,9 @@
     form.method = 'POST';
     form.action = endpoint;
     form.target = 'portal-formsubmit-frame';
+    form.enctype = 'multipart/form-data';
     form.hidden = true;
+    const submittedAt = new Date().toISOString();
 
     const add = (name, value) => {
       const input = document.createElement('input');
@@ -78,24 +87,47 @@
       form.appendChild(input);
     };
 
-    add('_subject', subjectForKind(kind));
+    add('_subject', subjectForKind(kind, fields));
     add('_template', 'box');
     add('_captcha', 'false');
-    const cc = kind.startsWith('Job Card')
+    const cc = isJobCard
       ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, GMT_JOB_CARD_CC)
       : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);
     if (cc) add('_cc', cc);
     add('submission_type', kind);
+    if (isJobCard) {
+      const jobRef = fields.job_reference || fields.gmt_job_ref || '';
+      add('gmt_type', 'jobcard');
+      add('gmt_action', kind === 'Job Card' ? 'new' : 'update');
+      add('gmt_record_id', jobRef);
+      add('gmt_job_ref', jobRef);
+      add('gmt_client', fields.client || fields.gmt_client || '');
+      add('gmt_site', fields.site_address || fields.gmt_site || '');
+      add('gmt_engineer', fields.assigned_engineer || fields.gmt_engineer || '');
+      add('gmt_planned_date', fields.planned_date || fields.gmt_planned_date || '');
+      if (options.file) add('gmt_attachment_type', 'image');
+      add('gmt_submitted_at', submittedAt);
+    }
     Object.entries(fields).forEach(([name, value]) => add(name, value));
+    if (!('submitted_at' in fields) && !('updated_at' in fields)) add('submitted_at', submittedAt);
+    if (options.file) {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.name = 'attachment';
+      setFileInputFiles(fileInput, [options.file]);
+      form.appendChild(fileInput);
+    }
     document.body.appendChild(form);
     form.submit();
     setTimeout(() => form.remove(), 2000);
     return true;
   }
 
-  function subjectForKind(kind) {
-    if (kind === 'Job Card') return '[GMT][JOBCARD][NEW] New job card';
-    if (kind === 'Job Card Update') return '[GMT][JOBCARD][UPDATE] Job card update';
+  function subjectForKind(kind, fields = {}) {
+    const jobRef = fields.job_reference || fields.gmt_job_ref || 'Unreferenced job';
+    const client = fields.client || fields.gmt_client || 'No client';
+    if (kind === 'Job Card') return `[GMT][JOBCARD][NEW] ${jobRef} | ${client}`;
+    if (kind === 'Job Card Update') return `[GMT][JOBCARD][UPDATE] ${jobRef} | ${client}`;
     return `GMT ${kind} Submission`;
   }
 
@@ -229,12 +261,12 @@
     $('#job-card-form')?.addEventListener('submit', (event) => {
       event.preventDefault();
       const jobs = store.get(keys.jobs, []);
+      const imageFile = $('#job-image')?.files?.[0] || null;
       const job = {
         id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), status: 'Pending'
       };
       jobs.unshift(job);
       store.set(keys.jobs, jobs);
-      event.target.reset();
       sendPortalFormSubmit('Job Card', {
         job_reference: job.ref,
         client: job.client,
@@ -244,7 +276,8 @@
         status: job.status,
         description: job.description,
         submitted_at: new Date().toISOString()
-      });
+      }, { file: imageFile });
+      event.target.reset();
       logNotification('Job card', `Job card ${job.ref || job.client || job.id} created and emailed for admin review.`);
       renderJobs();
     });

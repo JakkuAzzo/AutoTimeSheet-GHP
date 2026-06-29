@@ -67,14 +67,27 @@
       input.value = String(value ?? '');
       form.appendChild(input);
     };
-    add('_subject', subjectForEmail(subject));
+    add('_subject', subjectForEmail(subject, fields || {}));
     add('_template', 'box');
     add('_captcha', 'false');
     const cc = isJobCard
       ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, GMT_JOB_CARD_CC)
       : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);
     if (cc) add('_cc', cc);
-    add('submitted_at', new Date().toISOString());
+    const submittedAt = new Date().toISOString();
+    if (isJobCard) {
+      const jobRef = fields?.job_reference || '';
+      add('gmt_type', 'jobcard');
+      add('gmt_action', 'update');
+      add('gmt_record_id', jobRef);
+      add('gmt_job_ref', jobRef);
+      add('gmt_client', fields?.client || '');
+      add('gmt_site', fields?.site_address || '');
+      add('gmt_engineer', fields?.assigned_engineer || '');
+      add('gmt_planned_date', fields?.planned_date || '');
+      add('gmt_submitted_at', submittedAt);
+    }
+    add('submitted_at', submittedAt);
     Object.entries(fields || {}).forEach(([name, value]) => add(name, value));
     if (file) {
       const fileInput = document.createElement('input');
@@ -91,8 +104,8 @@
     return true;
   }
 
-  function subjectForEmail(subject) {
-    if (subject === 'GMT Job Card Update') return '[GMT][JOBCARD][UPDATE] Job card update';
+  function subjectForEmail(subject, fields = {}) {
+    if (subject === 'GMT Job Card Update') return `[GMT][JOBCARD][UPDATE] ${fields.job_reference || 'Unreferenced job'} | ${fields.client || 'No client'}`;
     return subject;
   }
 

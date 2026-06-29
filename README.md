@@ -47,8 +47,9 @@ Submission email routing uses plus-addressed aliases derived from `formSubmitEnd
 
 - To contains `+timesheets` -> Timesheets folder
 - To contains `+audit` -> Audit folder
-- To contains `+jobcards` -> Job Cards folder
-- To contains `+jobcard-images` -> Job Card Images folder
+- To or CC contains `+jobcards` -> GMT Portal / Job Cards
+
+Job card photos are attached to the same `+jobcards` email as the job card details when an image is selected.
 
 FormSubmit may treat each plus-addressed alias as a separate destination. Confirm one test email to each alias before relying on the rules in production.
 
