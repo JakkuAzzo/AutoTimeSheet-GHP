@@ -3,18 +3,139 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GMT Dashboard</title>
-<link rel="stylesheet" href="styles.css?v=dashboard-no-title-card-20260626">
-<link rel="stylesheet" href="portal.css?v=dashboard-no-title-card-20260626">
+<meta name="description" content="GMT Electrical Services Ltd provides motor rewind, electrical motor repair, fan repair, pump repair, kitchen extractor and gearbox repair services from Croydon.">
+<title>GMT Electrical Services Ltd | Motor, Pump and Fan Repairs in Croydon</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQhja0ZYOJz9RSjK7DkX1P1L5PjHh8A=" crossorigin="">
+<link rel="stylesheet" href="public-site.css?v=website-remake-20260629">
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script defer src="public-site.js?v=leaflet-map-20260629"></script>
 </head>
 <body>
-<header class="app-header"><div class="brand-block"><img src="image.png" alt="GMT Electrical Services Ltd logo" class="site-logo"><div><p class="eyebrow">93-95 Gloucester Rd, Croydon CR0 2DN</p><h1>Dashboard</h1></div></div></header>
-<main class="app-main">
-<section class="portal-card-grid">
-<a class="portal-feature-card" href="timesheets/"><span>Timesheets</span><small>Create or analyse timesheets.</small></a>
-<a class="portal-feature-card" href="jobs/"><span>Job Cards</span><small>Create and review job cards.</small><strong class="in-progress-badge">In progress</strong></a>
-<a class="portal-feature-card" href="tools/"><span>Tools</span><small>Tasks and calendar.</small><strong class="in-progress-badge">In progress</strong></a>
-</section>
+<header class="site-header">
+  <a class="brand" href="#top" aria-label="GMT Electrical Services home">
+    <img src="image.png" alt="GMT Electrical Services Ltd logo">
+  </a>
+  <nav class="site-nav" aria-label="Main navigation">
+    <a href="#services">Services</a>
+    <a href="#about">About</a>
+    <a href="#contact">Contact</a>
+    <a class="portal-link" href="portal/">Staff Portal</a>
+  </nav>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <h1>Electrical motor, pump and fan repairs in Croydon</h1>
+        <p>Established in 1985, GMT Electrical Services Ltd repairs, rewinds and maintains motors, pumps, fans, kitchen extractors and gearboxes for businesses across Croydon and South London.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="tel:02086830464">0208 683 0464</a>
+          <a class="button secondary" href="mailto:info@gmt-services.co.uk">info@gmt-services.co.uk</a>
+        </div>
+      </div>
+      <aside class="quick-panel" aria-label="Workshop details">
+        <div class="workshop-map-wrap">
+          <div id="workshopMap" class="workshop-map" role="img" aria-label="Map centered on 93-95 Gloucester Road, Croydon"></div>
+          <span class="map-center-pin" aria-hidden="true"></span>
+        </div>
+        <h2>Workshop details</h2>
+        <dl>
+          <div>
+            <dt>Address</dt>
+            <dd>93-95 Gloucester Rd, Croydon CR0 2DN</dd>
+          </div>
+          <div>
+            <dt>Services</dt>
+            <dd>Motors, pumps, fans, extractors and gearboxes</dd>
+          </div>
+          <div>
+            <dt>Established</dt>
+            <dd>1985</dd>
+          </div>
+        </dl>
+        <a href="https://www.google.com/maps/search/?api=1&query=93-95%20Gloucester%20Rd%2C%20Croydon%20CR0%202DN" target="_blank" rel="noopener">Open map</a>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section" id="services">
+    <div class="section-heading">
+      <h2>Workshop and site repair services</h2>
+      <p>Fast practical support for motors, pumps, fans and related plant, with repair, supply and installation options.</p>
+    </div>
+    <div class="service-grid">
+      <article class="service-card">
+        <img src="assets/website/motor-rewind.jpeg" alt="Motor rewind winding detail">
+        <h3>Motor Rewind</h3>
+        <p>Machine-wound stators and armatures for single phase motors, three phase motors and armatures, checked throughout each stage of the rewind.</p>
+      </article>
+      <article class="service-card">
+        <img src="assets/website/motor-repair.jpeg" alt="Electrical motor components">
+        <h3>Electrical Motor Repair</h3>
+        <p>Repairs for 1 phase and 3 phase motors, including testing, refurbishment and replacement options when a quick turnaround matters.</p>
+      </article>
+      <article class="service-card">
+        <img src="assets/website/fan-repair.png" alt="Industrial fan unit">
+        <h3>Fan Repair and Installation</h3>
+        <p>Repair and installation support for scroll fans, toilet extractors, boiler fans and other commercial fan systems.</p>
+      </article>
+      <article class="service-card">
+        <img src="assets/website/pumps.jpeg" alt="Pump repair range">
+        <h3>Pump Repairs and Installations</h3>
+        <p>Overhaul, supply and installation for a wide range of pumps, including sump pumps, pool pumps and multi-stage pumps.</p>
+      </article>
+      <article class="service-card">
+        <img src="assets/website/kitchen-extractors.jpeg" alt="Extractor fan parts">
+        <h3>Kitchen Extractors</h3>
+        <p>Repair, supply and fitting for kitchen extractor fans where heat, downtime and ventilation issues affect service.</p>
+      </article>
+      <article class="service-card">
+        <img src="assets/website/gearbox-repair.png" alt="Mechanical gearbox repair">
+        <h3>Mechanical Gearbox Repair</h3>
+        <p>Inspection, repair and supply of mechanical gearboxes for AC and DC equipment, including urgent business-critical breakdowns.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="about-band" id="about">
+    <div>
+      <h2>Established in 1985</h2>
+      <p>GMT Electrical Services was started by three partners who had worked for one of the industry's most experienced companies. The team has continued to adapt with the industry while building long-standing knowledge in motor rewind, pumps, motors, extractors, air conditioning, gearboxes and fan repairs.</p>
+    </div>
+    <ul>
+      <li>Experienced engineers</li>
+      <li>Workshop and site support</li>
+      <li>Repair, supply and installation</li>
+      <li>Local Croydon service</li>
+    </ul>
+  </section>
+
+  <section class="section contact-section" id="contact">
+    <div class="contact-card">
+      <div>
+        <h2>Get in touch</h2>
+        <p><a href="tel:02086830464">0208 683 0464</a></p>
+        <p><a href="mailto:info@gmt-services.co.uk">info@gmt-services.co.uk</a></p>
+      </div>
+      <div>
+        <h2>Visit us</h2>
+        <p>93-95 Gloucester Rd<br>Croydon<br>CR0 2DN</p>
+      </div>
+      <div class="link-panel">
+        <h2>Industry links</h2>
+        <a class="bpma-link" href="https://www.bpma.org.uk/" target="_blank" rel="noopener">
+          <img src="assets/website/pump-association.jpeg" alt="BPMA British Pump Manufacturers Association logo">
+          <span>British Pump Manufacturers Association</span>
+        </a>
+        <a href="https://www.facebook.com/pages/GMT-Electrical-Services/149416668407013" target="_blank" rel="noopener">GMT Electrical Services on Facebook</a>
+      </div>
+    </div>
+  </section>
 </main>
+
+<footer class="site-footer">
+  <p>&copy; 2026 GMT Electrical Services Ltd. 93-95 Gloucester Rd, Croydon CR0 2DN.</p>
+</footer>
 </body>
 </html>

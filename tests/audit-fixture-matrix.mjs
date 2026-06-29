@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
+const XLSX = require('xlsx');
 
 const mime = {
   '.css': 'text/css',
@@ -143,6 +144,44 @@ function createZip(root, name, filePaths) {
   return outputPath;
 }
 
+function createAppXlsxFile(root, name, { employee, employeeEmail = '', weekStart = '2026-06-01', weekEnd = '2026-06-05', rows }) {
+  const workbook = XLSX.utils.book_new();
+  const allRows = rows.map((r) => ({
+    Status: r.status || 'Recorded',
+    Category: r.category || 'Basic day',
+    Employee: employee,
+    'Employee email': employeeEmail,
+    'Week start': weekStart,
+    'Week end': weekEnd,
+    Day: r.label,
+    Date: r.date,
+    Weekday: r.weekday,
+    Start: r.start,
+    Finish: r.finish,
+    Break: r.breakLabel,
+    'Absence reason': r.absence || 'NA',
+    'Worked hours': r.worked,
+    'Basic hours': r.basic,
+    'OT x1.5 hours': r.ot15 || 0,
+    'OT x2.0 hours': r.ot20 || 0,
+    'Weighted hours': r.weighted || r.basic,
+    Note: r.note || ''
+  }));
+  const totalsRows = [
+    ['GMT Weekly Timesheet Totals'],
+    [],
+    ['Employee', employee],
+    ['Employee email', employeeEmail],
+    ['Week start', weekStart],
+    ['Week end', weekEnd]
+  ];
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(allRows), 'All');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(totalsRows), 'Totals');
+  const outputPath = join(root, name);
+  XLSX.writeFile(workbook, outputPath);
+  return outputPath;
+}
+
 function addCase(item) {
   cases.push(item);
 }
@@ -159,6 +198,14 @@ function buildFixtures(root) {
   const sundayOt = createWordFile(root, 'sunday-ot.docx', { employee: 'Fixture Sunday Ot', rows: [row('Sunday 7th', '9:00am', '1:00pm', '0 mins', '0h 00m', '0h 00m', '4h 00m')] });
   const overnight = createWordFile(root, 'overnight-typo.docx', { employee: 'Fixture Overnight', rows: [row('Friday 5th', '7:00pm', '6:00pm', '30 mins', '8h 00m', '2h 30m', '0h 00m')] });
   const ainsley = createWordFile(root, 'AINSLEY TIMESHEET GMT WEEK 1st June 2026 (2).docx', { employee: 'Ainsley Williams', rows: ainsleyWeekRows });
+  const cleanAppXlsxRows = [
+    { label: 'Day 1', date: '2026-06-01', weekday: 'Monday', start: '08:00', finish: '17:00', breakLabel: '1 hour', worked: 8, basic: 8 },
+    { label: 'Day 2', date: '2026-06-02', weekday: 'Tuesday', start: '08:00', finish: '17:00', breakLabel: '1 hour', worked: 8, basic: 8 },
+    { label: 'Day 3', date: '2026-06-03', weekday: 'Wednesday', start: '08:00', finish: '17:00', breakLabel: '1 hour', worked: 8, basic: 8 },
+    { label: 'Day 4', date: '2026-06-04', weekday: 'Thursday', start: '08:00', finish: '17:00', breakLabel: '1 hour', worked: 8, basic: 8 },
+    { label: 'Day 5', date: '2026-06-05', weekday: 'Friday', start: '08:00', finish: '17:00', breakLabel: '1 hour', worked: 8, basic: 8 }
+  ];
+  const cleanAppXlsx = createAppXlsxFile(root, 'clean-app-generated-timesheet.xlsx', { employee: 'Fixture App Xlsx', employeeEmail: 'fixture.app@example.com', rows: cleanAppXlsxRows });
   const unsupportedDoc = join(root, 'unsupported-legacy.doc');
   writeFileSync(unsupportedDoc, 'legacy binary placeholder');
 
@@ -168,6 +215,8 @@ function buildFixtures(root) {
   addCase({ name: 'multiple-employees', zip: createZip(root, 'multiple-employees.zip', [employeeOne, employeeTwo]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 2, actual: 80, basic: 80, employees: ['fixture person one', 'fixture person two'] }) });
   addCase({ name: 'clean-week-no-warnings', zip: createZip(root, 'clean-week-no-warnings.zip', [cleanDocx]), expected: expected({ parsedRows: 5, actual: 40, basic: 40, employees: ['fixture alpha'] }) });
   addCase({ name: 'ainsley-dot-am-pm-blank-ot', zip: createZip(root, 'ainsley-dot-am-pm-blank-ot.zip', [ainsley]), expected: expected({ parsedRows: 5, actual: 40, basic: 40, employees: ['ainsley williams'] }) });
+  addCase({ name: 'app-generated-xlsx-clean', zip: createZip(root, 'app-generated-xlsx-clean.zip', [cleanAppXlsx]), expected: expected({ parsedRows: 5, actual: 40, basic: 40, employees: ['fixture app xlsx'] }), statusIncludes: ['app-generated XLSX file'] });
+  addCase({ name: 'mixed-word-and-app-xlsx', zip: createZip(root, 'mixed-word-and-app-xlsx.zip', [cleanDocx, cleanAppXlsx]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 2, actual: 80, basic: 80, employees: ['fixture alpha', 'fixture app xlsx'] }), statusIncludes: ['source files', 'Word file', 'app-generated XLSX file'] });
   addCase({ name: 'weekday-ot-x15', zip: createZip(root, 'weekday-ot-x15.zip', [weekdayOt]), expected: expected({ parsedRows: 1, actual: 9.5, basic: 8, ot15: 1.5, employees: ['fixture weekday ot'] }) });
   addCase({ name: 'saturday-before-after-1300', zip: createZip(root, 'saturday-before-after-1300.zip', [saturdaySplit]), expected: expected({ parsedRows: 1, actual: 5, basic: 0, ot15: 3, ot20: 2, employees: ['fixture saturday split'] }) });
   addCase({ name: 'sunday-ot-x20', zip: createZip(root, 'sunday-ot-x20.zip', [sundayOt]), expected: expected({ parsedRows: 1, actual: 4, basic: 0, ot20: 4, employees: ['fixture sunday ot'] }) });
@@ -229,7 +278,7 @@ async function runCase(page, port, item) {
       return acc;
     }, { actualMinutes: 0, basicMinutes: 0, ot15Minutes: 0, ot20Minutes: 0 });
     return {
-      sourceCount: AUDIT.files.filter((file) => ['docx', 'docm'].includes(file.type) && file.rows.length).length,
+      sourceCount: AUDIT.files.filter((file) => ['docx', 'docm', 'xlsx', 'xls', 'csv'].includes(file.type) && file.rows.length).length,
       parsedRows: AUDIT.rows.length,
       combinedLines: AUDIT.combined.length,
       ...totals,
@@ -261,6 +310,10 @@ async function runCase(page, port, item) {
 
   for (const fragment of item.warningIncludes || []) {
     assert.match(result.warnings.join('\n'), new RegExp(fragment, 'i'), item.name);
+  }
+
+  for (const fragment of item.statusIncludes || []) {
+    assert.match(result.status, new RegExp(fragment, 'i'), item.name);
   }
 
   assert.equal(result.horizontalOverflow, false, `${item.name} should not horizontally overflow mobile viewport`);
