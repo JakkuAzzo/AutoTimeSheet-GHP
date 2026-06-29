@@ -381,7 +381,6 @@ function resultPill(label, minutes, className = '') {
 function resultPills(row) {
   return [
     resultPill('Worked', row.workedActual),
-    resultPill('Paid', row.total),
     resultPill('Basic', row.basic),
     resultPill('OT 1.5', row.ot15),
     resultPill('OT 2.0', row.ot20)

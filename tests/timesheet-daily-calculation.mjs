@@ -108,9 +108,10 @@ try {
   }));
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
-  assert.match(result.pills[0], /Friday Worked - 9h 00m Paid - 9h 00m Basic - 8h 00m OT 1\.5 - 1h 00m OT 2\.0 - 0h 00m/);
-  assert.match(result.pills[1], /Saturday Worked - 8h 00m Paid - 8h 00m Basic - 0h 00m OT 1\.5 - 5h 00m OT 2\.0 - 3h 00m/);
-  assert.match(result.pills[2], /Sunday Worked - 8h 00m Paid - 8h 00m Basic - 0h 00m OT 1\.5 - 0h 00m OT 2\.0 - 8h 00m/);
+  assert.match(result.pills[0], /Friday Worked - 9h 00m Basic - 8h 00m OT 1\.5 - 1h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[1], /Saturday Worked - 8h 00m Basic - 0h 00m OT 1\.5 - 5h 00m OT 2\.0 - 3h 00m/);
+  assert.match(result.pills[2], /Sunday Worked - 8h 00m Basic - 0h 00m OT 1\.5 - 0h 00m OT 2\.0 - 8h 00m/);
+  assert.equal(result.pills.some((text) => text.includes('Paid -')), false);
 
   assert.deepEqual(valuesFor(result.payload.rows[0]), { workedActual: 540, total: 540, basic: 480, ot15: 60, ot20: 0 });
   assert.deepEqual(valuesFor(result.payload.rows[1]), { workedActual: 480, total: 480, basic: 0, ot15: 300, ot20: 180 });
