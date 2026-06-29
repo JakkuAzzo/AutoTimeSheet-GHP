@@ -14,6 +14,8 @@ Browser proof used Playwright because the in-app Browser surface was not availab
 - Added audit parser support for app-generated XLSX files using the `All` sheet and `Totals` metadata fallback.
 - Added regression fixture coverage for clean app-generated XLSX and mixed Word + XLSX ZIP.
 - Added a customer-facing GMT public homepage at `/`.
+- Added mobile homepage stability fixes for orientation changes, Leaflet map resizing, and horizontal overflow.
+- Changed the public homepage services section to a manual mobile carousel while keeping the desktop grid.
 - Moved the staff dashboard entry point to `/portal/`.
 - Imported useful service imagery from the supplied `gmt-services.co.uk` asset ZIP into `assets/website/`.
 - Kept the existing higher-quality `image.png` logo and ignored the lower-quality `asset-20.png` duplicate logo.
@@ -35,6 +37,8 @@ AUDIT_ZIP_PATH=/tmp/codex-remote-attachments/019f039e-fc5f-76c1-8bd0-c3139147a1e
 npm run test:timesheets:daily-calculation
 npm run test:timesheets:email-routing
 npm run test:jobs:email-routing
+node --check public-site.js
+Playwright local homepage run: 390x844, 844x390, 390x844 after rotation, and 1366x900
 git diff --check
 ```
 
@@ -48,8 +52,25 @@ git diff --check
 - Laptop public site: `docs/reports/assets/public-site-laptop.png`
 - Desktop public site: `docs/reports/assets/public-site-desktop.png`
 - Public site embedded Leaflet map proof: `docs/reports/assets/public-site-map-element.png`
+- Mobile homepage carousel first slide: `docs/reports/assets/public-homepage-mobile-carousel-first.png`
+- Mobile homepage carousel later slide: `docs/reports/assets/public-homepage-mobile-carousel-later.png`
+- Mobile homepage landscape after resize: `docs/reports/assets/public-homepage-mobile-landscape.png`
+- Mobile homepage portrait after landscape rotation: `docs/reports/assets/public-homepage-mobile-portrait-after-rotate.png`
+- Desktop services grid layout: `docs/reports/assets/public-homepage-desktop-services-layout.png`
 - Mobile staff portal dashboard: `docs/reports/assets/portal-dashboard-mobile.png`
 - Desktop staff portal dashboard: `docs/reports/assets/portal-dashboard-desktop.png`
+
+## Public Homepage Mobile Stability Proof
+
+| Check | Result |
+| --- | --- |
+| iPhone portrait 390x844 | Passed: no horizontal overflow, map visible, pin visible, carousel controls visible |
+| Carousel first to later slide | Passed: dot moved from 1 to 2, track translated by one card width |
+| iPhone landscape 844x390 | Passed: no horizontal overflow, map visible at 240px height, carousel controls still visible |
+| Portrait after landscape rotation | Passed: no horizontal overflow, map visible, pin visible, carousel retained a valid slide |
+| Carousel after rotation | Passed: next button still advanced the slide |
+| Desktop 1366x900 | Passed: services remained a grid, carousel controls hidden, no horizontal overflow |
+| Console/page errors | Passed: none captured during local Playwright run |
 
 ## Remaining Manual Gates
 
