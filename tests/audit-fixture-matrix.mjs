@@ -287,6 +287,10 @@ async function runCase(page, port, item) {
       employees: [...new Set(AUDIT.rows.map((row) => row.employeeKey))].sort(),
       warnings: AUDIT.rows.flatMap((row) => row.issues).concat(AUDIT.issues),
       status: document.querySelector('#status')?.textContent || '',
+      statusBanner: document.querySelector('#statusBanner')?.textContent || '',
+      correctionTitle: document.querySelector('#adminCorrectionsTitle')?.textContent || '',
+      correctionText: document.querySelector('#adminCorrections')?.textContent || '',
+      detailHeading: document.querySelector('.detail-heading')?.textContent || '',
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
     };
   });
@@ -314,6 +318,16 @@ async function runCase(page, port, item) {
 
   for (const fragment of item.statusIncludes || []) {
     assert.match(result.status, new RegExp(fragment, 'i'), item.name);
+  }
+
+  assert.equal(result.detailHeading, 'Detailed audit data', `${item.name} should keep detailed tables below the decision summary`);
+  if (item.expected.parseErrors === 0 && item.expected.issues === 0) {
+    assert.match(result.statusBanner, /No issues found\. No action needed\./, item.name);
+    assert.equal(result.correctionTitle, 'No action needed', item.name);
+    assert.match(result.correctionText, /No corrections are needed\./, item.name);
+  } else if (item.expected.issues > 0) {
+    assert.match(result.statusBanner, new RegExp(`${item.expected.issues} issue${item.expected.issues === 1 ? '' : 's'} need review`), item.name);
+    assert.equal(result.correctionTitle, 'Action required', item.name);
   }
 
   assert.equal(result.horizontalOverflow, false, `${item.name} should not horizontally overflow mobile viewport`);

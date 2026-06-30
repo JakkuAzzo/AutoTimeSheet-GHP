@@ -135,6 +135,8 @@ try {
       },
       ui: {
         statusBanner: document.querySelector('#statusBanner')?.textContent || '',
+        correctionTitle: document.querySelector('#adminCorrectionsTitle')?.textContent || '',
+        detailHeading: document.querySelector('.detail-heading')?.textContent || '',
         sourceCardOpen: document.querySelector('#sourcesCard')?.open,
         rowsCards: document.querySelectorAll('#rowsCards .row-card').length,
         correctionCards: document.querySelectorAll('#adminCorrections .correction-card').length,
@@ -175,7 +177,9 @@ try {
   assert.equal(result.form.parseErrors, '0');
   assert.match(result.form.sourceFilenames, /wk beg 25th May 2026\.docx/);
   assert.match(result.form.adminCorrectionNotes, /Friday 12th: Source has 7:00pm to 6:00pm/);
-  assert.match(result.ui.statusBanner, /Parsed 20 rows from 4 files. 3 warnings need review. 0 parse errors./);
+  assert.match(result.ui.statusBanner, /Parsed 20 rows from 4 files. 3 issues need review./);
+  assert.equal(result.ui.correctionTitle, 'Action required');
+  assert.equal(result.ui.detailHeading, 'Detailed audit data');
   assert.equal(result.ui.sourceCardOpen, false);
   assert.equal(result.ui.rowsCards, 20);
   assert.equal(result.ui.correctionCards, 3);

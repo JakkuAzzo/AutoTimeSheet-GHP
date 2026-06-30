@@ -13,6 +13,8 @@ Browser proof used Playwright because the in-app Browser surface was not availab
 - Added audit usability and source-format validation planning.
 - Added audit parser support for app-generated XLSX files using the `All` sheet and `Totals` metadata fallback.
 - Added regression fixture coverage for clean app-generated XLSX and mixed Word + XLSX ZIP.
+- Updated audit result wording so clean uploads show `No issues found. No action needed.` and issue uploads show concise review counts such as `3 issues need review`.
+- Moved row checks, files, raw JSON, and exports below a `Detailed audit data` break so the admin decision appears first.
 - Added a customer-facing GMT public homepage at `/`.
 - Added mobile homepage stability fixes for orientation changes, Leaflet map resizing, and horizontal overflow.
 - Changed the public homepage services section to a manual mobile carousel while keeping the desktop grid.
@@ -29,6 +31,15 @@ Browser proof used Playwright because the in-app Browser surface was not availab
 | Jason issue ZIP | 20 rows, 3 warnings, 0 parse errors, no horizontal overflow |
 | App-generated XLSX clean | 5 rows, 0 warnings, 0 parse errors, source type shown as app-generated XLSX |
 | Mixed Word + XLSX ZIP | 10 rows, 0 warnings, 0 parse errors, source summary shows Word and app-generated XLSX |
+
+## Audit UX Proof
+
+| Case | Reader-facing result |
+| --- | --- |
+| Ainsley clean Word | `No issues found. No action needed. Parsed 5 rows from 1 file.` |
+| Jason issue ZIP | `Parsed 20 rows from 4 files. 3 issues need review.` |
+| App-generated XLSX clean | `No issues found. No action needed. Parsed 5 rows from 1 file.` |
+| Mixed Word + XLSX ZIP | `No issues found. No action needed. Parsed 10 rows from 2 files.` |
 
 ## Commands
 
@@ -47,8 +58,8 @@ git diff --check
 
 - Mobile Ainsley clean Word: `docs/reports/assets/audit-proof-mobile-ainsley-clean-word.png`
 - Mobile Jason issue ZIP: `docs/reports/assets/audit-proof-mobile-jason-issue-zip.png`
-- Desktop app-generated XLSX clean: `docs/reports/assets/audit-proof-desktop-app-xlsx-clean.png`
-- Desktop mixed Word + XLSX: `docs/reports/assets/audit-proof-desktop-mixed-word-xlsx.png`
+- App-generated XLSX clean: `docs/reports/assets/audit-proof-desktop-app-xlsx-clean.png`
+- Mixed Word + XLSX: `docs/reports/assets/audit-proof-desktop-mixed-word-xlsx.png`
 - Mobile public site: `docs/reports/assets/public-site-mobile.png`
 - Laptop public site: `docs/reports/assets/public-site-laptop.png`
 - Desktop public site: `docs/reports/assets/public-site-desktop.png`
