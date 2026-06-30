@@ -35,6 +35,11 @@ Copy `config.example.js` to `config.js` for deployment and set:
 
 ```js
 window.GMT_APP_CONFIG = {
+  timesheetFormSubmitEndpoint: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN",
+  auditFormSubmitEndpoint: "",
+  jobCardFormSubmitEndpoint: "",
+  fallbackFormSubmitEndpoint: "https://formsubmit.co/YOUR_APPROVED_FALLBACK_ROUTE",
+  legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
   formSubmitEndpoint: "https://formsubmit.co/ajax/YOUR_SUBMISSION_MAILBOX",
   formSubmitTimesheetEndpoint: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN",
   formSubmitCc: "OPTIONAL_CC_MAILBOX",
@@ -45,7 +50,14 @@ window.GMT_APP_CONFIG = {
 
 Do not commit private tokens or secrets to a public repository.
 
-`formSubmitTimesheetEndpoint` is optional. When set, the Timesheets form uses that activated token endpoint directly. Audit and Job Cards continue to derive their plus-addressed aliases from `formSubmitEndpoint` unless their own activated token endpoints are added later.
+`timesheetFormSubmitEndpoint`, `auditFormSubmitEndpoint`, and `jobCardFormSubmitEndpoint` are category-specific routes for future business mailbox activation. Leave a category blank until its mailbox or FormSubmit token has been tested. `formSubmitTimesheetEndpoint` is retained as a backward-compatible alias for older deployments.
+
+Current routing behavior:
+
+- Timesheets prefer `timesheetFormSubmitEndpoint`, then `formSubmitTimesheetEndpoint`, then a `+timesheets` route derived from `formSubmitEndpoint`.
+- Audit prefers `auditFormSubmitEndpoint`, then a `+audit` route derived from `formSubmitEndpoint`.
+- Job Cards prefer `jobCardFormSubmitEndpoint`, then a `+jobcards` route derived from `formSubmitEndpoint`.
+- `fallbackFormSubmitEndpoint` is only a last-resort approved route when no configured mailbox base is available.
 
 Submission email routing uses plus-addressed aliases derived from `formSubmitEndpoint` so Outlook or Power Automate can filter by recipient:
 
@@ -57,7 +69,7 @@ Job card photos are attached to the same `+jobcards` email as the job card detai
 
 FormSubmit may treat each plus-addressed alias as a separate destination. Confirm one test email to each alias before relying on the rules in production.
 
-See `docs/outlook-onedrive-filing-and-index-plan.md` for the recommended Outlook rules, OneDrive folder structure, Power Automate flow, and Microsoft Lists or Excel metadata index plan.
+See `docs/business-mailbox-power-automate-migration-plan.md` for the Microsoft 365 business mailbox migration plan and `docs/outlook-onedrive-filing-and-index-plan.md` for the recommended Outlook rules, OneDrive folder structure, Power Automate flow, and Microsoft Lists or Excel metadata index plan.
 
 ## Current structure
 

@@ -15,12 +15,26 @@
   const set = (key, value) => localStorage.setItem(key, JSON.stringify(value));
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 
+  function cleanEndpoint(value) {
+    return String(value || '').trim().replace('/ajax/', '/');
+  }
+
+  function baseEndpoint() {
+    return cleanEndpoint(window.GMT_APP_CONFIG?.formSubmitEndpoint);
+  }
+
   function endpoint() {
-    return String(window.GMT_APP_CONFIG?.formSubmitEndpoint || '').replace('/ajax/', '/');
+    return baseEndpoint() || cleanEndpoint(window.GMT_APP_CONFIG?.fallbackFormSubmitEndpoint);
   }
 
   function taggedEndpoint(tag) {
-    return endpoint().replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
+    const base = baseEndpoint();
+    if (!base) return cleanEndpoint(window.GMT_APP_CONFIG?.fallbackFormSubmitEndpoint);
+    return base.replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
+  }
+
+  function jobCardEndpoint() {
+    return cleanEndpoint(window.GMT_APP_CONFIG?.jobCardFormSubmitEndpoint) || taggedEndpoint('jobcards');
   }
 
   function addLog(type, message) {
@@ -51,7 +65,7 @@
 
   function sendFormSubmit(subject, fields, file) {
     const isJobCard = subject.startsWith('GMT Job Card');
-    const url = isJobCard ? taggedEndpoint('jobcards') : endpoint();
+    const url = isJobCard ? jobCardEndpoint() : endpoint();
     if (!url) return false;
     ensureFrame();
     const form = document.createElement('form');

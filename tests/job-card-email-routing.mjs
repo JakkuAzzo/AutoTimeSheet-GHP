@@ -96,12 +96,24 @@ try {
   await page.waitForFunction(() => window.__submittedForms.some((form) => form.subject === '[GMT][JOBCARD][UPDATE] GMT-ROUTE-001 | Image Client'), null, { timeout: 5000 });
 
   const result = await page.evaluate(() => window.__submittedForms);
+  const config = await page.evaluate(() => ({
+    timesheetFormSubmitEndpoint: window.GMT_APP_CONFIG?.timesheetFormSubmitEndpoint || '',
+    auditFormSubmitEndpoint: window.GMT_APP_CONFIG?.auditFormSubmitEndpoint || '',
+    jobCardFormSubmitEndpoint: window.GMT_APP_CONFIG?.jobCardFormSubmitEndpoint || '',
+    fallbackFormSubmitEndpoint: window.GMT_APP_CONFIG?.fallbackFormSubmitEndpoint || '',
+    legacyPersonalAccountsEmail: window.GMT_APP_CONFIG?.legacyPersonalAccountsEmail || ''
+  }));
   const noImageForm = result.find((form) => form.subject === '[GMT][JOBCARD][NEW] GMT-ROUTE-000 | No Image Client');
   const imageJobForm = result.find((form) => form.subject === '[GMT][JOBCARD][NEW] GMT-ROUTE-001 | Image Client');
   const updateForm = result.find((form) => form.subject === '[GMT][JOBCARD][UPDATE] GMT-ROUTE-001 | Image Client');
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
   assert.equal(result.length, 3, 'expected two job card submissions and one update only');
+  assert.equal(config.jobCardFormSubmitEndpoint, '');
+  assert.equal(config.auditFormSubmitEndpoint, '');
+  assert.equal(config.timesheetFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(config.fallbackFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(config.legacyPersonalAccountsEmail, 'acc.gmtelect@outlook.com');
   assert.ok(noImageForm, 'job card FormSubmit payload without image was created');
   assert.ok(imageJobForm, 'job card FormSubmit payload with image was created');
   assert.ok(updateForm, 'job card update FormSubmit payload was created');

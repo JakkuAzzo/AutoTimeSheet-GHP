@@ -59,7 +59,9 @@ window.GMT_APP_CONFIG = {
   auditFormSubmitEndpoint: "",
   jobCardFormSubmitEndpoint: "",
   fallbackFormSubmitEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
-  legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com"
+  legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
+  formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
+  formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe"
 };
 ```
 
@@ -71,6 +73,37 @@ Routing rules:
 - Category-specific endpoints should take priority when present.
 - Blank category endpoints should fall back safely.
 - Do not remove the personal mailbox route until business delivery and Power Automate processing are proven.
+
+Endpoint resolution order:
+
+- Timesheets: `timesheetFormSubmitEndpoint`, then `formSubmitTimesheetEndpoint`, then a `+timesheets` route derived from `formSubmitEndpoint`, then `fallbackFormSubmitEndpoint`.
+- Audit: `auditFormSubmitEndpoint`, then a `+audit` route derived from `formSubmitEndpoint`, then `fallbackFormSubmitEndpoint`.
+- Job Cards: `jobCardFormSubmitEndpoint`, then a `+jobcards` route derived from `formSubmitEndpoint`, then `fallbackFormSubmitEndpoint`.
+
+Preparation-only implementation:
+
+- Keep `auditFormSubmitEndpoint` blank until the business audit destination is activated and a test email is received.
+- Keep `jobCardFormSubmitEndpoint` blank until the business job card destination is activated and a test email is received.
+- Keep `formSubmitEndpoint` pointed at the current legacy route while audit and job card business routes are unproven.
+- Do not put Microsoft Graph, SharePoint, OneDrive, Power Automate, mailbox, or tenant credentials in `config.js`.
+- `legacyPersonalAccountsEmail` is a routing reference only. It is not an authentication setting.
+
+Manual activation gates:
+
+1. Confirm the business mailbox receives external email.
+2. Confirm plus addressing or dedicated category mailboxes work.
+3. Trigger FormSubmit activation for each final destination.
+4. Confirm the FormSubmit token or endpoint for Timesheets, Audit, and Job Cards separately.
+5. Submit one real message per category and confirm Outlook rules move each message.
+6. Confirm Power Automate saves attachments and creates the expected List or Excel row.
+7. Only then replace the relevant category-specific endpoint in production config.
+
+Rollback plan:
+
+- Leave the current `formSubmitEndpoint` and activated timesheet token available until business routing has processed real submissions successfully.
+- If a business endpoint fails, blank the affected category-specific endpoint and redeploy config so the app falls back to the current legacy route.
+- Keep subject tags (`[GMT][TIMESHEET]`, `[GMT][AUDIT]`, `[GMT][JOBCARD]`) so rules can continue to work even if plus addressing is unreliable.
+- Keep manual download/export flows available for Timesheets and Audit while email automation is being tested.
 
 Structured subjects:
 

@@ -28,12 +28,26 @@
     renderNotifications();
   }
 
+  function cleanFormSubmitEndpoint(value) {
+    return String(value || '').trim().replace('/ajax/', '/');
+  }
+
+  function baseFormSubmitEndpoint() {
+    return cleanFormSubmitEndpoint(window.GMT_APP_CONFIG?.formSubmitEndpoint);
+  }
+
   function formSubmitEndpoint() {
-    return String(window.GMT_APP_CONFIG?.formSubmitEndpoint || '').replace('/ajax/', '/');
+    return baseFormSubmitEndpoint() || cleanFormSubmitEndpoint(window.GMT_APP_CONFIG?.fallbackFormSubmitEndpoint);
   }
 
   function taggedFormSubmitEndpoint(tag) {
-    return formSubmitEndpoint().replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
+    const base = baseFormSubmitEndpoint();
+    if (!base) return cleanFormSubmitEndpoint(window.GMT_APP_CONFIG?.fallbackFormSubmitEndpoint);
+    return base.replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
+  }
+
+  function jobCardFormSubmitEndpoint() {
+    return cleanFormSubmitEndpoint(window.GMT_APP_CONFIG?.jobCardFormSubmitEndpoint) || taggedFormSubmitEndpoint('jobcards');
   }
 
   function ensurePortalSubmitFrame() {
@@ -65,7 +79,7 @@
 
   function sendPortalFormSubmit(kind, fields, options = {}) {
     const isJobCard = kind.startsWith('Job Card');
-    const endpoint = isJobCard ? taggedFormSubmitEndpoint('jobcards') : formSubmitEndpoint();
+    const endpoint = isJobCard ? jobCardFormSubmitEndpoint() : formSubmitEndpoint();
     if (!endpoint) {
       logNotification(kind, `${kind} stored locally only. FormSubmit is not configured.`);
       return false;

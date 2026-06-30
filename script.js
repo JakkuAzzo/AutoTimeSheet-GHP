@@ -563,16 +563,19 @@ function setFileInputFiles(input, files) {
   input.files = dataTransfer.files;
 }
 
-function formSubmitEndpoint() {
-  if (CONFIG.formSubmitTimesheetEndpoint) {
-    return String(CONFIG.formSubmitTimesheetEndpoint).replace('/ajax/', '/');
-  }
-  return taggedFormSubmitEndpoint('timesheets');
+function cleanFormSubmitEndpoint(value) {
+  return String(value || '').trim().replace('/ajax/', '/');
 }
 
 function taggedFormSubmitEndpoint(tag) {
-  const base = String(CONFIG.formSubmitEndpoint || '').replace('/ajax/', '/');
+  const base = cleanFormSubmitEndpoint(CONFIG.formSubmitEndpoint);
+  if (!base) return cleanFormSubmitEndpoint(CONFIG.fallbackFormSubmitEndpoint);
   return base.replace(/([^/?#/@]+)@([^/?#]+)/, (_, local, domain) => `${local.split('+')[0]}+${tag}@${domain}`);
+}
+
+function formSubmitEndpoint() {
+  return cleanFormSubmitEndpoint(CONFIG.timesheetFormSubmitEndpoint || CONFIG.formSubmitTimesheetEndpoint)
+    || taggedFormSubmitEndpoint('timesheets');
 }
 
 function createEmailForm() {
@@ -609,7 +612,7 @@ async function submitTimesheet(event) {
   if (!employeeName.value.trim()) return showError('Please enter your full name before submitting.');
   if (!calculated.length) return showError('Please add at least one day.');
   if (totals.errors.length) return showError(totals.errors.join(' '));
-  if (!CONFIG.formSubmitEndpoint) return showError('FormSubmit is not configured yet.');
+  if (!formSubmitEndpoint()) return showError('FormSubmit is not configured yet.');
   try {
     await ensureXlsxLoaded();
     const xlsxFile = buildWorkbook(calculated, totals, weighted);

@@ -2,10 +2,23 @@
 // Do not commit private tokens or secrets to a public repository.
 
 window.GMT_APP_CONFIG = {
+  // Category-specific FormSubmit endpoints. Fill these as each mailbox/alias is activated.
+  // Timesheets may use an activated token URL. Audit and Job Cards should stay blank until confirmed.
+  timesheetFormSubmitEndpoint: "",
+  auditFormSubmitEndpoint: "",
+  jobCardFormSubmitEndpoint: "",
+
+  // Last-resort fallback for an already approved FormSubmit route.
+  fallbackFormSubmitEndpoint: "",
+
+  // Reference only, used during migration planning. Do not put mailbox passwords or secrets here.
+  legacyPersonalAccountsEmail: "",
+
   // Example: "https://formsubmit.co/ajax/your-submission-mailbox@example.com"
+  // Kept for deriving plus-addressed routes while business endpoints are not yet activated.
   formSubmitEndpoint: "",
 
-  // Optional activated FormSubmit token endpoint for timesheets.
+  // Backward-compatible alias for older deployments. Prefer timesheetFormSubmitEndpoint.
   // Example: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN"
   formSubmitTimesheetEndpoint: "",
 

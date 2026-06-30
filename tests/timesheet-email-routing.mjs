@@ -82,8 +82,20 @@ try {
   await page.waitForFunction(() => window.__submittedForms.length === 1, null, { timeout: 15000 });
 
   const result = await page.evaluate(() => window.__submittedForms[0]);
+  const config = await page.evaluate(() => ({
+    timesheetFormSubmitEndpoint: window.GMT_APP_CONFIG?.timesheetFormSubmitEndpoint || '',
+    auditFormSubmitEndpoint: window.GMT_APP_CONFIG?.auditFormSubmitEndpoint || '',
+    jobCardFormSubmitEndpoint: window.GMT_APP_CONFIG?.jobCardFormSubmitEndpoint || '',
+    fallbackFormSubmitEndpoint: window.GMT_APP_CONFIG?.fallbackFormSubmitEndpoint || '',
+    legacyPersonalAccountsEmail: window.GMT_APP_CONFIG?.legacyPersonalAccountsEmail || ''
+  }));
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
+  assert.equal(config.timesheetFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(config.auditFormSubmitEndpoint, '');
+  assert.equal(config.jobCardFormSubmitEndpoint, '');
+  assert.equal(config.fallbackFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(config.legacyPersonalAccountsEmail, 'acc.gmtelect@outlook.com');
   assert.equal(result.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'routing.tester@example.com');

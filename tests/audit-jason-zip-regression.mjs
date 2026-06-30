@@ -133,6 +133,13 @@ try {
         adminCorrectionNotes: field('admin_correction_notes'),
         files
       },
+      config: {
+        timesheetFormSubmitEndpoint: window.GMT_APP_CONFIG?.timesheetFormSubmitEndpoint || '',
+        auditFormSubmitEndpoint: window.GMT_APP_CONFIG?.auditFormSubmitEndpoint || '',
+        jobCardFormSubmitEndpoint: window.GMT_APP_CONFIG?.jobCardFormSubmitEndpoint || '',
+        fallbackFormSubmitEndpoint: window.GMT_APP_CONFIG?.fallbackFormSubmitEndpoint || '',
+        legacyPersonalAccountsEmail: window.GMT_APP_CONFIG?.legacyPersonalAccountsEmail || ''
+      },
       ui: {
         statusBanner: document.querySelector('#statusBanner')?.textContent || '',
         correctionTitle: document.querySelector('#adminCorrectionsTitle')?.textContent || '',
@@ -168,6 +175,11 @@ try {
   assert.match(result.beforeSubmit.corrections.join('\n'), /Friday 12th: Source has 7:00pm to 6:00pm/);
   assert.equal(result.submitStatus, 'Corrected audit sent to accounts with Excel attachment.');
   assert.equal(result.form.action, 'https://formsubmit.co/acc.gmtelect+audit@outlook.com');
+  assert.equal(result.config.auditFormSubmitEndpoint, '');
+  assert.equal(result.config.jobCardFormSubmitEndpoint, '');
+  assert.equal(result.config.timesheetFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(result.config.fallbackFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(result.config.legacyPersonalAccountsEmail, 'acc.gmtelect@outlook.com');
   assert.equal(result.form.method, 'post');
   assert.equal(result.form.subject, '[GMT][AUDIT][CORRECTED] Corrected timesheet audit');
   assert.match(result.form.summary, /Parsed successfully: 20 rows from 4 Word files/);
