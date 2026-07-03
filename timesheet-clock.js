@@ -32,6 +32,28 @@
     return value === 'clock_out' ? 'Clock Out' : 'Clock In';
   }
 
+  function actionText(value) {
+    const label = actionLabel(value);
+    return {
+      title: label,
+      description: value === 'clock_out'
+        ? 'Record a finish time and send it to accounts.'
+        : 'Record an arrival time and send it to accounts.',
+      submit: `Submit ${label.toLowerCase()}`
+    };
+  }
+
+  function updateClockCard(card) {
+    const text = actionText(card.elements.clock_action.value);
+    const title = card.querySelector('[data-clock-title]');
+    const description = card.querySelector('[data-clock-description]');
+    const submit = card.querySelector('[data-clock-submit]');
+    if (title) title.textContent = text.title;
+    if (description) description.textContent = text.description;
+    if (submit) submit.textContent = text.submit;
+    card.dataset.currentAction = card.elements.clock_action.value;
+  }
+
   function ensureSubmitFrame() {
     let frame = document.getElementById('timesheet-clock-frame');
     if (!frame) {
@@ -125,6 +147,11 @@
       const action = card.dataset.defaultAction || 'clock_in';
       card.elements.clock_action.value = action;
       card.elements.clock_time.value = localTime();
+      updateClockCard(card);
+      card.elements.clock_action.addEventListener('change', () => {
+        updateClockCard(card);
+        showStatus(card, '', '');
+      });
       card.addEventListener('submit', handleSubmit);
     });
   }

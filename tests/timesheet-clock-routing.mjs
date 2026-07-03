@@ -69,21 +69,28 @@ try {
     iframes: document.querySelectorAll('iframe').length,
     hiddenForms: document.querySelectorAll('form[hidden]').length,
     cards: document.querySelectorAll('[data-clock-form]').length,
-    defaults: [...document.querySelectorAll('[data-clock-form]')].map((form) => ({
-      action: form.elements.clock_action.value,
-      time: form.elements.clock_time.value
-    }))
+    action: document.querySelector('[data-clock-form]')?.elements.clock_action.value || '',
+    time: document.querySelector('[data-clock-form]')?.elements.clock_time.value || '',
+    title: document.querySelector('[data-clock-title]')?.textContent || '',
+    description: document.querySelector('[data-clock-description]')?.textContent || '',
+    submit: document.querySelector('[data-clock-submit]')?.textContent || ''
   }));
 
-  const cards = page.locator('[data-clock-form]');
-  await cards.nth(0).locator('[name="employee_name"]').fill('Clock Tester');
-  await cards.nth(0).locator('[name="clock_time"]').fill('08:15');
-  await cards.nth(0).locator('button[type="submit"]').click();
+  const card = page.locator('[data-clock-form]');
+  await card.locator('[name="employee_name"]').fill('Clock Tester');
+  await card.locator('[name="clock_time"]').fill('08:15');
+  await card.locator('button[type="submit"]').click();
   await page.waitForFunction(() => window.__submittedForms.length === 1, null, { timeout: 5000 });
 
-  await cards.nth(1).locator('[name="employee_name"]').fill('Clock Tester');
-  await cards.nth(1).locator('[name="clock_time"]').fill('17:05');
-  await cards.nth(1).locator('button[type="submit"]').click();
+  await card.locator('[name="clock_action"]').selectOption('clock_out');
+  await page.waitForFunction(() => document.querySelector('[data-clock-title]')?.textContent === 'Clock Out', null, { timeout: 5000 });
+  const afterActionChange = await page.evaluate(() => ({
+    title: document.querySelector('[data-clock-title]')?.textContent || '',
+    description: document.querySelector('[data-clock-description]')?.textContent || '',
+    submit: document.querySelector('[data-clock-submit]')?.textContent || ''
+  }));
+  await card.locator('[name="clock_time"]').fill('17:05');
+  await card.locator('button[type="submit"]').click();
   await page.waitForFunction(() => window.__submittedForms.length === 2, null, { timeout: 5000 });
 
   const result = await page.evaluate(() => window.__submittedForms);
@@ -93,11 +100,15 @@ try {
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
   assert.equal(beforeSubmit.iframes, 0, 'clock submit iframe should not exist before submit');
   assert.equal(beforeSubmit.hiddenForms, 0, 'hidden FormSubmit forms should not exist before submit');
-  assert.equal(beforeSubmit.cards, 2, 'two clock cards should render');
-  assert.equal(beforeSubmit.defaults[0].action, 'clock_in');
-  assert.equal(beforeSubmit.defaults[1].action, 'clock_out');
-  assert.match(beforeSubmit.defaults[0].time, /^\d{2}:\d{2}$/);
-  assert.match(beforeSubmit.defaults[1].time, /^\d{2}:\d{2}$/);
+  assert.equal(beforeSubmit.cards, 1, 'one dynamic clock card should render');
+  assert.equal(beforeSubmit.action, 'clock_in');
+  assert.match(beforeSubmit.time, /^\d{2}:\d{2}$/);
+  assert.equal(beforeSubmit.title, 'Clock In');
+  assert.equal(beforeSubmit.description, 'Record an arrival time and send it to accounts.');
+  assert.equal(beforeSubmit.submit, 'Submit clock in');
+  assert.equal(afterActionChange.title, 'Clock Out');
+  assert.equal(afterActionChange.description, 'Record a finish time and send it to accounts.');
+  assert.equal(afterActionChange.submit, 'Submit clock out');
 
   assert.equal(result[0].action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(result[1].action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
@@ -116,6 +127,7 @@ try {
 
   console.log(JSON.stringify({
     beforeSubmit,
+    afterActionChange,
     forms: result.map((form) => ({ action: form.action, subject: form.subject }))
   }, null, 2));
 } finally {

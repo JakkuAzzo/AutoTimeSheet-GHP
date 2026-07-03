@@ -17,19 +17,11 @@
 <a class="portal-feature-card" href="create.html"><span>Create Timesheet</span><small>Open the weekly timesheet form.</small></a>
 <a class="portal-feature-card" href="../audit/index.html"><span>Analyse Sheet/s</span><small>Open the audit checker.</small></a>
 <form class="portal-feature-card clock-card" data-clock-form data-default-action="clock_in">
-<span>Clock In</span><small>Record an arrival time and send it to accounts.</small>
+<span data-clock-title>Clock In</span><small data-clock-description>Record an arrival time and send it to accounts.</small>
 <label>Full name<input name="employee_name" autocomplete="name" required placeholder="Your name"></label>
 <label>Action<select name="clock_action"><option value="clock_in">Clock in</option><option value="clock_out">Clock out</option></select></label>
 <label>Time<input name="clock_time" type="time" required></label>
-<button type="submit">Submit clock in</button>
-<p class="small-text clock-status" aria-live="polite"></p>
-</form>
-<form class="portal-feature-card clock-card" data-clock-form data-default-action="clock_out">
-<span>Clock Out</span><small>Record a finish time and send it to accounts.</small>
-<label>Full name<input name="employee_name" autocomplete="name" required placeholder="Your name"></label>
-<label>Action<select name="clock_action"><option value="clock_in">Clock in</option><option value="clock_out">Clock out</option></select></label>
-<label>Time<input name="clock_time" type="time" required></label>
-<button type="submit">Submit clock out</button>
+<button type="submit" data-clock-submit>Submit clock in</button>
 <p class="small-text clock-status" aria-live="polite"></p>
 </form>
 </section>
