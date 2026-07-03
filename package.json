@@ -9,6 +9,7 @@
     "test:audit:jason-zip": "node tests/audit-jason-zip-regression.mjs",
     "test:audit:fixtures": "node tests/audit-fixture-matrix.mjs",
     "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
+    "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
     "test:timesheets:daily-calculation": "node tests/timesheet-daily-calculation.mjs"
   },
