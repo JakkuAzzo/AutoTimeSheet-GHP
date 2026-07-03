@@ -75,6 +75,21 @@ try {
     description: document.querySelector('[data-clock-description]')?.textContent || '',
     submit: document.querySelector('[data-clock-submit]')?.textContent || ''
   }));
+  const layout = await page.evaluate(() => {
+    const card = document.querySelector('[data-clock-form]');
+    const time = document.querySelector('[name="clock_time"]');
+    const cardBox = card.getBoundingClientRect();
+    const timeBox = time.getBoundingClientRect();
+    return {
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      cardLeft: cardBox.left,
+      cardRight: cardBox.right,
+      timeLeft: timeBox.left,
+      timeRight: timeBox.right,
+      timeWidth: timeBox.width,
+      cardWidth: cardBox.width
+    };
+  });
 
   const card = page.locator('[data-clock-form]');
   await card.locator('[name="employee_name"]').fill('Clock Tester');
@@ -106,6 +121,10 @@ try {
   assert.equal(beforeSubmit.title, 'Clock In');
   assert.equal(beforeSubmit.description, 'Record an arrival time and send it to accounts.');
   assert.equal(beforeSubmit.submit, 'Submit clock in');
+  assert.equal(layout.horizontalOverflow, false, 'clock page should not create horizontal overflow');
+  assert.ok(layout.timeLeft >= layout.cardLeft, 'time input should not overflow card left edge');
+  assert.ok(layout.timeRight <= layout.cardRight + 1, 'time input should not overflow card right edge');
+  assert.ok(layout.timeWidth <= layout.cardWidth, 'time input should fit inside the card');
   assert.equal(afterActionChange.title, 'Clock Out');
   assert.equal(afterActionChange.description, 'Record a finish time and send it to accounts.');
   assert.equal(afterActionChange.submit, 'Submit clock out');
@@ -127,6 +146,7 @@ try {
 
   console.log(JSON.stringify({
     beforeSubmit,
+    layout,
     afterActionChange,
     forms: result.map((form) => ({ action: form.action, subject: form.subject }))
   }, null, 2));
