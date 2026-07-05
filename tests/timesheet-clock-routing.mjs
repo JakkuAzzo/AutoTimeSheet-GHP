@@ -101,24 +101,63 @@ try {
     };
   });
 
+  const submissions = [
+    {
+      value: 'clock_in',
+      label: 'Clock In',
+      time: '08:15',
+      description: 'Record an arrival time and send it to accounts.',
+      submit: 'Submit clock in',
+      start: '08:15',
+      finish: ''
+    },
+    {
+      value: 'lunch_start',
+      label: 'Lunch Start',
+      time: '12:30',
+      description: 'Record when lunch starts and send it to accounts.',
+      submit: 'Submit lunch start',
+      start: '12:30',
+      finish: ''
+    },
+    {
+      value: 'lunch_end',
+      label: 'Lunch End',
+      time: '13:00',
+      description: 'Record when lunch ends and send it to accounts.',
+      submit: 'Submit lunch end',
+      start: '',
+      finish: '13:00'
+    },
+    {
+      value: 'clock_out',
+      label: 'Clock Out',
+      time: '17:05',
+      description: 'Record a finish time and send it to accounts.',
+      submit: 'Submit clock out',
+      start: '',
+      finish: '17:05'
+    }
+  ];
   const card = page.locator('[data-clock-form]');
   await card.locator('[name="employee_name"]').fill('Clock Tester');
-  await card.locator('[name="clock_date"]').fill('2026-07-03');
-  await card.locator('[name="clock_time"]').fill('08:15');
-  await card.locator('button[type="submit"]').click();
-  await page.waitForFunction(() => window.__submittedForms.length === 1, null, { timeout: 15000 });
-
-  await card.locator('[name="clock_action"]').selectOption('clock_out');
-  await page.waitForFunction(() => document.querySelector('[data-clock-title]')?.textContent === 'Clock Out', null, { timeout: 5000 });
-  const afterActionChange = await page.evaluate(() => ({
-    title: document.querySelector('[data-clock-title]')?.textContent || '',
-    description: document.querySelector('[data-clock-description]')?.textContent || '',
-    submit: document.querySelector('[data-clock-submit]')?.textContent || ''
-  }));
-  await card.locator('[name="clock_date"]').fill('2026-07-03');
-  await card.locator('[name="clock_time"]').fill('17:05');
-  await card.locator('button[type="submit"]').click();
-  await page.waitForFunction(() => window.__submittedForms.length === 2, null, { timeout: 15000 });
+  const actionStates = [];
+  for (let index = 0; index < submissions.length; index += 1) {
+    const submission = submissions[index];
+    if (index > 0) {
+      await card.locator('[name="clock_action"]').selectOption(submission.value);
+      await page.waitForFunction((title) => document.querySelector('[data-clock-title]')?.textContent === title, submission.label, { timeout: 5000 });
+    }
+    actionStates.push(await page.evaluate(() => ({
+      title: document.querySelector('[data-clock-title]')?.textContent || '',
+      description: document.querySelector('[data-clock-description]')?.textContent || '',
+      submit: document.querySelector('[data-clock-submit]')?.textContent || ''
+    })));
+    await card.locator('[name="clock_date"]').fill('2026-07-03');
+    await card.locator('[name="clock_time"]').fill(submission.time);
+    await card.locator('button[type="submit"]').click();
+    await page.waitForFunction((count) => window.__submittedForms.length === count, index + 1, { timeout: 15000 });
+  }
 
   const result = await page.evaluate(async () => Promise.all(window.__submittedForms.map(async (form) => {
     const files = await Promise.all(form.files.map(async (entry) => ({
@@ -145,10 +184,6 @@ try {
       files
     };
   })));
-  const inFields = new Map(result[0].fields);
-  const outFields = new Map(result[1].fields);
-  const inWorkbook = result[0].files[0]?.files[0];
-  const outWorkbook = result[1].files[0]?.files[0];
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
   assert.equal(beforeSubmit.iframes, 0, 'clock submit iframe should not exist before submit');
@@ -167,56 +202,41 @@ try {
   assert.ok(layout.timeLeft >= layout.cardLeft, 'time input should not overflow card left edge');
   assert.ok(layout.timeRight <= layout.cardRight + 1, 'time input should not overflow card right edge');
   assert.ok(layout.timeWidth <= layout.cardWidth, 'time input should fit inside the card');
-  assert.equal(afterActionChange.title, 'Clock Out');
-  assert.equal(afterActionChange.description, 'Record a finish time and send it to accounts.');
-  assert.equal(afterActionChange.submit, 'Submit clock out');
+  assert.equal(actionStates.length, submissions.length);
 
-  assert.equal(result[0].action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
-  assert.equal(result[1].action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
-  assert.equal(result[0].subject, '[GMT][TIMESHEET][CLOCK] Clock Tester | Clock In | 2026-07-03 08:15');
-  assert.equal(result[1].subject, '[GMT][TIMESHEET][CLOCK] Clock Tester | Clock Out | 2026-07-03 17:05');
-  assert.equal(inFields.get('gmt_type'), 'timesheet_clock');
-  assert.equal(inFields.get('gmt_action'), 'clock_in');
-  assert.equal(inFields.get('gmt_employee'), 'Clock Tester');
-  assert.equal(inFields.get('gmt_clock_date'), '2026-07-03');
-  assert.equal(inFields.get('clock_action'), 'Clock In');
-  assert.equal(inFields.get('clock_date'), '2026-07-03');
-  assert.equal(inFields.get('clock_time'), '08:15');
-  assert.equal(inFields.get('gmt_attachment_type'), 'xlsx');
-  assert.equal(outFields.get('gmt_type'), 'timesheet_clock');
-  assert.equal(outFields.get('gmt_action'), 'clock_out');
-  assert.equal(outFields.get('gmt_employee'), 'Clock Tester');
-  assert.equal(outFields.get('gmt_clock_date'), '2026-07-03');
-  assert.equal(outFields.get('clock_action'), 'Clock Out');
-  assert.equal(outFields.get('clock_date'), '2026-07-03');
-  assert.equal(outFields.get('clock_time'), '17:05');
-  assert.equal(outFields.get('gmt_attachment_type'), 'xlsx');
-  assert.equal(result[0].files[0]?.name, 'attachment');
-  assert.equal(result[1].files[0]?.name, 'attachment');
-  assert.equal(inWorkbook.name, 'GMT Clock - Clock Tester - 2026-07-03 - Clock In.xlsx');
-  assert.equal(outWorkbook.name, 'GMT Clock - Clock Tester - 2026-07-03 - Clock Out.xlsx');
-  assert.equal(inWorkbook.type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  assert.equal(outWorkbook.type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  assert.ok(inWorkbook.size > 1000, 'clock-in workbook should not be empty');
-  assert.ok(outWorkbook.size > 1000, 'clock-out workbook should not be empty');
-  assert.deepEqual(inWorkbook.sheets, ['All', 'Totals', 'Notes']);
-  assert.deepEqual(outWorkbook.sheets, ['All', 'Totals', 'Notes']);
-  assert.equal(inWorkbook.firstAllRow.Status, 'Recorded');
-  assert.equal(inWorkbook.firstAllRow.Category, 'Clock In');
-  assert.equal(inWorkbook.firstAllRow.Date, '2026-07-03');
-  assert.equal(inWorkbook.firstAllRow.Start, '08:15');
-  assert.equal(inWorkbook.firstAllRow.Finish, '');
-  assert.equal(inWorkbook.firstAllRow['Worked hours'], 0);
-  assert.equal(outWorkbook.firstAllRow.Category, 'Clock Out');
-  assert.equal(outWorkbook.firstAllRow.Date, '2026-07-03');
-  assert.equal(outWorkbook.firstAllRow.Start, '');
-  assert.equal(outWorkbook.firstAllRow.Finish, '17:05');
-  assert.equal(outWorkbook.firstAllRow['Worked hours'], 0);
+  submissions.forEach((submission, index) => {
+    const fields = new Map(result[index].fields);
+    const workbook = result[index].files[0]?.files[0];
+    assert.equal(actionStates[index].title, submission.label);
+    assert.equal(actionStates[index].description, submission.description);
+    assert.equal(actionStates[index].submit, submission.submit);
+    assert.equal(result[index].action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+    assert.equal(result[index].subject, `[GMT][TIMESHEET][CLOCK] Clock Tester | ${submission.label} | 2026-07-03 ${submission.time}`);
+    assert.equal(fields.get('gmt_type'), 'timesheet_clock');
+    assert.equal(fields.get('gmt_action'), submission.value);
+    assert.equal(fields.get('gmt_employee'), 'Clock Tester');
+    assert.equal(fields.get('gmt_clock_date'), '2026-07-03');
+    assert.equal(fields.get('clock_action'), submission.label);
+    assert.equal(fields.get('clock_date'), '2026-07-03');
+    assert.equal(fields.get('clock_time'), submission.time);
+    assert.equal(fields.get('gmt_attachment_type'), 'xlsx');
+    assert.equal(result[index].files[0]?.name, 'attachment');
+    assert.equal(workbook.name, `GMT Clock - Clock Tester - 2026-07-03 - ${submission.label}.xlsx`);
+    assert.equal(workbook.type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    assert.ok(workbook.size > 1000, `${submission.label} workbook should not be empty`);
+    assert.deepEqual(workbook.sheets, ['All', 'Totals', 'Notes']);
+    assert.equal(workbook.firstAllRow.Status, 'Recorded');
+    assert.equal(workbook.firstAllRow.Category, submission.label);
+    assert.equal(workbook.firstAllRow.Date, '2026-07-03');
+    assert.equal(workbook.firstAllRow.Start, submission.start);
+    assert.equal(workbook.firstAllRow.Finish, submission.finish);
+    assert.equal(workbook.firstAllRow['Worked hours'], 0);
+  });
 
   console.log(JSON.stringify({
     beforeSubmit,
     layout,
-    afterActionChange,
+    actionStates,
     forms: result.map((form) => ({
       action: form.action,
       subject: form.subject,

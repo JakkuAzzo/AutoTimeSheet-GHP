@@ -29,7 +29,10 @@
   }
 
   function actionLabel(value) {
-    return value === 'clock_out' ? 'Clock Out' : 'Clock In';
+    if (value === 'clock_out') return 'Clock Out';
+    if (value === 'lunch_start') return 'Lunch Start';
+    if (value === 'lunch_end') return 'Lunch End';
+    return 'Clock In';
   }
 
   function safeFilePart(value) {
@@ -48,11 +51,15 @@
 
   function actionText(value) {
     const label = actionLabel(value);
+    const descriptions = {
+      clock_in: 'Record an arrival time and send it to accounts.',
+      lunch_start: 'Record when lunch starts and send it to accounts.',
+      lunch_end: 'Record when lunch ends and send it to accounts.',
+      clock_out: 'Record a finish time and send it to accounts.'
+    };
     return {
       title: label,
-      description: value === 'clock_out'
-        ? 'Record a finish time and send it to accounts.'
-        : 'Record an arrival time and send it to accounts.',
+      description: descriptions[value] || descriptions.clock_in,
       submit: `Submit ${label.toLowerCase()}`
     };
   }
@@ -112,7 +119,7 @@
 
   function buildClockWorkbookFile(payload) {
     if (!window.XLSX) throw new Error('Excel generator is still loading. Please try again.');
-    const isClockIn = payload.action === 'clock_in';
+    const isStartEvent = payload.action === 'clock_in' || payload.action === 'lunch_start';
     const allRows = [{
       Status: 'Recorded',
       Category: payload.actionLabel,
@@ -121,8 +128,8 @@
       Day: payload.actionLabel,
       Date: payload.date,
       Weekday: weekdayName(payload.date),
-      Start: isClockIn ? payload.time : '',
-      Finish: isClockIn ? '' : payload.time,
+      Start: isStartEvent ? payload.time : '',
+      Finish: isStartEvent ? '' : payload.time,
       Break: 'No break',
       'Absence reason': 'NA',
       'Worked hours': 0,
