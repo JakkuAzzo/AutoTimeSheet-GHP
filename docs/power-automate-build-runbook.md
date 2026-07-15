@@ -129,7 +129,38 @@ Allowed task statuses: `In-Progress`, `Completed`, `Cancelled`.
 5. Create `GMT Web-App/Timesheets/{year}/{month}/{employee}/` if required.
 6. For each attachment, save the XLSX and CSV files into the folder.
 7. Create one `Timesheet Submissions` List item with metadata and file links.
-8. Move the email to `GMT Portal/Processed`.
+8. Find the `GMT Calendar Sync - {employee} - {week-start}.json` attachment.
+9. Read and parse the JSON attachment. It contains one all-day `timesheet`
+   event plus one all-day event for each grouped `Sick`, `Holiday`, or
+   `Time Off` period.
+10. For each event, use Outlook **Create event (V4)** with the calendar set to
+   `GMT Operational Calendar`. Use `startDate` as the all-day start and
+   `endDateExclusive` as the all-day end; do not subtract a day from the end.
+11. Move the email to `GMT Portal/Processed`.
+
+### Calendar visibility
+
+`GMT Operational Calendar` is the operational source of truth. Grant each
+staff account reviewer/editor access to this shared calendar so the generated
+timesheet and absence events appear alongside their own Outlook calendars.
+
+The Flow must not attempt to write directly into every employee's private
+calendar using the accounts connection. That would require delegated access or
+separate Microsoft Graph permissions for each employee. The shared calendar
+keeps the workflow company-owned and does not require browser-side Microsoft
+credentials.
+
+The timesheet submission includes these fields for validation and future
+troubleshooting:
+
+- `gmt_calendar_sync: requested`
+- `gmt_calendar_name: GMT Operational Calendar`
+- `gmt_calendar_event_count`
+- `gmt_employee_upn` when the employee used the authenticated portal
+
+**Test:** submit a one-day Sick test timesheet. Confirm the shared calendar
+contains both the weekly `Timesheet submitted` event and the all-day `Sick`
+event, then remove the test events.
 
 **Test:** submit one small real timesheet; verify two attachments, one list item,
 correct folder path, and the processed email.

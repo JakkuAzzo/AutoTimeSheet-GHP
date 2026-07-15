@@ -52,7 +52,7 @@ try {
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.addInitScript(() => {
-    localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Profile Tester', contactEmail: 'profile.tester@example.com' }));
+    localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Profile Tester', contactEmail: 'profile.tester@example.com', username: 'profile.tester@gmt-services.co.uk' }));
   });
   const logs = [];
   page.on('console', (msg) => {
@@ -67,12 +67,15 @@ try {
   assert.equal(await page.locator('#employee-email').inputValue(), 'profile.tester@example.com');
   await page.evaluate(() => {
     window.__submittedForms = [];
+    window.__submittedRawForms = [];
     HTMLFormElement.prototype.submit = function submitStub() {
+      window.__submittedRawForms.push(this);
       window.__submittedForms.push({
         action: this.action,
         subject: this.querySelector('[name="_subject"]')?.value || '',
         cc: this.querySelector('[name="_cc"]')?.value || '',
         replyTo: this.querySelector('[name="_replyto"]')?.value || '',
+        fields: Object.fromEntries([...this.querySelectorAll('input[type="hidden"]')].map((input) => [input.name, input.value])),
         files: [...this.querySelectorAll('input[type="file"]')].map((input) => ({
           name: input.name,
           files: [...input.files].map((file) => ({ name: file.name, type: file.type, size: file.size }))
@@ -111,11 +114,40 @@ try {
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'routing.tester@example.com');
   assert.equal(result.replyTo, 'routing.tester@example.com');
-  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment', 'attachment_csv']);
+  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment', 'attachment_csv', 'attachment_calendar_sync']);
   assert.ok(result.files[0].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
   assert.ok(result.files[0].files[0].size > 1000);
   assert.ok(result.files[1].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.csv'));
   assert.ok(result.files[1].files[0].size > 100);
+  assert.equal(result.fields.gmt_type, 'timesheet');
+  assert.equal(result.fields.gmt_action, 'submission');
+  assert.equal(result.fields.gmt_employee, 'Routing Tester');
+  assert.equal(result.fields.gmt_employee_upn, 'profile.tester@gmt-services.co.uk');
+  assert.equal(result.fields.gmt_week_start, '2026-06-22');
+  assert.equal(result.fields.gmt_week_end, '2026-06-26');
+  assert.equal(result.fields.gmt_calendar_sync, 'requested');
+  assert.equal(result.fields.gmt_calendar_name, 'GMT Operational Calendar');
+  assert.equal(result.fields.gmt_calendar_event_count, '1');
+  assert.ok(result.files[2].files[0].name.includes('GMT Calendar Sync - Routing Tester - 2026-06-22.json'));
+  assert.ok(result.files[2].files[0].size > 100);
+
+  await page.locator('[data-field="absenceStatus"]').first().selectOption('Sick');
+  await page.locator('#submit-btn').click();
+  await page.waitForFunction(() => window.__submittedForms.length === 2, null, { timeout: 15000 });
+  const absenceCalendarSync = await page.evaluate(async () => {
+    const form = window.__submittedRawForms[1];
+    const file = form.querySelector('[name="attachment_calendar_sync"]').files[0];
+    return JSON.parse(await file.text());
+  });
+  assert.equal(absenceCalendarSync.events.length, 2);
+  assert.deepEqual(absenceCalendarSync.events[1], {
+    type: 'absence',
+    absenceReason: 'Sick',
+    title: 'Sick: Routing Tester',
+    startDate: '2026-06-22',
+    endDateExclusive: '2026-06-23',
+    isAllDay: true
+  });
 
   console.log(JSON.stringify(result, null, 2));
 } finally {

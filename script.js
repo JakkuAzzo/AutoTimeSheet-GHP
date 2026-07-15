@@ -583,6 +583,81 @@ function setFileInputFiles(input, files) {
   input.files = dataTransfer.files;
 }
 
+function localPortalProfile() {
+  try {
+    const value = JSON.parse(localStorage.getItem('gmt.portal.profile.v1') || '{}');
+    return value && typeof value === 'object' ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function addDaysToIsoDate(value, days) {
+  const date = dateObj(value);
+  if (!date) return '';
+  date.setDate(date.getDate() + days);
+  return isoDate(date);
+}
+
+function groupedAbsenceCalendarEvents(rows, employee) {
+  const absences = rows
+    .filter((row) => row.date && ['Sick', 'Holiday', 'Time Off'].includes(row.absenceStatus))
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const groups = [];
+  absences.forEach((row) => {
+    const previous = groups[groups.length - 1];
+    if (previous && previous.reason === row.absenceStatus && previous.lastDate === addDaysToIsoDate(row.date, -1)) {
+      previous.lastDate = row.date;
+      return;
+    }
+    groups.push({ reason: row.absenceStatus, start: row.date, lastDate: row.date });
+  });
+  return groups.map((group) => ({
+    type: 'absence',
+    absenceReason: group.reason,
+    title: `${group.reason}: ${employee}`,
+    startDate: group.start,
+    endDateExclusive: addDaysToIsoDate(group.lastDate, 1),
+    isAllDay: true
+  }));
+}
+
+function buildCalendarSync(calculated, totals) {
+  const profile = localPortalProfile();
+  const employee = employeeName.value.trim();
+  const datedRows = calculated.filter((row) => row.date).sort((left, right) => left.date.localeCompare(right.date));
+  const startDate = weekStart.value || datedRows[0]?.date || '';
+  const lastDate = weekEnd.value || datedRows[datedRows.length - 1]?.date || startDate;
+  const weeklyEvent = startDate && lastDate ? {
+    type: 'timesheet',
+    title: `Timesheet submitted: ${employee} | Week ${startDate}`,
+    startDate,
+    endDateExclusive: addDaysToIsoDate(lastDate, 1),
+    isAllDay: true,
+    workedHours: hours(totals.workedActual),
+    basicHours: hours(totals.basic),
+    ot15Hours: hours(totals.ot15),
+    ot20Hours: hours(totals.ot20)
+  } : null;
+  const absences = groupedAbsenceCalendarEvents(calculated, employee);
+  return {
+    schemaVersion: 1,
+    calendarName: 'GMT Operational Calendar',
+    employee,
+    employeeUpn: profile.username || '',
+    employeeEmail: employeeEmail.value.trim(),
+    weekStart: startDate,
+    weekEnd: lastDate,
+    submittedAt: new Date().toISOString(),
+    events: [...(weeklyEvent ? [weeklyEvent] : []), ...absences]
+  };
+}
+
+function buildCalendarSyncFile(calendarSync) {
+  const fileName = `GMT Calendar Sync - ${employeeName.value.trim() || 'Employee'} - ${calendarSync.weekStart || 'week'}.json`;
+  return new File([JSON.stringify(calendarSync, null, 2)], fileName, { type: 'application/json' });
+}
+
 function cleanFormSubmitEndpoint(value) {
   return String(value || '').trim().replace('/ajax/', '/');
 }
@@ -616,10 +691,21 @@ function createEmailForm() {
     <input type="hidden" name="_cc" data-clean-field="cc">
     <input type="hidden" name="employee_name" data-clean-field="employeeName">
     <input type="hidden" name="email" data-clean-field="employeeEmail">
+    <input type="hidden" name="gmt_type" data-clean-field="gmtType">
+    <input type="hidden" name="gmt_action" data-clean-field="gmtAction">
+    <input type="hidden" name="gmt_record_id" data-clean-field="gmtRecordId">
+    <input type="hidden" name="gmt_employee" data-clean-field="gmtEmployee">
+    <input type="hidden" name="gmt_employee_upn" data-clean-field="gmtEmployeeUpn">
+    <input type="hidden" name="gmt_week_start" data-clean-field="gmtWeekStart">
+    <input type="hidden" name="gmt_week_end" data-clean-field="gmtWeekEnd">
+    <input type="hidden" name="gmt_calendar_sync" data-clean-field="gmtCalendarSync">
+    <input type="hidden" name="gmt_calendar_name" data-clean-field="gmtCalendarName">
+    <input type="hidden" name="gmt_calendar_event_count" data-clean-field="gmtCalendarEventCount">
     <input type="hidden" name="summary" data-clean-field="summary">
     <input type="hidden" name="message" data-clean-field="message">
     <input type="file" name="attachment" data-clean-field="xlsx">
     <input type="file" name="attachment_csv" data-clean-field="csv">
+    <input type="file" name="attachment_calendar_sync" data-clean-field="calendarSync">
   `;
   document.body.appendChild(emailForm);
   return emailForm;
@@ -637,6 +723,8 @@ async function submitTimesheet(event) {
     await ensureXlsxLoaded();
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
     const csvFile = buildCsvFile(calculated);
+    const calendarSync = buildCalendarSync(calculated, totals);
+    const calendarSyncFile = buildCalendarSyncFile(calendarSync);
     const emailForm = createEmailForm();
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
@@ -646,10 +734,21 @@ async function submitTimesheet(event) {
     field('cc').value = [CONFIG.formSubmitCc, userEmail].filter(Boolean).join(',');
     field('employeeName').value = employeeName.value.trim();
     field('employeeEmail').value = userEmail;
+    field('gmtType').value = 'timesheet';
+    field('gmtAction').value = 'submission';
+    field('gmtRecordId').value = `${employeeName.value.trim()}-${calendarSync.weekStart || 'unspecified'}`;
+    field('gmtEmployee').value = employeeName.value.trim();
+    field('gmtEmployeeUpn').value = calendarSync.employeeUpn;
+    field('gmtWeekStart').value = calendarSync.weekStart;
+    field('gmtWeekEnd').value = calendarSync.weekEnd;
+    field('gmtCalendarSync').value = 'requested';
+    field('gmtCalendarName').value = calendarSync.calendarName;
+    field('gmtCalendarEventCount').value = String(calendarSync.events.length);
     field('summary').value = calculatedSummaryInput.value;
-    field('message').value = 'Timesheet spreadsheets are attached. Please use the XLSX or CSV attachment for payroll/audit.';
+    field('message').value = `Timesheet spreadsheets are attached. Calendar sync requested for ${calendarSync.calendarName}: ${calendarSync.events.length} event(s), including ${calendarSync.events.filter((event) => event.type === 'absence').length} absence event(s).`;
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
+    setFileInputFiles(field('calendarSync'), [calendarSyncFile]);
     emailForm.submit();
     showSuccess('Timesheet sent with generated XLSX and CSV attachments.');
   } catch (error) {
