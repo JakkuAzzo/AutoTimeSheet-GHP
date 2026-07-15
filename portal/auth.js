@@ -3,13 +3,14 @@
 
   var config = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.entraSpaAuth;
   if (!config || !config.enabled) {
-    var unavailableMain = document.querySelector(".app-main");
+    var unavailableMain = document.querySelector("main");
     if (unavailableMain) unavailableMain.hidden = false;
     return;
   }
 
-  var appMain = document.querySelector(".app-main");
+  var appMain = document.querySelector("main");
   var signOutButton = document.getElementById("portal-sign-out");
+  var postSignInKey = "gmt.portal.postSignInPath";
   var status = document.createElement("p");
   status.className = "portal-auth-status";
   status.setAttribute("role", "status");
@@ -41,6 +42,15 @@
     });
   }
 
+  function portalRootPath() {
+    return config.redirectPath.replace(/portal\/?$/, "");
+  }
+
+  function requestedPath() {
+    var candidate = sessionStorage.getItem(postSignInKey) || "";
+    return candidate.indexOf(portalRootPath()) === 0 ? candidate : "";
+  }
+
   loadMsal().then(async function () {
     var redirectUri = window.location.origin + config.redirectPath;
     var msalApp = new window.msal.PublicClientApplication({
@@ -58,6 +68,9 @@
     var account = (result && result.account) || msalApp.getActiveAccount() || msalApp.getAllAccounts()[0];
 
     if (!account) {
+      if (window.location.pathname !== config.redirectPath) {
+        sessionStorage.setItem(postSignInKey, window.location.pathname + window.location.search + window.location.hash);
+      }
       await msalApp.loginRedirect({ scopes: ["openid", "profile", "email"] });
       return;
     }
@@ -75,13 +88,24 @@
     }
 
     msalApp.setActiveAccount(account);
+
+    var returnTo = requestedPath();
+    if (window.location.pathname === config.redirectPath && returnTo && returnTo !== window.location.pathname) {
+      sessionStorage.removeItem(postSignInKey);
+      window.location.replace(returnTo);
+      return;
+    }
+
     document.documentElement.dataset.gmtAuthenticated = "true";
     status.remove();
     if (appMain) appMain.hidden = false;
     if (signOutButton) {
       signOutButton.hidden = false;
       signOutButton.addEventListener("click", function () {
-        msalApp.logoutRedirect({ account: account });
+        msalApp.logoutRedirect({
+          account: account,
+          postLogoutRedirectUri: window.location.origin + config.redirectPath
+        });
       }, { once: true });
     }
   }).catch(function (error) {

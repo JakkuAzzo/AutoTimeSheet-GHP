@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
-import { existsSync, statSync, createReadStream, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, statSync, createReadStream, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +27,12 @@ const server = createServer((req, res) => {
   if (!filePath.startsWith(repoRoot) || !existsSync(filePath) || !statSync(filePath).isFile()) {
     res.writeHead(404);
     res.end('Not found');
+    return;
+  }
+
+  if (rawPath === '/config.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript' });
+    res.end(readFileSync(filePath, 'utf8').replace('enabled: true', 'enabled: false'));
     return;
   }
 

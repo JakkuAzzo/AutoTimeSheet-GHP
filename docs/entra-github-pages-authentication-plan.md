@@ -64,11 +64,16 @@ entraSpaAuth: {
 }
 ```
 
-The actual MSAL implementation must redirect unauthenticated users before
-rendering internal tools, use the configured tenant authority, validate the
-returned account/tenant, and provide a clear sign-out action. It must not use
-an implicit grant, a password grant, or a hard-coded allow-list of personal
-email addresses.
+The MSAL implementation now redirects unauthenticated users before rendering
+the Staff Portal, Timesheets, Audit, Job Cards, Tools, Tasks and Calendar UI.
+It uses the configured tenant authority, validates the returned account/tenant,
+preserves a requested internal route through sign-in, and provides a portal
+sign-out action. It does not use an implicit grant, a password grant, or a
+hard-coded allow-list of personal email addresses.
+
+Automated browser tests serve a test-only version of `config.js` with Entra
+disabled. This keeps their test server local and does not change the deployed
+configuration.
 
 ## Production target
 

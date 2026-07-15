@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -254,6 +255,12 @@ function startServer() {
     if (!filePath.startsWith(repoRoot) || !existsSync(filePath) || !statSync(filePath).isFile()) {
       res.writeHead(404);
       res.end('Not found');
+      return;
+    }
+
+    if (rawPath === '/config.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript' });
+      res.end(readFileSync(filePath, 'utf8').replace('enabled: true', 'enabled: false'));
       return;
     }
 
