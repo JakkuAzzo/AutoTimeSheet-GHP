@@ -7,6 +7,8 @@
 <title>GMT Staff Portal</title>
 <link rel="stylesheet" href="../styles.css?v=portal-route-20260629">
 <link rel="stylesheet" href="../portal.css?v=portal-route-20260629">
+<script src="../config.js"></script>
+<script defer src="auth.js?v=entra-auth-20260715"></script>
 </head>
 <body>
 <header class="app-header">
@@ -19,9 +21,10 @@
   </div>
   <nav class="header-actions">
     <a href="../">Public site</a>
+    <button type="button" id="portal-sign-out" hidden>Sign out</button>
   </nav>
 </header>
-<main class="app-main">
+<main class="app-main" hidden>
   <section class="portal-card-grid">
     <a class="portal-feature-card" href="../timesheets/"><span>Timesheets</span><small>Create or analyse timesheets.</small></a>
     <a class="portal-feature-card" href="../jobs/"><span>Job Cards</span><small>Create and review job cards.</small><strong class="in-progress-badge">In progress</strong></a>

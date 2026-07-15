@@ -10,9 +10,9 @@ window.GMT_APP_CONFIG = {
   allowedAdminEmails: [],
   magicLinkApiBase: "",
   entraSpaAuth: {
-    enabled: false,
-    tenantId: "",
-    clientId: "",
+    enabled: true,
+    tenantId: "8b182d6b-6f34-4ca2-84ad-50ca712b5488",
+    clientId: "01b5a6c6-f6c1-47cb-aebe-67f07f415e4b",
     redirectPath: "/AutoTimeSheet-GHP/portal/",
     allowedGroupIds: []
   }

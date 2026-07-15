@@ -26,33 +26,39 @@ It does **not** make a static GitHub Pages site a secure Microsoft data API:
 The existing email-based submission route therefore remains the operational
 baseline until the protected service layer is approved.
 
-## Entra setup (administrator action)
+## Entra setup
 
-1. In the GMT tenant, create an **App registration** named `GMT Staff Portal`.
-2. Choose **Accounts in this organizational directory only**.
-3. Add SPA redirect URIs for the exact GitHub Pages routes used in the trial:
+The trial registration is now created in the GMT tenant:
+
+- App registration: `GMT Staff Portal`
+- Tenant: GMT Electrical Services Ltd
+- Single-tenant account type: **Accounts in this organizational directory only**
+- Client ID: `01b5a6c6-f6c1-47cb-aebe-67f07f415e4b`
+- No client secret and no Microsoft Graph data permissions
+
+Its SPA redirect URIs are:
+
    - `https://jakkuazzo.github.io/AutoTimeSheet-GHP/portal/`
    - `https://jakkuazzo.github.io/AutoTimeSheet-GHP/timesheets/`
-4. Do not create a client secret.
-5. Start with OpenID Connect scopes only: `openid`, `profile`, `email`.
-6. Optionally create an Entra security group for permitted staff and record its
-   group object ID in `allowedGroupIds` after an access-policy decision.
-7. Test with a non-admin employee account, a permitted account and a denied
-   account.
 
-Creating the app registration creates a persistent OAuth identity and needs a
-GMT administrator's review at the time of creation.
+The portal currently requests only OpenID Connect scopes: `openid`, `profile`,
+and `email`. Optionally create an Entra security group for permitted staff and record its
+   group object ID in `allowedGroupIds` after an access-policy decision.
+
+Release checks remain: test with a non-admin employee account, a permitted
+account and a denied account. When `allowedGroupIds` is empty, every account in
+the GMT tenant may reach the UI; populate it before using the portal for a
+restricted staff group.
 
 ## Repository configuration
 
-`config.js` includes a disabled `entraSpaAuth` block. Enable it only after the
-app registration exists:
+`config.js` now enables the trial app registration:
 
 ```js
 entraSpaAuth: {
   enabled: true,
-  tenantId: "<GMT tenant ID>",
-  clientId: "<public Entra application client ID>",
+  tenantId: "8b182d6b-6f34-4ca2-84ad-50ca712b5488",
+  clientId: "01b5a6c6-f6c1-47cb-aebe-67f07f415e4b",
   redirectPath: "/AutoTimeSheet-GHP/portal/",
   allowedGroupIds: ["<optional GMT security group object ID>"]
 }
