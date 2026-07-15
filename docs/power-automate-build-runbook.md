@@ -8,6 +8,35 @@ and operational records without putting Microsoft credentials in the website.
 The website remains static. FormSubmit delivers messages to a business mailbox;
 Outlook and Power Automate then file attachments and create Microsoft List records.
 
+## Programmatic Administration
+
+The browser maker portals remain useful for first-time connection setup, but
+GMT can now keep the Power Platform solution and administration process
+repeatable from a Mac. The repository contains the local scaffold at
+`power-platform/`.
+
+| Area | Supported route | Use at GMT |
+| --- | --- | --- |
+| Power Platform solution | Power Platform CLI (`pac`) | Export, unpack, review and deploy managed/unmanaged solutions. |
+| Exchange / shared mailbox rules | Exchange Online PowerShell | Inspect mailbox access and create/review inbox rules after change approval. |
+| Shared calendar | Microsoft Graph PowerShell or Outlook connector | Create/update events in a GMT-owned operational calendar. |
+| SharePoint files and Lists | Power Automate, Graph, or PnP.PowerShell | File submitted attachments and maintain company-owned indexes. |
+| Staff portal | Power Apps + Dataverse | Authenticated internal application, not a public GitHub Pages integration. |
+
+Use delegated interactive authentication while the team is establishing the
+solution. Later, use an Entra application identity with narrowly-scoped
+permissions and certificate-based authentication for unattended deployment;
+never place an app secret in the website or this repository.
+
+### Current Dataverse Gate
+
+On 15 July 2026, the GMT tenant accepted interactive PAC authentication but
+returned no Dataverse environment. Therefore no Dataverse table, Power App or
+solution deployment should be attempted yet. An authorised Power Platform
+administrator must provision an environment with Dataverse and assign the
+relevant Power Apps / Power Automate licenses first. See
+`power-platform/README.md` for the local workflow after that gate is complete.
+
 ## Confirm Before Build
 
 Do not create or enable production flows until these are confirmed:

@@ -1,0 +1,5 @@
+# PAC authentication profiles and local deployment inputs are machine-specific.
+.pac/
+.env
+*.zip
+*.credentials.json
