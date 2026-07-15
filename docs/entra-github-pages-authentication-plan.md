@@ -43,12 +43,46 @@ Its SPA redirect URIs are:
 
 The portal currently requests only OpenID Connect scopes: `openid`, `profile`,
 and `email`. Optionally create an Entra security group for permitted staff and record its
-   group object ID in `allowedGroupIds` after an access-policy decision.
+group object ID in `allowedGroupIds` after an access-policy decision.
 
 Release checks remain: test with a non-admin employee account, a permitted
 account and a denied account. When `allowedGroupIds` is empty, every account in
 the GMT tenant may reach the UI; populate it before using the portal for a
 restricted staff group.
+
+## GMT staff account and role model
+
+Provision the following eight **Microsoft Entra identity accounts** with
+`@gmt-services.co.uk` UPNs. Do not use `.gmt.local` for the live portal. These
+are portal sign-in usernames, not a requirement to create eight Exchange
+mailboxes; mailbox licensing is only needed where an individual needs email.
+
+| Display name | UPN | Portal role | Group |
+| --- | --- | --- | --- |
+| Jason | `jason@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
+| Matthew | `matthew@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
+| Ainsley | `ainsley@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
+| Simon | `simon@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
+| Faith | `faith@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
+| Michelle | `michelle@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
+| Accounts Manager | `accounts@gmt-services.co.uk` | Portal administrator | `GMT Staff Portal Admins` and `GMT Staff Portal Users` |
+| Administrator | `admin@gmt-services.co.uk` | Portal administrator | `GMT Staff Portal Admins` and `GMT Staff Portal Users` |
+
+Create a distinct temporary password for each account in Entra, force a change
+at first sign-in, and enable self-service password reset (SSPR) for the staff
+groups. Predictable passwords such as a username followed by `123!` must not be
+used or stored in this repository. Once signed in, the portal's **My account**
+link opens Microsoft’s account page, where users can change their own password.
+
+The portal profile can store a staff member's display name and optional contact
+email only in that browser, then prefill the Timesheet form. It is not an Entra
+profile editor and it is not a central employee directory; clearing browser
+data clears the saved contact email.
+
+Before populating `allowedGroupIds`, configure the Entra app registration’s
+token configuration to emit the relevant security group claims. Otherwise the
+browser will not receive the group IDs required for the optional client-side
+group check.
 
 ## Repository configuration
 

@@ -21,15 +21,29 @@
   </div>
   <nav class="header-actions">
     <a href="../">Public site</a>
+    <a href="https://myaccount.microsoft.com/" target="_blank" rel="noopener">My account</a>
     <button type="button" id="portal-sign-out" hidden>Sign out</button>
   </nav>
 </header>
 <main class="app-main" hidden>
+  <section class="card portal-profile-card" aria-labelledby="portal-profile-title">
+    <div>
+      <h2 id="portal-profile-title">Your portal profile</h2>
+      <p class="small-text">Add a contact email for timesheet copies. This profile is saved only in this browser.</p>
+    </div>
+    <form id="portal-profile-form" class="portal-profile-form">
+      <label>Full name<input id="portal-profile-name" name="profile_name" type="text" autocomplete="name" required></label>
+      <label>Contact email<input id="portal-profile-email" name="profile_email" type="email" autocomplete="email" placeholder="name@example.com"></label>
+      <button type="submit" class="secondary">Save profile</button>
+      <p id="portal-profile-status" class="small-text" aria-live="polite"></p>
+    </form>
+  </section>
   <section class="portal-card-grid">
     <a class="portal-feature-card" href="../timesheets/"><span>Timesheets</span><small>Create or analyse timesheets.</small></a>
     <a class="portal-feature-card" href="../jobs/"><span>Job Cards</span><small>Create and review job cards.</small><strong class="in-progress-badge">In progress</strong></a>
     <a class="portal-feature-card" href="../tools/"><span>Tools</span><small>Tasks and calendar.</small><strong class="in-progress-badge">In progress</strong></a>
   </section>
 </main>
+<script defer src="profile.js?v=portal-profile-20260715"></script>
 </body>
 </html>

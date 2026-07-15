@@ -56,6 +56,30 @@
   font-size: .95rem;
   line-height: 1.35;
 }
+.portal-profile-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+.portal-profile-card h2 {
+  margin: 0;
+  color: var(--green);
+}
+.portal-profile-form {
+  display: grid;
+  gap: .65rem;
+}
+.portal-profile-form label {
+  display: grid;
+  gap: .25rem;
+  color: var(--ink);
+  font-weight: 800;
+}
+.portal-profile-form input {
+  width: 100%;
+}
 .portal-auth-status {
   width: min(92%, 520px);
   margin: 3rem auto;
@@ -227,7 +251,8 @@
 }
 @media (max-width: 850px) {
   .portal-two-column,
-  .kanban-board {
+  .kanban-board,
+  .portal-profile-card {
     grid-template-columns: 1fr;
   }
 }

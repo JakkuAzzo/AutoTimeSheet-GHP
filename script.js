@@ -29,6 +29,20 @@ let absenceRanges = [];
 let recalculateTimer = null;
 let xlsxPromise = null;
 
+function applyPortalProfile(profile) {
+  if (!profile || typeof profile !== 'object') return;
+  if (!employeeName.value.trim() && profile.name) employeeName.value = profile.name;
+  if (!employeeEmail.value.trim() && profile.contactEmail) employeeEmail.value = profile.contactEmail;
+}
+
+function loadPortalProfile() {
+  try {
+    applyPortalProfile(JSON.parse(localStorage.getItem('gmt.portal.profile.v1') || '{}'));
+  } catch {
+    // A malformed local profile must not affect timesheet entry.
+  }
+}
+
 function pad(value) {
   return String(value).padStart(2, '0');
 }
@@ -717,7 +731,9 @@ addAbsenceBtn.addEventListener('click', addAbsenceRange);
 saveDraftBtn.addEventListener('click', saveDraftManually);
 clearDraftBtn.addEventListener('click', clearDraft);
 form.addEventListener('submit', submitTimesheet);
+document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail));
 
+loadPortalProfile();
 renderAbsenceRanges();
 addDay();
 recalculate();

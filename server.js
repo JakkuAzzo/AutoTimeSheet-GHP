@@ -5,6 +5,7 @@ const Database = require('better-sqlite3');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,18 +40,20 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_submission_date ON timesheets(submitted_at);
 `);
 
-// ===== Seed Database with Default Accounts =====
+// Demo users are opt-in for local development only. Production identities live
+// in Microsoft Entra and must never be seeded from predictable source values.
 async function seedDatabase() {
-  const defaultAccounts = [
-    { username: 'jason', email: 'jason@gmt.local', password: 'Jason123!', fullName: 'Jason', role: 'user' },
-    { username: 'matthew', email: 'matthew@gmt.local', password: 'Matthew123!', fullName: 'Matthew', role: 'user' },
-    { username: 'ainsley', email: 'ainsley@gmt.local', password: 'Ainsley123!', fullName: 'Ainsley', role: 'user' },
-    { username: 'simon', email: 'simon@gmt.local', password: 'Simon123!', fullName: 'Simon', role: 'user' },
-    { username: 'faith', email: 'faith@gmt.local', password: 'Faith123!', fullName: 'Faith', role: 'user' },
-    { username: 'michelle', email: 'michelle@gmt.local', password: 'Michelle123!', fullName: 'Michelle', role: 'user' },
-    { username: 'accounts', email: 'accounts@gmt.local', password: 'Accounts123!', fullName: 'Accounts Manager', role: 'admin' },
-    { username: 'admin', email: 'admin@gmt.local', password: 'Admin123!', fullName: 'Administrator', role: 'admin' }
-  ];
+  if (process.env.GMT_ENABLE_DEMO_ACCOUNTS !== 'true') {
+    console.log('Demo accounts are disabled. Use Microsoft Entra identities for GMT staff access.');
+    return;
+  }
+
+  let defaultAccounts;
+  try {
+    defaultAccounts = JSON.parse(process.env.GMT_DEMO_ACCOUNTS_JSON || '[]');
+  } catch (error) {
+    throw new Error('GMT_DEMO_ACCOUNTS_JSON must be valid JSON.');
+  }
 
   for (const account of defaultAccounts) {
     try {
@@ -81,11 +84,11 @@ app.use(cors({
 }));
 
 app.use(session({
-  secret: 'gmt-timesheet-secret-key-change-in-production',
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // set to true if using HTTPS
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }

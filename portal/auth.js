@@ -11,6 +11,7 @@
   var appMain = document.querySelector("main");
   var signOutButton = document.getElementById("portal-sign-out");
   var postSignInKey = "gmt.portal.postSignInPath";
+  var profileKey = "gmt.portal.profile.v1";
   var status = document.createElement("p");
   status.className = "portal-auth-status";
   status.setAttribute("role", "status");
@@ -51,6 +52,19 @@
     return candidate.indexOf(portalRootPath()) === 0 ? candidate : "";
   }
 
+  function recordIdentity(account) {
+    try {
+      var profile = JSON.parse(localStorage.getItem(profileKey) || "{}");
+      profile.name = profile.name || account.name || "";
+      profile.username = account.username || "";
+      profile.subject = account.homeAccountId || "";
+      localStorage.setItem(profileKey, JSON.stringify(profile));
+      document.dispatchEvent(new CustomEvent("gmtportalidentity", { detail: profile }));
+    } catch (_) {
+      // The portal remains usable when browser storage is unavailable.
+    }
+  }
+
   loadMsal().then(async function () {
     var redirectUri = window.location.origin + config.redirectPath;
     var msalApp = new window.msal.PublicClientApplication({
@@ -88,6 +102,7 @@
     }
 
     msalApp.setActiveAccount(account);
+    recordIdentity(account);
 
     var returnTo = requestedPath();
     if (window.location.pathname === config.redirectPath && returnTo && returnTo !== window.location.pathname) {
