@@ -13,6 +13,7 @@ not enabled, and the exact next implementation work.
 | Microsoft Lists | Timesheet Submissions, Audit Submissions, Job Cards, Tasks created |
 | Timesheet Intake flow | Active; shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments and creates the existing index row |
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
+| Connector capability check | The existing GMT-owned Power Automate connection exposes Office 365 Outlook create/update/delete event actions and SharePoint create-folder/create-file actions |
 
 ## Not enabled by design
 

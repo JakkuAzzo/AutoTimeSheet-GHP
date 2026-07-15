@@ -29,6 +29,11 @@ in Outlook and `GMT Operational Calendar` was created there. The calendar must
 still be verified from the GMT-owned Power Automate connection before a flow is
 enabled. Do not create a personal-calendar fallback.
 
+The existing GMT-owned connection has been checked in Power Automate and exposes
+Office 365 Outlook `Create event (V4)`, `Update event (V4)` and `Delete event
+(V2)`, plus SharePoint folder/file actions. This verifies connector capability,
+not calendar permission or production readiness.
+
 The field-level automation contract and current build status are recorded in
 [calendar-automation-contract.json](calendar-automation-contract.json) and
 [operational-build-status.md](operational-build-status.md).
