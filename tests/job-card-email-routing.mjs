@@ -55,6 +55,9 @@ try {
   });
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.addInitScript(() => {
+    localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Profile Engineer' }));
+  });
   const logs = [];
   page.on('console', (msg) => {
     if (['error', 'warning'].includes(msg.type()) && !/Failed to load resource: the server responded with a status of 404/.test(msg.text())) {
@@ -64,6 +67,7 @@ try {
   page.on('pageerror', (error) => logs.push(`pageerror: ${error.message}`));
 
   await page.goto(`http://127.0.0.1:${port}/jobs/`, { waitUntil: 'load' });
+  assert.equal(await page.locator('#job-engineer').inputValue(), 'Profile Engineer');
   await page.evaluate(() => {
     window.__submittedForms = [];
     HTMLFormElement.prototype.submit = function submitStub() {

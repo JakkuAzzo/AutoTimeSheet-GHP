@@ -21,6 +21,19 @@
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   const GMT_JOB_CARD_CC = 'gmtelectricalservices+jobcards@outlook.com';
 
+  function portalProfileName() {
+    return store.get('gmt.portal.profile.v1', {}).name || '';
+  }
+
+  function prefillPortalIdentity() {
+    const name = portalProfileName();
+    if (!name) return;
+    ['#job-engineer', '#task-assignee', '#calendar-owner'].forEach((selector) => {
+      const input = $(selector);
+      if (input && !input.value.trim()) input.value = name;
+    });
+  }
+
   function logNotification(type, message) {
     const log = store.get(keys.log, []);
     log.unshift({ id: id(), type, message, at: new Date().toISOString() });
@@ -292,6 +305,7 @@
         submitted_at: new Date().toISOString()
       }, { file: imageFile });
       event.target.reset();
+      prefillPortalIdentity();
       logNotification('Job card', `Job card ${job.ref || job.client || job.id} created and emailed for admin review.`);
       renderJobs();
     });
@@ -321,6 +335,7 @@
       tasks.unshift(task);
       store.set(keys.tasks, tasks);
       event.target.reset();
+      prefillPortalIdentity();
       sendPortalFormSubmit('Task', {
         task_title: task.title,
         job_reference: task.jobRef,
@@ -430,6 +445,7 @@
       events.push(entry);
       store.set(keys.calendar, events);
       event.target.reset();
+      prefillPortalIdentity();
       logNotification('Calendar', `Calendar event added: ${entry.title}.`);
       renderCalendar();
     });
@@ -455,5 +471,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     bindTabs(); bindJobs(); bindTasks(); bindOrg(); bindNotifications(); bindCalendar();
     renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
+    prefillPortalIdentity();
   });
+  document.addEventListener('gmtportalidentity', prefillPortalIdentity);
 })();

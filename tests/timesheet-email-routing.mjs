@@ -51,6 +51,9 @@ try {
   });
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.addInitScript(() => {
+    localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Profile Tester', contactEmail: 'profile.tester@example.com' }));
+  });
   const logs = [];
   page.on('console', (msg) => {
     if (['error', 'warning'].includes(msg.type()) && !/Failed to load resource: the server responded with a status of 404/.test(msg.text())) {
@@ -60,6 +63,8 @@ try {
   page.on('pageerror', (error) => logs.push(`pageerror: ${error.message}`));
 
   await page.goto(`http://127.0.0.1:${port}/timesheets/create.html`, { waitUntil: 'load' });
+  assert.equal(await page.locator('#employee-name').inputValue(), 'Profile Tester');
+  assert.equal(await page.locator('#employee-email').inputValue(), 'profile.tester@example.com');
   await page.evaluate(() => {
     window.__submittedForms = [];
     HTMLFormElement.prototype.submit = function submitStub() {
