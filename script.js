@@ -23,6 +23,8 @@ const saveDraftBtn = document.getElementById('save-draft-btn');
 const clearDraftBtn = document.getElementById('clear-draft-btn');
 const payloadInput = document.getElementById('timesheet-payload');
 const calculatedSummaryInput = document.getElementById('calculated-summary');
+const timesheetEntryTitle = document.getElementById('timesheet-entry-title');
+const timesheetEntryCopy = document.getElementById('timesheet-entry-copy');
 
 let dayCount = 0;
 let absenceRanges = [];
@@ -33,6 +35,10 @@ function applyPortalProfile(profile) {
   if (!profile || typeof profile !== 'object') return;
   if (!employeeName.value.trim() && profile.name) employeeName.value = profile.name;
   if (!employeeEmail.value.trim() && profile.contactEmail) employeeEmail.value = profile.contactEmail;
+  if (profile.name && timesheetEntryTitle && timesheetEntryCopy) {
+    timesheetEntryTitle.textContent = 'Your timesheet';
+    timesheetEntryCopy.textContent = 'Your GMT profile has filled in your name. Choose week dates, mark absences, then complete daily entries.';
+  }
 }
 
 function loadPortalProfile() {

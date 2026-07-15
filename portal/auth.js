@@ -18,6 +18,23 @@
   status.textContent = "Signing in to the GMT Staff Portal...";
   document.body.appendChild(status);
 
+  function revealApplication() {
+    document.documentElement.dataset.gmtAuthenticated = "true";
+    if (appMain) {
+      // Safari can retain the initial hidden layout after an Entra redirect.
+      appMain.hidden = false;
+      appMain.removeAttribute("hidden");
+      appMain.style.removeProperty("display");
+    }
+    if (status.isConnected) status.remove();
+  }
+
+  window.addEventListener("pageshow", function () {
+    if (document.documentElement.dataset.gmtAuthenticated === "true") {
+      revealApplication();
+    }
+  });
+
   function showFailure(message) {
     status.textContent = message;
     var retry = document.createElement("button");
@@ -111,9 +128,11 @@
       return;
     }
 
-    document.documentElement.dataset.gmtAuthenticated = "true";
-    status.remove();
-    if (appMain) appMain.hidden = false;
+    revealApplication();
+    // Allow Safari to complete the redirect layout pass before revealing content.
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(revealApplication);
+    });
     if (signOutButton) {
       signOutButton.hidden = false;
       signOutButton.addEventListener("click", function () {
