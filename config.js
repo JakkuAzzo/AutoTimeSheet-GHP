@@ -8,5 +8,12 @@ window.GMT_APP_CONFIG = {
   formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   formSubmitCc: "",
   allowedAdminEmails: [],
-  magicLinkApiBase: ""
+  magicLinkApiBase: "",
+  entraSpaAuth: {
+    enabled: false,
+    tenantId: "",
+    clientId: "",
+    redirectPath: "/AutoTimeSheet-GHP/portal/",
+    allowedGroupIds: []
+  }
 };

@@ -44,7 +44,14 @@ window.GMT_APP_CONFIG = {
   formSubmitTimesheetEndpoint: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN",
   formSubmitCc: "OPTIONAL_CC_MAILBOX",
   allowedAdminEmails: [],
-  magicLinkApiBase: ""
+  magicLinkApiBase: "",
+  entraSpaAuth: {
+    enabled: false,
+    tenantId: "",
+    clientId: "",
+    redirectPath: "/AutoTimeSheet-GHP/portal/",
+    allowedGroupIds: []
+  }
 };
 ```
 
@@ -70,6 +77,11 @@ Job card photos are attached to the same `+jobcards` email as the job card detai
 FormSubmit may treat each plus-addressed alias as a separate destination. Confirm one test email to each alias before relying on the rules in production.
 
 See `docs/business-mailbox-power-automate-migration-plan.md` for the Microsoft 365 business mailbox migration plan, `docs/outlook-onedrive-filing-and-index-plan.md` for the storage/index plan, and `docs/power-automate-build-runbook.md` for the production flow build order, validation and rollback steps. The public-site package and WordPress implementation boundary are defined in `docs/bonline-wordpress-handover-plan.md`.
+
+See `docs/entra-github-pages-authentication-plan.md` for the Microsoft 365
+sign-in boundary for the staff portal. The static site can use Entra sign-in to
+gate its interface, but private Microsoft data still needs Power Automate or a
+secure backend.
 
 ## Current structure
 

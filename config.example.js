@@ -30,5 +30,15 @@ window.GMT_APP_CONFIG = {
   allowedAdminEmails: [],
 
   // Future backend endpoint for sending magic links and reading encrypted GitHub records.
-  magicLinkApiBase: ""
+  magicLinkApiBase: "",
+
+  // Microsoft Entra SPA sign-in for the staff portal. Client and tenant IDs are
+  // public identifiers, but no Graph permission, secret or mailbox token belongs here.
+  entraSpaAuth: {
+    enabled: false,
+    tenantId: "",
+    clientId: "",
+    redirectPath: "/AutoTimeSheet-GHP/portal/",
+    allowedGroupIds: []
+  }
 };
