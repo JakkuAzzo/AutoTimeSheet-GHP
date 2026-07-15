@@ -10,9 +10,10 @@ string, client secret, or Dataverse service principal secret.
 - PAC CLI is installed locally and has an interactive profile for the GMT
   tenant.
 - The local `GMTWebAppSolution` solution has publisher prefix `gmt`.
-- As of 15 July 2026, `pac env list` returned no Dataverse environments for
-  the signed-in account. No Dataverse tables, canvas/model-driven app, or
-  solution deployment can be created until GMT provisions an environment.
+- The free `GMT Portal Development` Dataverse environment is provisioned in the
+  Europe region and the empty `GMTWebAppSolution` has been imported there.
+- Tables, an internal app and new cloud flows have not yet been created. Their
+  non-production scope is defined in `developer-environment.md`.
 - Existing SharePoint Lists and the active Timesheet Intake Power Automate flow
   remain the operational baseline. This workspace does not replace them yet.
 
@@ -36,11 +37,11 @@ internal operational portal once licensing and security roles are approved.
 
 ## One-time Dataverse gate
 
-An authorised Power Platform administrator must first provision a UK-region
-production or sandbox environment with Dataverse, assign the required Power
-Apps / Power Automate licences, and add at least two GMT administrators. Record
-the resulting environment URL in a local shell variable; do not commit it as a
-secret or use it in frontend code.
+An authorised Power Platform administrator must provision a paid production or
+sandbox environment with Dataverse only after the Developer Plan proof is
+accepted. Assign the required Power Apps / Power Automate licences and add at
+least two GMT administrators. Record the resulting environment URL in a local
+shell variable; do not use it in frontend code.
 
 ```bash
 export GMT_DATAVERSE_URL='https://YOUR-ORG.crm11.dynamics.com'

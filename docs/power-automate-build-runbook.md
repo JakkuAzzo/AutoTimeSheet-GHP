@@ -30,12 +30,12 @@ never place an app secret in the website or this repository.
 
 ### Current Dataverse Gate
 
-On 15 July 2026, the GMT tenant accepted interactive PAC authentication but
-returned no Dataverse environment. Therefore no Dataverse table, Power App or
-solution deployment should be attempted yet. An authorised Power Platform
-administrator must provision an environment with Dataverse and assign the
-relevant Power Apps / Power Automate licenses first. See
-`power-platform/README.md` for the local workflow after that gate is complete.
+On 15 July 2026, GMT provisioned the free non-production Developer Plan
+environment `GMT Portal Development` and imported the empty
+`GMTWebAppSolution`. It is limited to development/test. No live data, production
+flow, paid Azure linkage, or staff production rollout belongs there. See
+`power-platform/developer-environment.md` for the supported scope and promotion
+gate.
 
 ## Confirm Before Build
 
