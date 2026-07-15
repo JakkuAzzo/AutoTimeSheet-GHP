@@ -5,6 +5,7 @@
 | Asset | Current state |
 | --- | --- |
 | Shared intake mailbox | `Accounts@gmt-services.co.uk` |
+| Shared operational calendar | `GMT Operational Calendar` created in the Accounts mailbox on 15 July 2026 |
 | Timesheet Intake flow | Active in the default Power Automate environment |
 | Intake trigger | New email in the Accounts shared mailbox, `[GMT][TIMESHEET]` subject filter, attachments required and included |
 | Intake index action | Creates a SharePoint list item |
@@ -23,7 +24,10 @@ Before creating flows, an Exchange administrator must grant the Power Automate c
 2. Ability to create, update and delete events in that calendar.
 3. A second GMT administrator as mailbox/calendar and flow co-owner.
 
-Current browser verification: Amanda's Outlook session opens normally, but a direct Accounts shared-calendar URL resolves to Amanda's own calendar. Treat that as an access/delegation gate. Do not create a personal-calendar fallback.
+Current browser verification: the Accounts shared mailbox is accessible directly
+in Outlook and `GMT Operational Calendar` was created there. The calendar must
+still be verified from the GMT-owned Power Automate connection before a flow is
+enabled. Do not create a personal-calendar fallback.
 
 ## Flow A: Job Card calendar synchronisation
 
