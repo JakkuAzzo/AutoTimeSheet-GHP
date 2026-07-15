@@ -29,6 +29,10 @@ in Outlook and `GMT Operational Calendar` was created there. The calendar must
 still be verified from the GMT-owned Power Automate connection before a flow is
 enabled. Do not create a personal-calendar fallback.
 
+The field-level automation contract and current build status are recorded in
+[calendar-automation-contract.json](calendar-automation-contract.json) and
+[operational-build-status.md](operational-build-status.md).
+
 ## Flow A: Job Card calendar synchronisation
 
 **Environment:** `GMT Portal Development` until approved for production.

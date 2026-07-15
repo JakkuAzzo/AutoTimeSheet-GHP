@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "environment": "GMT Portal Development",
+  "calendar": {
+    "mailbox": "Accounts@gmt-services.co.uk",
+    "name": "GMT Operational Calendar",
+    "connectionRequirement": "Use a GMT-owned Office 365 Outlook connection with delegated editor access to the shared calendar. Never fall back to a personal calendar."
+  },
+  "flows": [
+    {
+      "displayName": "GMT Portal - Job Card Calendar Sync",
+      "sourceTable": "Job Card",
+      "trigger": "Dataverse row added or modified",
+      "requiredColumns": ["Job Reference", "Client", "Site Address", "Assigned Engineer", "Planned Start", "Planned End", "Status", "Outlook Event ID", "Calendar Sync Status", "Calendar Sync Error", "Last Calendar Sync"],
+      "eventTitle": "[GMT][JOBCARD] {job reference} | {client}",
+      "lifecycle": {
+        "new": "Create an all-day event only when a planned start exists and Outlook Event ID is blank.",
+        "update": "Update the event identified by Outlook Event ID when scheduling fields change.",
+        "cancelled": "Mark the event cancelled or delete it only after Accounts confirms the retention policy.",
+        "failure": "Write failed status and error text to the source record; do not discard the job card."
+      }
+    },
+    {
+      "displayName": "GMT Portal - Task Calendar Sync",
+      "sourceTable": "Task",
+      "trigger": "Dataverse row added or modified",
+      "requiredColumns": ["Task Title", "Due Date", "Assigned To", "Linked Job Card", "Status", "Outlook Event ID", "Calendar Sync Status", "Calendar Sync Error", "Last Calendar Sync"],
+      "eventTitle": "[GMT][TASK] {task title}",
+      "lifecycle": {
+        "new": "Create an all-day event only when a due date exists and Outlook Event ID is blank.",
+        "update": "Update the event identified by Outlook Event ID when due date, assignee or title changes.",
+        "completedOrCancelled": "Leave the event unchanged until Accounts approves delete-versus-retain behaviour.",
+        "failure": "Write failed status and error text to the source record; do not discard the task."
+      }
+    }
+  ],
+  "releaseChecks": [
+    "Create one non-sensitive Job Card and Task in the Developer environment.",
+    "Confirm both create exactly one event in GMT Operational Calendar.",
+    "Change the date and confirm the existing event updates rather than duplicates.",
+    "Confirm failure status is visible when the shared-calendar connection is unavailable.",
+    "Keep flows disabled until a GMT-owned connection and two flow co-owners are recorded."
+  ]
+}
