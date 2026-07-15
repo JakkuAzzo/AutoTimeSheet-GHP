@@ -63,7 +63,7 @@ mailboxes; mailbox licensing is only needed where an individual needs email.
 | Matthew | `matthew@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
 | Ainsley | `ainsley@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
 | Simon | `simon@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
-| Faith | `faith@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
+| Faith | `faith.b@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
 | Michelle | `michelle@gmt-services.co.uk` | Regular staff | `GMT Staff Portal Users` |
 | Accounts Manager | `accounts@gmt-services.co.uk` | Portal administrator | `GMT Staff Portal Admins` and `GMT Staff Portal Users` |
 | Administrator | `admin@gmt-services.co.uk` | Portal administrator | `GMT Staff Portal Admins` and `GMT Staff Portal Users` |
