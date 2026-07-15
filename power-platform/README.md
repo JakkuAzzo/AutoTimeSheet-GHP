@@ -11,15 +11,23 @@ string, client secret, or Dataverse service principal secret.
   tenant.
 - The local `GMTWebAppSolution` solution has publisher prefix `gmt`.
 - The free `GMT Portal Development` Dataverse environment is provisioned in the
-  Europe region and the empty `GMTWebAppSolution` has been imported there.
-- Tables, an internal app and new cloud flows have not yet been created. Their
-  non-production scope is defined in `developer-environment.md`.
+  Europe region.
+- The `GMTWebAppSolution` contains the published `GMT Staff Portal`
+  model-driven app shell. Its navigation is being populated as the proof is
+  completed.
+- The developer environment contains six proof tables: Timesheet Submission,
+  Clock Event, Audit Submission, Job Card, Task and Calendar Event. They have
+  been added to `GMTWebAppSolution` and are captured by its export. They use
+  the environment prefix (`crbf9_`), not the intended production `gmt_`
+  prefix, so they must be rebuilt or formally migrated before promotion. This
+  is deliberate technical debt recorded in `developer-environment.md`, not a
+  production schema decision.
 - Existing SharePoint Lists and the active Timesheet Intake Power Automate flow
   remain the operational baseline. This workspace does not replace them yet.
 
 ## Planned Dataverse scope
 
-The first internal solution should contain:
+The target production solution should contain:
 
 - `gmt_timesheetsubmission`
 - `gmt_auditsubmission`
@@ -67,6 +75,12 @@ administrator is present to approve the requested delegated Microsoft sign-in.
 
 `import-solution.sh` intentionally requires `GMT_DATAVERSE_URL` and is a
 deployment action. Review the generated zip before running it.
+
+The optional `tools/GmtDataverseBootstrap` project is a controlled, local
+metadata bootstrap for a fresh developer environment. It was **not** used to
+create the current `crbf9_` proof tables. Do not run it against production and
+do not use it to repair the current proof without an explicit schema migration
+decision.
 
 ## Ownership and security
 

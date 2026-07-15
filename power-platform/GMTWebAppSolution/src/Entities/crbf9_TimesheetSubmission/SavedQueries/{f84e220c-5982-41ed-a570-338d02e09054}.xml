@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>0</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>1</isdefault>
+    <savedqueryid>{f84e220c-5982-41ed-a570-338d02e09054}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="crbf9_employeename" select="1" icon="1" preview="1">
+        <row name="result" id="crbf9_timesheetsubmissionid">
+          <cell name="crbf9_employeename" width="300" />
+          <cell name="crbf9_submissiondate" width="150" />
+          <cell name="crbf9_approved" width="150" />
+          <cell name="crbf9_employee" width="150" />
+          <cell name="crbf9_employeeemail" width="150" />
+          <cell name="crbf9_weekstart" width="150" />
+          <cell name="crbf9_weekend" width="150" />
+          <cell name="crbf9_workedhours" width="150" />
+          <cell name="crbf9_basichours" width="150" />
+          <cell name="crbf9_ot15hours" width="150" />
+          <cell name="crbf9_ot20hours" width="150" />
+          <cell name="crbf9_status" width="150" />
+          <cell name="crbf9_submittedat" width="150" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch version="1.0" mapping="logical">
+        <entity name="crbf9_timesheetsubmission">
+          <attribute name="crbf9_timesheetsubmissionid" />
+          <attribute name="crbf9_employeename" />
+          <attribute name="createdon" />
+          <order attribute="crbf9_employeename" descending="false" />
+          <filter type="and">
+            <condition attribute="statecode" operator="eq" value="0" />
+          </filter>
+          <attribute name="crbf9_submissiondate" />
+          <attribute name="crbf9_approved" />
+          <attribute name="crbf9_employee" />
+          <attribute name="crbf9_employeeemail" />
+          <attribute name="crbf9_weekstart" />
+          <attribute name="crbf9_weekend" />
+          <attribute name="crbf9_workedhours" />
+          <attribute name="crbf9_basichours" />
+          <attribute name="crbf9_ot15hours" />
+          <attribute name="crbf9_ot20hours" />
+          <attribute name="crbf9_status" />
+          <attribute name="crbf9_submittedat" />
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Active Timesheet Submissions" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>

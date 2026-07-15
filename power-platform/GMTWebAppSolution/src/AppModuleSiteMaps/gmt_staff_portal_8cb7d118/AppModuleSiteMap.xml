@@ -1,0 +1,58 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<AppModuleSiteMap xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SiteMapUniqueName>gmt_staff_portal_8cb7d118</SiteMapUniqueName>
+  <EnableCollapsibleGroups>False</EnableCollapsibleGroups>
+  <ShowHome>True</ShowHome>
+  <ShowPinned>True</ShowPinned>
+  <ShowRecents>True</ShowRecents>
+  <SiteMap IntroducedVersion="7.0.0.0">
+    <Area Id="area_gmt_operations" ShowGroups="true" ResourceId="SitemapDesigner.NewArea" IntroducedVersion="7.0.0.0">
+      <Titles>
+        <Title Title="GMT Operations" LCID="1033" />
+      </Titles>
+      <Group Id="group_gmt_submissions" IsProfile="false" ResourceId="SitemapDesigner.NewGroup" IntroducedVersion="7.0.0.0">
+        <Titles>
+          <Title Title="Submissions" LCID="1033" />
+        </Titles>
+        <SubArea Id="subarea_gmt_timesheets" Entity="crbf9_timesheetsubmission">
+          <Titles>
+            <Title Title="Timesheets" LCID="1033" />
+          </Titles>
+        </SubArea>
+        <SubArea Id="subarea_gmt_clock_events" Entity="crbf9_clockevent">
+          <Titles>
+            <Title Title="Clock Events" LCID="1033" />
+          </Titles>
+        </SubArea>
+        <SubArea Id="subarea_gmt_audits" Entity="crbf9_auditsubmission">
+          <Titles>
+            <Title Title="Audit" LCID="1033" />
+          </Titles>
+        </SubArea>
+      </Group>
+      <Group Id="group_gmt_work_management" IsProfile="false" ResourceId="SitemapDesigner.NewGroup" IntroducedVersion="7.0.0.0">
+        <Titles>
+          <Title Title="Work Management" LCID="1033" />
+        </Titles>
+        <SubArea Id="subarea_gmt_job_cards" Entity="crbf9_jobcard">
+          <Titles>
+            <Title Title="Job Cards" LCID="1033" />
+          </Titles>
+        </SubArea>
+        <SubArea Id="subarea_gmt_tasks" Entity="crbf9_task">
+          <Titles>
+            <Title Title="Tasks" LCID="1033" />
+          </Titles>
+        </SubArea>
+        <SubArea Id="subarea_gmt_calendar" Entity="crbf9_calendarevent">
+          <Titles>
+            <Title Title="Calendar" LCID="1033" />
+          </Titles>
+        </SubArea>
+      </Group>
+    </Area>
+  </SiteMap>
+  <LocalizedNames>
+    <LocalizedName description="GMT Staff Portal" languagecode="1033" />
+  </LocalizedNames>
+</AppModuleSiteMap>

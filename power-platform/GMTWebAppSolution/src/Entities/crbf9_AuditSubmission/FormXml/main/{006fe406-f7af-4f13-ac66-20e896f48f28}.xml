@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{006fe406-f7af-4f13-ac66-20e896f48f28}</formid>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{d1368db9-1172-430c-b816-94a40b1e70ac}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{7a99362d-1f83-4725-8d5e-91a744773f94}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{a0f0e116-40ec-4f0e-ac56-991150e8056b}">
+                        <labels>
+                          <label description="Auditor Name" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_auditorname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="crbf9_auditorname" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{f56a93f9-98f3-47c8-aa13-c5d1e11db119}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{ab4da4ab-4016-4c33-b5c4-498aa44dd54f}">
+                        <labels>
+                          <label description="Audit Date" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_auditdate" classid="{5b773807-9fb2-42db-97c3-7a91eff8adff}" datafieldname="crbf9_auditdate" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{b0d4b636-f886-4214-88b7-552748761e2d}">
+                        <labels>
+                          <label description="Passed" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_passed" classid="{67fac785-cd58-4f9f-abb3-4b7ddc6ed5ed}" datafieldname="crbf9_passed" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

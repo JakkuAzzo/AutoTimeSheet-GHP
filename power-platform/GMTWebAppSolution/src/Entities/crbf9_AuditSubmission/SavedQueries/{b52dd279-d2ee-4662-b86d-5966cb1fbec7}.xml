@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>0</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>1</isdefault>
+    <savedqueryid>{b52dd279-d2ee-4662-b86d-5966cb1fbec7}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="crbf9_auditorname" select="1" icon="1" preview="1">
+        <row name="result" id="crbf9_auditsubmissionid">
+          <cell name="crbf9_auditorname" width="300" />
+          <cell name="crbf9_auditdate" width="150" />
+          <cell name="crbf9_passed" width="150" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch version="1.0" mapping="logical">
+        <entity name="crbf9_auditsubmission">
+          <attribute name="crbf9_auditsubmissionid" />
+          <attribute name="crbf9_auditorname" />
+          <attribute name="createdon" />
+          <order attribute="crbf9_auditorname" descending="false" />
+          <filter type="and">
+            <condition attribute="statecode" operator="eq" value="0" />
+          </filter>
+          <attribute name="crbf9_auditdate" />
+          <attribute name="crbf9_passed" />
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Active Audit Submissions" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>

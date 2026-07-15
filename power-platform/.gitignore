@@ -2,4 +2,6 @@
 .pac/
 .env
 *.zip
+tools/**/bin/
+tools/**/obj/
 *.credentials.json

@@ -1,0 +1,79 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{4890c065-32c3-495b-a6ba-ea85e537028e}</formid>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{cfa41260-b84d-41ca-83c1-100b9defd062}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{837e403a-7f81-40d0-b1d2-9991b2e248fe}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{c2323a76-1497-4a57-885e-9dcb04424257}">
+                        <labels>
+                          <label description="Task Name" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_taskname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="crbf9_taskname" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{63e71e2e-7bb2-496b-be35-5a8d52e2e920}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{4567d4bd-db6b-4c45-b468-c676d0f89668}">
+                        <labels>
+                          <label description="Status" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_status" classid="{3ef39988-22bb-4f0b-bbbe-64b5a3748aee}" datafieldname="crbf9_status" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{86ba6262-8207-4be3-a796-622d7ee83d48}">
+                        <labels>
+                          <label description="Duration Hours" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_durationhours" classid="{c6d124ca-7eda-4a60-aea9-7fb8d318b68f}" datafieldname="crbf9_durationhours" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{2616d963-0777-4eeb-8d66-1dcad341842f}">
+                        <labels>
+                          <label description="Job Card" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_jobcardid" classid="{270bd3db-d9af-4782-9025-509e298dec0a}" datafieldname="crbf9_jobcardid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

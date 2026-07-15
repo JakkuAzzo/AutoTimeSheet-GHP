@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>0</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>1</isdefault>
+    <savedqueryid>{34f293be-cab7-4def-95f2-3f555cfe36aa}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="crbf9_eventname" select="1" icon="1" preview="1">
+        <row name="result" id="crbf9_calendareventid">
+          <cell name="crbf9_eventname" width="300" />
+          <cell name="crbf9_starttime" width="150" />
+          <cell name="crbf9_endtime" width="150" />
+          <cell name="crbf9_employeename" width="150" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch version="1.0" mapping="logical">
+        <entity name="crbf9_calendarevent">
+          <attribute name="crbf9_calendareventid" />
+          <attribute name="crbf9_eventname" />
+          <attribute name="createdon" />
+          <order attribute="crbf9_eventname" descending="false" />
+          <filter type="and">
+            <condition attribute="statecode" operator="eq" value="0" />
+          </filter>
+          <attribute name="crbf9_starttime" />
+          <attribute name="crbf9_endtime" />
+          <attribute name="crbf9_employeename" />
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Active Calendar Events" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>

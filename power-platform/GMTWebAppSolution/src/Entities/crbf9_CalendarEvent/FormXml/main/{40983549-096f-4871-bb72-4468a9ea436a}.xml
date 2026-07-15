@@ -1,0 +1,79 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{40983549-096f-4871-bb72-4468a9ea436a}</formid>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{296d82cf-dd62-42d1-82b3-16f075269b28}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{f63dc8aa-b113-4c18-9c5e-5c5de97c75a5}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{19561f72-5909-441f-ba75-bcab17d39416}">
+                        <labels>
+                          <label description="Event Name" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_eventname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="crbf9_eventname" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{9c171272-ec24-4eb7-b9d9-e1fc4cc707f4}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{b1586ab7-90b3-4118-adf1-e5677b9fa7e1}">
+                        <labels>
+                          <label description="Start Time" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_starttime" classid="{5b773807-9fb2-42db-97c3-7a91eff8adff}" datafieldname="crbf9_starttime" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{e5048824-4260-4dd2-bbeb-d80b800bce0f}">
+                        <labels>
+                          <label description="End Time" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_endtime" classid="{5b773807-9fb2-42db-97c3-7a91eff8adff}" datafieldname="crbf9_endtime" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{a1fdb288-3543-457f-8992-88e09d6382ab}">
+                        <labels>
+                          <label description="Employee Name" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_employeename" classid="{4273edbd-ac1d-40d3-9fb2-095c621b552d}" datafieldname="crbf9_employeename" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

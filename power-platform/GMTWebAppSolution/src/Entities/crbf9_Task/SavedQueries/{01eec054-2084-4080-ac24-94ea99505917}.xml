@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>0</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>1</isdefault>
+    <savedqueryid>{01eec054-2084-4080-ac24-94ea99505917}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="crbf9_taskname" select="1" icon="1" preview="1">
+        <row name="result" id="crbf9_taskid">
+          <cell name="crbf9_taskname" width="300" />
+          <cell name="crbf9_status" width="150" />
+          <cell name="crbf9_durationhours" width="150" />
+          <cell name="crbf9_jobcardid" width="150" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch version="1.0" mapping="logical">
+        <entity name="crbf9_task">
+          <attribute name="crbf9_taskid" />
+          <attribute name="crbf9_taskname" />
+          <attribute name="createdon" />
+          <order attribute="crbf9_taskname" descending="false" />
+          <filter type="and">
+            <condition attribute="statecode" operator="eq" value="0" />
+          </filter>
+          <attribute name="crbf9_status" />
+          <attribute name="crbf9_durationhours" />
+          <attribute name="crbf9_jobcardid" />
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Active Tasks" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>

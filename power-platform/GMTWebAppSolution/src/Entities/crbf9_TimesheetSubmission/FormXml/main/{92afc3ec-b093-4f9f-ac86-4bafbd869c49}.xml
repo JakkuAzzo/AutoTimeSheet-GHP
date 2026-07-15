@@ -1,0 +1,151 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{92afc3ec-b093-4f9f-ac86-4bafbd869c49}</formid>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{7ed07c1b-f822-4245-811f-1b3d56af92ba}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{a897f25a-4d88-4521-a789-e9dad99f042f}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{2955c9f9-c8d7-43ab-9e86-5eddf701e6cc}">
+                        <labels>
+                          <label description="Employee Name" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_employeename" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="crbf9_employeename" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{daf73f1a-ea63-496d-a298-5985a715f53a}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{32491682-875b-43a6-96c7-89b893ca7704}">
+                        <labels>
+                          <label description="Submission Date" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_submissiondate" classid="{5b773807-9fb2-42db-97c3-7a91eff8adff}" datafieldname="crbf9_submissiondate" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{f273fcd7-1606-486e-b5b7-65030d43ed0e}">
+                        <labels>
+                          <label description="Approved" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_approved" classid="{67fac785-cd58-4f9f-abb3-4b7ddc6ed5ed}" datafieldname="crbf9_approved" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{c418008a-f4f1-42db-92dc-4f0877556239}">
+                        <labels>
+                          <label description="Employee" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_employee" classid="{4273edbd-ac1d-40d3-9fb2-095c621b552d}" datafieldname="crbf9_employee" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{d6d44a76-2ad1-42be-b636-7eb5da6f4c10}">
+                        <labels>
+                          <label description="Employee Email" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_employeeemail" classid="{4273edbd-ac1d-40d3-9fb2-095c621b552d}" datafieldname="crbf9_employeeemail" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{b89374ef-af1c-4e89-8bb8-bc26f56aba13}">
+                        <labels>
+                          <label description="Week Start" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_weekstart" classid="{5b773807-9fb2-42db-97c3-7a91eff8adff}" datafieldname="crbf9_weekstart" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{73418202-6dfb-432e-81af-3bb51e7ebb3d}">
+                        <labels>
+                          <label description="Week End" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_weekend" classid="{5b773807-9fb2-42db-97c3-7a91eff8adff}" datafieldname="crbf9_weekend" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{0a100795-96f9-489c-811a-c6063cee83bf}">
+                        <labels>
+                          <label description="Worked Hours" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_workedhours" classid="{c3efe0c3-0ec6-42be-8349-cbd9079dfd8e}" datafieldname="crbf9_workedhours" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{1b91692d-2b83-488f-aaa3-647d7e3175c3}">
+                        <labels>
+                          <label description="Basic Hours" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_basichours" classid="{c3efe0c3-0ec6-42be-8349-cbd9079dfd8e}" datafieldname="crbf9_basichours" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{6c5671ea-0bdb-4ff5-99fa-8bdd5038f9e9}">
+                        <labels>
+                          <label description="OT 1.5 Hours" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_ot15hours" classid="{c3efe0c3-0ec6-42be-8349-cbd9079dfd8e}" datafieldname="crbf9_ot15hours" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{02c554ef-9909-44cd-834c-bbd3a1542c5f}">
+                        <labels>
+                          <label description="OT 2.0 Hours" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_ot20hours" classid="{c3efe0c3-0ec6-42be-8349-cbd9079dfd8e}" datafieldname="crbf9_ot20hours" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{09aeabb1-f063-4e5a-8a91-d341d7599cd5}">
+                        <labels>
+                          <label description="Status" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_status" classid="{4273edbd-ac1d-40d3-9fb2-095c621b552d}" datafieldname="crbf9_status" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{7f50b081-7df8-44da-9f3d-e2368e5e36ed}">
+                        <labels>
+                          <label description="Submitted At" languagecode="1033" />
+                        </labels>
+                        <control id="crbf9_submittedat" classid="{5b773807-9fb2-42db-97c3-7a91eff8adff}" datafieldname="crbf9_submittedat" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>
