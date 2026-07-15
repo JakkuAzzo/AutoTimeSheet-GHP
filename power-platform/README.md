@@ -76,6 +76,10 @@ administrator is present to approve the requested delegated Microsoft sign-in.
 `import-solution.sh` intentionally requires `GMT_DATAVERSE_URL` and is a
 deployment action. Review the generated zip before running it.
 
+The concrete non-production flow build order, shared-calendar access gate and
+Timesheet Intake attachment extension are recorded in
+[`operational-readiness-build.md`](operational-readiness-build.md).
+
 The optional `tools/GmtDataverseBootstrap` project is a controlled, local
 metadata bootstrap for a fresh developer environment. It was **not** used to
 create the current `crbf9_` proof tables. Do not run it against production and
