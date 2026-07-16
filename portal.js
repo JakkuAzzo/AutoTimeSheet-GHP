@@ -63,6 +63,14 @@
     return cleanFormSubmitEndpoint(window.GMT_APP_CONFIG?.jobCardFormSubmitEndpoint) || taggedFormSubmitEndpoint('jobcards');
   }
 
+  function categoryFormSubmitEndpoint(kind) {
+    const config = window.GMT_APP_CONFIG || {};
+    const approvedFallback = cleanFormSubmitEndpoint(config.fallbackFormSubmitEndpoint);
+    if (kind.startsWith('Task')) return cleanFormSubmitEndpoint(config.taskFormSubmitEndpoint) || approvedFallback || formSubmitEndpoint();
+    if (kind.startsWith('Calendar')) return cleanFormSubmitEndpoint(config.calendarFormSubmitEndpoint) || approvedFallback || formSubmitEndpoint();
+    return formSubmitEndpoint();
+  }
+
   function ensurePortalSubmitFrame() {
     let iframe = document.getElementById('portal-formsubmit-frame');
     if (!iframe) {
@@ -92,7 +100,7 @@
 
   function sendPortalFormSubmit(kind, fields, options = {}) {
     const isJobCard = kind.startsWith('Job Card');
-    const endpoint = isJobCard ? jobCardFormSubmitEndpoint() : formSubmitEndpoint();
+    const endpoint = isJobCard ? jobCardFormSubmitEndpoint() : categoryFormSubmitEndpoint(kind);
     if (!endpoint) {
       logNotification(kind, `${kind} stored locally only. FormSubmit is not configured.`);
       return false;
@@ -135,6 +143,23 @@
       if (options.file) add('gmt_attachment_type', 'image');
       add('gmt_submitted_at', submittedAt);
     }
+    if (kind.startsWith('Task')) {
+      add('gmt_type', 'task');
+      add('gmt_action', kind === 'Task' ? 'create_request' : 'update_request');
+      add('gmt_record_id', fields.task_id || '');
+      add('gmt_status', fields.status || 'Pending approval');
+      add('gmt_employee', fields.requested_by || '');
+      add('gmt_submitted_at', submittedAt);
+    }
+    if (kind.startsWith('Calendar')) {
+      add('gmt_type', 'calendar');
+      add('gmt_action', kind === 'Calendar Request' ? 'create_request' : 'update_request');
+      add('gmt_record_id', fields.event_id || '');
+      add('gmt_status', fields.status || 'Pending approval');
+      add('gmt_employee', fields.requested_by || fields.owner_or_requester || '');
+      add('gmt_calendar_name', 'GMT Operational Calendar');
+      add('gmt_submitted_at', submittedAt);
+    }
     Object.entries(fields).forEach(([name, value]) => add(name, value));
     if (!('submitted_at' in fields) && !('updated_at' in fields)) add('submitted_at', submittedAt);
     if (options.file) {
@@ -155,6 +180,9 @@
     const client = fields.client || fields.gmt_client || 'No client';
     if (kind === 'Job Card') return `[GMT][JOBCARD][NEW] ${jobRef} | ${client}`;
     if (kind === 'Job Card Update') return `[GMT][JOBCARD][UPDATE] ${jobRef} | ${client}`;
+    if (kind === 'Task') return `[GMT][TASK][REQUEST] ${fields.task_title || 'Untitled task'}`;
+    if (kind === 'Task Update') return `[GMT][TASK][UPDATE] ${fields.task_title || 'Untitled task'}`;
+    if (kind === 'Calendar Request') return `[GMT][CALENDAR][REQUEST] ${fields.event_date || 'Unscheduled'} | ${fields.event_title || 'Untitled event'}`;
     return `GMT ${kind} Submission`;
   }
 
@@ -203,7 +231,7 @@
     const tasks = store.get(keys.tasks, []);
     const board = $('#task-board');
     if (!board) return;
-    const columns = ['To-Do', 'In-Progress', 'Completed'];
+    const columns = ['Pending approval', 'To-Do', 'In-Progress', 'Completed'];
     board.innerHTML = columns.map((status) => {
       const items = tasks.filter((task) => task.status === status);
       return `<section class="kanban-column"><h3>${status} <span class="portal-status">${items.length}</span></h3>${items.map(renderTask).join('') || '<p class="small-text">No tasks.</p>'}</section>`;
@@ -215,10 +243,11 @@
       <h4>${safe(task.title)}</h4>
       <p class="portal-item-meta">${safe(task.jobRef || 'No job ref')} · ${safe(task.assignee || 'Unassigned')}</p>
       <p class="portal-item-meta">Due: ${safe(task.due || 'No due date')} · Priority: <span class="portal-status ${task.priority.toLowerCase()}">${safe(task.priority)}</span></p>
-      <div class="portal-item-actions">
-        <button type="button" class="secondary" data-task-move="${task.id}" data-to="To-Do">To-Do</button>
-        <button type="button" class="secondary" data-task-move="${task.id}" data-to="In-Progress">In-Progress</button>
-        <button type="button" data-task-move="${task.id}" data-to="Completed">Completed</button>
+      <div class="portal-item-actions">${task.status === 'Pending approval'
+        ? '<span class="small-text">Awaiting licensed accounts approval.</span>'
+        : `<button type="button" class="secondary" data-task-move="${task.id}" data-to="To-Do">To-Do</button>
+          <button type="button" class="secondary" data-task-move="${task.id}" data-to="In-Progress">In-Progress</button>
+          <button type="button" data-task-move="${task.id}" data-to="Completed">Completed</button>`}
         <button type="button" class="secondary danger" data-task-delete="${task.id}">Delete</button>
       </div>
     </article>`;
@@ -272,8 +301,8 @@
         <p class="portal-item-meta">${safe(event.type)} · ${safe(event.owner || 'No owner')}</p>
         <p>${safe(event.notes || 'No notes')}</p>
         <div class="portal-item-actions">
-          <button type="button" data-calendar-approve="${event.id}">Approve</button>
-          <button type="button" class="secondary danger" data-calendar-delete="${event.id}">Delete</button>
+          <span class="small-text">${event.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Published from the approved calendar feed.'}</span>
+          <button type="button" class="secondary danger" data-calendar-delete="${event.id}">Delete local request</button>
         </div>
       </article>`).join('');
   }
@@ -330,7 +359,7 @@
     $('#task-form')?.addEventListener('submit', (event) => {
       event.preventDefault();
       const tasks = store.get(keys.tasks, []);
-      const task = { id: id(), title: $('#task-title').value.trim(), jobRef: $('#task-job-ref').value.trim(), assignee: $('#task-assignee').value.trim(), due: $('#task-due').value, priority: $('#task-priority').value, status: 'To-Do' };
+      const task = { id: id(), title: $('#task-title').value.trim(), jobRef: $('#task-job-ref').value.trim(), assignee: $('#task-assignee').value.trim(), due: $('#task-due').value, priority: $('#task-priority').value, status: 'Pending approval', requestedBy: portalProfileName() };
       if (!task.title) return;
       tasks.unshift(task);
       store.set(keys.tasks, tasks);
@@ -338,14 +367,16 @@
       prefillPortalIdentity();
       sendPortalFormSubmit('Task', {
         task_title: task.title,
+        task_id: task.id,
         job_reference: task.jobRef,
         assigned_to: task.assignee,
         due_date: task.due,
         priority: task.priority,
         status: task.status,
+        requested_by: task.requestedBy,
         submitted_at: new Date().toISOString()
       });
-      logNotification('Task', `Task created and emailed: ${task.title}.`);
+      logNotification('Task', `Task request sent for accounts approval: ${task.title}.`);
       renderTasks();
     });
     $('#task-board')?.addEventListener('click', (event) => {
@@ -356,14 +387,14 @@
         const task = tasks.find((item) => item.id === move.dataset.taskMove);
         if (task) {
           task.status = move.dataset.to;
-          sendPortalFormSubmit('Task Update', { task_title: task.title, job_reference: task.jobRef, assigned_to: task.assignee, status: task.status, updated_at: new Date().toISOString() });
+          sendPortalFormSubmit('Task Update', { task_id: task.id, task_title: task.title, job_reference: task.jobRef, assigned_to: task.assignee, requested_by: task.requestedBy || portalProfileName(), status: task.status, updated_at: new Date().toISOString() });
         }
         store.set(keys.tasks, tasks);
         logNotification('Task', `Task moved to ${move.dataset.to}.`);
       }
       if (del) {
         const task = tasks.find((item) => item.id === del.dataset.taskDelete);
-        if (task) sendPortalFormSubmit('Task Update', { task_title: task.title, status: 'Deleted', updated_at: new Date().toISOString() });
+        if (task) sendPortalFormSubmit('Task Update', { task_id: task.id, task_title: task.title, requested_by: task.requestedBy || portalProfileName(), status: 'Cancelled', updated_at: new Date().toISOString() });
         store.set(keys.tasks, tasks.filter((item) => item.id !== del.dataset.taskDelete));
         logNotification('Task', 'Task deleted.');
       }
@@ -440,28 +471,34 @@
       event.preventDefault();
       const events = store.get(keys.calendar, []);
       const type = $('#calendar-type').value;
-      const entry = { id: id(), title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: ['Sick Day', 'Holiday'].includes(type) ? 'Pending' : 'Approved' };
+      const entry = { id: id(), title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: portalProfileName() };
       if (!entry.title || !entry.date) return;
       events.push(entry);
       store.set(keys.calendar, events);
       event.target.reset();
       prefillPortalIdentity();
-      logNotification('Calendar', `Calendar event added: ${entry.title}.`);
+      sendPortalFormSubmit('Calendar Request', {
+        event_id: entry.id,
+        event_title: entry.title,
+        event_date: entry.date,
+        event_type: entry.type,
+        owner_or_requester: entry.owner,
+        requested_by: entry.requestedBy,
+        status: entry.status,
+        notes: entry.notes,
+        submitted_at: new Date().toISOString()
+      });
+      logNotification('Calendar', `Calendar request sent for accounts approval: ${entry.title}.`);
       renderCalendar();
     });
     $('#calendar-list')?.addEventListener('click', (event) => {
-      const approve = event.target.closest('[data-calendar-approve]');
       const del = event.target.closest('[data-calendar-delete]');
       const events = store.get(keys.calendar, []);
-      if (approve) {
-        const item = events.find((entry) => entry.id === approve.dataset.calendarApprove);
-        if (item) item.status = 'Approved';
-        store.set(keys.calendar, events);
-        logNotification('Calendar', 'Calendar event approved.');
-      }
       if (del) {
+        const item = events.find((entry) => entry.id === del.dataset.calendarDelete);
+        if (item) sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
         store.set(keys.calendar, events.filter((entry) => entry.id !== del.dataset.calendarDelete));
-        logNotification('Calendar', 'Calendar event deleted.');
+        logNotification('Calendar', 'Calendar request cancelled.');
       }
       renderCalendar();
     });

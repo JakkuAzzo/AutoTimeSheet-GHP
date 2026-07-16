@@ -7,6 +7,8 @@ window.GMT_APP_CONFIG = {
   timesheetFormSubmitEndpoint: "",
   auditFormSubmitEndpoint: "",
   jobCardFormSubmitEndpoint: "",
+  taskFormSubmitEndpoint: "",
+  calendarFormSubmitEndpoint: "",
 
   // Last-resort fallback for an already approved FormSubmit route.
   fallbackFormSubmitEndpoint: "",

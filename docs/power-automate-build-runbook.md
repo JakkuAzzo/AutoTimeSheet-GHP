@@ -80,7 +80,7 @@ Never use a personal Outlook guest account as the long-term flow connection.
 
 3. Create a SharePoint document library or top-level folder named `GMT Web-App`.
 4. Create these Microsoft Lists: `Timesheet Submissions`, `Audit Submissions`,
-   `Job Cards`, and `Tasks`.
+   `Job Cards`, `Tasks`, and `Calendar Requests`.
 5. Give the accounts team access to the mailbox, SharePoint library and Lists.
 6. Create Outlook rules that place messages into the appropriate `GMT Portal`
    folder using both recipient tags and subject tags as fallback.
@@ -115,7 +115,18 @@ URLs and metadata that may contain inconsistent formats.
 `Status`, `Priority`, `Due Date`, `Year`, `Month`, `Created At`, `Updated At`,
 `Folder Link`, `Processed By Flow`.
 
-Allowed task statuses: `In-Progress`, `Completed`, `Cancelled`.
+Task requests initially use `Pending approval`. Accounts approval changes them
+to `To-Do`; operational progress values are `In-Progress`, `Completed`, and
+`Cancelled`.
+
+### Calendar Requests
+
+`Request ID`, `Event Title`, `Event Date`, `Event Type`, `Requested By`,
+`Notes`, `Status`, `Submitted At`, `Approved By`, `Approved At`, `Outlook Event ID`,
+`Processed By Flow`.
+
+Calendar requests initially use `Pending approval`. Only an approved request is
+allowed to create an event in `GMT Operational Calendar`.
 
 ## Flow 1: Timesheet Intake
 
@@ -189,12 +200,38 @@ correct folder path, and the processed email.
 6. Create or update a single `Job Cards` List item for the job reference.
 7. Move email to `Processed`.
 
-## Flow 4: Task Intake
+## Flow 4: Task Intake and Approval
 
-Build this only after the task submission contract is final. It follows the same
-pattern: validate status, save optional files to
-`GMT Web-App/Tasks/{year}/{month}/{employee}/{status}/`, create/update the
-`Tasks` List item, then move the mail to `Processed`.
+**Trigger:** Outlook: *When a new email arrives (V3)* in the GMT Portal task
+folder, with subject `[GMT][TASK]`.
+
+1. Validate the `gmt_type=task`, task ID, title and requester metadata.
+2. Create or update a `Tasks` List item with `Status = Pending approval`.
+3. Notify the licensed accounts approver group. The unlicensed requester does
+   not receive List edit permissions.
+4. Use **Start and wait for an approval** or an accounts-owned List approval
+   view. On approval set status to `To-Do`; on rejection set it to `Cancelled`
+   and notify the requester.
+5. Save optional files under
+   `GMT Web-App/Tasks/{year}/{month}/{employee}/{status}/` and move the source
+   email to `Processed`.
+
+## Flow 5: Calendar Request Approval
+
+**Trigger:** Outlook: *When a new email arrives (V3)* in the GMT Portal calendar
+folder, with subject `[GMT][CALENDAR]`.
+
+1. Validate `gmt_type=calendar`, request ID, title, date and requester.
+2. Create a `Calendar Requests` List item with `Status = Pending approval`.
+3. Send an approval to the licensed accounts group.
+4. When approved, use Outlook **Create event (V4)** through the
+   `Amanda.BB@gmt-services.co.uk` connection and select `GMT Operational Calendar`.
+5. Store the returned Outlook Event ID, approver and approved timestamp on the
+   List item. On rejection, update the record to `Cancelled` and notify the
+   requester.
+
+Unlicensed portal users can submit the request through the authenticated site,
+but they must not be granted direct write access to the List or Outlook calendar.
 
 ## Cutover and Rollback
 

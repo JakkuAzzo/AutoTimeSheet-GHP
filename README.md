@@ -38,6 +38,8 @@ window.GMT_APP_CONFIG = {
   timesheetFormSubmitEndpoint: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN",
   auditFormSubmitEndpoint: "",
   jobCardFormSubmitEndpoint: "",
+  taskFormSubmitEndpoint: "",
+  calendarFormSubmitEndpoint: "",
   fallbackFormSubmitEndpoint: "https://formsubmit.co/YOUR_APPROVED_FALLBACK_ROUTE",
   legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
   formSubmitEndpoint: "https://formsubmit.co/ajax/YOUR_SUBMISSION_MAILBOX",
@@ -57,13 +59,15 @@ window.GMT_APP_CONFIG = {
 
 Do not commit private tokens or secrets to a public repository.
 
-`timesheetFormSubmitEndpoint`, `auditFormSubmitEndpoint`, and `jobCardFormSubmitEndpoint` are category-specific routes for future business mailbox activation. Leave a category blank until its mailbox or FormSubmit token has been tested. `formSubmitTimesheetEndpoint` is retained as a backward-compatible alias for older deployments.
+`timesheetFormSubmitEndpoint`, `auditFormSubmitEndpoint`, `jobCardFormSubmitEndpoint`, `taskFormSubmitEndpoint`, and `calendarFormSubmitEndpoint` are category-specific routes for future business mailbox activation. Leave a category blank until its mailbox or FormSubmit token has been tested. `formSubmitTimesheetEndpoint` is retained as a backward-compatible alias for older deployments.
 
 Current routing behavior:
 
 - Timesheets prefer `timesheetFormSubmitEndpoint`, then `formSubmitTimesheetEndpoint`, then a `+timesheets` route derived from `formSubmitEndpoint`.
 - Audit prefers `auditFormSubmitEndpoint`, then a `+audit` route derived from `formSubmitEndpoint`.
 - Job Cards prefer `jobCardFormSubmitEndpoint`, then a `+jobcards` route derived from `formSubmitEndpoint`.
+- Tasks prefer `taskFormSubmitEndpoint`, then the approved fallback route. Task requests are submitted as `Pending approval`.
+- Calendar updates prefer `calendarFormSubmitEndpoint`, then the approved fallback route. Calendar requests are submitted as `Pending approval` and are published only by the Microsoft 365 approval flow.
 - `fallbackFormSubmitEndpoint` is only a last-resort approved route when no configured mailbox base is available.
 
 Submission email routing uses plus-addressed aliases derived from `formSubmitEndpoint` so Outlook or Power Automate can filter by recipient:
@@ -82,6 +86,11 @@ See `docs/entra-github-pages-authentication-plan.md` for the Microsoft 365
 sign-in boundary for the staff portal. The static site can use Entra sign-in to
 gate its interface, but private Microsoft data still needs Power Automate or a
 secure backend.
+
+See `docs/portal-request-approval-flow.md` for the task and calendar request
+approval model. The portal does not treat a browser-side action as an approval:
+licensed accounts users approve records in Microsoft 365 before a calendar event
+is created.
 
 ## Current structure
 

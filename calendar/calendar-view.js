@@ -2,7 +2,7 @@
   'use strict';
 
   const calendarDataUrl = '../data/calendar/events.json';
-  const outlookUrl = 'https://outlook.cloud.microsoft/calendar/accounts@gmt-services.co.uk/view/month';
+  const outlookUrl = 'https://outlook.cloud.microsoft/calendar/Amanda.BB@gmt-services.co.uk/view/month';
   const localKey = 'gmt_portal_calendar_v1';
   let viewDate = new Date();
   let publishedEvents = [];
@@ -26,7 +26,7 @@
   }
 
   function allEvents() {
-    const events = [...publishedEvents, ...localEvents()]
+    const events = [...publishedEvents, ...localEvents().filter((event) => event.status === 'Approved')]
       .filter((event) => event && dateKey(event.date || event.startDate));
     const seen = new Set();
     return events.filter((event) => {

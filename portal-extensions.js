@@ -284,25 +284,7 @@
     const form = $('#calendar-form');
     if (!form || form.dataset.extensionCalendarSubmit) return;
     form.dataset.extensionCalendarSubmit = 'true';
-    form.addEventListener('submit', () => {
-      const title = $('#calendar-title')?.value.trim();
-      const date = $('#calendar-date')?.value;
-      const type = $('#calendar-type')?.value;
-      const owner = $('#calendar-owner')?.value.trim();
-      const notes = $('#calendar-notes')?.value.trim();
-      if (!title || !date) return;
-      setTimeout(() => {
-        sendFormSubmit('GMT Calendar Event Submission', {
-          event_title: title,
-          event_date: date,
-          event_type: type,
-          owner_or_requester: owner,
-          status: ['Sick Day', 'Holiday'].includes(type) ? 'Pending' : 'Approved',
-          notes
-        });
-        addLog('Calendar', `Calendar event ${title} emailed.`);
-      }, 0);
-    }, true);
+    // portal.js owns calendar request submission so each request is emailed once.
   }
 
   document.addEventListener('click', (event) => {
