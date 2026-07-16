@@ -64,6 +64,21 @@
     };
   }
 
+  function portalProfile() {
+    try {
+      return JSON.parse(localStorage.getItem('gmt.portal.profile.v1') || '{}');
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function prefillClockIdentity(card, profile = portalProfile()) {
+    const name = String(profile && profile.name || '').trim();
+    if (name && !card.elements.employee_name.value.trim()) {
+      card.elements.employee_name.value = name;
+    }
+  }
+
   function updateClockCard(card) {
     const text = actionText(card.elements.clock_action.value);
     const title = card.querySelector('[data-clock-title]');
@@ -252,6 +267,7 @@
       card.elements.clock_action.value = action;
       card.elements.clock_date.value = localDate();
       card.elements.clock_time.value = localTime();
+      prefillClockIdentity(card);
       updateClockCard(card);
       card.elements.clock_action.addEventListener('change', () => {
         updateClockCard(card);
@@ -262,4 +278,9 @@
   }
 
   init();
+  document.addEventListener('gmtportalidentity', (event) => {
+    document.querySelectorAll('[data-clock-form]').forEach((card) => {
+      prefillClockIdentity(card, event.detail);
+    });
+  });
 })();

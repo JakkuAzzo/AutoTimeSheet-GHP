@@ -61,6 +61,10 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/timesheets/`, { waitUntil: 'load' });
   await page.evaluate(() => {
+    localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Clock Profile Tester' }));
+  });
+  await page.reload({ waitUntil: 'load' });
+  await page.evaluate(() => {
     window.__submittedForms = [];
     HTMLFormElement.prototype.submit = function submitStub() {
       window.__submittedForms.push({
@@ -79,6 +83,7 @@ try {
     iframes: document.querySelectorAll('iframe').length,
     hiddenForms: document.querySelectorAll('form[hidden]').length,
     cards: document.querySelectorAll('[data-clock-form]').length,
+    employeeName: document.querySelector('[data-clock-form]')?.elements.employee_name.value || '',
     action: document.querySelector('[data-clock-form]')?.elements.clock_action.value || '',
     date: document.querySelector('[data-clock-form]')?.elements.clock_date.value || '',
     time: document.querySelector('[data-clock-form]')?.elements.clock_time.value || '',
@@ -195,6 +200,7 @@ try {
   assert.equal(beforeSubmit.iframes, 0, 'clock submit iframe should not exist before submit');
   assert.equal(beforeSubmit.hiddenForms, 0, 'hidden FormSubmit forms should not exist before submit');
   assert.equal(beforeSubmit.cards, 1, 'one dynamic clock card should render');
+  assert.equal(beforeSubmit.employeeName, 'Clock Profile Tester', 'clock card should inherit the authenticated portal profile name');
   assert.equal(beforeSubmit.action, 'clock_in');
   assert.match(beforeSubmit.date, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(beforeSubmit.time, /^\d{2}:\d{2}$/);
