@@ -38,8 +38,8 @@ replacement for the public website.
 
 ## Required calendar automation
 
-Use one calendar in `Accounts@gmt-services.co.uk` named `GMT Operational
-Calendar`.
+Use the calendar named `GMT Operational Calendar` owned by
+`Amanda.BB@gmt-services.co.uk`.
 
 | Source | Triggered change | Calendar action |
 | --- | --- | --- |

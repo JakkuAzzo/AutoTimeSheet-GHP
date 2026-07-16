@@ -5,7 +5,7 @@
 | Asset | Current state |
 | --- | --- |
 | Shared intake mailbox | `Accounts@gmt-services.co.uk` |
-| Shared operational calendar | `GMT Operational Calendar` created in the Accounts mailbox on 15 July 2026 |
+| Shared operational calendar | `GMT Operational Calendar` created in Amanda Brown-Bennett's mailbox on 16 July 2026 |
 | Timesheet Intake flow | Active in the default Power Automate environment |
 | Intake trigger | New email in the Accounts shared mailbox, `[GMT][TIMESHEET]` subject filter, attachments required and included |
 | Intake index action | Creates a SharePoint list item |
@@ -16,18 +16,21 @@ The current Timesheet Intake flow must remain operational while the following wo
 
 ## Shared calendar prerequisite
 
-The approved target is a calendar named `GMT Operational Calendar` owned by `Accounts@gmt-services.co.uk`, not an individual employee calendar.
+The approved target is a calendar named `GMT Operational Calendar` owned by
+`Amanda.BB@gmt-services.co.uk`. It is a company operational calendar, not a
+private employee calendar.
 
 Before creating flows, an Exchange administrator must grant the Power Automate connection owner:
 
-1. Full Access to `Accounts@gmt-services.co.uk`, or delegated calendar editor rights to `GMT Operational Calendar`.
+1. Delegated calendar editor rights to Amanda's `GMT Operational Calendar`.
 2. Ability to create, update and delete events in that calendar.
 3. A second GMT administrator as mailbox/calendar and flow co-owner.
 
-Current browser verification: the Accounts shared mailbox is accessible directly
-in Outlook and `GMT Operational Calendar` was created there. The calendar must
-still be verified from the GMT-owned Power Automate connection before a flow is
-enabled. Do not create a personal-calendar fallback.
+Current verification: `GMT Operational Calendar` exists under Amanda's Outlook
+calendar and Jason, Matthew, Ainsley, Simon, Faith, Michelle and Lidia have
+read-only access. The calendar must still be verified from the GMT-owned Power
+Automate connection before a flow is enabled. Do not create a personal-calendar
+fallback.
 
 The existing GMT-owned connection has been checked in Power Automate and exposes
 Office 365 Outlook `Create event (V4)`, `Update event (V4)` and `Delete event

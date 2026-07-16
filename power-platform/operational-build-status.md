@@ -8,7 +8,7 @@ not enabled, and the exact next implementation work.
 | Asset | State |
 | --- | --- |
 | `Accounts@gmt-services.co.uk` shared mailbox | Created and accessible in Outlook |
-| `GMT Operational Calendar` | Created in the Accounts shared mailbox |
+| `GMT Operational Calendar` | Created in Amanda Brown-Bennett's mailbox and shared read-only with staff |
 | SharePoint roots | `Timesheets`, `Audit`, `Job Cards`, `Tasks` created in `GMT Web-App` |
 | Microsoft Lists | Timesheet Submissions, Audit Submissions, Job Cards, Tasks created |
 | Timesheet Intake flow | Active; shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments and creates the existing index row |
@@ -45,7 +45,7 @@ configuration; no Microsoft credential or endpoint belongs in GitHub Pages.
 2. Create `GMT Portal - Job Card Calendar Sync` and `GMT Portal - Task
    Calendar Sync` in that same solution.
 3. Select a GMT-owned Office 365 Outlook connection and explicitly select
-   `Accounts@gmt-services.co.uk` / `GMT Operational Calendar`.
+   `Amanda.BB@gmt-services.co.uk` / `GMT Operational Calendar`.
 4. Save the flows disabled, add two GMT co-owners, and run the non-sensitive
    lifecycle tests from the contract.
 5. Extend the current Timesheet Intake flow only after attachment-shape test.

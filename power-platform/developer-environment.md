@@ -62,8 +62,8 @@ frontend token.
 
 ## Calendar and flow scope
 
-The proof will use one shared Outlook calendar owned by the Accounts shared
-mailbox: `GMT Operational Calendar`. Job Cards and Tasks will create, update or
+The proof will use one shared Outlook calendar owned by
+`Amanda.BB@gmt-services.co.uk`: `GMT Operational Calendar`. Job Cards and Tasks will create, update or
 cancel all-day events in that calendar. Each source row must retain its Outlook
 event ID and the calendar flow must retain the originating Dataverse row ID.
 Timesheets, clock events and audits do not create calendar events.

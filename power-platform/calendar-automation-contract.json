@@ -2,7 +2,7 @@
   "version": 1,
   "environment": "GMT Portal Development",
   "calendar": {
-    "mailbox": "Accounts@gmt-services.co.uk",
+    "mailbox": "Amanda.BB@gmt-services.co.uk",
     "name": "GMT Operational Calendar",
     "connectionRequirement": "Use a GMT-owned Office 365 Outlook connection with delegated editor access to the shared calendar. Never fall back to a personal calendar."
   },
