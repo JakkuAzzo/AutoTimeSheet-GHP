@@ -11,7 +11,7 @@ not enabled, and the exact next implementation work.
 | `GMT Operational Calendar` | Created in Amanda Brown-Bennett's mailbox and shared read-only with staff |
 | SharePoint roots | `Timesheets`, `Audit`, `Job Cards`, `Tasks` created in `GMT Web-App` |
 | Microsoft Lists | Timesheet Submissions, Audit Submissions, Job Cards, Tasks created |
-| Timesheet Intake flow | Active; shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments, creates the existing index row and stores every attachment in `GMT Web-App/Timesheets/Incoming` |
+| Timesheet Intake flow | Active; shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments, creates the existing index row, and stores only non-inline `.xlsx` and `.csv` attachments in `GMT Web-App/Timesheets/Incoming` |
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
 | Connector capability check | The existing GMT-owned Power Automate connection exposes Office 365 Outlook create/update/delete event actions and SharePoint create-folder/create-file actions |
 
@@ -20,11 +20,12 @@ not enabled, and the exact next implementation work.
 1. Job Card and Task calendar flows. The existing proof schema does not yet
    carry planned/due dates, job/client details, Outlook event IDs or sync
    errors. Enabling a create-only flow now would make duplicates on updates.
-2. Metadata-based Timesheet filing. Attachment storage is proven using a
-   harmless XLSX/CSV sample, but the current flow deliberately uses the safe
-   `Timesheets/Incoming` landing folder until structured employee, year and
-   month metadata is parsed and validated. The sample also contained one PNG,
-   so inline-image filtering must be added before routine production use.
+2. Metadata-based Timesheet filing. Attachment storage and attachment
+   filtering are proven using a harmless three-attachment sample: the filter
+   emitted only the XLSX and CSV (`2` items) and excluded `image.png`. The
+   current flow deliberately uses the safe `Timesheets/Incoming` landing
+   folder until structured employee, year and month metadata is parsed and
+   validated.
 3. Outlook routing rules. The folder/rule contract is approved, but rules must
    be created and tested against a benign submission without moving existing
    Accounts mail. This prevents the current Accounts inbox from being hidden
@@ -50,8 +51,9 @@ configuration; no Microsoft credential or endpoint belongs in GitHub Pages.
    `Amanda.BB@gmt-services.co.uk` / `GMT Operational Calendar`.
 4. Save the flows disabled, add two GMT co-owners, and run the non-sensitive
    lifecycle tests from the contract.
-5. Parse and validate structured Timesheet metadata, then move accepted files
-   from the `Incoming` landing folder into the employee/year/month hierarchy.
+5. Parse and validate structured Timesheet metadata, then create and use the
+   employee/year/month hierarchy for accepted files rather than the `Incoming`
+   landing folder.
 6. Create the folders and narrowly scoped subject rules, then test one benign
    submission in each category.
 

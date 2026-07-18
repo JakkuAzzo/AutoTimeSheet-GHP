@@ -86,19 +86,17 @@ Use an all-day event on the due date. A completed/cancelled task should follow t
 
 The first storage implementation is complete: `GMT Portal - Timesheet Intake`
 uses an attachment loop and SharePoint `Create file` to store attachments in
-`GMT Web-App/Timesheets/Incoming`. A replayed harmless sample created both the
-XLSX and CSV successfully. Keep this landing folder until the source email has
-validated structured metadata; the sample also demonstrated that an inline PNG
-can be present, so add inline-image filtering before using this flow for routine
-submissions.
+`GMT Web-App/Timesheets/Incoming`. A replayed harmless three-attachment sample
+completed successfully after filtering: the loop received `2` items, the XLSX
+and CSV, while `image.png` was excluded. Keep this landing folder until the
+source email has validated structured metadata.
 
 1. Retain the existing Accounts trigger, structured subject filter and attachment requirement.
-2. Filter out inline images and non-timesheet attachments.
-3. Parse the approved metadata fields from the email body.
-4. Create `GMT Web-App/Timesheets/{year}/{month}/{employee}/` when absent.
-5. Move accepted files from `Incoming` into that folder.
-6. Create/update the Timesheet Submissions list row with the folder and file links.
-7. On missing metadata or attachment failure, send the email/record to `Failed - Needs Review`; never silently mark it processed.
+2. Parse the approved metadata fields from the email body.
+3. Create `GMT Web-App/Timesheets/{year}/{month}/{employee}/` when absent.
+4. Store accepted files in that folder with collision-resistant names.
+5. Create/update the Timesheet Submissions list row with the folder and file links.
+6. On missing metadata or attachment failure, send the email/record to `Failed - Needs Review`; never silently mark it processed.
 
 ## Outlook folders and rules
 
