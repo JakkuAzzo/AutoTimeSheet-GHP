@@ -138,7 +138,9 @@ allowed to create an event in `GMT Operational Calendar`.
    message to `GMT Portal/Failed - Needs Review` and stop.
 4. Derive `{year}`, `{month}` and a safe employee folder name.
 5. Create `GMT Web-App/Timesheets/{year}/{month}/{employee}/` if required.
-6. For each attachment, save the XLSX and CSV files into the folder.
+6. For each attachment, save the XLSX and CSV files plus only the controlled
+   `GMT Calendar Sync - *.json` attachment into the folder. Reject inline
+   assets and all other JSON files.
 7. Create one `Timesheet Submissions` List item with metadata and file links.
 8. Find the `GMT Calendar Sync - {employee} - {week-start}.json` attachment.
 9. Read and parse the JSON attachment. It contains one all-day `timesheet`
@@ -168,6 +170,12 @@ troubleshooting:
 - `gmt_calendar_name: GMT Operational Calendar`
 - `gmt_calendar_event_count`
 - `gmt_employee_upn` when the employee used the authenticated portal
+- `gmt_schema_version: 1`
+- `gmt_submission_id` and stable `gmt_record_id`
+- `gmt_year`, `gmt_month`, `gmt_worked_hours`, `gmt_basic_hours`,
+  `gmt_ot15_hours`, `gmt_ot20_hours` and `gmt_absence_count`
+- `gmt_attachment_manifest: xlsx,csv,calendar-sync-json`
+- `gmt_submitted_at`
 
 **Test:** submit a one-day Sick test timesheet. Confirm the shared calendar
 contains both the weekly `Timesheet submitted` event and the all-day `Sick`

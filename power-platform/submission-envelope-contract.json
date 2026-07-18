@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GMT portal FormSubmit envelope contract",
+  "description": "Machine-readable fields emitted by the static portal. Power Automate must treat these as untrusted input, validate them, and make Microsoft 365 the authority for status and calendar writes.",
+  "version": "1",
+  "common": [
+    "gmt_schema_version",
+    "gmt_type",
+    "gmt_action",
+    "gmt_record_id",
+    "gmt_submitted_at"
+  ],
+  "timesheet": {
+    "required": [
+      "gmt_submission_id",
+      "gmt_employee",
+      "gmt_week_start",
+      "gmt_week_end",
+      "gmt_year",
+      "gmt_month",
+      "gmt_worked_hours",
+      "gmt_basic_hours",
+      "gmt_ot15_hours",
+      "gmt_ot20_hours",
+      "gmt_absence_count",
+      "gmt_attachment_manifest"
+    ],
+    "acceptedAttachments": [
+      ".xlsx",
+      ".csv",
+      "GMT Calendar Sync - *.json"
+    ],
+    "attachmentRule": "Reject inline attachments and all JSON files other than the controlled calendar-sync filename."
+  },
+  "jobcard": {
+    "required": [
+      "gmt_job_ref",
+      "gmt_client",
+      "gmt_planned_date",
+      "gmt_year",
+      "gmt_month"
+    ],
+    "optional": [
+      "gmt_site",
+      "gmt_engineer",
+      "gmt_attachment_type"
+    ]
+  },
+  "task": {
+    "required": [
+      "gmt_requester_upn",
+      "gmt_status",
+      "gmt_year",
+      "gmt_month"
+    ],
+    "initialStatus": "Pending approval"
+  },
+  "calendar": {
+    "required": [
+      "gmt_requester_upn",
+      "gmt_status",
+      "gmt_calendar_name",
+      "gmt_year",
+      "gmt_month"
+    ],
+    "calendarName": "GMT Operational Calendar",
+    "initialStatus": "Pending approval"
+  },
+  "authority": {
+    "browser": "May submit a request or cancel its own pending request.",
+    "microsoft365": "Approves/rejects requests, writes authoritative List records, stores files and creates/updates Outlook calendar events."
+  }
+}

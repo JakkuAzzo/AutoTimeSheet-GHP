@@ -13,7 +13,8 @@ recommended Power Automate Outlook connection owner.
 
 1. A staff member signs in to the portal through Entra.
 2. The portal pre-fills their display name and submits a structured FormSubmit
-   email with `gmt_type`, `gmt_record_id`, `gmt_status=Pending approval`, and
+   email with `gmt_schema_version=1`, `gmt_type`, `gmt_record_id`,
+   `gmt_status=Pending approval`, `gmt_requester_upn`, derived year/month and
    requester metadata.
 3. Power Automate creates or updates a company-owned Microsoft List record.
 4. A licensed accounts/admin user approves or rejects the request in Microsoft
@@ -37,6 +38,9 @@ recommended Power Automate Outlook connection owner.
   approval record.
 - The client-side portal does not display a trusted approve button for these
   records, because it cannot validate a Microsoft 365 accounts role securely.
+- Browser-side task movement, job-card approval and rejection controls are not
+  authoritative and are deliberately absent. Accounts performs those actions
+  in Microsoft Lists, Power Apps or an approved M365 flow.
 - The authoritative status is the Microsoft List row created by the flow.
 - Timesheet absence events are separate: the Timesheet Intake flow may publish
   those directly to the shared calendar after a valid timesheet submission.

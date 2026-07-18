@@ -38,7 +38,8 @@ Office 365 Outlook `Create event (V4)`, `Update event (V4)` and `Delete event
 not calendar permission or production readiness.
 
 The field-level automation contract and current build status are recorded in
-[calendar-automation-contract.json](calendar-automation-contract.json) and
+[calendar-automation-contract.json](calendar-automation-contract.json),
+[submission-envelope-contract.json](submission-envelope-contract.json) and
 [operational-build-status.md](operational-build-status.md).
 
 ## Flow A: Job Card calendar synchronisation
@@ -88,8 +89,31 @@ The first storage implementation is complete: `GMT Portal - Timesheet Intake`
 uses an attachment loop and SharePoint `Create file` to store attachments in
 `GMT Web-App/Timesheets/Incoming`. A replayed harmless three-attachment sample
 completed successfully after filtering: the loop received `2` items, the XLSX
-and CSV, while `image.png` was excluded. Keep this landing folder until the
-source email has validated structured metadata.
+and CSV, while `image.png` was excluded. Update the filter before enabling
+calendar synchronisation to additionally accept only a non-inline file named
+`GMT Calendar Sync - *.json`; never accept arbitrary JSON attachments. Keep
+this landing folder until the source email has validated structured metadata.
+
+Use this **Filter array** advanced-mode expression against the trigger's
+attachments before the existing `Apply to each` action:
+
+```text
+@and(
+  equals(item()?['isInline'], false),
+  or(
+    endsWith(toLower(item()?['name']), '.xlsx'),
+    endsWith(toLower(item()?['name']), '.csv'),
+    and(
+      startsWith(toLower(item()?['name']), 'gmt calendar sync - '),
+      endsWith(toLower(item()?['name']), '.json')
+    )
+  )
+)
+```
+
+The expression change is a manual live-flow release step: replay a harmless
+sample with XLSX, CSV, calendar-sync JSON and an unrelated image; the loop
+must receive exactly three files and exclude the image.
 
 1. Retain the existing Accounts trigger, structured subject filter and attachment requirement.
 2. Parse the approved metadata fields from the email body.

@@ -25,6 +25,15 @@
     return store.get('gmt.portal.profile.v1', {}).name || '';
   }
 
+  function portalProfile() {
+    return store.get('gmt.portal.profile.v1', {});
+  }
+
+  function dateParts(value) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})/);
+    return match ? { year: match[1], month: match[2] } : { year: '', month: '' };
+  }
+
   function prefillPortalIdentity() {
     const name = portalProfileName();
     if (!name) return;
@@ -132,6 +141,7 @@
     add('submission_type', kind);
     if (isJobCard) {
       const jobRef = fields.job_reference || fields.gmt_job_ref || '';
+      const parts = dateParts(fields.planned_date || fields.gmt_planned_date || '');
       add('gmt_type', 'jobcard');
       add('gmt_action', kind === 'Job Card' ? 'new' : 'update');
       add('gmt_record_id', jobRef);
@@ -140,23 +150,38 @@
       add('gmt_site', fields.site_address || fields.gmt_site || '');
       add('gmt_engineer', fields.assigned_engineer || fields.gmt_engineer || '');
       add('gmt_planned_date', fields.planned_date || fields.gmt_planned_date || '');
+      add('gmt_schema_version', '1');
+      add('gmt_year', parts.year);
+      add('gmt_month', parts.month);
       if (options.file) add('gmt_attachment_type', 'image');
       add('gmt_submitted_at', submittedAt);
     }
     if (kind.startsWith('Task')) {
+      const due = fields.due_date || '';
+      const parts = dateParts(due);
       add('gmt_type', 'task');
       add('gmt_action', kind === 'Task' ? 'create_request' : 'update_request');
+      add('gmt_schema_version', '1');
       add('gmt_record_id', fields.task_id || '');
       add('gmt_status', fields.status || 'Pending approval');
       add('gmt_employee', fields.requested_by || '');
+      add('gmt_requester_upn', fields.requested_by_upn || '');
+      add('gmt_year', parts.year);
+      add('gmt_month', parts.month);
       add('gmt_submitted_at', submittedAt);
     }
     if (kind.startsWith('Calendar')) {
+      const eventDate = fields.event_date || '';
+      const parts = dateParts(eventDate);
       add('gmt_type', 'calendar');
       add('gmt_action', kind === 'Calendar Request' ? 'create_request' : 'update_request');
+      add('gmt_schema_version', '1');
       add('gmt_record_id', fields.event_id || '');
       add('gmt_status', fields.status || 'Pending approval');
       add('gmt_employee', fields.requested_by || fields.owner_or_requester || '');
+      add('gmt_requester_upn', fields.requested_by_upn || '');
+      add('gmt_year', parts.year);
+      add('gmt_month', parts.month);
       add('gmt_calendar_name', 'GMT Operational Calendar');
       add('gmt_submitted_at', submittedAt);
     }
@@ -183,6 +208,7 @@
     if (kind === 'Task') return `[GMT][TASK][REQUEST] ${fields.task_title || 'Untitled task'}`;
     if (kind === 'Task Update') return `[GMT][TASK][UPDATE] ${fields.task_title || 'Untitled task'}`;
     if (kind === 'Calendar Request') return `[GMT][CALENDAR][REQUEST] ${fields.event_date || 'Unscheduled'} | ${fields.event_title || 'Untitled event'}`;
+    if (kind === 'Calendar Update') return `[GMT][CALENDAR][UPDATE] ${fields.event_date || 'Unscheduled'} | ${fields.event_title || 'Untitled event'}`;
     return `GMT ${kind} Submission`;
   }
 
@@ -218,12 +244,7 @@
         <p class="portal-item-meta">${safe(job.client)} · ${safe(job.site)}</p>
         <p class="portal-item-meta">Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
         <p>${safe(job.description || 'No description')}</p>
-        <div class="portal-item-actions">
-          <button type="button" data-job-approve="${job.id}">Approve</button>
-          <button type="button" class="secondary" data-job-pending="${job.id}">Mark pending</button>
-          <button type="button" class="secondary danger" data-job-reject="${job.id}">Reject</button>
-          <button type="button" class="secondary danger" data-job-delete="${job.id}">Delete</button>
-        </div>
+        <p class="small-text">Status changes are managed by Accounts in Microsoft 365.</p>
       </article>`).join('');
   }
 
@@ -243,13 +264,7 @@
       <h4>${safe(task.title)}</h4>
       <p class="portal-item-meta">${safe(task.jobRef || 'No job ref')} · ${safe(task.assignee || 'Unassigned')}</p>
       <p class="portal-item-meta">Due: ${safe(task.due || 'No due date')} · Priority: <span class="portal-status ${task.priority.toLowerCase()}">${safe(task.priority)}</span></p>
-      <div class="portal-item-actions">${task.status === 'Pending approval'
-        ? '<span class="small-text">Awaiting licensed accounts approval.</span>'
-        : `<button type="button" class="secondary" data-task-move="${task.id}" data-to="To-Do">To-Do</button>
-          <button type="button" class="secondary" data-task-move="${task.id}" data-to="In-Progress">In-Progress</button>
-          <button type="button" data-task-move="${task.id}" data-to="Completed">Completed</button>`}
-        <button type="button" class="secondary danger" data-task-delete="${task.id}">Delete</button>
-      </div>
+      <p class="small-text">${task.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Status is managed by Accounts in Microsoft 365.'}</p>
     </article>`;
   }
 
@@ -302,7 +317,7 @@
         <p>${safe(event.notes || 'No notes')}</p>
         <div class="portal-item-actions">
           <span class="small-text">${event.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Published from the approved calendar feed.'}</span>
-          <button type="button" class="secondary danger" data-calendar-delete="${event.id}">Delete local request</button>
+          ${event.status === 'Pending approval' ? `<button type="button" class="secondary danger" data-calendar-delete="${event.id}">Cancel request</button>` : ''}
         </div>
       </article>`).join('');
   }
@@ -338,21 +353,6 @@
       logNotification('Job card', `Job card ${job.ref || job.client || job.id} created and emailed for admin review.`);
       renderJobs();
     });
-    $('#job-card-list')?.addEventListener('click', (event) => {
-      const jobs = store.get(keys.jobs, []);
-      const action = event.target.dataset;
-      const jobId = action.jobApprove || action.jobPending || action.jobReject || action.jobDelete;
-      if (!jobId) return;
-      const job = jobs.find((item) => item.id === jobId);
-      if (action.jobDelete) store.set(keys.jobs, jobs.filter((item) => item.id !== jobId));
-      if (job && action.jobApprove) job.status = 'Approved';
-      if (job && action.jobPending) job.status = 'Pending';
-      if (job && action.jobReject) job.status = 'Rejected';
-      if (!action.jobDelete) store.set(keys.jobs, jobs);
-      if (job) sendPortalFormSubmit('Job Card Update', { job_reference: job.ref, client: job.client, status: action.jobDelete ? 'Deleted' : job.status, updated_at: new Date().toISOString() });
-      logNotification('Job card', `Job card ${job?.ref || jobId} updated.`);
-      renderJobs();
-    });
   }
 
   function bindTasks() {
@@ -374,30 +374,10 @@
         priority: task.priority,
         status: task.status,
         requested_by: task.requestedBy,
+        requested_by_upn: portalProfile().username || '',
         submitted_at: new Date().toISOString()
       });
       logNotification('Task', `Task request sent for accounts approval: ${task.title}.`);
-      renderTasks();
-    });
-    $('#task-board')?.addEventListener('click', (event) => {
-      const move = event.target.closest('[data-task-move]');
-      const del = event.target.closest('[data-task-delete]');
-      const tasks = store.get(keys.tasks, []);
-      if (move) {
-        const task = tasks.find((item) => item.id === move.dataset.taskMove);
-        if (task) {
-          task.status = move.dataset.to;
-          sendPortalFormSubmit('Task Update', { task_id: task.id, task_title: task.title, job_reference: task.jobRef, assigned_to: task.assignee, requested_by: task.requestedBy || portalProfileName(), status: task.status, updated_at: new Date().toISOString() });
-        }
-        store.set(keys.tasks, tasks);
-        logNotification('Task', `Task moved to ${move.dataset.to}.`);
-      }
-      if (del) {
-        const task = tasks.find((item) => item.id === del.dataset.taskDelete);
-        if (task) sendPortalFormSubmit('Task Update', { task_id: task.id, task_title: task.title, requested_by: task.requestedBy || portalProfileName(), status: 'Cancelled', updated_at: new Date().toISOString() });
-        store.set(keys.tasks, tasks.filter((item) => item.id !== del.dataset.taskDelete));
-        logNotification('Task', 'Task deleted.');
-      }
       renderTasks();
     });
   }
@@ -484,6 +464,7 @@
         event_type: entry.type,
         owner_or_requester: entry.owner,
         requested_by: entry.requestedBy,
+        requested_by_upn: portalProfile().username || '',
         status: entry.status,
         notes: entry.notes,
         submitted_at: new Date().toISOString()
@@ -496,7 +477,7 @@
       const events = store.get(keys.calendar, []);
       if (del) {
         const item = events.find((entry) => entry.id === del.dataset.calendarDelete);
-        if (item) sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
+        if (item) sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
         store.set(keys.calendar, events.filter((entry) => entry.id !== del.dataset.calendarDelete));
         logNotification('Calendar', 'Calendar request cancelled.');
       }

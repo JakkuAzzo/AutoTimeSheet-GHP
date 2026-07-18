@@ -40,7 +40,7 @@ async function submittedForm(page, selector) {
 try {
   browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.addInitScript(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Unlicensed Engineer' })));
+  await page.addInitScript(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Unlicensed Engineer', username: 'unlicensed.engineer@gmt-services.co.uk' })));
   await page.addInitScript(() => {
     window.__submittedForms = [];
     HTMLFormElement.prototype.submit = function submitStub() {
@@ -64,8 +64,13 @@ try {
   assert.equal(task.fields.gmt_action, 'create_request');
   assert.equal(task.fields.gmt_status, 'Pending approval');
   assert.equal(task.fields.gmt_employee, 'Unlicensed Engineer');
+  assert.equal(task.fields.gmt_requester_upn, 'unlicensed.engineer@gmt-services.co.uk');
+  assert.equal(task.fields.gmt_schema_version, '1');
+  assert.equal(task.fields.gmt_year, '2026');
+  assert.equal(task.fields.gmt_month, '07');
   assert.ok(task.fields.gmt_record_id);
   assert.equal(await page.locator('#task-board').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true);
+  assert.equal(await page.locator('[data-task-move], [data-task-delete]').count(), 0, 'the static portal must not expose local task status controls');
 
   await page.goto(`http://127.0.0.1:${port}/calendar/`, { waitUntil: 'load' });
   assert.equal(await page.locator('#calendar-owner').inputValue(), 'Unlicensed Engineer');
@@ -78,9 +83,20 @@ try {
   assert.equal(calendar.fields.gmt_action, 'create_request');
   assert.equal(calendar.fields.gmt_status, 'Pending approval');
   assert.equal(calendar.fields.gmt_employee, 'Unlicensed Engineer');
+  assert.equal(calendar.fields.gmt_requester_upn, 'unlicensed.engineer@gmt-services.co.uk');
+  assert.equal(calendar.fields.gmt_schema_version, '1');
+  assert.equal(calendar.fields.gmt_year, '2026');
+  assert.equal(calendar.fields.gmt_month, '07');
   assert.equal(calendar.fields.gmt_calendar_name, 'GMT Operational Calendar');
   assert.ok(calendar.fields.gmt_record_id);
   assert.equal(await page.locator('#calendar-list').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true);
+
+  await page.locator('[data-calendar-delete]').click();
+  await page.waitForFunction(() => window.__submittedForms.some((form) => form.subject === '[GMT][CALENDAR][UPDATE] 2026-07-21 | Site survey'), null, { timeout: 5000 });
+  const cancellation = await page.evaluate(() => window.__submittedForms.at(-1));
+  assert.equal(cancellation.fields.gmt_action, 'update_request');
+  assert.equal(cancellation.fields.gmt_status, 'Cancelled');
+  assert.equal(cancellation.fields.gmt_requester_upn, 'unlicensed.engineer@gmt-services.co.uk');
   console.log(JSON.stringify({ task: { action: task.action, subject: task.subject }, calendar: { action: calendar.action, subject: calendar.subject } }, null, 2));
 } finally {
   await browser?.close();

@@ -121,13 +121,25 @@ try {
   assert.ok(result.files[1].files[0].size > 100);
   assert.equal(result.fields.gmt_type, 'timesheet');
   assert.equal(result.fields.gmt_action, 'submission');
+  assert.equal(result.fields.gmt_schema_version, '1');
+  assert.equal(result.fields.gmt_record_id, 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22');
+  assert.equal(result.fields.gmt_submission_id, result.fields.gmt_record_id);
   assert.equal(result.fields.gmt_employee, 'Routing Tester');
   assert.equal(result.fields.gmt_employee_upn, 'profile.tester@gmt-services.co.uk');
   assert.equal(result.fields.gmt_week_start, '2026-06-22');
   assert.equal(result.fields.gmt_week_end, '2026-06-26');
+  assert.equal(result.fields.gmt_year, '2026');
+  assert.equal(result.fields.gmt_month, '06');
+  assert.equal(result.fields.gmt_worked_hours, '8');
+  assert.equal(result.fields.gmt_basic_hours, '8');
+  assert.equal(result.fields.gmt_ot15_hours, '0');
+  assert.equal(result.fields.gmt_ot20_hours, '0');
+  assert.equal(result.fields.gmt_absence_count, '0');
   assert.equal(result.fields.gmt_calendar_sync, 'requested');
   assert.equal(result.fields.gmt_calendar_name, 'GMT Operational Calendar');
   assert.equal(result.fields.gmt_calendar_event_count, '1');
+  assert.equal(result.fields.gmt_attachment_manifest, 'xlsx,csv,calendar-sync-json');
+  assert.match(result.fields.gmt_submitted_at, /^2026|^20\d{2}-\d{2}-\d{2}T/);
   assert.ok(result.files[2].files[0].name.includes('GMT Calendar Sync - Routing Tester - 2026-06-22.json'));
   assert.ok(result.files[2].files[0].size > 100);
 
