@@ -1,6 +1,6 @@
 # GMT Operational Build Status
 
-Updated 17 July 2026. This records what has been created, what is deliberately
+Updated 19 July 2026. This records what has been created, what is deliberately
 not enabled, and the exact next implementation work.
 
 ## Completed in the GMT tenant
@@ -12,6 +12,7 @@ not enabled, and the exact next implementation work.
 | SharePoint roots | `Timesheets`, `Audit`, `Job Cards`, `Tasks` created in `GMT Web-App` |
 | Microsoft Lists | Timesheet Submissions, Audit Submissions, Job Cards, Tasks created |
 | Timesheet Intake flow | Active; shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments, creates the existing index row, and stores only non-inline `.xlsx`, `.csv`, and controlled `GMT Calendar Sync - *.json` attachments in `GMT Web-App/Timesheets/Incoming`. A replay succeeded after the filter change. |
+| Timesheet calendar sync | `GMT Portal - Timesheet Calendar Sync` is active and targets Amanda Brown-Bennett's `GMT Operational Calendar`. It processes only JSON files in `Timesheets/Incoming`, creates an all-day event on the first sync key, and updates the stored Outlook event on subsequent files with the same key. |
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
 | Connector capability check | The existing GMT-owned Power Automate connection exposes Office 365 Outlook create/update/delete event actions and SharePoint create-folder/create-file actions |
 
@@ -20,12 +21,10 @@ not enabled, and the exact next implementation work.
 1. Job Card and Task calendar flows. The existing proof schema does not yet
    carry planned/due dates, job/client details, Outlook event IDs or sync
    errors. Enabling a create-only flow now would make duplicates on updates.
-2. Metadata-based Timesheet filing and calendar processing. The live filter
-   accepts the controlled calendar JSON, while the current flow deliberately
-   uses the safe `Timesheets/Incoming` landing folder until structured
-   employee, year and month metadata is parsed and validated. The JSON now
-   provides stable submission/event sync IDs, but no flow has yet used those
-   IDs to create or update Outlook calendar events.
+2. Metadata-based Timesheet filing. The live filter accepts the controlled
+   calendar JSON and synchronises it to the shared calendar, while submitted
+   files remain in the safe `Timesheets/Incoming` landing folder until
+   structured employee, year and month metadata is parsed and validated.
 3. Outlook routing rules. The folder/rule contract is approved, but rules must
    be created and tested against a benign submission without moving existing
    Accounts mail. This prevents the current Accounts inbox from being hidden
@@ -56,9 +55,26 @@ configuration; no Microsoft credential or endpoint belongs in GitHub Pages.
    landing folder.
 6. Create the folders and narrowly scoped subject rules, then test one benign
    submission in each category.
-7. Build `GMT Portal - Timesheet Calendar Sync` as a disabled draft. It must
-   parse only the controlled JSON files, use `submissionId` and `syncEventId`
-   to avoid duplicates, and target only Amanda's `GMT Operational Calendar`.
+7. Extend the active Timesheet Calendar Sync flow only after the portal emits
+   the approved production envelope. It must continue to use `submissionId`
+   and `syncEventId` to avoid duplicates and target only Amanda's
+   `GMT Operational Calendar`.
+
+## Controlled calendar-sync validation
+
+The active flow was validated on 19 July 2026 with future-dated, synthetic
+2030 data only. The test used a single stable `syncEventId` in two uploaded
+JSON files:
+
+1. The first file created one all-day event and one `Calendar Sync Events`
+   mapping-list item.
+2. The second file changed the test title and dates while retaining the same
+   sync key. The update run succeeded and the mapping list remained at one
+   record for that key.
+
+The SharePoint display column `Outlook Event ID` has the internal name
+`OutlookEventID`; the update action explicitly reads that internal name. This
+is a required implementation detail for any future rebuild of the flow.
 
 ## Outlook routing contract
 
