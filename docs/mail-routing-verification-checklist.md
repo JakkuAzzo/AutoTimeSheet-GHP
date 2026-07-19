@@ -20,7 +20,7 @@ members, aliases, and whether it needs to receive external mail after cutover.
 | Address or service | Current provider/type | Owner or members | Test result |
 | --- | --- | --- | --- |
 | `info@gmt-services.co.uk` | To confirm | To confirm | Pending |
-| Accounts route | To confirm | To confirm | Pending |
+| Accounts route | Microsoft 365 directory object found; final mailbox unconfirmed | To confirm | Internal test accepted; final delivery pending |
 | Amanda business mailbox | To confirm | Amanda | Pending |
 | Faith business mailbox | To confirm | Faith | Pending |
 | Lidia business mailbox | To confirm | Lidia | Pending |
@@ -47,6 +47,16 @@ Use a unique harmless subject for every line, for example:
 | 6 | FormSubmit activation/test | Final Timesheets destination after activation | Email and attachments arrive | |
 | 7 | FormSubmit activation/test | Final Audit destination after activation | Email and attachments arrive | |
 | 8 | FormSubmit activation/test | Final Job Cards destination after activation | Email and attachments arrive | |
+
+### Initial observations
+
+- `info@gmt-services.co.uk` has an existing Microsoft 365 undeliverable notice
+  reporting that the recipient was not found. Do not route operational mail to
+  it through Microsoft 365 until a mail-enabled object is confirmed.
+- A 19 July 2026 message to the resolved `accounts@gmt-services.co.uk`
+  directory object entered the sender's Sent Items without an immediate
+  rejection. This is not a pass: confirm the recipient object's SMTP address,
+  mailbox type, members, and actual destination inbox before relying on it.
 
 ## Backup and Forwarding Sign-Off
 

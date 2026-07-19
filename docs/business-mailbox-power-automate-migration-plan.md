@@ -26,9 +26,16 @@ verification change.
 - The custom domain is not currently available as a mail-enabled Exchange
   domain in the shared mailbox creation screen. `accounts@gmt-services.co.uk`
   is therefore not yet a confirmed Exchange mailbox destination.
-- A delivery test copied to `accounts@gmt-services.co.uk` did not arrive. It
-  must be treated as an invalid target until a mailbox or proxy address is
-  created and independently tested.
+- A Microsoft 365 message to `info@gmt-services.co.uk` has produced a
+  "recipient unknown" undeliverable notice. That address is not currently
+  mail-enabled in the Microsoft 365 tenant.
+- On 19 July 2026, Outlook resolved `accounts@gmt-services.co.uk` to a
+  directory object labelled `accounts` and accepted a harmless test message
+  into Amanda's Sent Items. This only proves internal directory resolution;
+  it does not prove the final mailbox, forwarding, or external delivery path.
+- The earlier app copy test to `accounts@gmt-services.co.uk` was not visible
+  in the expected destination. Treat the Accounts route as unproven until the
+  recipient object, owner/membership, and destination inbox have been checked.
 
 Consequently, no DNS, FormSubmit, or Power Automate production cutover should
 occur until the pre-cutover checks below have passed. The existing hosted mail
