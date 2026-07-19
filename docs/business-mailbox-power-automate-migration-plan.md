@@ -33,6 +33,11 @@ verification change.
   directory object labelled `accounts` and accepted a harmless test message
   into Amanda's Sent Items. This only proves internal directory resolution;
   it does not prove the final mailbox, forwarding, or external delivery path.
+- Exchange confirms that the current `Accounts` object is a private,
+  Teams-connected Microsoft 365 Group with one owner and three members. Its
+  primary address is `Accounts@GMTElectServsLtd.onmicrosoft.com`; no custom
+  domain alias is shown in the readable General view. It is not a replacement
+  for the planned business Accounts shared mailbox.
 - The earlier app copy test to `accounts@gmt-services.co.uk` was not visible
   in the expected destination. Treat the Accounts route as unproven until the
   recipient object, owner/membership, and destination inbox have been checked.

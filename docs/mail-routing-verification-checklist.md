@@ -20,7 +20,7 @@ members, aliases, and whether it needs to receive external mail after cutover.
 | Address or service | Current provider/type | Owner or members | Test result |
 | --- | --- | --- | --- |
 | `info@gmt-services.co.uk` | To confirm | To confirm | Pending |
-| Accounts route | Microsoft 365 directory object found; final mailbox unconfirmed | To confirm | Internal test accepted; final delivery pending |
+| Accounts route | Existing Microsoft 365 Group; primary `onmicrosoft.com` address | 1 owner, 3 members | Not the planned shared mailbox; custom route unproven |
 | Amanda business mailbox | To confirm | Amanda | Pending |
 | Faith business mailbox | To confirm | Faith | Pending |
 | Lidia business mailbox | To confirm | Lidia | Pending |
@@ -57,6 +57,10 @@ Use a unique harmless subject for every line, for example:
   directory object entered the sender's Sent Items without an immediate
   rejection. This is not a pass: confirm the recipient object's SMTP address,
   mailbox type, members, and actual destination inbox before relying on it.
+- Exchange identifies `Accounts` as a private Teams-connected Microsoft 365
+  Group whose primary address remains `Accounts@GMTElectServsLtd.onmicrosoft.com`.
+  Do not use this group as the app's Accounts intake destination unless its
+  role, custom-domain alias, and membership are explicitly approved.
 
 ## Backup and Forwarding Sign-Off
 
