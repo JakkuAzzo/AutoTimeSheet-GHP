@@ -21,10 +21,7 @@ members, aliases, and whether it needs to receive external mail after cutover.
 | --- | --- | --- | --- |
 | `info@gmt-services.co.uk` | To confirm | To confirm | Pending |
 | Accounts route | Existing Microsoft 365 Group; primary `onmicrosoft.com` address | 1 owner, 3 members | Not the planned shared mailbox; custom route unproven |
-| Amanda business mailbox | To confirm | Amanda | Pending |
-| Faith business mailbox | To confirm | Faith | Pending |
-| Lidia business mailbox | To confirm | Lidia | Pending |
-| Michelle business mailbox | To confirm | Michelle | Pending |
+| Four renamed staff mailboxes | Exchange Online user mailboxes | Staff users | Primary custom-domain SMTP and retained tenant alias confirmed; external DNS test still pending |
 | Timesheets intake | Legacy route until approved | Accounts team | Pending |
 | Audit intake | Legacy route until approved | Accounts team | Pending |
 | Job Cards intake | Legacy route until approved | Accounts team | Pending |
@@ -49,6 +46,24 @@ Use a unique harmless subject for every line, for example:
 | 8 | FormSubmit activation/test | Final Job Cards destination after activation | Email and attachments arrive | |
 
 ### Initial observations
+
+### Exchange alias audit: 19 July 2026
+
+Exchange Online was queried directly for the four staff mailboxes whose sign-in
+names changed during the domain work. Each has:
+
+- its `@gmt-services.co.uk` address as the primary SMTP address; and
+- the matching `@gmtelectservsltd.onmicrosoft.com` address retained as a
+  secondary SMTP alias.
+
+That means both addresses route to the same Exchange mailbox once mail reaches
+Microsoft 365. The change was not just a sign-in-name change.
+
+A harmless internal delivery message was sent from Amanda's business mailbox
+to all four current custom-domain addresses. Outlook accepted the message and
+recorded it in Sent Items without an immediate rejection. This is an internal
+Exchange delivery smoke test only: it does not prove external mail reaches
+Microsoft 365 while the public MX record still points to the hosted service.
 
 - `info@gmt-services.co.uk` has an existing Microsoft 365 undeliverable notice
   reporting that the recipient was not found. Do not route operational mail to

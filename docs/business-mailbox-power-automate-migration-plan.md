@@ -41,6 +41,14 @@ verification change.
 - The earlier app copy test to `accounts@gmt-services.co.uk` was not visible
   in the expected destination. Treat the Accounts route as unproven until the
   recipient object, owner/membership, and destination inbox have been checked.
+- Exchange Online directly confirms that each of the four staff mailboxes
+  renamed to `@gmt-services.co.uk` has the new address as primary SMTP and the
+  matching `@gmtelectservsltd.onmicrosoft.com` address as a secondary alias.
+  Both forms therefore target the same Exchange mailbox after mail enters
+  Microsoft 365. A 19 July internal delivery smoke test to the four new
+  addresses was accepted into Amanda's Sent Items without an immediate
+  rejection. This does not replace the required external delivery tests while
+  the public MX remains on the hosted service.
 
 Consequently, no DNS, FormSubmit, or Power Automate production cutover should
 occur until the pre-cutover checks below have passed. The existing hosted mail
