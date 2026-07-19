@@ -672,6 +672,17 @@ function buildTimesheetSubmissionId(calendarSync) {
   return `timesheet-${submissionKeyPart(employeeIdentity)}-${calendarSync.weekStart || 'unspecified'}`;
 }
 
+function addCalendarEventKeys(calendarSync, submissionId) {
+  return {
+    ...calendarSync,
+    submissionId,
+    events: calendarSync.events.map((event, index) => ({
+      ...event,
+      syncEventId: `${submissionId}-${event.type === 'absence' ? submissionKeyPart(event.absenceReason) : 'weekly'}-${event.startDate}-${index + 1}`
+    }))
+  };
+}
+
 function cleanFormSubmitEndpoint(value) {
   return String(value || '').trim().replace('/ajax/', '/');
 }
@@ -749,8 +760,9 @@ async function submitTimesheet(event) {
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
     const csvFile = buildCsvFile(calculated);
     const calendarSync = buildCalendarSync(calculated, totals);
-    const calendarSyncFile = buildCalendarSyncFile(calendarSync);
     const submissionId = buildTimesheetSubmissionId(calendarSync);
+    const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
+    const calendarSyncFile = buildCalendarSyncFile(calendarSyncWithIds);
     const emailForm = createEmailForm();
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
@@ -766,23 +778,23 @@ async function submitTimesheet(event) {
     field('gmtRecordId').value = submissionId;
     field('gmtSubmissionId').value = submissionId;
     field('gmtEmployee').value = employeeName.value.trim();
-    field('gmtEmployeeUpn').value = calendarSync.employeeUpn;
-    field('gmtWeekStart').value = calendarSync.weekStart;
-    field('gmtWeekEnd').value = calendarSync.weekEnd;
-    field('gmtYear').value = calendarSync.weekStart.slice(0, 4);
-    field('gmtMonth').value = calendarSync.weekStart.slice(5, 7);
+    field('gmtEmployeeUpn').value = calendarSyncWithIds.employeeUpn;
+    field('gmtWeekStart').value = calendarSyncWithIds.weekStart;
+    field('gmtWeekEnd').value = calendarSyncWithIds.weekEnd;
+    field('gmtYear').value = calendarSyncWithIds.weekStart.slice(0, 4);
+    field('gmtMonth').value = calendarSyncWithIds.weekStart.slice(5, 7);
     field('gmtWorkedHours').value = String(hours(totals.workedActual));
     field('gmtBasicHours').value = String(hours(totals.basic));
     field('gmtOt15Hours').value = String(hours(totals.ot15));
     field('gmtOt20Hours').value = String(hours(totals.ot20));
-    field('gmtAbsenceCount').value = String(calendarSync.events.filter((entry) => entry.type === 'absence').length);
+    field('gmtAbsenceCount').value = String(calendarSyncWithIds.events.filter((entry) => entry.type === 'absence').length);
     field('gmtCalendarSync').value = 'requested';
-    field('gmtCalendarName').value = calendarSync.calendarName;
-    field('gmtCalendarEventCount').value = String(calendarSync.events.length);
+    field('gmtCalendarName').value = calendarSyncWithIds.calendarName;
+    field('gmtCalendarEventCount').value = String(calendarSyncWithIds.events.length);
     field('gmtAttachmentManifest').value = 'xlsx,csv,calendar-sync-json';
     field('gmtSubmittedAt').value = calendarSync.submittedAt;
     field('summary').value = calculatedSummaryInput.value;
-    field('message').value = `Timesheet spreadsheets are attached. Calendar sync requested for ${calendarSync.calendarName}: ${calendarSync.events.length} event(s), including ${calendarSync.events.filter((event) => event.type === 'absence').length} absence event(s).`;
+    field('message').value = `Timesheet spreadsheets are attached. Calendar sync requested for ${calendarSyncWithIds.calendarName}: ${calendarSyncWithIds.events.length} event(s), including ${calendarSyncWithIds.events.filter((event) => event.type === 'absence').length} absence event(s).`;
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
     setFileInputFiles(field('calendarSync'), [calendarSyncFile]);

@@ -23,7 +23,9 @@
       "gmt_ot15_hours",
       "gmt_ot20_hours",
       "gmt_absence_count",
-      "gmt_attachment_manifest"
+      "gmt_attachment_manifest",
+      "calendarSync.submissionId",
+      "calendarSync.events[].syncEventId"
     ],
     "acceptedAttachments": [
       ".xlsx",

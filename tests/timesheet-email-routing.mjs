@@ -142,6 +142,13 @@ try {
   assert.match(result.fields.gmt_submitted_at, /^2026|^20\d{2}-\d{2}-\d{2}T/);
   assert.ok(result.files[2].files[0].name.includes('GMT Calendar Sync - Routing Tester - 2026-06-22.json'));
   assert.ok(result.files[2].files[0].size > 100);
+  const regularCalendarSync = await page.evaluate(async () => {
+    const form = window.__submittedRawForms[0];
+    const file = form.querySelector('[name="attachment_calendar_sync"]').files[0];
+    return JSON.parse(await file.text());
+  });
+  assert.equal(regularCalendarSync.submissionId, result.fields.gmt_submission_id);
+  assert.equal(regularCalendarSync.events[0].syncEventId, 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22-weekly-2026-06-22-1');
 
   await page.locator('[data-field="absenceStatus"]').first().selectOption('Sick');
   await page.locator('#submit-btn').click();
@@ -158,7 +165,8 @@ try {
     title: 'Sick: Routing Tester',
     startDate: '2026-06-22',
     endDateExclusive: '2026-06-23',
-    isAllDay: true
+    isAllDay: true,
+    syncEventId: 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22-sick-2026-06-22-2'
   });
 
   console.log(JSON.stringify(result, null, 2));
