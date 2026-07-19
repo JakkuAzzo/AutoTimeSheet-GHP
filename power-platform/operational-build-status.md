@@ -13,7 +13,7 @@ not enabled, and the exact next implementation work.
 | Microsoft Lists | Timesheet Submissions, Audit Submissions, Job Cards, Tasks created |
 | Timesheet Intake flow | Active; shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments, creates the existing index row, and stores only non-inline `.xlsx`, `.csv`, and controlled `GMT Calendar Sync - *.json` attachments in `GMT Web-App/Timesheets/Incoming`. A replay succeeded after the filter change. |
 | Timesheet calendar sync | `GMT Portal - Timesheet Calendar Sync` is active and targets Amanda Brown-Bennett's `GMT Operational Calendar`. It processes only JSON files in `Timesheets/Incoming`, creates an all-day event on the first sync key, and updates the stored Outlook event on subsequent files with the same key. |
-| Timesheet business-mail copy | The live Timesheet form CCs `accounts@gmt-services.co.uk` while the direct business FormSubmit endpoint remains pending activation. This routes only structured Timesheet submissions, including attachments, into the mailbox monitored by the intake flow. |
+| Timesheet business-mail copy | Paused. `accounts@gmt-services.co.uk` is not currently a mail-enabled Exchange recipient. Keep the approved legacy Timesheet FormSubmit route active until the Microsoft 365 mail cutover and shared mailbox are complete. |
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
 | Connector capability check | The existing GMT-owned Power Automate connection exposes Office 365 Outlook create/update/delete event actions and SharePoint create-folder/create-file actions |
 

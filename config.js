@@ -8,8 +8,8 @@ window.GMT_APP_CONFIG = {
   legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
   formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
-  // Transitional business copy while the direct Accounts FormSubmit endpoint is activated.
-  formSubmitCc: "accounts@gmt-services.co.uk",
+  // Leave empty until accounts@gmt-services.co.uk is a mail-enabled Exchange mailbox.
+  formSubmitCc: "",
   allowedAdminEmails: [],
   magicLinkApiBase: "",
   entraSpaAuth: {

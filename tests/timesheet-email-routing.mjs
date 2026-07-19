@@ -111,10 +111,10 @@ try {
   assert.equal(config.jobCardFormSubmitEndpoint, '');
   assert.equal(config.fallbackFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(config.legacyPersonalAccountsEmail, 'acc.gmtelect@outlook.com');
-  assert.equal(config.formSubmitCc, 'accounts@gmt-services.co.uk');
+  assert.equal(config.formSubmitCc, '');
   assert.equal(result.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
-  assert.equal(result.cc, 'accounts@gmt-services.co.uk,routing.tester@example.com');
+  assert.equal(result.cc, 'routing.tester@example.com');
   assert.equal(result.replyTo, 'routing.tester@example.com');
   assert.deepEqual(result.files.map((entry) => entry.name), ['attachment', 'attachment_csv', 'attachment_calendar_sync']);
   assert.ok(result.files[0].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
