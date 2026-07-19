@@ -150,6 +150,18 @@ function defaultDateForNextDay() {
   return isoDate(start);
 }
 
+function initialiseWeekDates() {
+  if (weekStart.value && weekEnd.value) return;
+  const today = new Date();
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  monday.setDate(monday.getDate() - mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(sunday.getDate() + 6);
+  if (!weekStart.value) weekStart.value = isoDate(monday);
+  if (!weekEnd.value) weekEnd.value = isoDate(sunday);
+}
+
 function renderAbsenceRanges() {
   if (!absenceRanges.length) {
     absenceRangesEl.innerHTML = '<p class="small-text">No absence periods marked.</p>';
@@ -888,6 +900,9 @@ form.addEventListener('submit', submitTimesheet);
 document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail));
 
 loadPortalProfile();
+// Safari can visually restore native date controls while their DOM values are blank.
+// A concrete current-week default keeps the form state and visible controls aligned.
+initialiseWeekDates();
 renderAbsenceRanges();
 addDay();
 recalculate();
