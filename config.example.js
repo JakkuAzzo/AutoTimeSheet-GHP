@@ -24,7 +24,8 @@ window.GMT_APP_CONFIG = {
   // Example: "https://formsubmit.co/YOUR_ACTIVATED_TIMESHEET_TOKEN"
   formSubmitTimesheetEndpoint: "",
 
-  // Example: "second-admin@example.com"
+  // Optional operational copy for approved submission categories.
+  // Example: "accounts@example.com"
   formSubmitCc: "",
 
   // Admin emails allowed to request magic links.
