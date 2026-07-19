@@ -34,34 +34,43 @@ var tables = new[]
 {
     new Table("gmt_timesheetsubmission", "Timesheet Submission", "Timesheet Submissions", new[]
     {
-        Text("Employee", 200), Text("Employee Email", 320), Date("Week Start"), Date("Week End"),
+        Text("Record ID", 250), Text("Submission ID", 250), Text("Employee", 200), Text("Employee UPN", 320),
+        Text("Employee Email", 320), Date("Week Start"), Date("Week End"), Integer("Absence Count"),
         Decimal("Worked Hours"), Decimal("Basic Hours"), Decimal("OT 1.5 Hours"), Decimal("OT 2.0 Hours"),
-        Text("Status", 100), DateTime("Submitted At"), Text("SharePoint Folder Link", 1000)
+        Text("Status", 100), DateTime("Submitted At"), Text("SharePoint Folder Link", 1000),
+        Text("XLSX Link", 1000), Text("CSV Link", 1000), Text("Source Email Subject", 500)
     }),
     new Table("gmt_clockevent", "Clock Event", "Clock Events", new[]
     {
-        Text("Employee", 200), Text("Event Type", 100), DateTime("Event Time"), Date("Event Date"),
-        Text("Source Reference", 250), DateTime("Submitted At")
+        Text("Record ID", 250), Text("Employee", 200), Text("Employee UPN", 320), Text("Event Type", 100),
+        DateTime("Event Time"), Date("Event Date"), Text("Source Reference", 250), DateTime("Submitted At")
     }),
     new Table("gmt_auditsubmission", "Audit Submission", "Audit Submissions", new[]
     {
-        Integer("Parsed Files"), Integer("Parsed Rows"), Integer("Warnings"), Integer("Parse Errors"),
-        Text("Status", 100), DateTime("Submitted At"), Text("Workbook Link", 1000), Text("Warnings CSV Link", 1000)
+        Text("Record ID", 250), Text("Audit Name", 250), Integer("Parsed Files"), Integer("Parsed Rows"),
+        Integer("Warnings"), Integer("Parse Errors"), Text("Status", 100), DateTime("Submitted At"),
+        Text("SharePoint Folder Link", 1000), Text("Workbook Link", 1000), Text("Warnings CSV Link", 1000),
+        Text("Source Email Subject", 500)
     }),
     new Table("gmt_jobcard", "Job Card", "Job Cards", new[]
     {
-        Text("Client", 200), Text("Site Address", 500), Text("Assigned Engineer", 200), Date("Planned Date"),
-        Text("Status", 100), Memo("Description", 4000), Text("Attachment Folder Link", 1000), Text("Outlook Event ID", 500)
+        Text("Record ID", 250), Text("Job Reference", 200), Text("Client", 200), Text("Site Address", 500),
+        Text("Assigned Engineer", 200), Date("Planned Start"), Date("Planned End"), Text("Status", 100),
+        Memo("Description", 4000), Text("Attachment Folder Link", 1000), Text("Outlook Event ID", 500),
+        Text("Calendar Sync Status", 100), Memo("Calendar Sync Error", 4000), DateTime("Last Calendar Sync")
     }),
     new Table("gmt_task", "Task", "Tasks", new[]
     {
-        Text("Job Reference", 200), Text("Assigned To", 200), Date("Due Date"), Text("Priority", 100),
-        Text("Status", 100), Memo("Notes", 4000), Text("Outlook Event ID", 500)
+        Text("Record ID", 250), Text("Requester UPN", 320), Text("Job Reference", 200), Text("Assigned To", 200),
+        Date("Due Date"), Text("Priority", 100), Text("Status", 100), Memo("Notes", 4000),
+        Text("Outlook Event ID", 500), Text("Calendar Sync Status", 100), Memo("Calendar Sync Error", 4000),
+        DateTime("Last Calendar Sync")
     }),
     new Table("gmt_calendarevent", "Calendar Event", "Calendar Events", new[]
     {
-        Text("Source Type", 100), Text("Source Record ID", 100), Date("Event Date"), Text("Status", 100),
-        Text("Outlook Event ID", 500), Memo("Notes", 4000)
+        Text("Source Type", 100), Text("Source Record ID", 250), Text("Calendar Name", 200), Date("Event Date"),
+        Text("Status", 100), Text("Outlook Event ID", 500), Text("Calendar Sync Status", 100),
+        Memo("Calendar Sync Error", 4000), DateTime("Last Calendar Sync"), Memo("Notes", 4000)
     })
 };
 

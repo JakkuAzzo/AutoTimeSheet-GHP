@@ -41,6 +41,12 @@ company schema. Do not delete or recreate the current tables during testing.
 Before promotion, create a controlled `gmt_` schema in `GMTWebAppSolution`,
 migrate only approved sample data, and rewire the app and flows.
 
+The checked-in `tools/GmtDataverseBootstrap` definition is the controlled
+`gmt_` schema blueprint. It includes the calendar event identity, sync status,
+error and timestamp fields required to prevent duplicate Outlook events. It is
+not applied to this Developer environment until a GMT administrator approves a
+clean proof-schema migration.
+
 ## Target data model
 
 The production solution will contain these tables, with every custom table and
