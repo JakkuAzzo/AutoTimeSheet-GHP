@@ -906,3 +906,12 @@ initialiseWeekDates();
 renderAbsenceRanges();
 addDay();
 recalculate();
+
+window.addEventListener('pageshow', () => {
+  window.setTimeout(() => {
+    const needsDateRecovery = !weekStart.value || !weekEnd.value || getRows().some((row) => !row.date);
+    if (!needsDateRecovery) return;
+    initialiseWeekDates();
+    generateDaysFromRange(true);
+  }, 0);
+});
