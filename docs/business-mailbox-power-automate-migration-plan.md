@@ -10,6 +10,166 @@
 
 No Microsoft Graph, Outlook, OneDrive, SharePoint, Power Automate, or mailbox credentials should be added to frontend JavaScript.
 
+## Observed Mail State (19 July 2026)
+
+This section records the current state so DNS work is not mistaken for a routine
+verification change.
+
+- `gmt-services.co.uk` is present in Microsoft 365 and marked as the default
+  domain, but Microsoft 365 shows its Exchange setup as **Incomplete setup**.
+- Public DNS still routes inbound mail to the existing hosted mail service:
+  `mx.gmt-services.co.uk.cust.a.hostedemail.com`.
+- Microsoft 365 supplied a tenant-verification TXT record is already present.
+- The Microsoft 365 Exchange wizard requires a new Microsoft 365 MX record,
+  an `autodiscover` CNAME, and an SPF update. Applying those records changes
+  live inbound and outbound mail routing.
+- The custom domain is not currently available as a mail-enabled Exchange
+  domain in the shared mailbox creation screen. `accounts@gmt-services.co.uk`
+  is therefore not yet a confirmed Exchange mailbox destination.
+- A delivery test copied to `accounts@gmt-services.co.uk` did not arrive. It
+  must be treated as an invalid target until a mailbox or proxy address is
+  created and independently tested.
+
+Consequently, no DNS, FormSubmit, or Power Automate production cutover should
+occur until the pre-cutover checks below have passed. The existing hosted mail
+service remains the mail authority during planning.
+
+## Pre-Cutover Routing Verification
+
+The aim is to prove where mail currently lands, rather than infer it from a
+Microsoft 365 sign-in name. A user principal name is not proof of an Exchange
+mailbox or proxy address.
+
+Create a short test log with the date, sender, recipient, message ID, observed
+inbox, and result for each of the following. Use harmless test subjects such
+as `[GMT][MAIL-CUTOVER-TEST] <case>` and do not include employee data.
+
+1. Send external mail to each current `@gmt-services.co.uk` operational
+   address and record the hosted-mail inbox where it arrives.
+2. Send from each relevant `@gmtelectservsltd.onmicrosoft.com` mailbox to its
+   intended `@gmt-services.co.uk` address. Confirm whether it is delivered,
+   rejected, or routed to a different mailbox.
+3. Send from the current hosted mailbox to each intended Microsoft 365 user
+   or shared mailbox address and record the result.
+4. Check the Exchange admin centre for each target address: primary SMTP
+   address, aliases/proxy addresses, mailbox type, licence, and owners or
+   members.
+5. Confirm the current `info@gmt-services.co.uk` and Accounts destinations:
+   whether each is a hosted mailbox, forwarder, distribution group, shared
+   mailbox, or alias, and who can access it.
+6. Run one inbound and one outbound test for every address that FormSubmit,
+   Power Automate, staff, or customers will use.
+
+Do not regard a custom-domain UPN, an Outlook contact label, or an old
+`onmicrosoft.com` mailbox as evidence that mail is forwarding to the new
+address. The tests above are the acceptance evidence.
+
+## Forwarding and Backup Plan
+
+### Inventory before changes
+
+Before bOnline changes DNS, record and export:
+
+- Every hosted mailbox, alias, distribution address, forwarder, and catch-all
+  rule under `gmt-services.co.uk`.
+- Mailbox owners, delegated users, shared-mailbox members, Outlook rules,
+  signatures, contacts, calendars, and retention requirements.
+- Current DNS zone records, including the existing MX, SPF, DKIM, DMARC,
+  `autodiscover`, web, and verification records. Save both screenshots and a
+  text export from bOnline/OpenSRS.
+- The current TTL values. Reduce only the mail-related record TTLs to 300
+  seconds 24 to 48 hours before the approved change window if bOnline supports
+  it; do not alter website records.
+
+### Backup before migration
+
+- Take an export or provider backup of every existing hosted mailbox before
+  changing MX records. Prefer a provider migration/export process that
+  preserves folders, dates, sent mail, contacts, and attachments.
+- Export the shared calendars and contacts that are operationally important.
+- Store the exports in restricted company-controlled SharePoint storage and
+  record the restoration method and owner.
+- Keep the legacy personal FormSubmit route active as the app-level fallback
+  until each business submission category has completed real delivery and
+  Power Automate processing tests.
+
+### Transitional forwarding
+
+Once Exchange mailboxes and aliases have been created and tested, configure
+source-side forwarding or migration copies from the existing hosted service to
+the matching Microsoft 365 mailbox. The first pass must retain a copy in the
+source mailbox so delivery can be compared and no mail is silently lost.
+
+- Forward only to approved internal business mailboxes; do not create loops.
+- Do not delete hosted mailboxes or turn off source copies during the initial
+  validation period.
+- Re-test `info`, Accounts, and all operational shared addresses separately.
+- Remove temporary forwarding only after the agreed retention period and a
+  documented sign-off from the business owner.
+
+## bOnline / OpenSRS Cutover Runbook
+
+The DNS provider must carry out this section. It is intentionally a planned
+change, not a frontend or Microsoft 365 configuration task.
+
+### Preconditions
+
+1. A named bOnline/OpenSRS contact confirms they control the live DNS zone.
+2. The routing verification log is complete and all target Exchange mailboxes
+   or shared mailboxes exist, are licensed where required, and receive test
+   mail.
+3. Backup exports and the DNS snapshot are complete.
+4. A maintenance window, rollback owner, and customer/staff communication
+   have been approved.
+5. Microsoft 365 confirms the exact records to use in the domain wizard at
+   the time of change. Do not reuse stale values from an old screenshot.
+
+### Requested DNS change
+
+Ask bOnline to apply only the current Microsoft 365 Exchange records shown in
+the Microsoft 365 domain wizard:
+
+- Replace the existing inbound MX route with the Microsoft 365 MX target.
+- Add or replace the `autodiscover` CNAME with the Microsoft 365 target.
+- Replace the current SPF policy with the Microsoft 365 SPF policy, preserving
+  any separately required authorised senders only after they have been
+  reviewed.
+- Leave website, verification, DKIM, DMARC, and unrelated DNS records intact
+  unless a separately approved migration step changes them.
+
+The exact host, target, priority, and TTL must be copied from the live
+Microsoft 365 wizard into the bOnline request and reviewed by a tenant admin
+before submission.
+
+### Validation after DNS propagation
+
+1. Complete the Microsoft 365 domain wizard and confirm the domain becomes
+   Healthy.
+2. Test external-to-business and business-to-external mail for every active
+   staff and shared address.
+3. Test `info`, Accounts, Timesheets, Audit, and Job Cards routing.
+4. Verify Outlook folders/rules and Power Automate triggers with harmless test
+   messages.
+5. Activate and test FormSubmit destinations one category at a time. Update
+   the app configuration only after that category's delivery, attachment, and
+   flow run are verified.
+6. Monitor message trace and the legacy hosted mailbox for at least one full
+   working day before declaring cutover complete.
+
+### Rollback
+
+Rollback is required if a target address rejects mail, a shared mailbox is
+missing, external delivery fails, or forwarding creates a loop.
+
+1. Ask bOnline to restore the recorded previous MX, SPF, and `autodiscover`
+   records.
+2. Keep existing mailbox data and Microsoft 365 accounts intact; do not
+   delete mailboxes during rollback.
+3. Disable any forwarding rule that creates a duplicate or loop.
+4. Keep category-specific business endpoints blank and retain the existing
+   app fallback route until the fault is resolved and retested.
+5. Record the failure, affected addresses, and next retest date.
+
 ## Phase 1: Tenant Readiness
 
 Confirm:
