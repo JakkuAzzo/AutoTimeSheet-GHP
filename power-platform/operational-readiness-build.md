@@ -111,9 +111,19 @@ attachments before the existing `Apply to each` action:
 )
 ```
 
-The expression change is a manual live-flow release step: replay a harmless
-sample with XLSX, CSV, calendar-sync JSON and an unrelated image; the loop
-must receive exactly three files and exclude the image.
+**Completed 19 July 2026:** the live `GMT Portal - Timesheet Intake` filter
+now accepts the controlled calendar-sync JSON attachment in addition to XLSX
+and CSV. The saved query is:
+
+```text
+@and(equals(item()?['isInline'], false),or(endsWith(toLower(item()?['name']), '.xlsx'),endsWith(toLower(item()?['name']), '.csv'),and(startsWith(toLower(item()?['name']), 'gmt calendar sync - '),endsWith(toLower(item()?['name']), '.json'))))
+```
+
+An automated replay of a prior Timesheet submission succeeded through the
+Outlook trigger, SharePoint list item, filter, and attachment loop. A separate
+benign email containing XLSX, CSV, the controlled JSON, and an unrelated image
+is still required to prove that the loop receives exactly three permitted files
+and excludes the image.
 
 1. Retain the existing Accounts trigger, structured subject filter and attachment requirement.
 2. Parse the approved metadata fields from the email body.
@@ -121,6 +131,15 @@ must receive exactly three files and exclude the image.
 4. Store accepted files in that folder with collision-resistant names.
 5. Create/update the Timesheet Submissions list row with the folder and file links.
 6. On missing metadata or attachment failure, send the email/record to `Failed - Needs Review`; never silently mark it processed.
+
+### Calendar processor contract
+
+The app-generated JSON now carries a stable `submissionId` plus a
+`syncEventId` for each event. A calendar processor must use those values as
+the authoritative idempotency keys: look up an existing event mapping before
+creating an Outlook event, update that event on resubmission, and record the
+returned Outlook event ID. It must not create a new event merely because a
+week's files were submitted again.
 
 ## Outlook folders and rules
 
