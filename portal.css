@@ -102,6 +102,9 @@
 .clock-card *::after {
   box-sizing: border-box;
 }
+.clock-card [hidden] {
+  display: none !important;
+}
 .clock-card-heading {
   display: grid;
   gap: .4rem;
@@ -221,9 +224,6 @@
 @media (min-width: 680px) {
   .clock-actions {
     grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-  .clock-full-day-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 .portal-two-column {
