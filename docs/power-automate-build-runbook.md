@@ -249,9 +249,10 @@ Process the preceding calendar month after the agreed submission grace period.
 1. Query `Clock Events` and `Timesheet Submissions` for the prior month.
 2. Group records by canonical employee name/email; use the List record as the
    authority where names vary.
-3. Run an accounts-owned Office Script against a blank GMT monthly-register
-   template. It creates one worksheet per employee, then an `All Users` sheet
-   and a `Monthly Totals` sheet at the end.
+3. Run the accounts-owned Office Script
+   [`build-monthly-timesheet-register.ts`](../power-platform/office-scripts/build-monthly-timesheet-register.ts)
+   against a blank GMT monthly-register template. It creates one worksheet per
+   employee, then an `All Users` sheet and a `Monthly Totals` sheet at the end.
 4. Each individual worksheet includes the date, actions, absence reason, note,
    start/lunch/finish, worked/basic/OT fields and links to the source files.
 5. Save the resulting workbook to:
@@ -267,6 +268,18 @@ Power Automate's standard Excel actions are poor at dynamically creating a
 variable number of worksheets. Use Office Script for the workbook creation;
 the flow supplies validated List rows and owns the schedule. Do not try to make
 the static website aggregate monthly files.
+
+### Office Script input mapping
+
+Pass the Office Script a JSON string of validated List rows and a display label
+such as `July 2026`. Each row must use these JSON keys:
+
+`recordId`, `employeeName`, `employeeEmail`, `date`, `action`, `status`,
+`absenceReason`, `note`, `startTime`, `lunchStart`, `lunchEnd`, `finishTime`,
+`workedHours`, `basicHours`, `ot15Hours`, `ot20Hours`, `sourceFolderLink`.
+
+The flow must map List columns to this contract before calling the script; it
+must not pass raw email HTML or FormSubmit attachment names into the workbook.
 
 ## Flow 2: Audit Intake
 
