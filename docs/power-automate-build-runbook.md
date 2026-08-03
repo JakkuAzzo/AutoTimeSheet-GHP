@@ -8,6 +8,10 @@ and operational records without putting Microsoft credentials in the website.
 The website remains static. FormSubmit delivers messages to a business mailbox;
 Outlook and Power Automate then file attachments and create Microsoft List records.
 
+> The remaining operational work is to configure the documented Power Automate
+> flows in Microsoft 365 and resolve the custom-domain inbound-mail routing
+> before OneDrive filing and automated reminders can run live.
+
 ## Programmatic Administration
 
 The browser maker portals remain useful for first-time connection setup, but
