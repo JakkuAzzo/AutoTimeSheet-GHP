@@ -34,6 +34,37 @@
     ],
     "attachmentRule": "Reject inline attachments and all JSON files other than the controlled calendar-sync filename."
   },
+  "clockEvent": {
+    "required": [
+      "gmt_employee",
+      "gmt_clock_date",
+      "gmt_action",
+      "gmt_year",
+      "gmt_month",
+      "gmt_attachment_manifest"
+    ],
+    "allowedActions": [
+      "clock_in",
+      "lunch_start",
+      "lunch_end",
+      "clock_out",
+      "absent",
+      "full_day"
+    ],
+    "absenceRule": "An absent event must contain gmt_absence_reason and records zero worked/OT hours.",
+    "fullDayFields": [
+      "gmt_day_start",
+      "gmt_lunch_start",
+      "gmt_lunch_end",
+      "gmt_day_finish",
+      "gmt_worked_hours"
+    ],
+    "acceptedAttachments": [
+      ".xlsx",
+      ".csv"
+    ],
+    "storagePath": "GMT Web-App/Timesheets/{year}/{month}/{employee}/{yyyy-mm-dd}/"
+  },
   "jobcard": {
     "required": [
       "gmt_job_ref",

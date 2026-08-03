@@ -1,5 +1,6 @@
 (() => {
   const CONFIG = window.GMT_APP_CONFIG || {};
+  const EVENT_ACTIONS = ['clock_in', 'lunch_start', 'lunch_end', 'clock_out'];
 
   function cleanEndpoint(value) {
     return String(value || '').trim().replace('/ajax/', '/');
@@ -16,23 +17,41 @@
       || taggedEndpoint('timesheets');
   }
 
-  function pad(n) {
-    return String(n).padStart(2, '0');
+  function pad(value) {
+    return String(value).padStart(2, '0');
   }
 
-  function localDate(d = new Date()) {
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  function localDate(date = new Date()) {
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   }
 
-  function localTime(d = new Date()) {
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  function localTime(date = new Date()) {
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
   function actionLabel(value) {
-    if (value === 'clock_out') return 'Clock Out';
-    if (value === 'lunch_start') return 'Lunch Start';
-    if (value === 'lunch_end') return 'Lunch End';
-    return 'Clock In';
+    const labels = {
+      clock_in: 'Clock In',
+      lunch_start: 'Lunch Start',
+      lunch_end: 'Lunch End',
+      clock_out: 'Clock Out',
+      absent: 'Absent',
+      full_day: 'Full Day'
+    };
+    return labels[value] || labels.clock_in;
+  }
+
+  function actionText(value) {
+    const text = {
+      clock_in: ['Clock In', 'Record an arrival time and send it to accounts.', 'Submit clock in'],
+      lunch_start: ['Lunch Start', 'Record when lunch starts and send it to accounts.', 'Submit lunch start'],
+      lunch_end: ['Lunch End', 'Record when lunch ends and send it to accounts.', 'Submit lunch end'],
+      clock_out: ['Clock Out', 'Record a finish time and send it to accounts.', 'Submit clock out'],
+      absent: ['Record Absence', 'Mark the whole selected day as absent and send it to accounts.', 'Submit absence'],
+      full_day: ['Record Full Day', 'Record start, lunch and finish times for one day.', 'Submit full day']
+    };
+    const [title, description, submit] = text[value] || text.clock_in;
+    return { title, description, submit };
   }
 
   function safeFilePart(value) {
@@ -49,19 +68,15 @@
     return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
   }
 
-  function actionText(value) {
-    const label = actionLabel(value);
-    const descriptions = {
-      clock_in: 'Record an arrival time and send it to accounts.',
-      lunch_start: 'Record when lunch starts and send it to accounts.',
-      lunch_end: 'Record when lunch ends and send it to accounts.',
-      clock_out: 'Record a finish time and send it to accounts.'
-    };
-    return {
-      title: label,
-      description: descriptions[value] || descriptions.clock_in,
-      submit: `Submit ${label.toLowerCase()}`
-    };
+  function timeToMinutes(value) {
+    const match = /^(\d{2}):(\d{2})$/.exec(String(value || ''));
+    if (!match) return null;
+    const minutes = Number(match[1]) * 60 + Number(match[2]);
+    return minutes >= 0 && minutes < 24 * 60 ? minutes : null;
+  }
+
+  function formatHours(minutes) {
+    return Number((Math.max(0, minutes) / 60).toFixed(2));
   }
 
   function portalProfile() {
@@ -74,20 +89,44 @@
 
   function prefillClockIdentity(card, profile = portalProfile()) {
     const name = String(profile && profile.name || '').trim();
-    if (name && !card.elements.employee_name.value.trim()) {
-      card.elements.employee_name.value = name;
-    }
+    if (name && !card.elements.employee_name.value.trim()) card.elements.employee_name.value = name;
+  }
+
+  function setDisabled(element, disabled) {
+    if (!element) return;
+    element.disabled = disabled;
+    element.required = !disabled && (element.name === 'day_start' || element.name === 'day_finish');
   }
 
   function updateClockCard(card) {
-    const text = actionText(card.elements.clock_action.value);
+    const action = card.elements.clock_action.value;
+    const text = actionText(action);
+    const isAbsent = action === 'absent';
+    const isFullDay = action === 'full_day';
     const title = card.querySelector('[data-clock-title]');
     const description = card.querySelector('[data-clock-description]');
     const submit = card.querySelector('[data-clock-submit]');
+    const timeField = card.querySelector('[data-clock-time-field]');
+    const absenceField = card.querySelector('[data-absence-field]');
+    const fullDay = card.querySelector('[data-full-day-fields]');
+
     if (title) title.textContent = text.title;
     if (description) description.textContent = text.description;
     if (submit) submit.textContent = text.submit;
-    card.dataset.currentAction = card.elements.clock_action.value;
+    if (timeField) timeField.hidden = isAbsent || isFullDay;
+    if (absenceField) absenceField.hidden = !isAbsent;
+    if (fullDay) fullDay.hidden = !isFullDay;
+
+    card.elements.clock_time.disabled = isAbsent || isFullDay;
+    card.elements.clock_time.required = !isAbsent && !isFullDay;
+    setDisabled(card.elements.absence_reason, !isAbsent);
+    ['day_start', 'day_lunch_start', 'day_lunch_end', 'day_finish'].forEach((name) => {
+      setDisabled(card.elements[name], !isFullDay);
+    });
+    card.querySelectorAll('[data-clock-action]').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.dataset.clockAction === action));
+    });
+    card.dataset.currentAction = action;
   }
 
   function ensureSubmitFrame() {
@@ -132,104 +171,185 @@
     status.textContent = text;
   }
 
-  function buildClockWorkbookFile(payload) {
-    if (!window.XLSX) throw new Error('Excel generator is still loading. Please try again.');
-    const isStartEvent = payload.action === 'clock_in' || payload.action === 'lunch_start';
-    const allRows = [{
-      Status: 'Recorded',
+  function validateFullDay(payload) {
+    if (payload.action !== 'full_day') return '';
+    const start = timeToMinutes(payload.dayStart);
+    const finish = timeToMinutes(payload.dayFinish);
+    const lunchStart = timeToMinutes(payload.lunchStart);
+    const lunchEnd = timeToMinutes(payload.lunchEnd);
+    if (start === null || finish === null) return 'Enter both start and finish times for the full day.';
+    if ((lunchStart === null) !== (lunchEnd === null)) return 'Enter both lunch start and lunch end, or leave both blank.';
+    let finishMinutes = finish;
+    if (finishMinutes <= start) finishMinutes += 24 * 60;
+    if (lunchStart !== null && lunchEnd <= lunchStart) return 'Lunch end must be later than lunch start.';
+    if (lunchStart !== null && (lunchStart < start || lunchEnd > finishMinutes)) return 'Lunch must fall within the recorded working day.';
+    return '';
+  }
+
+  function payloadHours(payload) {
+    if (payload.action !== 'full_day') return { worked: 0, breakMinutes: 0 };
+    const start = timeToMinutes(payload.dayStart);
+    let finish = timeToMinutes(payload.dayFinish);
+    if (start === null || finish === null) return { worked: 0, breakMinutes: 0 };
+    if (finish <= start) finish += 24 * 60;
+    const lunchStart = timeToMinutes(payload.lunchStart);
+    const lunchEnd = timeToMinutes(payload.lunchEnd);
+    const breakMinutes = lunchStart === null || lunchEnd === null ? 0 : lunchEnd - lunchStart;
+    return { worked: Math.max(0, finish - start - breakMinutes), breakMinutes };
+  }
+
+  function payloadRow(payload) {
+    const hours = payloadHours(payload);
+    const startEvent = payload.action === 'clock_in' || payload.action === 'lunch_start';
+    const finishEvent = payload.action === 'clock_out' || payload.action === 'lunch_end';
+    const absent = payload.action === 'absent';
+    const fullDay = payload.action === 'full_day';
+    const breakLabel = hours.breakMinutes ? `${Math.floor(hours.breakMinutes / 60)}h ${pad(hours.breakMinutes % 60)}m` : 'No break';
+    return {
+      Employee: payload.employeeName,
+      'Employee email': payload.employeeEmail,
+      Status: absent ? 'Absent' : 'Recorded',
       Category: payload.actionLabel,
       'Week start': payload.date,
       'Week end': payload.date,
       Day: payload.actionLabel,
       Date: payload.date,
       Weekday: weekdayName(payload.date),
-      Start: isStartEvent ? payload.time : '',
-      Finish: isStartEvent ? '' : payload.time,
-      Break: 'No break',
-      'Absence reason': 'NA',
-      'Worked hours': 0,
-      'Basic hours': 0,
+      Start: fullDay ? payload.dayStart : (startEvent ? payload.time : ''),
+      Finish: fullDay ? payload.dayFinish : (finishEvent ? payload.time : ''),
+      'Lunch start': fullDay ? payload.lunchStart : (payload.action === 'lunch_start' ? payload.time : ''),
+      'Lunch end': fullDay ? payload.lunchEnd : (payload.action === 'lunch_end' ? payload.time : ''),
+      Break: fullDay ? breakLabel : 'No break',
+      'Absence reason': absent ? payload.absenceReason : 'NA',
+      'Worked hours': formatHours(hours.worked),
+      'Basic hours': formatHours(hours.worked),
       'OT x1.5 hours': 0,
       'OT x2.0 hours': 0,
-      'Weighted hours': 0,
-      Note: `${payload.actionLabel} timestamp only`
-    }];
+      'Weighted hours': formatHours(hours.worked),
+      Note: payload.note || (absent ? `${payload.absenceReason} recorded for the full day.` : `${payload.actionLabel} timestamp only`)
+    };
+  }
+
+  function buildClockFiles(payload) {
+    if (!window.XLSX) throw new Error('Excel generator is still loading. Please try again.');
+    const row = payloadRow(payload);
+    const hours = payloadHours(payload);
+    const notesRows = [
+      ['GMT Clock Event Notes'],
+      [],
+      ['This workbook uses the same All, Totals and Notes sheet structure as the weekly timesheet export.'],
+      ['Clock and lunch events are timestamps. A full-day entry records its entered daily hours; payroll overtime remains calculated on the weekly timesheet.'],
+      [],
+      ['Action', 'Date', 'Weekday', 'Absence reason', 'Note'],
+      [payload.actionLabel, payload.date, weekdayName(payload.date), row['Absence reason'], row.Note]
+    ];
     const totalsRows = [
       ['GMT Clock Event'],
       [],
       ['Employee', payload.employeeName],
+      ['Employee email', payload.employeeEmail],
       ['Date', payload.date],
       ['Action', payload.actionLabel],
       ['Time', payload.time],
       ['Submitted at', payload.submittedAt],
       [],
       ['Metric', 'Hours / Count'],
-      ['Worked hours', 0],
-      ['Basic hours', 0],
+      ['Worked hours', row['Worked hours']],
+      ['Basic hours', row['Basic hours']],
       ['OT x1.5 hours', 0],
       ['OT x2.0 hours', 0],
       ['Clock events', 1]
     ];
-    const notesRows = [
-      ['GMT Clock Event Notes'],
-      [],
-      ['This workbook uses the same sheet names and main row columns as the weekly timesheet export.'],
-      ['It records the selected clock date and time only; worked hours remain zero until a weekly timesheet is completed.'],
-      [],
-      ['Day', 'Date', 'Weekday', 'Category', 'Absence reason', 'Break', 'Note', 'Issue'],
-      [payload.actionLabel, payload.date, weekdayName(payload.date), payload.actionLabel, 'NA', 'No break', `${payload.actionLabel} submitted from Timesheets page`, '']
-    ];
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(allRows), 'All');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([row]), 'All');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(totalsRows), 'Totals');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(notesRows), 'Notes');
-    const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    return new File(
-      [array],
-      `GMT Clock - ${safeFilePart(payload.employeeName)} - ${payload.date} - ${safeFilePart(payload.actionLabel)}.xlsx`,
-      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
-    );
+    const xlsxArray = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const fileBase = `GMT Clock - ${safeFilePart(payload.employeeName)} - ${payload.date} - ${safeFilePart(payload.actionLabel)}`;
+    const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet([row]));
+    return {
+      workbook: new File([xlsxArray], `${fileBase}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      csv: new File([csv], `${fileBase}.csv`, { type: 'text/csv;charset=utf-8' }),
+      row,
+      hours
+    };
   }
 
-  function createEmailForm(payload, workbookFile) {
+  function createEmailForm(payload, files) {
     const frame = ensureSubmitFrame();
     const form = document.createElement('form');
+    const subjectType = payload.action === 'full_day' || payload.action === 'absent' ? 'DAY' : 'CLOCK';
     form.method = 'POST';
     form.action = timesheetEndpoint();
     form.enctype = 'multipart/form-data';
     form.target = frame.name;
     form.hidden = true;
-    hidden(form, '_subject', `[GMT][TIMESHEET][CLOCK] ${payload.employeeName} | ${payload.actionLabel} | ${payload.date} ${payload.time}`);
+    hidden(form, '_subject', `[GMT][TIMESHEET][${subjectType}] ${payload.employeeName} | ${payload.actionLabel} | ${payload.date}${payload.time ? ` ${payload.time}` : ''}`);
     hidden(form, '_template', 'box');
     hidden(form, '_captcha', 'false');
+    hidden(form, 'gmt_schema_version', '2');
     hidden(form, 'gmt_type', 'timesheet_clock');
     hidden(form, 'gmt_action', payload.action);
-    hidden(form, 'gmt_record_id', `${payload.employeeName} ${payload.date} ${payload.time} ${payload.action}`);
+    hidden(form, 'gmt_record_id', `${payload.employeeName}|${payload.date}|${payload.action}|${payload.time || payload.dayStart || 'absence'}`);
     hidden(form, 'gmt_employee', payload.employeeName);
+    hidden(form, 'gmt_employee_email', payload.employeeEmail);
     hidden(form, 'gmt_clock_date', payload.date);
     hidden(form, 'gmt_clock_time', payload.time);
-    hidden(form, 'gmt_attachment_type', 'xlsx');
+    hidden(form, 'gmt_absence_reason', payload.absenceReason);
+    hidden(form, 'gmt_note', payload.note);
+    hidden(form, 'gmt_day_start', payload.dayStart);
+    hidden(form, 'gmt_lunch_start', payload.lunchStart);
+    hidden(form, 'gmt_lunch_end', payload.lunchEnd);
+    hidden(form, 'gmt_day_finish', payload.dayFinish);
+    hidden(form, 'gmt_year', payload.date.slice(0, 4));
+    hidden(form, 'gmt_month', payload.date.slice(0, 7));
+    hidden(form, 'gmt_worked_hours', files.row['Worked hours']);
+    hidden(form, 'gmt_basic_hours', files.row['Basic hours']);
+    hidden(form, 'gmt_ot15_hours', 0);
+    hidden(form, 'gmt_ot20_hours', 0);
+    hidden(form, 'gmt_attachment_type', 'xlsx,csv');
+    hidden(form, 'gmt_attachment_manifest', 'xlsx,csv');
     hidden(form, 'gmt_submitted_at', payload.submittedAt);
     hidden(form, 'employee_name', payload.employeeName);
     hidden(form, 'clock_action', payload.actionLabel);
     hidden(form, 'clock_date', payload.date);
     hidden(form, 'clock_time', payload.time);
-    hidden(form, 'summary', `${payload.employeeName} submitted ${payload.actionLabel} at ${payload.time} on ${payload.date}.`);
-    hidden(form, 'message', 'Clock in/out submission from the GMT Timesheets page. XLSX clock event workbook is attached.');
-    addFileInput(form, 'attachment', workbookFile);
+    hidden(form, 'absence_reason', payload.absenceReason);
+    hidden(form, 'note', payload.note);
+    hidden(form, 'summary', `${payload.employeeName} submitted ${payload.actionLabel.toLowerCase()} for ${payload.date}${payload.time ? ` at ${payload.time}` : ''}.`);
+    hidden(form, 'message', 'GMT timesheet quick-record submission. XLSX and CSV attachments are included for accounts and Power Automate filing.');
+    addFileInput(form, 'attachment', files.workbook);
+    addFileInput(form, 'attachment', files.csv);
     document.body.appendChild(form);
     return form;
+  }
+
+  function buildPayload(card) {
+    const profile = portalProfile();
+    const action = card.elements.clock_action.value;
+    return {
+      employeeName: card.elements.employee_name.value.trim(),
+      employeeEmail: String(profile.username || '').trim(),
+      action,
+      actionLabel: actionLabel(action),
+      date: card.elements.clock_date.value || localDate(),
+      time: EVENT_ACTIONS.includes(action) ? (card.elements.clock_time.value || localTime()) : '',
+      absenceReason: card.elements.absence_reason.value || '',
+      note: card.elements.clock_note.value.trim(),
+      dayStart: card.elements.day_start.value || '',
+      lunchStart: card.elements.day_lunch_start.value || '',
+      lunchEnd: card.elements.day_lunch_end.value || '',
+      dayFinish: card.elements.day_finish.value || '',
+      submittedAt: new Date().toISOString()
+    };
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
     const card = event.currentTarget;
-    const employeeName = card.elements.employee_name.value.trim();
-    const action = card.elements.clock_action.value;
-    const date = card.elements.clock_date.value || localDate();
-    const time = card.elements.clock_time.value || localTime();
+    const payload = buildPayload(card);
     const endpoint = timesheetEndpoint();
-    if (!employeeName) {
+    if (!payload.employeeName) {
       showStatus(card, 'error', 'Enter your name first.');
       return;
     }
@@ -237,26 +357,24 @@
       showStatus(card, 'error', 'Clock submission email is not configured yet.');
       return;
     }
-    const payload = {
-      employeeName,
-      action,
-      actionLabel: actionLabel(action),
-      date,
-      time,
-      submittedAt: new Date().toISOString()
-    };
+    const fullDayError = validateFullDay(payload);
+    if (fullDayError) {
+      showStatus(card, 'error', fullDayError);
+      return;
+    }
     try {
-      showStatus(card, 'ok', 'Preparing clock workbook...');
+      showStatus(card, 'ok', 'Preparing timesheet files...');
       if (typeof window.ensureXlsxLoaded !== 'function') throw new Error('Excel generator is not available.');
       await window.ensureXlsxLoaded();
-      const workbookFile = buildClockWorkbookFile(payload);
-      const form = createEmailForm(payload, workbookFile);
+      const files = buildClockFiles(payload);
+      const form = createEmailForm(payload, files);
       form.submit();
-      showStatus(card, 'ok', `${payload.actionLabel} sent for ${payload.time}.`);
+      showStatus(card, 'ok', `${payload.actionLabel} sent for ${payload.date}${payload.time && payload.action !== 'full_day' && payload.action !== 'absent' ? ` at ${payload.time}` : ''}.`);
       card.elements.clock_date.value = localDate();
       card.elements.clock_time.value = localTime();
+      card.elements.clock_note.value = '';
       setTimeout(() => form.remove(), 2000);
-    } catch (error) {
+    } catch (_) {
       showStatus(card, 'error', 'Clock submission could not be sent.');
     }
   }
@@ -269,9 +387,12 @@
       card.elements.clock_time.value = localTime();
       prefillClockIdentity(card);
       updateClockCard(card);
-      card.elements.clock_action.addEventListener('change', () => {
-        updateClockCard(card);
-        showStatus(card, '', '');
+      card.querySelectorAll('[data-clock-action]').forEach((button) => {
+        button.addEventListener('click', () => {
+          card.elements.clock_action.value = button.dataset.clockAction;
+          updateClockCard(card);
+          showStatus(card, '', '');
+        });
       });
       card.addEventListener('submit', handleSubmit);
     });
@@ -279,8 +400,6 @@
 
   init();
   document.addEventListener('gmtportalidentity', (event) => {
-    document.querySelectorAll('[data-clock-form]').forEach((card) => {
-      prefillClockIdentity(card, event.detail);
-    });
+    document.querySelectorAll('[data-clock-form]').forEach((card) => prefillClockIdentity(card, event.detail));
   });
 })();

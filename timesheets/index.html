@@ -19,11 +19,34 @@
 <a class="portal-feature-card" href="create.html"><span>Create Timesheet</span><small>Open the weekly timesheet form.</small></a>
 <a class="portal-feature-card" href="../audit/index.html"><span>Analyse Sheet/s</span><small>Open the audit checker.</small></a>
 <form class="portal-feature-card clock-card" data-clock-form data-default-action="clock_in">
-<span data-clock-title>Clock In</span><small data-clock-description>Record an arrival time and send it to accounts.</small>
+<div class="clock-card-heading"><span data-clock-title>Clock In</span><small data-clock-description>Record an arrival time and send it to accounts.</small></div>
 <label>Full name<input name="employee_name" autocomplete="name" required placeholder="Your name"></label>
-<label>Action<select name="clock_action"><option value="clock_in">Clock in</option><option value="lunch_start">Lunch start</option><option value="lunch_end">Lunch end</option><option value="clock_out">Clock out</option></select></label>
+<input name="clock_action" type="hidden" value="clock_in">
+<fieldset class="clock-actions" aria-label="What are you recording?">
+<legend>Record</legend>
+<button type="button" data-clock-action="clock_in" aria-pressed="true">Clock in</button>
+<button type="button" data-clock-action="lunch_start" aria-pressed="false">Lunch start</button>
+<button type="button" data-clock-action="lunch_end" aria-pressed="false">Lunch end</button>
+<button type="button" data-clock-action="clock_out" aria-pressed="false">Clock out</button>
+<button type="button" data-clock-action="absent" aria-pressed="false">Absent</button>
+<button type="button" class="clock-full-day-button" data-clock-action="full_day" aria-pressed="false" aria-label="Fill out a whole day" title="Fill out a whole day">+</button>
+</fieldset>
 <label>Date<input name="clock_date" type="date" required></label>
-<label>Time<input name="clock_time" type="time" required></label>
+<label data-clock-time-field>Time<input name="clock_time" type="time" required></label>
+<label data-absence-field hidden>Absence reason<select name="absence_reason" disabled><option value="Sick">Sick</option><option value="Holiday">Holiday</option><option value="Time Off">Time Off</option><option value="Other">Other</option></select></label>
+<section class="clock-full-day" data-full-day-fields hidden aria-label="Full day details">
+<p>Whole day details</p>
+<div class="clock-full-day-grid">
+<label>Start<input name="day_start" type="time" disabled></label>
+<label>Lunch start<input name="day_lunch_start" type="time" disabled></label>
+<label>Lunch end<input name="day_lunch_end" type="time" disabled></label>
+<label>Finish<input name="day_finish" type="time" disabled></label>
+</div>
+</section>
+<details class="clock-note-details">
+<summary>Add a note (optional)</summary>
+<label>Note<textarea name="clock_note" rows="3" placeholder="Add a note for accounts, if needed."></textarea></label>
+</details>
 <button type="submit" data-clock-submit>Submit clock in</button>
 <p class="small-text clock-status" aria-live="polite"></p>
 </form>

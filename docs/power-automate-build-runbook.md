@@ -79,8 +79,8 @@ Never use a personal Outlook guest account as the long-term flow connection.
    ```
 
 3. Create a SharePoint document library or top-level folder named `GMT Web-App`.
-4. Create these Microsoft Lists: `Timesheet Submissions`, `Audit Submissions`,
-   `Job Cards`, `Tasks`, and `Calendar Requests`.
+4. Create these Microsoft Lists: `Timesheet Submissions`, `Clock Events`,
+   `Audit Submissions`, `Job Cards`, `Tasks`, and `Calendar Requests`.
 5. Give the accounts team access to the mailbox, SharePoint library and Lists.
 6. Create Outlook rules that place messages into the appropriate `GMT Portal`
    folder using both recipient tags and subject tags as fallback.
@@ -96,6 +96,13 @@ URLs and metadata that may contain inconsistent formats.
 `Year`, `Month`, `Worked Hours`, `Basic Hours`, `OT 1.5`, `OT 2.0`, `Status`,
 `Submitted At`, `XLSX Link`, `CSV Link`, `Folder Link`, `Source Email Subject`,
 `Processed By Flow`.
+
+### Clock Events
+
+`Record ID`, `Employee Name`, `Employee Email`, `Record Date`, `Action`,
+`Absence Reason`, `Note`, `Start Time`, `Lunch Start`, `Lunch End`, `Finish
+Time`, `Worked Hours`, `Year`, `Month`, `Submitted At`, `XLSX Link`, `CSV
+Link`, `Folder Link`, `Source Email Subject`, `Processed By Flow`.
 
 ### Audit Submissions
 
@@ -183,6 +190,83 @@ event, then remove the test events.
 
 **Test:** submit one small real timesheet; verify two attachments, one list item,
 correct folder path, and the processed email.
+
+## Flow 1A: Clock Event Intake
+
+**Trigger:** Outlook: *When a new email arrives (V3)* in `GMT Portal/Timesheets`.
+
+1. Check the subject contains `[GMT][TIMESHEET][CLOCK]` or
+   `[GMT][TIMESHEET][DAY]`, and validate `gmt_type=timesheet_clock`.
+2. Validate `gmt_employee`, `gmt_clock_date`, `gmt_action`, `gmt_year` and
+   `gmt_month`. Treat the email fields as untrusted input and move malformed
+   items to `GMT Portal/Failed - Needs Review`.
+3. Create the day folder, if required:
+
+   ```text
+   GMT Web-App/Timesheets/{year}/{month}/{employee}/{yyyy-mm-dd}/
+   ```
+
+4. Save the controlled XLSX and CSV attachments in that folder. Do not save
+   inline images or unexpected attachment types.
+5. Create one `Clock Events` List item. Use the action, absence reason, note,
+   start/lunch/finish fields and worked hours from the `gmt_*` envelope.
+6. Move the source email to `GMT Portal/Processed`.
+
+The website does not write to OneDrive or Lists itself. It sends one FormSubmit
+email with the fields above and an XLSX plus CSV. The flow owns the company file
+path and list record, preventing browser credentials or Microsoft tokens from
+being exposed.
+
+**Test:** send one clock-in, one lunch event, one full-day event and one Sick
+absence. Confirm four List records and four day folders, with the absence marked
+as `Absent` and no worked hours.
+
+## Flow 1B: End-of-Day Clock Compliance Reminder
+
+**Trigger:** Recurrence, Monday-Friday at 17:30 Europe/London. Use the business
+calendar/holiday policy to skip company shutdown days.
+
+1. Query `Clock Events` for the current local date and each active employee.
+2. Do not send a reminder when an `absent` event is recorded for that employee
+   and date.
+3. Do not send a reminder when the employee has either a full-day event or both
+   a `clock_in` and `clock_out` event.
+4. Otherwise, send one reminder to the employee's approved work address:
+   `Please complete today's clock record: {missing action}.`
+5. Store a `Reminder Sent At` timestamp or a separate compliance-log item so a
+   person receives no more than one reminder per day. Copy accounts only after
+   the agreed escalation window, not on every reminder.
+
+This flow must use a fixed `Europe/London` timezone conversion. It must not use
+the flow owner's local timezone or send reminders solely because an email was
+delayed by FormSubmit.
+
+## Flow 1C: Monthly Timesheet Register
+
+**Trigger:** Recurrence on the first day of each month at 00:15 Europe/London.
+Process the preceding calendar month after the agreed submission grace period.
+
+1. Query `Clock Events` and `Timesheet Submissions` for the prior month.
+2. Group records by canonical employee name/email; use the List record as the
+   authority where names vary.
+3. Run an accounts-owned Office Script against a blank GMT monthly-register
+   template. It creates one worksheet per employee, then an `All Users` sheet
+   and a `Monthly Totals` sheet at the end.
+4. Each individual worksheet includes the date, actions, absence reason, note,
+   start/lunch/finish, worked/basic/OT fields and links to the source files.
+5. Save the resulting workbook to:
+
+   ```text
+   GMT Web-App/Timesheets/{year}/{month}/GMT Timesheet Register {yyyy-mm}.xlsx
+   ```
+
+6. Create a completion record or email accounts with the workbook link and any
+   records that could not be matched to an employee.
+
+Power Automate's standard Excel actions are poor at dynamically creating a
+variable number of worksheets. Use Office Script for the workbook creation;
+the flow supplies validated List rows and owns the schedule. Do not try to make
+the static website aggregate monthly files.
 
 ## Flow 2: Audit Intake
 
