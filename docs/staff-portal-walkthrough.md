@@ -1,32 +1,36 @@
-# Staff Portal Walkthrough Video
+# Staff Portal Training Videos
 
-The employee walkthrough is generated locally, not committed as a Git binary:
+The Staff Portal now has separate, paced videos rather than one rapid overview.
+They are available to signed-in staff at `/training/`.
 
-```text
-outputs/staff-walkthrough/gmt-staff-portal-walkthrough.mp4
-```
+| Video | Covers |
+| --- | --- |
+| Using your portal profile | Microsoft sign-in, profile and reused identity |
+| Clock, lunch, absence and whole day | Quick record buttons, date/time, absence, full day and optional note |
+| Weekly timesheet | Week dates, daily cards, breaks, absences and calculated results |
+| Job card | Reference, client, site, engineer, photo and work description |
+| Task request | Title, job reference, owner, due date, priority and approval |
+| Calendar request | Event details and accounts approval before Outlook publication |
+| Timesheet audit | Supported source files, calculation/check and decision-first review |
 
-It covers:
+Every recording:
 
-1. Signing in with an existing GMT Microsoft 365 account.
-2. Quick clock, lunch, absence and full-day records.
-3. Weekly timesheet creation and daily cards.
-4. Job cards.
-5. Task requests.
-6. Calendar requests.
-7. Timesheet audit uploads.
-
-The recording uses only `Demo Employee` values and never clicks a real submit
-button. It is safe to circulate internally as a training video.
+- uses `Demo Employee` and training-only data;
+- includes a visible moving cursor and highlighted next control;
+- never clicks a real submit button;
+- is paced for employees to follow one action at a time.
 
 ## Regenerate
 
 ```bash
 node tools/record-staff-walkthrough.mjs all
-ffmpeg -y -i outputs/staff-walkthrough/gmt-staff-portal-walkthrough-part-1.mp4 \
-  -c copy outputs/staff-walkthrough/gmt-staff-portal-walkthrough.mp4
 ```
 
-The script records the current local files with Entra authentication disabled
-only inside its temporary local server. Production users still sign in through
-Microsoft Entra.
+Generate one video when changing a single workflow:
+
+```bash
+node tools/record-staff-walkthrough.mjs clock-record
+node tools/record-staff-walkthrough.mjs weekly-timesheet
+```
+
+Generated video and poster assets are held in `training/media/` so GitHub Pages can serve the authenticated training page. The recorder starts a local temporary server that disables Entra only for recording; production pages still require Microsoft Entra sign-in.

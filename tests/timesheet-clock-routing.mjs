@@ -104,6 +104,7 @@ try {
       await card.locator('[name="day_lunch_start"]').fill(entry.lunchStart);
       await card.locator('[name="day_lunch_end"]').fill(entry.lunchEnd);
       await card.locator('[name="day_finish"]').fill(entry.finish);
+      await card.locator('.clock-note-details summary').click();
       await card.locator('[name="clock_note"]').fill(entry.note);
     } else {
       await card.locator('[name="clock_time"]').fill(entry.time);
@@ -148,7 +149,7 @@ try {
   entries.forEach((entry, index) => {
     const form = result[index];
     const fields = new Map(form.fields);
-    const fileList = form.files[0]?.files || [];
+    const fileList = form.files.flatMap((entry) => entry.files);
     const workbook = fileList.find((file) => file.name.endsWith('.xlsx'));
     const csv = fileList.find((file) => file.name.endsWith('.csv'));
     assert.equal(form.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
