@@ -13,9 +13,9 @@ window.GMT_APP_CONFIG = {
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
   formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   umami: {
-    enabled: false,
+    enabled: true,
     scriptUrl: "https://cloud.umami.is/script.js",
-    websiteId: ""
+    websiteId: "3b22159f-da25-4ae0-93f1-beeaf858b685"
   },
   // Leave empty until accounts@gmt-services.co.uk is a mail-enabled Exchange mailbox.
   formSubmitCc: "",
