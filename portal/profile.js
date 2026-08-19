@@ -24,6 +24,10 @@
     emailInput.value = profile.notificationEmail || "";
   }
 
+  function looksLikeEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+  }
+
   function saveProfile(profile) {
     try {
       localStorage.setItem(storageKey, JSON.stringify(profile));
@@ -39,8 +43,15 @@
     var identity = event.detail || {};
     var profile = readProfile();
     var previousUsername = profile.username || "";
+    var previousSubject = profile.subject || "";
     var legacyContactEmail = profile.contactEmail || "";
-    profile.name = identity.name || "";
+    var identityName = String(identity.name || "").trim();
+    // A tenant may have no display name and return the sign-in address as
+    // account.name. Never present that address as the employee's full name.
+    // Preserve a manually entered name only for the same authenticated user.
+    profile.name = !looksLikeEmail(identityName)
+      ? identityName
+      : (previousSubject === (identity.subject || "") && !looksLikeEmail(profile.name) ? profile.name : "");
     profile.username = identity.username || "";
     profile.subject = identity.subject || "";
     // Migrate the old contactEmail field only when it was genuinely a
@@ -56,6 +67,7 @@
   form.addEventListener("submit", function (event) {
     event.preventDefault();
     var profile = readProfile();
+    profile.name = nameInput.value.trim();
     profile.notificationEmail = emailInput.value.trim();
     if (profile.notificationEmail && !emailInput.checkValidity()) {
       status.textContent = "Enter a valid personal email address.";

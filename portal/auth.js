@@ -79,7 +79,8 @@
       var profile = JSON.parse(localStorage.getItem(profileKey) || "{}");
       // The authenticated Entra account is authoritative. Do not retain a
       // previous user's name when another account signs in on this browser.
-      profile.name = account.name || account.username || "";
+      var accountName = String(account.name || "").trim();
+      profile.name = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accountName) ? "" : accountName;
       profile.username = account.username || "";
       profile.subject = account.homeAccountId || "";
       localStorage.setItem(profileKey, JSON.stringify(profile));
