@@ -72,6 +72,11 @@ footer {
   object-position: center 40%;
 }
 
+.brand picture,
+.service-card picture {
+  display: block;
+}
+
 .site-nav {
   display: flex;
   flex-wrap: wrap;
@@ -120,7 +125,7 @@ footer {
   position: absolute;
   inset: -4rem 8% -4rem -8%;
   z-index: -1;
-  background: url("image.png") center / min(760px, 82%) auto no-repeat;
+  background: url("image.webp") center / min(760px, 82%) auto no-repeat;
   opacity: .075;
   pointer-events: none;
 }

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg?v=portal-favicon-20260819">
+<link rel="alternate icon" type="image/svg+xml" href="../favicon.svg?v=portal-favicon-20260819">
+<meta name="theme-color" content="#123d1d">
+<title>My GMT account</title>
+<style>
+  :root, body { background: #f3f7ef !important; }
+  .app-header.portal-header { background: linear-gradient(135deg, #123d1d, #1f5a31) !important; color: #fff !important; border-bottom: 4px solid #d5b64a !important; }
+  .portal-header h1, .portal-header p { color: #fff !important; }
+  .portal-header .eyebrow { color: #fff3b8 !important; }
+  .portal-header .header-actions a { color: #fff !important; }
+  .app-main[hidden] { display: none; }
+</style>
+<link rel="stylesheet" href="../styles.css?v=portal-dashboard-20260819-2">
+<link rel="stylesheet" href="../portal.css?v=portal-dashboard-20260819-2">
+<script src="../config.js?v=portal-redirect-20260819"></script>
+<script defer src="../analytics.js?v=umami-20260819"></script>
+<script defer src="auth.js?v=entra-auth-20260819"></script>
+</head>
+<body>
+<header class="app-header portal-header">
+  <div class="brand-block">
+    <img src="../image.webp" alt="GMT Electrical Services Ltd logo" class="site-logo" width="1536" height="1024">
+    <div><p class="eyebrow">GMT Staff Portal</p><h1>My account</h1><p class="portal-header-subtitle">Your personal GMT portal settings</p></div>
+  </div>
+  <nav class="header-actions" aria-label="Account navigation">
+    <a href="index.html">Back to portal</a>
+    <a href="../">Public site</a>
+    <button type="button" id="portal-sign-out" hidden>Sign out</button>
+  </nav>
+</header>
+<main class="app-main account-main" hidden>
+  <section class="card portal-profile-card account-settings-page" id="portal-account" aria-labelledby="portal-profile-title">
+    <div>
+      <p class="portal-card-kicker">Account settings</p>
+      <h2 id="portal-profile-title">My GMT account</h2>
+      <p class="small-text">Your GMT login comes from Microsoft. Confirm your display name and add an optional personal email for copies of timesheet submissions.</p>
+      <div class="portal-account-links">
+        <a class="portal-text-link" href="../timesheets/">View my timesheets <span aria-hidden="true">→</span></a>
+        <a class="portal-text-link" href="../tools/">View my requests <span aria-hidden="true">→</span></a>
+      </div>
+    </div>
+    <form id="portal-profile-form" class="portal-profile-form">
+      <label>Full name<input id="portal-profile-name" name="profile_name" type="text" autocomplete="name" placeholder="Enter your full name"></label>
+      <label>GMT login email<input id="portal-profile-login-email" name="profile_login_email" type="email" autocomplete="username" readonly></label>
+      <label>Personal email for copies <span class="small-text">optional</span><input id="portal-profile-email" name="profile_email" type="email" autocomplete="email" placeholder="personal@example.com"></label>
+      <p class="small-text">This saves on this device and can be used for submission copies. It does not change Microsoft 365 mailbox forwarding.</p>
+      <button type="submit" class="secondary">Save account settings</button>
+      <p id="portal-profile-status" class="small-text" aria-live="polite"></p>
+    </form>
+  </section>
+</main>
+<script defer src="profile.js?v=portal-account-settings-20260819-2"></script>
+</body>
+</html>

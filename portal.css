@@ -64,6 +64,53 @@
 .portal-action-primary .portal-action-icon { color: var(--green); background: #fff; }
 .portal-arrow { color: var(--green-2); font-size: 1.3rem; font-weight: 900; }
 .portal-action-primary .portal-arrow { color: #fff; }
+.portal-updates {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin: 1.2rem 0;
+  padding: clamp(1.1rem, 3vw, 1.6rem);
+  color: #fff;
+  background: linear-gradient(120deg, #123d1d, #2d6a3c);
+  border: 1px solid #2d6a3c;
+  border-radius: 1.1rem;
+  box-shadow: 0 16px 34px rgba(18, 61, 29, .18);
+}
+.portal-updates h2 { margin: .25rem 0 .4rem; color: #fff; font-size: clamp(1.4rem, 3.5vw, 2rem); }
+.portal-updates p:not(.eyebrow) { margin: 0; color: #e7f2e5; line-height: 1.5; }
+.portal-updates .eyebrow { margin: 0; color: #fff3b8; }
+.portal-notification-empty {
+  display: flex;
+  gap: .65rem;
+  align-items: center;
+  min-width: 220px;
+  padding: .8rem 1rem;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: .9rem;
+}
+.portal-notification-empty > span { display: grid; place-items: center; width: 2rem; height: 2rem; color: #123d1d; background: #fff; border-radius: 50%; font-weight: 900; }
+.portal-notification-empty strong, .portal-notification-empty small { display: block; color: #fff; }
+.portal-notification-empty small { margin-top: .15rem; color: #e7f2e5; }
+.portal-dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin: 1rem 0; }
+.portal-calendar-preview { grid-column: 1 / -1; padding: 1rem 1.1rem; background: rgba(255, 255, 255, .82); border: 1px solid var(--line); border-radius: 1rem; }
+.portal-calendar-preview-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
+.portal-calendar-preview h2 { margin: .25rem 0 0; color: var(--green); }
+.portal-calendar-month { margin-top: .75rem; }
+.portal-calendar-month-title { margin-bottom: .45rem; color: var(--green); font-weight: 900; }
+.portal-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .25rem; }
+.portal-calendar-weekday, .portal-calendar-day { display: grid; place-items: center; min-height: 2rem; border-radius: .45rem; font-size: .82rem; }
+.portal-calendar-weekday { color: var(--muted); font-weight: 800; }
+.portal-calendar-day { background: #f5f8f3; border: 1px solid transparent; }
+.portal-calendar-day.is-empty { background: transparent; }
+.portal-calendar-day.is-today { color: #fff; background: var(--green); font-weight: 900; }
+.portal-calendar-empty { margin: .65rem 0 0; color: var(--muted); font-size: .9rem; }
+.portal-dashboard-help { grid-column: 1 / -1; margin: 0; }
+.portal-profile-card.account-settings-page { margin-top: 1.5rem; }
+.clock-location-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; align-items: end; }
+.clock-location-control button { width: auto; white-space: nowrap; }
+.clock-location-status { min-height: 1.3em; margin: 0; }
 .portal-overview-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .85rem; margin: 1rem 0; }
 .portal-overview-card { padding: 1rem 1.1rem; background: rgba(255,255,255,.72); border: 1px solid var(--line); border-radius: 1rem; }
 .portal-overview-card h2 { margin: .3rem 0; color: var(--green); font-size: 1.2rem; }
@@ -476,6 +523,13 @@
   .portal-welcome-mark { flex-basis: 68px; width: 68px; height: 68px; border-width: 6px; font-size: .85rem; }
   .portal-section-heading { align-items: flex-start; flex-direction: column; }
   .portal-action-grid, .portal-overview-grid { grid-template-columns: 1fr; }
+  .portal-updates { align-items: flex-start; flex-direction: column; }
+  .portal-notification-empty { width: 100%; }
+  .portal-dashboard-grid { grid-template-columns: 1fr; }
+  .portal-calendar-preview { grid-column: auto; }
+  .portal-calendar-preview-heading { align-items: flex-start; flex-direction: column; }
+  .clock-location-control { grid-template-columns: 1fr; }
+  .clock-location-control button { width: 100%; }
   .portal-tabs {
     padding: .6rem .55rem;
   }

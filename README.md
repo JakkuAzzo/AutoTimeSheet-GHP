@@ -7,6 +7,7 @@ Employees can submit timesheets without an account. The public form is designed 
 - employee name required before submission
 - week start date
 - location / site per day
+- optional current-location capture for punch-card records after an explicit user action
 - start and finish time per day
 - lunch yes/no and lunch length
 - absent yes/no
@@ -16,6 +17,8 @@ Employees can submit timesheets without an account. The public form is designed 
 - local draft save
 - calculated Basic / OT x1.5 / OT x2.0 totals
 - FormSubmit email submission
+
+Location capture is opt-in: the browser never requests geolocation automatically. A user must choose “Use current location”, review the approximate coordinates, and then submit them with the punch-card record.
 
 ## GMT overtime rules
 
