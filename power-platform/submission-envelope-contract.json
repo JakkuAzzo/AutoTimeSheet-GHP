@@ -37,6 +37,8 @@
   "clockEvent": {
     "required": [
       "gmt_employee",
+      "gmt_workbook_key",
+      "gmt_filing_mode",
       "gmt_clock_date",
       "gmt_action",
       "gmt_year",
@@ -63,7 +65,10 @@
       ".xlsx",
       ".csv"
     ],
-    "storagePath": "GMT Web-App/Timesheets/{year}/{month}/{employee}/{yyyy-mm-dd}/"
+    "storagePath": "GMT Web-App/Timesheets/{year}/{month}/{employee}/",
+    "filingMode": "monthly-upsert",
+    "dedupeKey": "gmt_record_id",
+    "workbookKey": "gmt_workbook_key"
   },
   "jobcard": {
     "required": [

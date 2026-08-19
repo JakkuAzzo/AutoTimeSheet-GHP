@@ -7,8 +7,7 @@
   };
   const localKeys = {
     jobs: 'gmt_portal_job_cards_v1',
-    tasks: 'gmt_portal_tasks_v1',
-    events: 'gmt_portal_calendar_v1'
+    tasks: 'gmt_portal_tasks_v1'
   };
   const $ = (selector) => document.querySelector(selector);
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -54,11 +53,10 @@
       </div>
       <section class="card">
         <h3>Admin publish package</h3>
-        <p class="small-text">Download local job cards, tasks, and calendar events as JSON files. Admin can paste the JSON into the manual GitHub Action to publish approved records into <code>/data</code>.</p>
+        <p class="small-text">Download local job cards and tasks as JSON files. Calendar requests are not exportable from browser storage; only approved non-sensitive events from the protected publication path may reach <code>/data</code>.</p>
         <div class="action-bar" style="justify-content:flex-start;">
           <button type="button" id="download-jobs-json" class="secondary">Download local job cards JSON</button>
           <button type="button" id="download-tasks-json" class="secondary">Download local tasks JSON</button>
-          <button type="button" id="download-events-json" class="secondary">Download local calendar events JSON</button>
           <a class="button-link" href="https://github.com/JakkuAzzo/AutoTimeSheet-GHP/actions/workflows/publish-portal-data.yml" target="_blank" rel="noopener">Open publish workflow</a>
         </div>
       </section>
@@ -81,7 +79,6 @@
       }
       if (event.target.id === 'download-jobs-json') downloadLocalJson('job-cards', localKeys.jobs);
       if (event.target.id === 'download-tasks-json') downloadLocalJson('tasks', localKeys.tasks);
-      if (event.target.id === 'download-events-json') downloadLocalJson('calendar-events', localKeys.events);
     });
   }
 

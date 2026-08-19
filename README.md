@@ -82,6 +82,11 @@ FormSubmit may treat each plus-addressed alias as a separate destination. Confir
 
 See `docs/business-mailbox-power-automate-migration-plan.md` for the Microsoft 365 business mailbox migration plan, `docs/mail-routing-verification-checklist.md` for the pre-cutover delivery, forwarding, and backup checks, `docs/outlook-onedrive-filing-and-index-plan.md` for the storage/index plan, and `docs/power-automate-build-runbook.md` for the production flow build order, validation and rollback steps. The public-site package and WordPress implementation boundary are defined in `docs/bonline-wordpress-handover-plan.md`.
 
+The staged replacement for the legacy personal Outlook intake is documented in
+`docs/timesheet-fallback-routing-plan.md`. It must not be enabled until the
+dedicated `info+timesheets` FormSubmit destination is activated and delivery,
+attachment, SharePoint filing, filtered external-copy, and rollback tests pass.
+
 See `docs/entra-github-pages-authentication-plan.md` for the Microsoft 365
 sign-in boundary for the staff portal. The static site can use Entra sign-in to
 gate its interface, but private Microsoft data still needs Power Automate or a

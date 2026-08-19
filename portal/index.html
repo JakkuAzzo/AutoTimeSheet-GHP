@@ -4,38 +4,105 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg?v=portal-favicon-20260819">
+<link rel="alternate icon" type="image/svg+xml" href="../favicon.svg?v=portal-favicon-20260819">
+<meta name="theme-color" content="#123d1d">
 <title>GMT Staff Portal</title>
-<link rel="stylesheet" href="../styles.css?v=portal-route-20260629">
-<link rel="stylesheet" href="../portal.css?v=portal-route-20260629">
-<script src="../config.js"></script>
-<script defer src="../analytics.js?v=umami-20260810"></script>
-<script defer src="auth.js?v=entra-auth-20260715-2"></script>
+<link rel="stylesheet" href="../styles.css?v=portal-dashboard-20260819">
+<link rel="stylesheet" href="../portal.css?v=portal-dashboard-20260819">
+<script src="../config.js?v=portal-redirect-20260819"></script>
+<script defer src="../analytics.js?v=umami-20260819"></script>
+<script defer src="auth.js?v=entra-auth-20260819"></script>
 </head>
 <body>
-<header class="app-header">
+<header class="app-header portal-header">
   <div class="brand-block">
     <img src="../image.png" alt="GMT Electrical Services Ltd logo" class="site-logo">
     <div>
       <p class="eyebrow">93-95 Gloucester Rd, Croydon CR0 2DN</p>
       <h1>Staff Portal</h1>
+      <p class="portal-header-subtitle">Your secure GMT work hub</p>
     </div>
   </div>
   <nav class="header-actions">
     <a href="../">Public site</a>
-    <a href="https://myaccount.microsoft.com/" target="_blank" rel="noopener">My account</a>
+    <a href="#portal-account" class="portal-account-link">My account</a>
     <button type="button" id="portal-sign-out" hidden>Sign out</button>
   </nav>
 </header>
 <main class="app-main" hidden>
-  <section class="card portal-profile-card" aria-labelledby="portal-profile-title">
+  <section class="portal-welcome" aria-labelledby="portal-welcome-title">
     <div>
-      <h2 id="portal-profile-title">Your portal profile</h2>
-      <p class="small-text">Add a contact email for timesheet copies. This profile is saved only in this browser.</p>
+      <p class="eyebrow">GMT Electrical Services Ltd</p>
+      <h2 id="portal-welcome-title">A simpler place to start your day</h2>
+      <p>Record time, open a job, check shared information or request time away from one clear dashboard.</p>
+    </div>
+    <div class="portal-welcome-mark" aria-hidden="true">GMT</div>
+  </section>
+
+  <section class="portal-quick-actions" aria-labelledby="portal-actions-title">
+    <div class="portal-section-heading">
+      <div>
+        <p class="eyebrow">Quick actions</p>
+        <h2 id="portal-actions-title">What do you need to do?</h2>
+      </div>
+      <span class="portal-secure-chip">Signed-in GMT account</span>
+    </div>
+    <div class="portal-action-grid">
+      <a class="portal-action-card portal-action-primary" href="../timesheets/create.html">
+        <span class="portal-action-icon" aria-hidden="true">✓</span>
+        <span><strong>Record time</strong><small>Clock, breaks, absence and notes</small></span>
+        <span class="portal-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="portal-action-card" href="../jobs/">
+        <span class="portal-action-icon" aria-hidden="true">▦</span>
+        <span><strong>Job Cards</strong><small>Create or review a job record</small></span>
+        <span class="portal-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="portal-action-card" href="../tools/">
+        <span class="portal-action-icon" aria-hidden="true">◫</span>
+        <span><strong>Tasks &amp; calendar</strong><small>Requests, events and shared tools</small></span>
+        <span class="portal-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="portal-action-card portal-action-gold" href="../training/">
+        <span class="portal-action-icon" aria-hidden="true">?</span>
+        <span><strong>Training videos</strong><small>Short guided walkthroughs</small></span>
+        <span class="portal-arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="portal-overview-grid" aria-label="Portal overview">
+    <article class="portal-overview-card">
+      <span class="portal-card-kicker">Shared information</span>
+      <h2>Calendar</h2>
+      <p>See approved operational events and open the calendar tools when you need to make a request.</p>
+      <a class="portal-text-link" href="../tools/">Open calendar tools <span aria-hidden="true">→</span></a>
+    </article>
+    <article class="portal-overview-card">
+      <span class="portal-card-kicker">Need a hand?</span>
+      <h2>Start with training</h2>
+      <p>Use the short demos for weekly timesheets, job cards, tasks, calendar requests and audit.</p>
+      <a class="portal-text-link" href="../training/">Watch walkthroughs <span aria-hidden="true">→</span></a>
+    </article>
+  </section>
+
+  <section class="card portal-profile-card" id="portal-account" aria-labelledby="portal-profile-title">
+    <div>
+      <p class="portal-card-kicker">Account settings</p>
+      <h2 id="portal-profile-title">My GMT account</h2>
+      <p class="small-text">Your GMT login comes from Microsoft. Confirm your display name and add an optional personal email for copies of timesheet submissions.</p>
+      <div class="portal-account-links">
+        <a class="portal-text-link" href="../timesheets/">View my timesheets <span aria-hidden="true">→</span></a>
+        <a class="portal-text-link" href="../tools/">View my requests <span aria-hidden="true">→</span></a>
+      </div>
     </div>
     <form id="portal-profile-form" class="portal-profile-form">
-      <label>Full name<input id="portal-profile-name" name="profile_name" type="text" autocomplete="name" required></label>
-      <label>Contact email<input id="portal-profile-email" name="profile_email" type="email" autocomplete="email" placeholder="name@example.com"></label>
-      <button type="submit" class="secondary">Save profile</button>
+      <label>Full name<input id="portal-profile-name" name="profile_name" type="text" autocomplete="name" placeholder="Enter your full name"></label>
+      <label>GMT login email<input id="portal-profile-login-email" name="profile_login_email" type="email" autocomplete="username" readonly></label>
+      <label>Personal email for copies <span class="small-text">optional</span><input id="portal-profile-email" name="profile_email" type="email" autocomplete="email" placeholder="personal@example.com"></label>
+      <p class="small-text">This saves on this device and can be used for submission copies. It does not change Microsoft 365 mailbox forwarding.</p>
+      <button type="submit" class="secondary">Save account settings</button>
       <p id="portal-profile-status" class="small-text" aria-live="polite"></p>
     </form>
   </section>
@@ -46,6 +113,6 @@
     <a class="portal-feature-card portal-training-card" href="../training/"><span>Training videos</span><small>Watch a separate guided demo for quick records, timesheets, job cards, tasks, calendar and audit.</small></a>
   </section>
 </main>
-<script defer src="profile.js?v=portal-profile-20260715"></script>
+<script defer src="profile.js?v=portal-account-settings-20260819"></script>
 </body>
 </html>

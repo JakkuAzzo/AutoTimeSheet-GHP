@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">GMT Electrical Services</title>
+  <desc id="desc">GMT monogram in dark green and gold</desc>
+  <rect width="256" height="256" rx="48" fill="#123d1d"/>
+  <circle cx="128" cy="128" r="86" fill="none" stroke="#d5b64a" stroke-width="13"/>
+  <path d="M157 67v117M157 67l-54 56m54-56 32 31m-32 9 31 58" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="17"/>
+  <path d="M101 74c-22 8-37 29-37 54 0 32 25 57 57 57 10 0 20-3 28-8" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="17"/>
+</svg>

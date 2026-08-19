@@ -31,10 +31,12 @@ let absenceRanges = [];
 let recalculateTimer = null;
 let xlsxPromise = null;
 
-function applyPortalProfile(profile) {
+function applyPortalProfile(profile, force = false) {
   if (!profile || typeof profile !== 'object') return;
-  if (!employeeName.value.trim() && profile.name) employeeName.value = profile.name;
-  if (!employeeEmail.value.trim() && profile.contactEmail) employeeEmail.value = profile.contactEmail;
+  if (profile.name && (force || !employeeName.value.trim())) employeeName.value = profile.name;
+  if ((profile.username || profile.notificationEmail) && (force || !employeeEmail.value.trim())) {
+    employeeEmail.value = profile.username || profile.notificationEmail;
+  }
   if (profile.name && timesheetEntryTitle && timesheetEntryCopy) {
     timesheetEntryTitle.textContent = 'Your timesheet';
     timesheetEntryCopy.textContent = 'Your GMT profile has filled in your name. Choose week dates, mark absences, then complete daily entries.';
@@ -781,7 +783,8 @@ async function submitTimesheet(event) {
     emailForm.action = formSubmitEndpoint();
     field('subject').value = `[GMT][TIMESHEET][SUBMISSION] ${employeeName.value.trim()} | Week ${weekStart.value || 'unspecified'}`;
     field('replyto').value = userEmail;
-    field('cc').value = [CONFIG.formSubmitCc, userEmail].filter(Boolean).join(',');
+    const profile = localPortalProfile();
+    field('cc').value = [CONFIG.formSubmitCc, userEmail, profile.notificationEmail].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(',');
     field('employeeName').value = employeeName.value.trim();
     field('employeeEmail').value = userEmail;
     field('gmtType').value = 'timesheet';
@@ -897,7 +900,7 @@ addAbsenceBtn.addEventListener('click', addAbsenceRange);
 saveDraftBtn.addEventListener('click', saveDraftManually);
 clearDraftBtn.addEventListener('click', clearDraft);
 form.addEventListener('submit', submitTimesheet);
-document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail));
+document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail, true));
 
 loadPortalProfile();
 // Safari can visually restore native date controls while their DOM values are blank.

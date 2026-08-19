@@ -428,22 +428,7 @@
   }
 
   function exportCalendarIcs() {
-    const events = store.get(keys.calendar, []);
-    if (!events.length) {
-      logNotification('Calendar', 'No calendar events to export.');
-      return;
-    }
-    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    const body = events.map((event) => `BEGIN:VEVENT\r\nUID:${event.id}@gmt-portal\r\nDTSTAMP:${stamp}\r\nDTSTART;VALUE=DATE:${ymd(event.date)}\r\nDTEND;VALUE=DATE:${ymd(nextDay(event.date))}\r\nSUMMARY:${icsText(`${event.type}: ${event.title}`)}\r\nLOCATION:${icsText(event.location || '')}\r\nDESCRIPTION:${icsText(`Owner: ${event.owner || 'Unassigned'} | Status: ${event.status} | Notes: ${event.notes || ''}`)}\r\nEND:VEVENT`).join('\r\n');
-    const calendar = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//GMT Electrical Services//Operations Portal//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:GMT Operations Calendar\r\n${body}\r\nEND:VCALENDAR\r\n`;
-    const blob = new Blob([calendar], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'gmt-operations-calendar.ics';
-    a.click();
-    URL.revokeObjectURL(url);
-    logNotification('Calendar', 'Calendar .ics exported. Import it into Outlook, Apple Calendar, or Google Calendar.');
+    logNotification('Calendar', 'Calendar export is unavailable until the protected Microsoft 365 calendar feed is connected.');
   }
 
   function bindCalendar() {

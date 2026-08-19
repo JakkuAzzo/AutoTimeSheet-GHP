@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg?v=estimates-favicon-20260818">
+<title>GMT Estimate Builder</title>
+<link rel="stylesheet" href="../styles.css?v=estimates-20260818">
+<link rel="stylesheet" href="../portal.css?v=estimates-20260818">
+<link rel="stylesheet" href="estimates.css?v=estimates-20260818">
+<script src="../config.js?v=estimates-20260818"></script>
+<script defer src="../portal/auth.js?v=entra-auth-20260818"></script>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand-block"><img src="../image.png" alt="GMT Electrical Services Ltd logo" class="site-logo"><div><p class="eyebrow">93-95 Gloucester Rd, Croydon CR0 2DN</p><h1>Estimate builder</h1><p>Create a branded estimate ready for review.</p></div></div>
+  <nav class="header-actions"><a href="../portal/">Staff Portal</a><a href="./">Tools</a><a href="../jobs/">Job Cards</a></nav>
+</header>
+<main class="app-main estimate-main" hidden>
+  <section class="estimate-intro card"><div><p class="portal-card-kicker">Accounts workflow</p><h2>Build, review and file an estimate</h2><p>Draft the estimate in the browser, check the client-facing preview, then download a Word document or print/save a PDF. Filing and sending are kept behind the approved Microsoft 365 workflow.</p></div><span class="estimate-status-chip">Preview first</span></section>
+  <div class="estimate-layout">
+    <form id="estimate-form" class="card estimate-form" novalidate>
+      <div class="estimate-form-heading"><div><p class="portal-card-kicker">1 · Details</p><h2>Estimate details</h2></div><button type="button" id="clear-estimate" class="secondary">Clear</button></div>
+      <div class="form-grid">
+        <label>Estimate number<input id="estimate-number" required value="GMT-EST-001"></label>
+        <label>Date<input id="estimate-date" type="date" required></label>
+        <label>For the attention of<input id="estimate-attention" required placeholder="Client contact"></label>
+        <label>Company<input id="estimate-company" required placeholder="Client company"></label>
+        <label>Client email<input id="estimate-client-email" type="email" placeholder="client@example.com"></label>
+        <label>Valid for (days)<input id="estimate-validity" type="number" min="1" value="30"></label>
+        <label>Prepared by<input id="estimate-prepared-by" placeholder="Name"></label>
+        <label>VAT rate (%)<input id="estimate-vat-rate" type="number" min="0" max="100" step="0.1" value="20"></label>
+      </div>
+      <label>Reference / subject<input id="estimate-reference" required placeholder="Re: replacement fan supply and fitting"></label>
+      <label>Opening message<textarea id="estimate-opening" rows="3">We thank you for your recent enquiry and are pleased to submit our estimate as follows.</textarea></label>
+      <div class="estimate-form-heading"><div><p class="portal-card-kicker">2 · Pricing</p><h2>Line items</h2></div><button type="button" id="add-estimate-line" class="secondary">Add line</button></div>
+      <div id="estimate-lines" class="estimate-lines" aria-live="polite"></div>
+      <label>Notes and terms<textarea id="estimate-terms" rows="5">All works quoted are for normal working hours. This estimate is valid for 30 days. Please contact us if you require any further information.</textarea></label>
+      <div class="estimate-actions"><button type="button" id="download-estimate-word">Download Word</button><button type="button" id="print-estimate" class="secondary">Print / save PDF</button><button type="button" id="send-estimate" class="secondary">Send to Accounts for filing</button></div>
+      <p id="estimate-status" class="small-text" role="status" aria-live="polite"></p>
+    </form>
+    <section class="card estimate-preview-panel" aria-labelledby="estimate-preview-title"><div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">3 · Client preview</p><h2 id="estimate-preview-title">Estimate preview</h2></div><span class="small-text">Updates as you type</span></div><article id="estimate-preview" class="estimate-paper" aria-label="Estimate document preview"></article></section>
+  </div>
+</main>
+<script defer src="estimates.js?v=estimates-20260818"></script>
+</body>
+</html>
