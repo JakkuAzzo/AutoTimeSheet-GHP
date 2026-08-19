@@ -80,9 +80,17 @@
       // The authenticated Entra account is authoritative. Do not retain a
       // previous user's name when another account signs in on this browser.
       var accountName = String(account.name || "").trim();
-      profile.name = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accountName) ? "" : accountName;
+      var accountSubject = account.homeAccountId || "";
+      var emailLikeName = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accountName);
+      // Keep a manually entered name for the same account when Microsoft has
+      // only returned its email address as the display name.
+      if (!emailLikeName) {
+        profile.name = accountName;
+      } else if (profile.subject !== accountSubject || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(profile.name || "").trim())) {
+        profile.name = "";
+      }
       profile.username = account.username || "";
-      profile.subject = account.homeAccountId || "";
+      profile.subject = accountSubject;
       localStorage.setItem(profileKey, JSON.stringify(profile));
       document.dispatchEvent(new CustomEvent("gmtportalidentity", { detail: profile }));
     } catch (_) {
