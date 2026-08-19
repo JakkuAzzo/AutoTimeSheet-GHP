@@ -3,7 +3,6 @@
 
   const calendarDataUrl = '../data/calendar/events.json';
   const outlookUrl = 'https://outlook.cloud.microsoft/calendar/Amanda.BB@gmt-services.co.uk/view/month';
-  const localKey = 'gmt_portal_calendar_v1';
   let viewDate = new Date();
   let publishedEvents = [];
 
@@ -16,18 +15,8 @@
     return String(value || '').slice(0, 10);
   }
 
-  function localEvents() {
-    try {
-      const value = JSON.parse(localStorage.getItem(localKey) || '[]');
-      return Array.isArray(value) ? value : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
   function allEvents() {
-    const events = [...publishedEvents, ...localEvents().filter((event) => event.status === 'Approved')]
-      .filter((event) => event && dateKey(event.date || event.startDate));
+    const events = publishedEvents.filter((event) => event && dateKey(event.date || event.startDate));
     const seen = new Set();
     return events.filter((event) => {
       const key = event.id || [event.date || event.startDate, event.title, event.type, event.owner].join('|');
@@ -77,7 +66,7 @@
       status.textContent = publishedEvents.length ? `Shared feed: ${publishedEvents.length} published event${publishedEvents.length === 1 ? '' : 's'}.` : 'Shared feed connected. No published events yet.';
     } catch (_) {
       publishedEvents = [];
-      status.textContent = 'Shared feed is not available yet. Local entries remain visible.';
+      status.textContent = 'Shared feed is not available yet. No local requests are published here.';
     }
     renderMonth();
   }
@@ -89,7 +78,6 @@
     $('#calendar-next')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); renderMonth(); });
     $('#calendar-form')?.addEventListener('submit', () => setTimeout(renderMonth, 0));
     $('#calendar-list')?.addEventListener('click', () => setTimeout(renderMonth, 0));
-    window.addEventListener('storage', (event) => { if (event.key === localKey) renderMonth(); });
     loadPublishedEvents();
   }
 

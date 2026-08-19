@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "test:audit:jason-zip": "node tests/audit-jason-zip-regression.mjs",
     "test:audit:fixtures": "node tests/audit-fixture-matrix.mjs",
+    "test:calendar:protected-boundary": "node tests/calendar-protected-boundary.mjs",
     "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",

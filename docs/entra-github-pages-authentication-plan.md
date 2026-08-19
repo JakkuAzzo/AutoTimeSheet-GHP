@@ -40,6 +40,12 @@ Its SPA redirect URIs are:
 
    - `https://jakkuazzo.github.io/AutoTimeSheet-GHP/portal/`
    - `https://jakkuazzo.github.io/AutoTimeSheet-GHP/timesheets/`
+   - `https://gmt-services.co.uk/portal/` (required for the production custom domain)
+
+The deployed configuration selects the project-site path or custom-domain path
+from the current hostname. The exact production URI above must be present in
+the app registration, otherwise Entra can return a redirect URI mismatch or
+send first-time users back to a route that does not exist.
 
 The portal currently requests only OpenID Connect scopes: `openid`, `profile`,
 and `email`. Optionally create an Entra security group for permitted staff and record its
@@ -78,6 +84,24 @@ The portal profile can store a staff member's display name and optional contact
 email only in that browser, then prefill the Timesheet form. It is not an Entra
 profile editor and it is not a central employee directory; clearing browser
 data clears the saved contact email.
+
+## First-time Authenticator/passkey enrolment
+
+Authenticator and passkey registration is controlled by the Entra tenant, not
+by the static portal JavaScript. For Ainsley and Simon, the administrator must
+confirm that the targeted users are enabled in the required Authentication
+methods policies and that self-service setup is allowed. A Temporary Access
+Pass (TAP), issued by an authorised Authentication Policy Administrator, is the
+safe bootstrap method when a user has no existing MFA method. The user then
+opens Microsoft Security info, adds Authenticator or Passkey, and completes the
+registration on their own device. The portal must not collect or store TAPs,
+passwords, or passkey material.
+
+If enrolment loops or reports that the method is unavailable, check the
+Authentication methods policy, Conditional Access policy for security-info
+registration, target-user scope, and device requirements before changing any
+policy. See Microsoft's guidance on [Authenticator passkeys](https://learn.microsoft.com/en-us/entra/identity/authentication/how-to-enable-authenticator-passkey)
+and [Temporary Access Pass](https://learn.microsoft.com/en-us/entra/identity/authentication/howto-authentication-temporary-access-pass).
 
 Before populating `allowedGroupIds`, configure the Entra app registration’s
 token configuration to emit the relevant security group claims. Otherwise the

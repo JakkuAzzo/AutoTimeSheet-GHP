@@ -87,9 +87,9 @@
     }
   }
 
-  function prefillClockIdentity(card, profile = portalProfile()) {
+  function prefillClockIdentity(card, profile = portalProfile(), force = false) {
     const name = String(profile && profile.name || '').trim();
-    if (name && !card.elements.employee_name.value.trim()) card.elements.employee_name.value = name;
+    if (name && (force || !card.elements.employee_name.value.trim())) card.elements.employee_name.value = name;
   }
 
   function setDisabled(element, disabled) {
@@ -287,6 +287,7 @@
     hidden(form, '_subject', `[GMT][TIMESHEET][${subjectType}] ${payload.employeeName} | ${payload.actionLabel} | ${payload.date}${payload.time ? ` ${payload.time}` : ''}`);
     hidden(form, '_template', 'box');
     hidden(form, '_captcha', 'false');
+    hidden(form, '_cc', payload.notificationEmail);
     hidden(form, 'gmt_schema_version', '2');
     hidden(form, 'gmt_type', 'timesheet_clock');
     hidden(form, 'gmt_action', payload.action);
@@ -330,6 +331,7 @@
     return {
       employeeName: card.elements.employee_name.value.trim(),
       employeeEmail: String(profile.username || '').trim(),
+      notificationEmail: String(profile.notificationEmail || '').trim(),
       action,
       actionLabel: actionLabel(action),
       date: card.elements.clock_date.value || localDate(),
@@ -400,6 +402,6 @@
 
   init();
   document.addEventListener('gmtportalidentity', (event) => {
-    document.querySelectorAll('[data-clock-form]').forEach((card) => prefillClockIdentity(card, event.detail));
+    document.querySelectorAll('[data-clock-form]').forEach((card) => prefillClockIdentity(card, event.detail, true));
   });
 })();

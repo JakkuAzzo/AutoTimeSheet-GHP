@@ -64,7 +64,7 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/timesheets/create.html`, { waitUntil: 'load' });
   assert.equal(await page.locator('#employee-name').inputValue(), 'Profile Tester');
-  assert.equal(await page.locator('#employee-email').inputValue(), 'profile.tester@example.com');
+  assert.equal(await page.locator('#employee-email').inputValue(), 'profile.tester@gmt-services.co.uk');
   await page.evaluate(() => {
     window.__submittedForms = [];
     window.__submittedRawForms = [];

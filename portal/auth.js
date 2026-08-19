@@ -11,11 +11,12 @@
   var appMain = document.querySelector("main");
   var signOutButton = document.getElementById("portal-sign-out");
   var postSignInKey = "gmt.portal.postSignInPath";
+  var authSessionKey = "gmt.portal.authenticated.v1";
   var profileKey = "gmt.portal.profile.v1";
   var status = document.createElement("p");
   status.className = "portal-auth-status";
   status.setAttribute("role", "status");
-  status.textContent = "Signing in to the GMT Staff Portal...";
+  status.innerHTML = "Signing in to the GMT Staff Portal...<br><small>On first sign-in, Microsoft may ask you to register Authenticator or a passkey. Keep your GMT account and this browser open until setup is complete.</small>";
   document.body.appendChild(status);
 
   function revealApplication() {
@@ -37,12 +38,16 @@
 
   function showFailure(message) {
     status.textContent = message;
+    var help = document.createElement("p");
+    help.innerHTML = "<small>If Microsoft cannot complete first-time security setup, choose <em>Other ways to sign in</em> and ask the GMT administrator for a Temporary Access Pass. You can manage registered methods at <a href=\"https://mysignins.microsoft.com/security-info\" target=\"_blank\" rel=\"noopener\">Microsoft Security info</a>.</small>";
     var retry = document.createElement("button");
     retry.type = "button";
     retry.textContent = "Sign in";
     retry.addEventListener("click", function () {
       window.location.reload();
     });
+    status.appendChild(document.createElement("br"));
+    status.appendChild(help);
     status.appendChild(document.createElement("br"));
     status.appendChild(retry);
   }
@@ -72,7 +77,9 @@
   function recordIdentity(account) {
     try {
       var profile = JSON.parse(localStorage.getItem(profileKey) || "{}");
-      profile.name = profile.name || account.name || "";
+      // The authenticated Entra account is authoritative. Do not retain a
+      // previous user's name when another account signs in on this browser.
+      profile.name = account.name || account.username || "";
       profile.username = account.username || "";
       profile.subject = account.homeAccountId || "";
       localStorage.setItem(profileKey, JSON.stringify(profile));
@@ -96,13 +103,23 @@
 
     await msalApp.initialize();
     var result = await msalApp.handleRedirectPromise();
-    var account = (result && result.account) || msalApp.getActiveAccount() || msalApp.getAllAccounts()[0];
+    var account = (result && result.account) || msalApp.getActiveAccount();
+    var rememberedAccountId = sessionStorage.getItem(authSessionKey) || "";
+
+    // Only reuse an account that this tab explicitly authenticated. Do not
+    // pick an arbitrary cached account from a shared browser session.
+    if (!result && (!account || account.homeAccountId !== rememberedAccountId)) {
+      account = null;
+    }
 
     if (!account) {
       if (window.location.pathname !== config.redirectPath) {
         sessionStorage.setItem(postSignInKey, window.location.pathname + window.location.search + window.location.hash);
       }
-      await msalApp.loginRedirect({ scopes: ["openid", "profile", "email"] });
+      await msalApp.loginRedirect({
+        scopes: ["openid", "profile", "email"],
+        prompt: "select_account"
+      });
       return;
     }
 
@@ -119,6 +136,7 @@
     }
 
     msalApp.setActiveAccount(account);
+    sessionStorage.setItem(authSessionKey, account.homeAccountId || account.username || "");
     recordIdentity(account);
 
     var returnTo = requestedPath();
@@ -136,6 +154,8 @@
     if (signOutButton) {
       signOutButton.hidden = false;
       signOutButton.addEventListener("click", function () {
+        sessionStorage.removeItem(authSessionKey);
+        msalApp.setActiveAccount(null);
         msalApp.logoutRedirect({
           account: account,
           postLogoutRedirectUri: window.location.origin + config.redirectPath

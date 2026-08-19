@@ -1,0 +1,36 @@
+.estimate-main { max-width: 1400px; }
+.estimate-intro { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; margin-bottom:1rem; }
+.estimate-intro h2, .estimate-form h2, .estimate-preview-panel h2 { margin:.15rem 0 .35rem; color:var(--green); }
+.estimate-intro p:not(.portal-card-kicker) { max-width:60rem; margin:0; color:var(--muted); line-height:1.5; }
+.estimate-status-chip { padding:.4rem .7rem; color:#0d4c16; background:#e4f2e0; border:1px solid #a9caa1; border-radius:999px; font-weight:800; white-space:nowrap; }
+.estimate-layout { display:grid; grid-template-columns:minmax(320px, .95fr) minmax(440px, 1.05fr); gap:1rem; align-items:start; }
+.estimate-form, .estimate-preview-panel { display:grid; gap:1rem; }
+.estimate-form-heading, .estimate-preview-toolbar { display:flex; justify-content:space-between; gap:1rem; align-items:end; }
+.estimate-form-heading h2, .estimate-preview-toolbar h2 { margin:0; }
+.estimate-lines { display:grid; gap:.65rem; }
+.estimate-line { display:grid; grid-template-columns:minmax(0,1fr) 82px 120px 120px auto; gap:.5rem; align-items:end; padding:.7rem; background:#f6f9f3; border:1px solid var(--line); border-radius:.75rem; }
+.estimate-line label { display:grid; gap:.25rem; color:var(--muted); font-size:.82rem; font-weight:800; }
+.estimate-line input { width:100%; }
+.estimate-line-total { padding-bottom:.7rem; color:var(--green); font-weight:900; text-align:right; }
+.estimate-line-remove { min-height:40px; padding:.45rem .6rem; color:#8b2525; background:#fff; border:1px solid #d9aaaa; border-radius:.5rem; }
+.estimate-actions { display:flex; flex-wrap:wrap; gap:.65rem; padding-top:.25rem; border-top:1px solid var(--line); }
+.estimate-preview-panel { position:sticky; top:1rem; }
+.estimate-paper { min-height:760px; padding:2.4rem; color:#1e293b; background:#fff; border:1px solid #d9dfd4; box-shadow:0 12px 30px rgba(0,0,0,.1); font-family:Arial,sans-serif; }
+.estimate-paper-header { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; padding-bottom:1.5rem; border-bottom:2px solid #cda72e; }
+.estimate-paper-logo { width:250px; max-width:48%; height:auto; }
+.estimate-paper-company { color:#17241b; font-size:.82rem; font-weight:800; text-align:right; }
+.estimate-paper-company p { margin:.15rem 0; }
+.estimate-paper-title { margin:2.2rem 0 1.6rem; color:#17241b; font-size:1.55rem; letter-spacing:.08em; text-align:center; text-transform:uppercase; }
+.estimate-paper-meta { display:grid; grid-template-columns:1fr auto; gap:1rem; margin-bottom:1.6rem; font-size:.92rem; }
+.estimate-paper-meta p { margin:.2rem 0; }
+.estimate-paper-body { min-height:300px; font-size:.95rem; line-height:1.55; }
+.estimate-paper-table { width:100%; margin:1.2rem 0; border-collapse:collapse; font-size:.9rem; }
+.estimate-paper-table th, .estimate-paper-table td { padding:.55rem .35rem; border-bottom:1px solid #d9dfd4; text-align:left; }
+.estimate-paper-table th:not(:first-child), .estimate-paper-table td:not(:first-child) { text-align:right; }
+.estimate-paper-total { margin-left:auto; width:min(280px,100%); font-size:.95rem; }
+.estimate-paper-total p { display:flex; justify-content:space-between; gap:1rem; margin:.35rem 0; }
+.estimate-paper-total .grand-total { padding-top:.55rem; color:#123d1d; border-top:2px solid #cda72e; font-size:1.1rem; font-weight:900; }
+.estimate-paper-terms { margin-top:2rem; white-space:pre-line; font-size:.88rem; line-height:1.5; }
+@media (max-width:900px) { .estimate-layout { grid-template-columns:1fr; } .estimate-preview-panel { position:static; } }
+@media (max-width:700px) { .estimate-intro, .estimate-form-heading, .estimate-preview-toolbar { align-items:flex-start; flex-direction:column; } .estimate-line { grid-template-columns:1fr 1fr; } .estimate-line label:first-child { grid-column:1/-1; } .estimate-line-total { text-align:left; } .estimate-paper { min-height:0; padding:1.1rem; } .estimate-paper-header { flex-direction:column; } .estimate-paper-logo { max-width:80%; } .estimate-paper-company { text-align:left; } }
+@media print { body { background:#fff; } .app-header, .estimate-intro, .estimate-form, .estimate-preview-toolbar { display:none !important; } .estimate-main, .estimate-layout, .estimate-preview-panel { display:block; max-width:none; margin:0; padding:0; } .estimate-paper { min-height:0; border:0; box-shadow:none; } }

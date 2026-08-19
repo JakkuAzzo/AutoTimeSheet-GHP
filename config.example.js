@@ -9,6 +9,7 @@ window.GMT_APP_CONFIG = {
   jobCardFormSubmitEndpoint: "",
   taskFormSubmitEndpoint: "",
   calendarFormSubmitEndpoint: "",
+  estimateFormSubmitEndpoint: "",
 
   // Last-resort fallback for an already approved FormSubmit route.
   fallbackFormSubmitEndpoint: "",

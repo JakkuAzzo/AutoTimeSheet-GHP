@@ -4,10 +4,11 @@
   var storageKey = "gmt.portal.profile.v1";
   var form = document.getElementById("portal-profile-form");
   var nameInput = document.getElementById("portal-profile-name");
+  var loginEmailInput = document.getElementById("portal-profile-login-email");
   var emailInput = document.getElementById("portal-profile-email");
   var status = document.getElementById("portal-profile-status");
 
-  if (!form || !nameInput || !emailInput) return;
+  if (!form || !nameInput || !loginEmailInput || !emailInput) return;
 
   function readProfile() {
     try {
@@ -19,7 +20,8 @@
 
   function render(profile) {
     nameInput.value = profile.name || "";
-    emailInput.value = profile.contactEmail || "";
+    loginEmailInput.value = profile.username || "";
+    emailInput.value = profile.notificationEmail || "";
   }
 
   function saveProfile(profile) {
@@ -36,9 +38,17 @@
   document.addEventListener("gmtportalidentity", function (event) {
     var identity = event.detail || {};
     var profile = readProfile();
-    profile.name = profile.name || identity.name || "";
-    profile.username = identity.username || profile.username || "";
-    profile.subject = identity.subject || profile.subject || "";
+    var previousUsername = profile.username || "";
+    var legacyContactEmail = profile.contactEmail || "";
+    profile.name = identity.name || "";
+    profile.username = identity.username || "";
+    profile.subject = identity.subject || "";
+    // Migrate the old contactEmail field only when it was genuinely a
+    // separate address; previous versions used it for the GMT login.
+    if (!profile.notificationEmail && legacyContactEmail && legacyContactEmail !== previousUsername) {
+      profile.notificationEmail = legacyContactEmail;
+    }
+    delete profile.contactEmail;
     saveProfile(profile);
     render(profile);
   });
@@ -46,16 +56,15 @@
   form.addEventListener("submit", function (event) {
     event.preventDefault();
     var profile = readProfile();
-    profile.name = nameInput.value.trim();
-    profile.contactEmail = emailInput.value.trim();
-    if (!profile.name) {
-      status.textContent = "Enter your name before saving your profile.";
+    profile.notificationEmail = emailInput.value.trim();
+    if (profile.notificationEmail && !emailInput.checkValidity()) {
+      status.textContent = "Enter a valid personal email address.";
       return;
     }
     if (!saveProfile(profile)) {
       status.textContent = "This browser could not save your profile.";
       return;
     }
-    status.textContent = "Profile saved on this device.";
+    status.textContent = "Account settings saved on this device.";
   });
 }());
