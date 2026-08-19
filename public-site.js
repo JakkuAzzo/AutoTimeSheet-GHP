@@ -125,9 +125,74 @@
     setIndex(0);
   }
 
+  function initContactModal() {
+    var modal = document.querySelector('[data-contact-modal]');
+    var openButton = document.querySelector('[data-contact-open]');
+    var closeButtons = modal ? modal.querySelectorAll('[data-contact-close]') : [];
+    var form = modal ? modal.querySelector('[data-contact-form]') : null;
+    var status = modal ? modal.querySelector('[data-contact-status]') : null;
+    if (!modal || !openButton || !form) return;
+
+    var lastFocus = null;
+
+    function close() {
+      modal.hidden = true;
+      document.body.classList.remove('modal-open');
+      if (lastFocus) lastFocus.focus();
+    }
+
+    openButton.addEventListener('click', function () {
+      lastFocus = document.activeElement;
+      modal.hidden = false;
+      document.body.classList.add('modal-open');
+      var firstField = form.querySelector('input:not([type="hidden"])');
+      if (firstField) firstField.focus();
+    });
+
+    Array.prototype.forEach.call(closeButtons, function (button) {
+      button.addEventListener('click', close);
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && !modal.hidden) close();
+    });
+
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (!status) return;
+      var endpoint = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.contactFormSubmitEndpoint;
+      if (!endpoint) {
+        status.textContent = 'The contact form is not configured yet. Please call the workshop.';
+        return;
+      }
+
+      var submitButton = form.querySelector('button[type="submit"]');
+      var formData = new FormData(form);
+      formData.set('_replyto', formData.get('email') || '');
+      if (submitButton) submitButton.disabled = true;
+      status.textContent = 'Sending your enquiry…';
+
+      try {
+        var response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+          body: formData
+        });
+        if (!response.ok) throw new Error('Contact request failed');
+        form.reset();
+        status.textContent = 'Thanks — your enquiry has been sent to GMT Electrical Services.';
+      } catch (_error) {
+        status.textContent = 'We could not send the form. Please call 0208 683 0464 instead.';
+      } finally {
+        if (submitButton) submitButton.disabled = false;
+      }
+    });
+  }
+
   function initPublicHomepage() {
     initWorkshopMap();
     initServiceCarousel();
+    initContactModal();
   }
 
   window.addEventListener('resize', refreshMapSize);
