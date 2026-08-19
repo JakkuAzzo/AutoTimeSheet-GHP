@@ -163,6 +163,10 @@ try {
     assert.equal(fields.get('gmt_year'), '2026');
     assert.equal(fields.get('gmt_month'), '2026-07');
     assert.equal(fields.get('gmt_attachment_manifest'), 'xlsx,csv');
+    assert.equal(fields.get('gmt_workbook_key'), 'clock-clock-tester-gmt-services-co-uk-2026-07');
+    assert.equal(fields.get('gmt_filing_mode'), 'monthly-upsert');
+    assert.equal(fields.get('gmt_absence_reason'), entry.absence || '');
+    assert.deepEqual(form.files.map((entry) => entry.name), ['attachment', 'attachment_csv']);
     assert.equal(fileList.length, 2, 'each quick record should attach XLSX and CSV');
     assert.ok(workbook.size > 1000, 'XLSX attachment should not be empty');
     assert.deepEqual(workbook.sheets, ['All', 'Totals', 'Notes']);

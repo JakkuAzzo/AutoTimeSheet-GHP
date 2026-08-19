@@ -62,6 +62,14 @@
       .slice(0, 80) || 'Clock';
   }
 
+  function safeKeyPart(value) {
+    return String(value || 'clock')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'clock';
+  }
+
   function weekdayName(dateValue) {
     const date = new Date(`${dateValue}T00:00:00`);
     if (Number.isNaN(date.getTime())) return '';
@@ -291,7 +299,12 @@
     hidden(form, 'gmt_schema_version', '2');
     hidden(form, 'gmt_type', 'timesheet_clock');
     hidden(form, 'gmt_action', payload.action);
-    hidden(form, 'gmt_record_id', `${payload.employeeName}|${payload.date}|${payload.action}|${payload.time || payload.dayStart || 'absence'}`);
+    const recordIdentity = payload.employeeEmail || payload.employeeName;
+    const recordId = `${recordIdentity}|${payload.date}|${payload.action}|${payload.time || payload.dayStart || 'absence'}`;
+    const workbookKey = `clock-${safeKeyPart(recordIdentity)}-${payload.date.slice(0, 7)}`;
+    hidden(form, 'gmt_record_id', recordId);
+    hidden(form, 'gmt_workbook_key', workbookKey);
+    hidden(form, 'gmt_filing_mode', 'monthly-upsert');
     hidden(form, 'gmt_employee', payload.employeeName);
     hidden(form, 'gmt_employee_email', payload.employeeEmail);
     hidden(form, 'gmt_clock_date', payload.date);
@@ -319,8 +332,10 @@
     hidden(form, 'note', payload.note);
     hidden(form, 'summary', `${payload.employeeName} submitted ${payload.actionLabel.toLowerCase()} for ${payload.date}${payload.time ? ` at ${payload.time}` : ''}.`);
     hidden(form, 'message', 'GMT timesheet quick-record submission. XLSX and CSV attachments are included for accounts and Power Automate filing.');
+    // FormSubmit preserves one file per multipart field reliably. Keeping
+    // distinct names prevents the CSV from replacing the XLSX attachment.
     addFileInput(form, 'attachment', files.workbook);
-    addFileInput(form, 'attachment', files.csv);
+    addFileInput(form, 'attachment_csv', files.csv);
     document.body.appendChild(form);
     return form;
   }
@@ -336,7 +351,7 @@
       actionLabel: actionLabel(action),
       date: card.elements.clock_date.value || localDate(),
       time: EVENT_ACTIONS.includes(action) ? (card.elements.clock_time.value || localTime()) : '',
-      absenceReason: card.elements.absence_reason.value || '',
+      absenceReason: action === 'absent' ? (card.elements.absence_reason.value || '') : '',
       note: card.elements.clock_note.value.trim(),
       dayStart: card.elements.day_start.value || '',
       lunchStart: card.elements.day_lunch_start.value || '',
