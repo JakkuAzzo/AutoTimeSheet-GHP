@@ -9,7 +9,7 @@ const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
 
-const mime = { '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const mime = { '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp' };
 const server = createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   const rawPath = url.pathname.endsWith('/') ? `${url.pathname}index.html` : url.pathname;
@@ -19,7 +19,7 @@ const server = createServer((req, res) => {
   }
   if (rawPath === '/config.js') {
     res.writeHead(200, { 'content-type': 'text/javascript' });
-    res.end(readFileSync(filePath, 'utf8').replace('enabled: true', 'enabled: false'));
+    res.end(readFileSync(filePath, 'utf8').replace(/(entraSpaAuth:\s*\{\s*enabled:\s*)true/, '$1false'));
     return;
   }
   res.writeHead(200, { 'content-type': mime[extname(filePath)] || 'application/octet-stream' });
@@ -92,6 +92,7 @@ try {
   ];
   const card = page.locator('[data-clock-form]');
   await card.locator('[name="employee_name"]').fill('Clock Tester');
+  await card.locator('[name="clock_location"]').fill('Workshop');
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -166,6 +167,8 @@ try {
     assert.equal(fields.get('gmt_workbook_key'), 'clock-clock-tester-gmt-services-co-uk-2026-07');
     assert.equal(fields.get('gmt_filing_mode'), 'monthly-upsert');
     assert.equal(fields.get('gmt_absence_reason'), entry.absence || '');
+    assert.equal(fields.get('gmt_location'), 'Workshop');
+    assert.equal(fields.get('location'), 'Workshop');
     assert.deepEqual(form.files.map((entry) => entry.name), ['attachment', 'attachment_csv']);
     assert.equal(fileList.length, 2, 'each quick record should attach XLSX and CSV');
     assert.ok(workbook.size > 1000, 'XLSX attachment should not be empty');
@@ -181,6 +184,7 @@ try {
     assert.match(csv.csv, /Clock Tester/);
     assert.match(csv.csv, new RegExp(entry.label));
     if (entry.absence) assert.equal(workbook.firstAllRow['Absence reason'], entry.absence);
+    assert.equal(workbook.firstAllRow['Location / site'], 'Workshop');
     if (entry.action === 'full_day') {
       assert.equal(workbook.firstAllRow['Lunch start'], entry.lunchStart);
       assert.equal(workbook.firstAllRow['Lunch end'], entry.lunchEnd);

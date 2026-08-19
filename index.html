@@ -8,9 +8,12 @@
 <link rel="apple-touch-icon" sizes="256x256" href="favicon.svg?v=site-favicon-20260818">
 <script src="config.js?v=portal-redirect-20260819"></script>
 <script defer src="analytics.js?v=umami-20260819"></script>
+<link rel="preconnect" href="https://unpkg.com">
+<link rel="preconnect" href="https://cloud.umami.is">
 <meta name="description" content="GMT Electrical Services Ltd provides motor rewind, electrical motor repair, fan repair, pump repair, kitchen extractor and gearbox repair services from Croydon.">
 <title>GMT Electrical Services Ltd | Motor, Pump and Fan Repairs in Croydon</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""></noscript>
 <link rel="stylesheet" href="public-site.css?v=public-ux-20260810">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script defer src="public-site.js?v=homepage-polish-20260818"></script>
@@ -18,13 +21,16 @@
 <body>
 <header class="site-header">
   <a class="brand" href="#top" aria-label="GMT Electrical Services home">
-    <img src="image.png" alt="GMT Electrical Services Ltd logo">
+    <picture>
+      <source type="image/webp" srcset="image.webp">
+      <img src="image.png" alt="GMT Electrical Services Ltd logo" width="1536" height="1024" fetchpriority="high">
+    </picture>
   </a>
   <nav class="site-nav" aria-label="Main navigation">
     <a href="#services">Services</a>
     <a href="#about">About</a>
     <a href="#contact">Contact</a>
-    <a class="portal-link" href="portal/">Staff Portal</a>
+    <a class="portal-link" href="portal/">Login</a>
   </nav>
 </header>
 
@@ -71,32 +77,32 @@
     <div class="services-carousel" data-service-carousel>
       <div class="service-grid" id="serviceSlides">
         <article class="service-card">
-          <img src="assets/website/motor-rewind-v2.png" alt="Motor rewind winding detail" loading="lazy" decoding="async">
+          <picture><source type="image/webp" srcset="assets/website/optimized/motor-rewind-v2.webp"><img src="assets/website/motor-rewind-v2.png" alt="Motor rewind winding detail" width="1448" height="1086" loading="lazy" decoding="async"></picture>
           <h3>Motor Rewind</h3>
           <p>Machine-wound stators and armatures for single phase motors, three phase motors and armatures, checked throughout each stage of the rewind.</p>
         </article>
         <article class="service-card">
-          <img src="assets/website/motor-repair-v2.png" alt="Electrical motor components" loading="lazy" decoding="async">
+          <picture><source type="image/webp" srcset="assets/website/optimized/motor-repair-v2.webp"><img src="assets/website/motor-repair-v2.png" alt="Electrical motor components" width="1448" height="1086" loading="lazy" decoding="async"></picture>
           <h3>Electrical Motor Repair</h3>
           <p>Repairs for 1 phase and 3 phase motors, including testing, refurbishment and replacement options when a quick turnaround matters.</p>
         </article>
         <article class="service-card">
-          <img src="assets/website/fan-repair-v2.png" alt="Industrial fan unit" loading="lazy" decoding="async">
+          <picture><source type="image/webp" srcset="assets/website/optimized/fan-repair-v2.webp"><img src="assets/website/fan-repair-v2.png" alt="Industrial fan unit" width="1448" height="1086" loading="lazy" decoding="async"></picture>
           <h3>Fan Repair and Installation</h3>
           <p>Repair and installation support for scroll fans, toilet extractors, boiler fans and other commercial fan systems.</p>
         </article>
         <article class="service-card">
-          <img src="assets/website/pumps-v2.png" alt="Pump repair range" loading="lazy" decoding="async">
+          <picture><source type="image/webp" srcset="assets/website/optimized/pumps-v2.webp"><img src="assets/website/pumps-v2.png" alt="Pump repair range" width="1448" height="1086" loading="lazy" decoding="async"></picture>
           <h3>Pump Repairs and Installations</h3>
           <p>Overhaul, supply and installation for a wide range of pumps, including sump pumps, pool pumps and multi-stage pumps.</p>
         </article>
         <article class="service-card">
-          <img src="assets/website/kitchen-extractors-v2.png" alt="Extractor fan parts" loading="lazy" decoding="async">
+          <picture><source type="image/webp" srcset="assets/website/optimized/kitchen-extractors-v2.webp"><img src="assets/website/kitchen-extractors-v2.png" alt="Extractor fan parts" width="1448" height="1086" loading="lazy" decoding="async"></picture>
           <h3>Kitchen Extractors</h3>
           <p>Repair, supply and fitting for kitchen extractor fans where heat, downtime and ventilation issues affect service.</p>
         </article>
         <article class="service-card">
-          <img src="assets/website/gearbox-repair-v2.png" alt="Mechanical gearbox repair" loading="lazy" decoding="async">
+          <picture><source type="image/webp" srcset="assets/website/optimized/gearbox-repair-v2.webp"><img src="assets/website/gearbox-repair-v2.png" alt="Mechanical gearbox repair" width="1448" height="1086" loading="lazy" decoding="async"></picture>
           <h3>Mechanical Gearbox Repair</h3>
           <p>Inspection, repair and supply of mechanical gearboxes for AC and DC equipment, including urgent business-critical breakdowns.</p>
         </article>

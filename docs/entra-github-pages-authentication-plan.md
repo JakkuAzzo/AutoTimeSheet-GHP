@@ -80,10 +80,11 @@ groups. Predictable passwords such as a username followed by `123!` must not be
 used or stored in this repository. Once signed in, the portal's **My account**
 link opens Microsoft’s account page, where users can change their own password.
 
-The portal profile can store a staff member's display name and optional contact
-email only in that browser, then prefill the Timesheet form. It is not an Entra
-profile editor and it is not a central employee directory; clearing browser
-data clears the saved contact email.
+The portal's **My account** link opens the dedicated GMT account page. That page
+shows the authenticated login address, lets the user maintain a display name,
+and can store an optional contact email only in that browser for submission
+copies. It is not an Entra profile editor and it is not a central employee
+directory; clearing browser data clears the saved contact email.
 
 ## First-time Authenticator/passkey enrolment
 
@@ -138,3 +139,36 @@ configuration.
 When the portal moves under `https://gmt-services.co.uk/portal/` or
 `https://portal.gmt-services.co.uk/`, register those new exact redirect URIs
 and retire the GitHub Pages URIs only after end-to-end tests pass.
+
+## Future customer login boundary
+
+The public-site navigation may say **Login**, but the current application is a
+single-tenant GMT staff application. It must not be presented as a customer
+request/order portal until the following are designed and approved:
+
+- a separate Entra app registration or External ID tenant for customer users;
+- customer sign-up/invitation, account recovery, MFA and tenant/role policy;
+- exact redirect URIs for production and test environments;
+- protected request/order data behind Microsoft Lists/SharePoint, Power
+  Automate or another authenticated service;
+- row-level authorization so a customer can only see their own records;
+- an owner, retention policy, audit trail and support/recovery process.
+
+Changing the visible label does not create that customer data boundary. Until
+those controls exist, `/portal/` remains restricted to the GMT tenant and the
+customer-facing Login link must not be advertised as a working customer
+dashboard.
+
+## Public asset hosting decision
+
+Browser-facing assets must be public. A private GitHub repository, private
+submodule or private GitHub Pages site cannot act as an anonymous CDN without
+shipping credentials or proxying through a protected service. That would be an
+unsafe way to serve the public logo and service images.
+
+For the current static site, optimized WebP assets remain in this repository
+under `assets/website/optimized/`, with PNG fallbacks. GitHub Pages already
+provides the public HTTPS delivery layer. A separate public asset repository
+would add ownership and cache-invalidation overhead without improving the
+security boundary; a private asset store should only be considered later if a
+proper public image proxy/CDN and cache policy are approved.

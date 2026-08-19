@@ -137,6 +137,26 @@
     card.dataset.currentAction = action;
   }
 
+  function captureCurrentLocation(card) {
+    const input = card.elements.clock_location;
+    const status = card.querySelector('[data-location-status]');
+    if (!input || !status) return;
+    if (!navigator.geolocation) {
+      status.textContent = 'Location is not available in this browser. Enter a site manually if needed.';
+      return;
+    }
+    status.textContent = 'Requesting location permission…';
+    navigator.geolocation.getCurrentPosition((position) => {
+      const latitude = Number(position.coords.latitude).toFixed(5);
+      const longitude = Number(position.coords.longitude).toFixed(5);
+      const accuracy = Number.isFinite(position.coords.accuracy) ? ` (±${Math.round(position.coords.accuracy)} m)` : '';
+      input.value = `Current location: ${latitude}, ${longitude}${accuracy}`;
+      status.textContent = 'Current location captured. Review it before submitting.';
+    }, () => {
+      status.textContent = 'Location was not captured. Enter a site manually if needed.';
+    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+  }
+
   function ensureSubmitFrame() {
     let frame = document.getElementById('timesheet-clock-frame');
     if (!frame) {
@@ -229,6 +249,7 @@
       'Lunch end': fullDay ? payload.lunchEnd : (payload.action === 'lunch_end' ? payload.time : ''),
       Break: fullDay ? breakLabel : 'No break',
       'Absence reason': absent ? payload.absenceReason : 'NA',
+      'Location / site': payload.location,
       'Worked hours': formatHours(hours.worked),
       'Basic hours': formatHours(hours.worked),
       'OT x1.5 hours': 0,
@@ -248,8 +269,8 @@
       ['This workbook uses the same All, Totals and Notes sheet structure as the weekly timesheet export.'],
       ['Clock and lunch events are timestamps. A full-day entry records its entered daily hours; payroll overtime remains calculated on the weekly timesheet.'],
       [],
-      ['Action', 'Date', 'Weekday', 'Absence reason', 'Note'],
-      [payload.actionLabel, payload.date, weekdayName(payload.date), row['Absence reason'], row.Note]
+      ['Action', 'Date', 'Weekday', 'Absence reason', 'Location / site', 'Note'],
+      [payload.actionLabel, payload.date, weekdayName(payload.date), row['Absence reason'], payload.location, row.Note]
     ];
     const totalsRows = [
       ['GMT Clock Event'],
@@ -258,6 +279,7 @@
       ['Employee email', payload.employeeEmail],
       ['Date', payload.date],
       ['Action', payload.actionLabel],
+      ['Location / site', payload.location],
       ['Time', payload.time],
       ['Submitted at', payload.submittedAt],
       [],
@@ -310,6 +332,7 @@
     hidden(form, 'gmt_clock_date', payload.date);
     hidden(form, 'gmt_clock_time', payload.time);
     hidden(form, 'gmt_absence_reason', payload.absenceReason);
+    hidden(form, 'gmt_location', payload.location);
     hidden(form, 'gmt_note', payload.note);
     hidden(form, 'gmt_day_start', payload.dayStart);
     hidden(form, 'gmt_lunch_start', payload.lunchStart);
@@ -329,6 +352,7 @@
     hidden(form, 'clock_date', payload.date);
     hidden(form, 'clock_time', payload.time);
     hidden(form, 'absence_reason', payload.absenceReason);
+    hidden(form, 'location', payload.location);
     hidden(form, 'note', payload.note);
     hidden(form, 'summary', `${payload.employeeName} submitted ${payload.actionLabel.toLowerCase()} for ${payload.date}${payload.time ? ` at ${payload.time}` : ''}.`);
     hidden(form, 'message', 'GMT timesheet quick-record submission. XLSX and CSV attachments are included for accounts and Power Automate filing.');
@@ -352,6 +376,7 @@
       date: card.elements.clock_date.value || localDate(),
       time: EVENT_ACTIONS.includes(action) ? (card.elements.clock_time.value || localTime()) : '',
       absenceReason: action === 'absent' ? (card.elements.absence_reason.value || '') : '',
+      location: String(card.elements.clock_location?.value || '').trim(),
       note: card.elements.clock_note.value.trim(),
       dayStart: card.elements.day_start.value || '',
       lunchStart: card.elements.day_lunch_start.value || '',
@@ -411,6 +436,8 @@
           showStatus(card, '', '');
         });
       });
+      const locationButton = card.querySelector('[data-use-location]');
+      if (locationButton) locationButton.addEventListener('click', () => captureCurrentLocation(card));
       card.addEventListener('submit', handleSubmit);
     });
   }

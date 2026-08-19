@@ -35,6 +35,11 @@
 </fieldset>
 <label>Date<input name="clock_date" type="date" required></label>
 <label data-clock-time-field>Time<input name="clock_time" type="time" required></label>
+<div class="clock-location-control">
+<label>Location / site <span class="small-text">optional</span><input name="clock_location" type="text" autocomplete="off" placeholder="Workshop, client site or current location"></label>
+<button type="button" class="secondary" data-use-location>Use current location</button>
+</div>
+<p class="small-text clock-location-status" data-location-status aria-live="polite">Only captured when you choose this button.</p>
 <label data-absence-field hidden>Absence reason<select name="absence_reason" disabled><option value="Sick">Sick</option><option value="Holiday">Holiday</option><option value="Time Off">Time Off</option><option value="Other">Other</option></select></label>
 <section class="clock-full-day" data-full-day-fields hidden aria-label="Full day details">
 <p>Whole day details</p>
