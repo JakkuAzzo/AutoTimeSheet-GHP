@@ -101,7 +101,7 @@ footer {
 }
 
 .portal-link {
-  font-size: .78rem;
+  font-size: inherit;
   color: var(--green-2);
 }
 
