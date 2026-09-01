@@ -14,9 +14,9 @@
 <title>GMT Electrical Services Ltd | Motor, Pump and Fan Repairs in Croydon</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""></noscript>
-<link rel="stylesheet" href="public-site.css?v=public-ux-20260901-team-showcase-v11">
+<link rel="stylesheet" href="public-site.css?v=public-ux-20260901-team-showcase-v12">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script defer src="public-site.js?v=homepage-polish-20260901-team-showcase-v7"></script>
+<script defer src="public-site.js?v=homepage-polish-20260901-team-showcase-v8"></script>
 </head>
 <body>
 <header class="site-header">
@@ -26,14 +26,15 @@
       <img src="image.png" alt="GMT Electrical Services Ltd logo" width="1536" height="1024" fetchpriority="high">
     </picture>
   </a>
+</header>
+<div class="site-nav-bar" data-site-nav>
   <nav class="site-nav" aria-label="Main navigation">
-    <a href="#services" data-carousel-target="0">Services</a>
-    <a href="#services" data-carousel-target="0">Workshop</a>
-    <a href="#about">About</a>
-    <a href="#contact">Contact</a>
+    <a href="#services">Services</a>
+    <a href="#about">Team</a>
+    <a href="#workshop-enquiry" data-enquire-nav>Enquire</a>
     <a class="portal-link" href="portal/">Login</a>
   </nav>
-</header>
+</div>
 
 <main id="top">
   <section class="hero">
@@ -82,7 +83,7 @@
       <h2 id="workshop-motion-title">Practical repairs, carefully carried out</h2>
       <p>From inspection to repair, GMT keeps the work focused on dependable equipment and a useful turnaround.</p>
     </div>
-    <aside class="hero-copy workshop-enquiry-card" aria-labelledby="workshop-enquiry-title">
+    <aside class="hero-copy workshop-enquiry-card" id="workshop-enquiry" aria-labelledby="workshop-enquiry-title">
       <p class="eyebrow">Make an enquiry</p>
       <h3 id="workshop-enquiry-title">Talk to the workshop</h3>
       <button class="workshop-enquiry-toggle" type="button" data-workshop-enquiry-toggle aria-expanded="false">Open enquiry form</button>

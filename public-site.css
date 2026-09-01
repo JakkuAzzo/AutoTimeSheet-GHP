@@ -48,9 +48,8 @@ footer {
 }
 
 .site-header {
-  position: sticky;
-  top: 0;
-  z-index: 30;
+  position: relative;
+  z-index: 20;
   max-width: none;
   margin: 0 auto;
   padding: .45rem max(1rem, calc((100% - 1180px) / 2));
@@ -58,10 +57,27 @@ footer {
   justify-content: space-between;
   align-items: center;
   gap: 1.25rem;
+  border-bottom: 0;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 6px 24px rgba(18, 61, 29, .08);
+  backdrop-filter: blur(14px);
+}
+
+.site-nav-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   border-bottom: 3px solid var(--gold);
   background: rgba(255, 255, 255, .94);
   box-shadow: 0 6px 24px rgba(18, 61, 29, .08);
   backdrop-filter: blur(14px);
+  transition: transform .25s ease, opacity .2s ease;
+}
+
+.site-nav-bar.is-hidden {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .brand img {
@@ -78,6 +94,9 @@ footer {
 }
 
 .site-nav {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: .35rem max(1rem, calc((100% - 1180px) / 2));
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;

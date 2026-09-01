@@ -350,6 +350,7 @@
     var card = form ? form.closest('.workshop-enquiry-card') : null;
     var status = card ? card.querySelector('[data-workshop-enquiry-status]') : null;
     var toggle = card ? card.querySelector('[data-workshop-enquiry-toggle]') : null;
+    var enquiryNav = document.querySelector('[data-enquire-nav]');
     if (!form || !status || !card || !toggle) return;
 
     function setExpanded(expanded) {
@@ -364,6 +365,18 @@
     toggle.addEventListener('click', function () {
       setExpanded(!card.classList.contains('is-expanded'));
     });
+
+    if (enquiryNav) {
+      enquiryNav.addEventListener('click', function (event) {
+        event.preventDefault();
+        if (!card.classList.contains('is-expanded')) setExpanded(true);
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.setTimeout(function () {
+          var firstField = form.querySelector('input:not([type="hidden"])');
+          if (firstField) firstField.focus();
+        }, 450);
+      });
+    }
 
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
@@ -403,6 +416,23 @@
     });
   }
 
+  function initStickyNavigation() {
+    var navBar = document.querySelector('[data-site-nav]');
+    var team = document.querySelector('[data-team-showcase]');
+    if (!navBar || !team || !('IntersectionObserver' in window)) return;
+
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        navBar.classList.toggle('is-hidden', entry.isIntersecting);
+      });
+    }, { threshold: 0.01 });
+
+    observer.observe(team);
+    window.addEventListener('beforeunload', function () {
+      observer.disconnect();
+    });
+  }
+
   function initRevealAnimations() {
     var targets = document.querySelectorAll(
       '.hero-copy, .quick-panel, .section-heading, .service-card, .workshop-photo, .workshop-motion-content, .about-band > *, .contact-card > *'
@@ -437,6 +467,7 @@
   }
 
   function initPublicHomepage() {
+    initStickyNavigation();
     initWorkshopMap();
     initServiceCarousel();
     initContentCarousel();
