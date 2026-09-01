@@ -2045,16 +2045,31 @@ body.modal-open {
   .team-context.is-collapsed {
     left: auto;
     right: .85rem;
-    width: 3rem;
-    height: 3rem;
-    min-height: 3rem;
-    max-height: 3rem;
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    max-height: 28px;
     padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
     overflow: hidden;
   }
 
   .team-context.is-collapsed > :not(.team-context-toggle) {
     visibility: hidden;
+  }
+
+  .team-context.is-collapsed .team-context-toggle {
+    top: 0;
+    right: 0;
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    border: 0;
+    background: var(--green);
   }
 
   .workshop-enquiry-toggle {
@@ -2268,4 +2283,19 @@ body.modal-open {
   .workshop-details-panel .workshop-map {
     height: 185px;
   }
+}
+
+/* Keep the merged services and workshop cards aligned across each grid row. */
+.content-carousel .service-grid {
+  align-items: stretch;
+}
+
+.content-carousel .service-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.content-carousel .service-card p {
+  flex: 1;
 }
