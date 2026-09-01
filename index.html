@@ -14,9 +14,9 @@
 <title>GMT Electrical Services Ltd | Motor, Pump and Fan Repairs in Croydon</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""></noscript>
-<link rel="stylesheet" href="public-site.css?v=public-ux-20260901-team-showcase-v2">
+<link rel="stylesheet" href="public-site.css?v=public-ux-20260901-team-showcase-v3">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script defer src="public-site.js?v=homepage-polish-20260901-team-showcase-v2"></script>
+<script defer src="public-site.js?v=homepage-polish-20260901-team-showcase-v3"></script>
 </head>
 <body>
 <header class="site-header">
@@ -77,6 +77,23 @@
       <h2 id="workshop-motion-title">Practical repairs, carefully carried out</h2>
       <p>From inspection to repair, GMT keeps the work focused on dependable equipment and a useful turnaround.</p>
     </div>
+    <aside class="hero-copy workshop-enquiry-card" aria-labelledby="workshop-enquiry-title">
+      <p class="eyebrow">Make an enquiry</p>
+      <h3 id="workshop-enquiry-title">Talk to the workshop</h3>
+      <form class="contact-form workshop-enquiry-form" data-workshop-enquiry-form action="https://formsubmit.co/ajax/info@gmt-services.co.uk" method="post">
+        <label for="workshop-enquiry-name">Name</label>
+        <input id="workshop-enquiry-name" name="name" autocomplete="name" required>
+        <label for="workshop-enquiry-email">Email</label>
+        <input id="workshop-enquiry-email" name="email" type="email" autocomplete="email" required>
+        <label for="workshop-enquiry-message">Message</label>
+        <textarea id="workshop-enquiry-message" name="message" rows="3" required></textarea>
+        <input type="hidden" name="_subject" value="New workshop enquiry — GMT Electrical Services">
+        <input type="hidden" name="_captcha" value="false">
+        <input type="hidden" name="_cc" value="acc.gmtelect@outlook.com">
+        <button class="button primary" type="submit">Make an enquiry</button>
+        <p class="form-status" data-workshop-enquiry-status role="status" aria-live="polite"></p>
+      </form>
+    </aside>
   </section>
 
   <div class="content-carousel" data-content-carousel>
@@ -235,6 +252,7 @@
       <textarea id="contact-message" name="message" rows="5" required></textarea>
       <input type="hidden" name="_subject" value="New website enquiry — GMT Electrical Services">
       <input type="hidden" name="_captcha" value="false">
+      <input type="hidden" name="_cc" value="acc.gmtelect@outlook.com">
       <button class="button primary" type="submit">Send enquiry</button>
       <p class="form-status" data-contact-status role="status" aria-live="polite"></p>
     </form>

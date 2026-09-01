@@ -343,6 +343,42 @@
     });
   }
 
+  function initWorkshopEnquiry() {
+    var form = document.querySelector('[data-workshop-enquiry-form]');
+    var status = form ? form.querySelector('[data-workshop-enquiry-status]') : null;
+    if (!form || !status) return;
+
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var endpoint = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.contactFormSubmitEndpoint;
+      if (!endpoint) {
+        status.textContent = 'The enquiry form is not configured yet. Please call the workshop.';
+        return;
+      }
+
+      var submitButton = form.querySelector('button[type="submit"]');
+      var formData = new FormData(form);
+      formData.set('_replyto', formData.get('email') || '');
+      if (submitButton) submitButton.disabled = true;
+      status.textContent = 'Sending your enquiry…';
+
+      try {
+        var response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+          body: formData
+        });
+        if (!response.ok) throw new Error('Workshop enquiry failed');
+        form.reset();
+        status.textContent = 'Thanks — your enquiry has been sent to the GMT team.';
+      } catch (_error) {
+        status.textContent = 'We could not send the form. Please call 0208 683 0464 instead.';
+      } finally {
+        if (submitButton) submitButton.disabled = false;
+      }
+    });
+  }
+
   function initRevealAnimations() {
     var targets = document.querySelectorAll(
       '.hero-copy, .quick-panel, .section-heading, .service-card, .workshop-photo, .workshop-motion-content, .about-band > *, .contact-card > *'
@@ -382,6 +418,7 @@
     initContentCarousel();
     initTeamShowcase();
     initContactModal();
+    initWorkshopEnquiry();
     initRevealAnimations();
   }
 

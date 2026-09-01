@@ -518,9 +518,12 @@ footer {
 .workshop-motion {
   position: relative;
   isolation: isolate;
-  min-height: 220px;
+  min-height: 390px;
   display: grid;
-  place-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  align-items: center;
+  gap: clamp(1.5rem, 4vw, 3rem);
+  padding: clamp(1.5rem, 4vw, 3rem) max(1rem, calc((100% - 1120px) / 2));
   overflow: hidden;
   background: var(--green);
   color: #fff;
@@ -546,8 +549,7 @@ footer {
 }
 
 .workshop-motion-content {
-  width: min(1120px, 100%);
-  padding: clamp(2rem, 4vw, 3rem) 1rem;
+  width: 100%;
 }
 
 .workshop-motion h2 {
@@ -562,6 +564,57 @@ footer {
   margin: 0;
   color: rgba(255, 255, 255, .88);
   font-size: 1.08rem;
+}
+
+.workshop-enquiry-card {
+  width: 100%;
+  padding: 1.1rem 1.2rem;
+  text-align: left;
+}
+
+.workshop-enquiry-card .eyebrow {
+  margin: 0 0 .35rem;
+  color: var(--green-2);
+  font-size: .74rem;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.workshop-enquiry-card h3 {
+  margin: 0 0 .55rem;
+  color: var(--green);
+  font-size: clamp(1.35rem, 2.5vw, 1.85rem);
+  line-height: 1.05;
+}
+
+.workshop-enquiry-form {
+  gap: .35rem;
+}
+
+.workshop-enquiry-form label {
+  margin-top: .2rem;
+  font-size: .82rem;
+}
+
+.workshop-enquiry-form input:not([type="hidden"]),
+.workshop-enquiry-form textarea {
+  padding: .55rem .65rem;
+  font-size: .9rem;
+}
+
+.workshop-enquiry-form textarea {
+  min-height: 68px;
+}
+
+.workshop-enquiry-form .button {
+  min-height: 42px;
+  margin-top: .35rem;
+  padding: .6rem .9rem;
+}
+
+.workshop-enquiry-form .form-status {
+  font-size: .78rem;
 }
 
 .content-carousel {
@@ -1188,7 +1241,10 @@ body.modal-open {
   }
 
   .workshop-motion {
-    min-height: 180px;
+    min-height: 0;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1.5rem .85rem;
   }
 
   .service-carousel-controls {
@@ -1458,6 +1514,69 @@ body.modal-open {
   }
 }
 
+/* Final team-showcase positioning and hover behavior. */
+.team-next-preview {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.team-progress:hover ~ .team-next-preview {
+  visibility: visible;
+  opacity: 1;
+}
+
+.team-context {
+  right: max(1rem, calc((100% - 1180px) / 2));
+  width: min(390px, 32vw);
+  padding: .85rem .95rem;
+}
+
+.team-context.is-collapsed {
+  right: max(1rem, calc((100% - 1180px) / 2));
+  width: 210px;
+  padding: .65rem .75rem;
+}
+
+.team-context.is-collapsed h3 {
+  margin-bottom: .45rem;
+  font-size: 1.05rem;
+}
+
+.team-context.is-collapsed .team-context-toggle {
+  margin-top: 0;
+  padding: .25rem .55rem;
+  font-size: .66rem;
+}
+
+.about-band.team-showcase .team-showcase-bio {
+  color: rgba(255, 255, 255, .9);
+}
+
+.about-band.team-showcase .team-context {
+  transform: translateY(-50%);
+}
+
+@media (max-width: 820px) {
+  .team-context {
+    right: .85rem;
+    width: auto;
+    padding: .75rem .85rem;
+    top: auto;
+    bottom: 4.25rem;
+    transform: none;
+  }
+
+  .about-band.team-showcase .team-context {
+    transform: none;
+  }
+
+  .team-context.is-collapsed {
+    right: .85rem;
+    width: 190px;
+    bottom: 4.25rem;
+  }
+}
+
 /* Keep the contact band useful without making it a second full section. */
 .contact-section {
   padding-block: clamp(.8rem, 1.5vw, 1.25rem);
@@ -1590,5 +1709,104 @@ body.modal-open {
     right: .85rem;
     bottom: 1.3rem;
     max-width: calc(100% - 1.7rem);
+  }
+}
+
+/* Keep the full portrait legible on wide screens instead of enlarging it to fill the banner. */
+.about-band.team-showcase {
+  min-height: clamp(560px, 48vw, 660px);
+  background-position: 28% center;
+  background-size: auto 100%;
+  background-color: var(--green);
+}
+
+.team-context {
+  right: max(1rem, calc((100% - 1180px) / 2));
+  width: min(410px, 34vw);
+}
+
+.workshop-motion {
+  min-height: 390px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  align-items: center;
+  padding: clamp(1.5rem, 4vw, 3rem) max(1rem, calc((100% - 1120px) / 2));
+}
+
+.workshop-motion-content {
+  width: 100%;
+  padding: 0;
+}
+
+.workshop-enquiry-card {
+  width: 100%;
+  padding: 1.1rem 1.2rem;
+}
+
+.workshop-enquiry-card .eyebrow {
+  margin: 0 0 .35rem;
+  color: var(--green-2);
+  font-size: .74rem;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.workshop-enquiry-card h3 {
+  margin: 0 0 .55rem;
+  color: var(--green);
+  font-size: clamp(1.35rem, 2.5vw, 1.85rem);
+  line-height: 1.05;
+}
+
+.workshop-enquiry-form {
+  gap: .35rem;
+}
+
+.workshop-enquiry-form label {
+  margin-top: .2rem;
+  font-size: .82rem;
+}
+
+.workshop-enquiry-form input:not([type="hidden"]),
+.workshop-enquiry-form textarea {
+  padding: .55rem .65rem;
+  font-size: .9rem;
+}
+
+.workshop-enquiry-form textarea {
+  min-height: 68px;
+}
+
+.workshop-enquiry-form .button {
+  min-height: 42px;
+  margin-top: .35rem;
+  padding: .6rem .9rem;
+}
+
+.workshop-enquiry-form .form-status {
+  font-size: .78rem;
+}
+
+@media (max-width: 820px) {
+  .about-band.team-showcase {
+    min-height: 760px;
+    background-position: 18% center;
+    background-size: auto 100%;
+  }
+
+  .team-context {
+    right: .85rem;
+    width: auto;
+  }
+
+  .workshop-motion {
+    min-height: 0;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1.5rem .85rem;
+  }
+
+  .workshop-motion-content {
+    padding: 0;
   }
 }
