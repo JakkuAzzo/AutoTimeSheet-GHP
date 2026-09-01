@@ -99,7 +99,7 @@ footer {
   padding: .35rem max(1rem, calc((100% - 1180px) / 2));
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   gap: clamp(.75rem, 2.5vw, 2rem);
   align-items: center;
   font-size: .9rem;
