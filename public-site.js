@@ -246,17 +246,7 @@
     var nextRole = root.querySelector('[data-team-next-role]');
     var progress = root.querySelector('[data-team-progress]');
     var progressText = root.querySelector('[data-team-progress-text]');
-    var context = root.querySelector('.team-context');
-    var contextToggle = root.querySelector('[data-team-context-toggle]');
     if (!members.length || !name || !role || !bio || !nextButton || !nextImage || !nextName || !nextRole || !progress || !progressText) return;
-
-    if (context && contextToggle) {
-      contextToggle.addEventListener('click', function () {
-        var hidden = context.classList.toggle('is-collapsed');
-        contextToggle.setAttribute('aria-expanded', String(!hidden));
-        contextToggle.textContent = hidden ? 'Show details' : 'Hide details';
-      });
-    }
 
     var index = 0;
     var duration = 7000;
