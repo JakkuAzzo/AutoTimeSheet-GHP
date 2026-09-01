@@ -1548,7 +1548,24 @@ body.modal-open {
   z-index: -1;
   background:
     linear-gradient(90deg, rgba(7, 31, 15, .84), rgba(7, 31, 15, .46) 52%, rgba(7, 31, 15, .76)),
-    linear-gradient(0deg, rgba(7, 31, 15, .9), rgba(7, 31, 15, .18) 62%);
+      linear-gradient(0deg, rgba(7, 31, 15, .9), rgba(7, 31, 15, .18) 62%);
+}
+
+.team-showcase-portrait {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.team-showcase-portrait img {
+  width: min(43vw, 560px);
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  opacity: .78;
 }
 
 /* Keep the contact band useful without making it a second full section. */
@@ -1767,6 +1784,11 @@ body.modal-open {
     min-height: 760px;
     background-position: 18% center;
     background-size: auto 100%;
+  }
+
+  .team-showcase-portrait img {
+    width: min(100vw, 430px);
+    opacity: .68;
   }
 
   .team-context {

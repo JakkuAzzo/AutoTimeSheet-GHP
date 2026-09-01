@@ -237,6 +237,7 @@
     if (!root) return;
 
     var members = Array.prototype.slice.call(root.querySelectorAll('[data-team-member]'));
+    var currentImage = root.querySelector('[data-team-current-image]');
     var name = root.querySelector('[data-team-name]');
     var role = root.querySelector('[data-team-role]');
     var bio = root.querySelector('[data-team-bio]');
@@ -246,7 +247,7 @@
     var nextRole = root.querySelector('[data-team-next-role]');
     var progress = root.querySelector('[data-team-progress]');
     var progressText = root.querySelector('[data-team-progress-text]');
-    if (!members.length || !name || !role || !bio || !nextButton || !nextImage || !nextName || !nextRole || !progress || !progressText) return;
+    if (!members.length || !currentImage || !name || !role || !bio || !nextButton || !nextImage || !nextName || !nextRole || !progress || !progressText) return;
 
     var index = 0;
     var duration = 7000;
@@ -266,6 +267,7 @@
       var next = members[(index + 1) % members.length];
       root.style.setProperty('--team-image', 'url("' + memberImage(member) + '")');
       root.setAttribute('data-team-current', member.getAttribute('data-name'));
+      currentImage.src = memberImage(member);
       name.textContent = member.getAttribute('data-name');
       role.textContent = member.getAttribute('data-role');
       bio.textContent = member.getAttribute('data-bio');
