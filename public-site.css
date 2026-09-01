@@ -529,7 +529,7 @@ footer {
   content: '';
 }
 
-.workshop-motion-video {
+.workshop-motion-image {
   position: absolute;
   inset: 0;
   z-index: -2;
@@ -1119,10 +1119,6 @@ body.modal-open {
     opacity: 1;
     transform: none;
     transition: none;
-  }
-
-  .workshop-motion-video {
-    display: none;
   }
 
   .workshop-motion {
