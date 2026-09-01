@@ -136,16 +136,6 @@ footer {
   background: transparent;
 }
 
-.hero-inner::before {
-  content: "";
-  position: absolute;
-  inset: -4rem 8% -4rem -8%;
-  z-index: -1;
-  background: url("image.webp") center / min(760px, 82%) auto no-repeat;
-  opacity: .075;
-  pointer-events: none;
-}
-
 .hero-copy,
 .quick-panel {
   border: 1px solid var(--line);
@@ -1152,12 +1142,6 @@ body.modal-open {
 
   .hero {
     padding-top: 1.5rem;
-  }
-
-  .hero-inner::before {
-    inset: -2rem 0;
-    background-size: 700px auto;
-    opacity: .06;
   }
 
   .workshop-map {
