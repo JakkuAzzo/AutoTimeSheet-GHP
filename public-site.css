@@ -383,7 +383,7 @@ footer {
 
 .service-card img {
   width: 100%;
-  height: 250px;
+  height: 150px;
   aspect-ratio: auto;
   object-fit: cover;
   border-bottom: 1px solid var(--line);
@@ -446,7 +446,7 @@ footer {
 .workshop-photo img {
   display: block;
   width: 100%;
-  height: 240px;
+  height: 160px;
   aspect-ratio: auto;
   object-fit: cover;
   background: var(--soft);
@@ -535,6 +535,57 @@ footer {
   margin: 0;
   color: rgba(255, 255, 255, .88);
   font-size: 1.08rem;
+}
+
+.content-carousel {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.content-carousel-panel {
+  max-width: none;
+}
+
+.content-carousel-panel[aria-hidden="true"] {
+  display: none;
+}
+
+.content-carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0 1rem 2rem;
+}
+
+.content-carousel-button {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--green);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--green);
+  font: inherit;
+  font-size: 1.9rem;
+  line-height: 1;
+  padding: 0 0 .16rem;
+}
+
+.content-carousel-button:hover,
+.content-carousel-button:focus-visible {
+  background: var(--green);
+  color: #fff;
+}
+
+.content-carousel-status {
+  min-width: 92px;
+  color: var(--green);
+  font-size: .9rem;
+  font-weight: 900;
+  text-align: center;
 }
 
 .service-carousel-controls {
@@ -820,29 +871,30 @@ body.modal-open {
   }
 
   .service-grid {
-    --service-index: 0;
-    display: flex;
-    gap: 0;
-    transform: translate3d(calc(var(--service-index) * -100%), 0, 0);
-    transition: transform .28s ease;
-    touch-action: pan-y;
-    will-change: transform;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+    transform: none;
   }
 
   .service-card {
-    flex: 0 0 100%;
-    min-width: 100%;
+    flex: none;
+    min-width: 0;
     width: 100%;
   }
 
   .service-card img {
-    height: 190px;
+    height: 120px;
     aspect-ratio: auto;
   }
 
   .workshop-photo,
   .workshop-photo-feature {
     grid-column: span 6;
+  }
+
+  .workshop-photo img {
+    height: 130px;
   }
 
   .workshop-motion {
@@ -927,7 +979,7 @@ body.modal-open {
   }
 
   .service-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workshop-photo,
@@ -936,7 +988,7 @@ body.modal-open {
   }
 
   .workshop-photo img {
-    height: 190px;
+    height: 120px;
   }
 
   .quick-panel {
@@ -954,25 +1006,12 @@ body.modal-open {
     position: relative;
   }
 
-  .service-grid {
+  .content-carousel .service-grid {
     --service-index: 0;
-    display: flex;
-    gap: 0;
-    transform: translate3d(calc(var(--service-index) * -100%), 0, 0);
-    transition: transform .28s ease;
-    touch-action: pan-y;
-    will-change: transform;
-  }
-
-  .service-card {
-    flex: 0 0 100%;
-    min-width: 100%;
-    width: 100%;
-  }
-
-  .service-card img {
-    height: 190px;
-    aspect-ratio: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+    transform: none;
   }
 
   .service-carousel-controls {
