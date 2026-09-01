@@ -247,7 +247,11 @@
     var nextRole = root.querySelector('[data-team-next-role]');
     var progress = root.querySelector('[data-team-progress]');
     var progressText = root.querySelector('[data-team-progress-text]');
-    if (!members.length || !currentImage || !name || !role || !bio || !nextButton || !nextImage || !nextName || !nextRole || !progress || !progressText) return;
+    var playbackToggle = root.querySelector('[data-team-toggle]');
+    var playbackIcon = root.querySelector('[data-team-toggle-icon]');
+    var context = root.querySelector('.team-context');
+    var contextToggle = root.querySelector('[data-team-context-toggle]');
+    if (!members.length || !currentImage || !name || !role || !bio || !nextButton || !nextImage || !nextName || !nextRole || !progress || !progressText || !playbackToggle || !playbackIcon || !context || !contextToggle) return;
 
     var index = 0;
     var duration = 7000;
@@ -256,6 +260,12 @@
     var paused = false;
     var timer = null;
     var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function updatePlaybackControl() {
+      playbackToggle.setAttribute('aria-pressed', String(paused));
+      playbackToggle.setAttribute('aria-label', paused ? 'Play team showcase' : 'Pause team showcase');
+      playbackIcon.textContent = paused ? '▶' : 'Ⅱ';
+    }
 
     function memberImage(member) {
       var image = member.querySelector('img');
@@ -280,6 +290,7 @@
       lastTick = Date.now();
       progress.style.width = '0%';
       progressText.textContent = 'Next in 7s';
+      updatePlaybackControl();
     }
 
     function setIndex(nextIndex) {
@@ -308,27 +319,26 @@
     nextButton.addEventListener('click', function () {
       setIndex(index + 1);
     });
-    root.addEventListener('mouseenter', function () {
-      paused = true;
-    });
-    root.addEventListener('mouseleave', function () {
-      paused = false;
+    playbackToggle.addEventListener('click', function () {
+      paused = !paused;
       lastTick = Date.now();
+      updatePlaybackControl();
     });
-    root.addEventListener('focusin', function () {
-      paused = true;
-    });
-    root.addEventListener('focusout', function (event) {
-      if (root.contains(event.relatedTarget)) return;
-      paused = false;
-      lastTick = Date.now();
+    contextToggle.addEventListener('click', function () {
+      var expanded = contextToggle.getAttribute('aria-expanded') === 'true';
+      contextToggle.setAttribute('aria-expanded', String(!expanded));
+      contextToggle.setAttribute('aria-label', expanded ? 'Show company details' : 'Hide company details');
+      contextToggle.querySelector('span').textContent = expanded ? '+' : '−';
+      context.classList.toggle('is-collapsed', expanded);
     });
     document.addEventListener('visibilitychange', function () {
       paused = document.hidden;
       lastTick = Date.now();
+      updatePlaybackControl();
     });
 
     render();
+    playbackToggle.disabled = reducedMotion;
     if (!reducedMotion) timer = window.setInterval(tick, 100);
     window.addEventListener('beforeunload', function () {
       if (timer) window.clearInterval(timer);
@@ -339,7 +349,21 @@
     var form = document.querySelector('[data-workshop-enquiry-form]');
     var card = form ? form.closest('.workshop-enquiry-card') : null;
     var status = card ? card.querySelector('[data-workshop-enquiry-status]') : null;
-    if (!form || !status) return;
+    var toggle = card ? card.querySelector('[data-workshop-enquiry-toggle]') : null;
+    if (!form || !status || !card || !toggle) return;
+
+    function setExpanded(expanded) {
+      card.classList.toggle('is-expanded', expanded);
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.textContent = expanded ? 'Close enquiry form' : 'Open enquiry form';
+      form.hidden = !expanded;
+    }
+
+    var isMobile = window.matchMedia && window.matchMedia('(max-width: 820px)').matches;
+    setExpanded(!isMobile);
+    toggle.addEventListener('click', function () {
+      setExpanded(!card.classList.contains('is-expanded'));
+    });
 
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
@@ -367,6 +391,7 @@
         status.classList.add('is-visible');
         form.classList.add('is-submitted');
         form.setAttribute('aria-hidden', 'true');
+        toggle.hidden = true;
         window.setTimeout(function () {
           form.hidden = true;
         }, 480);
