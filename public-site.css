@@ -106,7 +106,22 @@ footer {
 }
 
 .hero {
+  position: relative;
+  isolation: isolate;
   padding: clamp(1.75rem, 4.5vw, 3.5rem) 1rem 1.5rem;
+  background:
+    linear-gradient(90deg, rgba(7, 31, 15, .78), rgba(7, 31, 15, .38)),
+    url("assets/website/workshop/workshop-signage.jpg") center 42% / cover no-repeat;
+  color: #fff;
+}
+
+.hero::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(7, 31, 15, .08), rgba(7, 31, 15, .3));
+  content: '';
+  pointer-events: none;
 }
 
 .hero-inner {
@@ -118,6 +133,8 @@ footer {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: clamp(1.5rem, 4vw, 3rem);
   align-items: center;
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 18px 50px rgba(7, 31, 15, .18);
 }
 
 .hero-inner::before {
@@ -141,6 +158,11 @@ footer {
   font-size: clamp(2.5rem, 5.1vw, 4.05rem);
   line-height: 1;
   letter-spacing: 0;
+}
+
+.hero .hero-copy h1,
+.hero .hero-copy p {
+  color: var(--ink);
 }
 
 .hero h1::after {
@@ -540,22 +562,46 @@ footer {
 .content-carousel {
   max-width: 1180px;
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .content-carousel-panel {
   max-width: none;
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  padding-block: clamp(1.5rem, 3.4vw, 2.5rem);
+}
+
+.content-carousel .section-heading {
+  margin-bottom: 1rem;
+}
+
+.content-carousel .service-card img,
+.content-carousel .workshop-photo img {
+  height: 120px;
 }
 
 .content-carousel-panel[aria-hidden="true"] {
-  display: none;
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.content-carousel-panel.is-active {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .content-carousel-controls {
+  grid-column: 1;
+  grid-row: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 1rem;
-  padding: 0 1rem 2rem;
+  padding: .35rem 1rem 1.25rem;
 }
 
 .content-carousel-button {
@@ -884,7 +930,7 @@ body.modal-open {
   }
 
   .service-card img {
-    height: 120px;
+    height: 105px;
     aspect-ratio: auto;
   }
 
@@ -894,7 +940,7 @@ body.modal-open {
   }
 
   .workshop-photo img {
-    height: 130px;
+    height: 105px;
   }
 
   .workshop-motion {
@@ -984,11 +1030,11 @@ body.modal-open {
 
   .workshop-photo,
   .workshop-photo-feature {
-    grid-column: span 12;
+    grid-column: span 6;
   }
 
   .workshop-photo img {
-    height: 120px;
+    height: 100px;
   }
 
   .quick-panel {
