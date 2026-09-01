@@ -383,7 +383,8 @@ footer {
 
 .service-card img {
   width: 100%;
-  aspect-ratio: 16 / 10;
+  height: 250px;
+  aspect-ratio: auto;
   object-fit: cover;
   border-bottom: 1px solid var(--line);
   background: var(--soft);
@@ -445,7 +446,8 @@ footer {
 .workshop-photo img {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  height: 240px;
+  aspect-ratio: auto;
   object-fit: cover;
   background: var(--soft);
   filter: saturate(.94) contrast(1.03);
@@ -834,7 +836,8 @@ body.modal-open {
   }
 
   .service-card img {
-    aspect-ratio: 16 / 8.5;
+    height: 190px;
+    aspect-ratio: auto;
   }
 
   .workshop-photo,
@@ -932,6 +935,10 @@ body.modal-open {
     grid-column: span 12;
   }
 
+  .workshop-photo img {
+    height: 190px;
+  }
+
   .quick-panel {
     text-align: left;
   }
@@ -964,7 +971,8 @@ body.modal-open {
   }
 
   .service-card img {
-    aspect-ratio: 16 / 8.5;
+    height: 190px;
+    aspect-ratio: auto;
   }
 
   .service-carousel-controls {
