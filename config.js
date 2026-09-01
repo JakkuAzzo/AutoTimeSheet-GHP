@@ -14,7 +14,7 @@ window.GMT_APP_CONFIG = {
   legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
   formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
-  contactFormSubmitEndpoint: "https://formsubmit.co/ajax/info@gmt-services.co.uk",
+  contactFormSubmitEndpoint: "https://formsubmit.co/ajax/a78f2a7fcd2b433809c0ee4f5d7a8cbe",
   umami: {
     enabled: true,
     scriptUrl: "https://cloud.umami.is/script.js",

@@ -1278,6 +1278,47 @@ body.modal-open {
   }
 }
 
+.workshop-enquiry-form {
+  max-height: 34rem;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  transition: max-height .42s ease, opacity .25s ease, transform .42s ease;
+}
+
+.workshop-enquiry-form.is-submitted {
+  max-height: 0;
+  margin-block: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-10px);
+}
+
+.workshop-enquiry-card p.workshop-enquiry-status {
+  min-height: 0;
+  max-height: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--green-2);
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: max-height .35s ease, margin .35s ease, opacity .25s ease, transform .35s ease;
+}
+
+.workshop-enquiry-card p.workshop-enquiry-status.is-visible {
+  max-height: 4rem;
+  margin-top: .75rem;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workshop-enquiry-form,
+  .workshop-enquiry-status {
+    transition: none;
+  }
+}
+
 @media (max-width: 560px) {
   .brand img {
     width: min(360px, 88vw);

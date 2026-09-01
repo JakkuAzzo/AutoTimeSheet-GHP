@@ -337,7 +337,8 @@
 
   function initWorkshopEnquiry() {
     var form = document.querySelector('[data-workshop-enquiry-form]');
-    var status = form ? form.querySelector('[data-workshop-enquiry-status]') : null;
+    var card = form ? form.closest('.workshop-enquiry-card') : null;
+    var status = card ? card.querySelector('[data-workshop-enquiry-status]') : null;
     if (!form || !status) return;
 
     form.addEventListener('submit', async function (event) {
@@ -362,7 +363,13 @@
         });
         if (!response.ok) throw new Error('Workshop enquiry failed');
         form.reset();
-        status.textContent = 'Thanks — your enquiry has been sent to the GMT team.';
+        status.textContent = 'We’ve got your enquiry — please check your email for a reply from GMT.';
+        status.classList.add('is-visible');
+        form.classList.add('is-submitted');
+        form.setAttribute('aria-hidden', 'true');
+        window.setTimeout(function () {
+          form.hidden = true;
+        }, 480);
       } catch (_error) {
         status.textContent = 'We could not send the form. Please call 0208 683 0464 instead.';
       } finally {
