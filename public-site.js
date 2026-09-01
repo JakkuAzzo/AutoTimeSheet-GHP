@@ -125,6 +125,49 @@
     setIndex(0);
   }
 
+  function initContentCarousel() {
+    var root = document.querySelector('[data-content-carousel]');
+    if (!root) return;
+
+    var panels = Array.prototype.slice.call(root.querySelectorAll('.content-carousel-panel'));
+    var previous = root.querySelector('[data-content-prev]');
+    var next = root.querySelector('[data-content-next]');
+    var page = root.querySelector('[data-content-page]');
+    if (!panels.length || !previous || !next) return;
+
+    var index = 0;
+
+    function setIndex(nextIndex, updateHash) {
+      index = (nextIndex + panels.length) % panels.length;
+      panels.forEach(function (panel, panelIndex) {
+        var active = panelIndex === index;
+        panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+        panel.classList.toggle('is-active', active);
+      });
+      if (page) page.textContent = 'Page ' + (index + 1) + ' of ' + panels.length;
+      if (updateHash) history.replaceState(null, '', '#' + panels[index].id);
+    }
+
+    previous.addEventListener('click', function () {
+      setIndex(index - 1, true);
+    });
+    next.addEventListener('click', function () {
+      setIndex(index + 1, true);
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-carousel-target]'), function (link) {
+      link.addEventListener('click', function (event) {
+        var targetIndex = Number(link.getAttribute('data-carousel-target'));
+        if (!Number.isInteger(targetIndex) || !panels[targetIndex]) return;
+        event.preventDefault();
+        setIndex(targetIndex, true);
+        root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+
+    setIndex(0, false);
+  }
+
   function initContactModal() {
     var modal = document.querySelector('[data-contact-modal]');
     var openButton = document.querySelector('[data-contact-open]');
@@ -225,6 +268,7 @@
   function initPublicHomepage() {
     initWorkshopMap();
     initServiceCarousel();
+    initContentCarousel();
     initContactModal();
     initRevealAnimations();
   }

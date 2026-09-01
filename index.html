@@ -27,8 +27,8 @@
     </picture>
   </a>
   <nav class="site-nav" aria-label="Main navigation">
-    <a href="#services">Services</a>
-    <a href="#workshop">Workshop</a>
+    <a href="#services" data-carousel-target="0">Services</a>
+    <a href="#workshop" data-carousel-target="1">Workshop</a>
     <a href="#about">About</a>
     <a href="#contact">Contact</a>
     <a class="portal-link" href="portal/">Login</a>
@@ -81,7 +81,8 @@
     </div>
   </section>
 
-  <section class="section" id="services">
+  <div class="content-carousel" data-content-carousel>
+  <section class="section content-carousel-panel" id="services">
     <div class="section-heading">
       <h2>Workshop and site repair services</h2>
       <p>Fast practical support for motors, pumps, fans and related plant, with repair, supply and installation options.</p>
@@ -119,15 +120,10 @@
           <p>Inspection, repair and supply of mechanical gearboxes for AC and DC equipment, including urgent business-critical breakdowns.</p>
         </article>
       </div>
-      <div class="service-carousel-controls" aria-label="Service carousel controls">
-        <button type="button" class="service-carousel-button" data-service-prev aria-label="Previous service">‹</button>
-        <div class="service-dots" data-service-dots aria-label="Service slide indicators"></div>
-        <button type="button" class="service-carousel-button" data-service-next aria-label="Next service">›</button>
-      </div>
     </div>
   </section>
 
-  <section class="section workshop-section" id="workshop">
+  <section class="section workshop-section content-carousel-panel" id="workshop">
     <div class="section-heading">
       <p class="eyebrow">Inside the workshop</p>
       <h2>Hands-on repair from Croydon</h2>
@@ -156,6 +152,12 @@
       </figure>
     </div>
   </section>
+  <div class="content-carousel-controls" aria-label="Services and workshop carousel controls">
+    <button type="button" class="content-carousel-button" data-content-prev aria-label="Previous page">‹</button>
+    <div class="content-carousel-status" aria-live="polite"><span data-content-page>Page 1 of 2</span></div>
+    <button type="button" class="content-carousel-button" data-content-next aria-label="Next page">›</button>
+  </div>
+  </div>
 
   <section class="about-band" id="about">
     <div>
