@@ -101,12 +101,27 @@ footer {
 }
 
 .portal-link {
-  font-size: .78rem;
+  font-size: inherit;
   color: var(--green-2);
 }
 
 .hero {
+  position: relative;
+  isolation: isolate;
   padding: clamp(1.75rem, 4.5vw, 3.5rem) 1rem 1.5rem;
+  background:
+    linear-gradient(90deg, rgba(7, 31, 15, .78), rgba(7, 31, 15, .38)),
+    url("assets/website/workshop/jason-workshop.jpg") center 42% / cover no-repeat;
+  color: #fff;
+}
+
+.hero::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(7, 31, 15, .08), rgba(7, 31, 15, .3));
+  content: '';
+  pointer-events: none;
 }
 
 .hero-inner {
@@ -118,6 +133,7 @@ footer {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: clamp(1.5rem, 4vw, 3rem);
   align-items: center;
+  background: transparent;
 }
 
 .hero-inner::before {
@@ -131,6 +147,10 @@ footer {
 }
 
 .hero-copy {
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 18px 50px rgba(7, 31, 15, .18);
   text-align: left;
 }
 
@@ -141,6 +161,11 @@ footer {
   font-size: clamp(2.5rem, 5.1vw, 4.05rem);
   line-height: 1;
   letter-spacing: 0;
+}
+
+.hero .hero-copy h1,
+.hero .hero-copy p {
+  color: var(--ink);
 }
 
 .hero h1::after {
@@ -507,7 +532,7 @@ footer {
   content: '';
 }
 
-.workshop-motion-video {
+.workshop-motion-image {
   position: absolute;
   inset: 0;
   z-index: -2;
@@ -540,22 +565,46 @@ footer {
 .content-carousel {
   max-width: 1180px;
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .content-carousel-panel {
   max-width: none;
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  padding-block: clamp(1.5rem, 3.4vw, 2.5rem);
+}
+
+.content-carousel .section-heading {
+  margin-bottom: 1rem;
+}
+
+.content-carousel .service-card img,
+.content-carousel .workshop-photo img {
+  height: 120px;
 }
 
 .content-carousel-panel[aria-hidden="true"] {
-  display: none;
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.content-carousel-panel.is-active {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .content-carousel-controls {
+  grid-column: 1;
+  grid-row: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 1rem;
-  padding: 0 1rem 2rem;
+  padding: .35rem 1rem 1.25rem;
 }
 
 .content-carousel-button {
@@ -596,9 +645,9 @@ footer {
   background: linear-gradient(135deg, var(--green), var(--green-2));
   color: #fff;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
-  gap: clamp(1.25rem, 4vw, 4rem);
-  align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 3vw, 3rem);
+  align-items: start;
   padding-block: clamp(2rem, 5vw, 4rem);
   padding-inline: max(1rem, calc((100% - 1120px) / 2));
 }
@@ -614,6 +663,75 @@ footer {
   display: grid;
   gap: .65rem;
   font-weight: 800;
+}
+
+.team-panel {
+  display: grid;
+  gap: .5rem;
+  align-content: start;
+}
+
+.team-panel .eyebrow {
+  margin: 0 0 .15rem;
+  color: rgba(255, 255, 255, .76);
+  font-size: .75rem;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.team-profile {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: .25rem .75rem;
+  align-items: center;
+}
+
+.team-profile img,
+.team-initials {
+  grid-row: span 3;
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.team-initials {
+  display: grid;
+  place-items: center;
+  background: var(--gold);
+  color: var(--green);
+  font-size: 1.4rem;
+  font-weight: 950;
+}
+
+.team-profile h3,
+.team-profile p {
+  margin: 0;
+}
+
+.team-profile h3 {
+  color: #fff;
+  font-size: 1.05rem;
+  line-height: 1.1;
+}
+
+.team-profile .team-role {
+  color: var(--gold);
+  font-size: .84rem;
+  font-weight: 900;
+}
+
+.team-profile p:last-child {
+  color: rgba(255, 255, 255, .82);
+  font-size: .84rem;
+  line-height: 1.35;
+}
+
+.team-profile-secondary {
+  margin-top: .65rem;
+  padding-top: .65rem;
+  border-top: 1px solid rgba(255, 255, 255, .2);
 }
 
 .about-band li::marker {
@@ -808,10 +926,41 @@ body.modal-open {
     object-position: center 40%;
   }
 
+  .site-nav {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: .35rem;
+    font-size: clamp(.62rem, 2.9vw, .9rem);
+    letter-spacing: .02em;
+  }
+
+  .site-nav a {
+    white-space: nowrap;
+  }
+
   .hero-inner,
-  .about-band,
   .contact-card {
     grid-template-columns: 1fr;
+  }
+
+  .about-band {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .75rem;
+    padding-inline: .75rem;
+  }
+
+  .about-band h2 {
+    font-size: 1.2rem;
+  }
+
+  .about-band p,
+  .about-band li {
+    font-size: .86rem;
+  }
+
+  .about-band ul {
+    padding-left: 1rem;
   }
 
   .hero-copy {
@@ -884,7 +1033,7 @@ body.modal-open {
   }
 
   .service-card img {
-    height: 120px;
+    height: 105px;
     aspect-ratio: auto;
   }
 
@@ -894,7 +1043,7 @@ body.modal-open {
   }
 
   .workshop-photo img {
-    height: 130px;
+    height: 105px;
   }
 
   .workshop-motion {
@@ -960,10 +1109,6 @@ body.modal-open {
 }
 
 @media (max-width: 560px) {
-  .site-nav {
-    gap: .75rem 1rem;
-  }
-
   .brand img {
     width: min(360px, 88vw);
     height: 94px;
@@ -984,15 +1129,51 @@ body.modal-open {
 
   .workshop-photo,
   .workshop-photo-feature {
-    grid-column: span 12;
+    grid-column: span 6;
   }
 
   .workshop-photo img {
-    height: 120px;
+    height: 100px;
   }
 
   .quick-panel {
     text-align: left;
+  }
+
+  .about-band {
+    gap: .55rem;
+    padding-inline: .6rem;
+  }
+
+  .about-band h2 {
+    font-size: 1rem;
+  }
+
+  .about-band p,
+  .about-band li,
+  .team-profile p:last-child {
+    font-size: .74rem;
+    line-height: 1.35;
+  }
+
+  .about-band ul {
+    padding-left: .8rem;
+  }
+
+  .team-panel .eyebrow {
+    font-size: .62rem;
+  }
+
+  .team-profile {
+    grid-template-columns: 1fr;
+    gap: .2rem;
+  }
+
+  .team-profile img,
+  .team-initials {
+    grid-row: auto;
+    width: 100%;
+    height: 72px;
   }
 }
 
@@ -1073,10 +1254,6 @@ body.modal-open {
     opacity: 1;
     transform: none;
     transition: none;
-  }
-
-  .workshop-motion-video {
-    display: none;
   }
 
   .workshop-motion {
