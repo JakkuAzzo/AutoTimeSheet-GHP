@@ -232,6 +232,107 @@
     });
   }
 
+  function initTeamShowcase() {
+    var root = document.querySelector('[data-team-showcase]');
+    if (!root) return;
+
+    var members = Array.prototype.slice.call(root.querySelectorAll('[data-team-member]'));
+    var name = root.querySelector('[data-team-name]');
+    var role = root.querySelector('[data-team-role]');
+    var bio = root.querySelector('[data-team-bio]');
+    var nextButton = root.querySelector('[data-team-next-preview]');
+    var nextImage = root.querySelector('[data-team-next-image]');
+    var nextName = root.querySelector('[data-team-next-name]');
+    var nextRole = root.querySelector('[data-team-next-role]');
+    var progress = root.querySelector('[data-team-progress]');
+    var progressText = root.querySelector('[data-team-progress-text]');
+    if (!members.length || !name || !role || !bio || !nextButton || !nextImage || !nextName || !nextRole || !progress || !progressText) return;
+
+    var index = 0;
+    var duration = 7000;
+    var elapsed = 0;
+    var lastTick = Date.now();
+    var paused = false;
+    var timer = null;
+    var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function memberImage(member) {
+      var image = member.querySelector('img');
+      return image ? image.getAttribute('src') : '';
+    }
+
+    function render() {
+      var member = members[index];
+      var next = members[(index + 1) % members.length];
+      root.style.setProperty('--team-image', 'url("' + memberImage(member) + '")');
+      root.setAttribute('data-team-current', member.getAttribute('data-name'));
+      name.textContent = member.getAttribute('data-name');
+      role.textContent = member.getAttribute('data-role');
+      bio.textContent = member.getAttribute('data-bio');
+      nextImage.src = memberImage(next);
+      nextImage.alt = 'Preview of ' + next.getAttribute('data-name') + ' working at the GMT workshop';
+      nextName.textContent = next.getAttribute('data-name');
+      nextRole.textContent = next.getAttribute('data-role');
+      nextButton.setAttribute('aria-label', 'Show ' + next.getAttribute('data-name') + ', the next GMT team member');
+      elapsed = 0;
+      lastTick = Date.now();
+      progress.style.width = '0%';
+      progressText.textContent = 'Next in 7s';
+    }
+
+    function setIndex(nextIndex) {
+      index = (nextIndex + members.length) % members.length;
+      render();
+    }
+
+    function tick() {
+      if (paused) {
+        lastTick = Date.now();
+        return;
+      }
+      var now = Date.now();
+      elapsed += now - lastTick;
+      lastTick = now;
+      if (elapsed >= duration) {
+        setIndex(index + 1);
+        return;
+      }
+      var percentage = Math.min(100, (elapsed / duration) * 100);
+      var seconds = Math.max(1, Math.ceil((duration - elapsed) / 1000));
+      progress.style.width = percentage + '%';
+      progressText.textContent = 'Next in ' + seconds + 's';
+    }
+
+    nextButton.addEventListener('click', function () {
+      setIndex(index + 1);
+    });
+    root.addEventListener('mouseenter', function () {
+      paused = true;
+    });
+    root.addEventListener('mouseleave', function () {
+      paused = false;
+      lastTick = Date.now();
+    });
+    root.addEventListener('focusin', function () {
+      paused = true;
+    });
+    root.addEventListener('focusout', function (event) {
+      if (root.contains(event.relatedTarget)) return;
+      paused = false;
+      lastTick = Date.now();
+    });
+    document.addEventListener('visibilitychange', function () {
+      paused = document.hidden;
+      lastTick = Date.now();
+    });
+
+    render();
+    if (!reducedMotion) timer = window.setInterval(tick, 100);
+    window.addEventListener('beforeunload', function () {
+      if (timer) window.clearInterval(timer);
+    });
+  }
+
   function initRevealAnimations() {
     var targets = document.querySelectorAll(
       '.hero-copy, .quick-panel, .section-heading, .service-card, .workshop-photo, .workshop-motion-content, .about-band > *, .contact-card > *'
@@ -269,6 +370,7 @@
     initWorkshopMap();
     initServiceCarousel();
     initContentCarousel();
+    initTeamShowcase();
     initContactModal();
     initRevealAnimations();
   }
