@@ -189,10 +189,44 @@
     });
   }
 
+  function initRevealAnimations() {
+    var targets = document.querySelectorAll(
+      '.hero-copy, .quick-panel, .section-heading, .service-card, .workshop-photo, .workshop-motion-content, .about-band > *, .contact-card > *'
+    );
+    if (!targets.length) return;
+
+    Array.prototype.forEach.call(targets, function (element, index) {
+      element.classList.add('reveal');
+      element.style.setProperty('--reveal-delay', Math.min(index % 6, 5) * 70 + 'ms');
+    });
+
+    var reveal = function (element) {
+      element.classList.add('is-visible');
+    };
+
+    if (!('IntersectionObserver' in window)) {
+      Array.prototype.forEach.call(targets, reveal);
+      return;
+    }
+
+    var observer = new IntersectionObserver(function (entries, currentObserver) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        reveal(entry.target);
+        currentObserver.unobserve(entry.target);
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+
+    Array.prototype.forEach.call(targets, function (element) {
+      observer.observe(element);
+    });
+  }
+
   function initPublicHomepage() {
     initWorkshopMap();
     initServiceCarousel();
     initContactModal();
+    initRevealAnimations();
   }
 
   window.addEventListener('resize', refreshMapSize);
