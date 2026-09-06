@@ -68,18 +68,28 @@ try {
   await page.evaluate(() => {
     window.__submittedForms = [];
     window.__submittedRawForms = [];
-    HTMLFormElement.prototype.submit = function submitStub() {
-      window.__submittedRawForms.push(this);
+    window.fetch = async (url, options = {}) => {
+      const fields = {};
+      const filesByName = {};
+      for (const [name, value] of options.body.entries()) {
+        if (value instanceof File) {
+          (filesByName[name] ||= []).push({ name: value.name, type: value.type, size: value.size });
+        } else {
+          fields[name] = value;
+        }
+      }
+      window.__submittedRawForms.push(options.body);
       window.__submittedForms.push({
-        action: this.action,
-        subject: this.querySelector('[name="_subject"]')?.value || '',
-        cc: this.querySelector('[name="_cc"]')?.value || '',
-        replyTo: this.querySelector('[name="_replyto"]')?.value || '',
-        fields: Object.fromEntries([...this.querySelectorAll('input[type="hidden"]')].map((input) => [input.name, input.value])),
-        files: [...this.querySelectorAll('input[type="file"]')].map((input) => ({
-          name: input.name,
-          files: [...input.files].map((file) => ({ name: file.name, type: file.type, size: file.size }))
-        }))
+        action: url,
+        subject: fields._subject || '',
+        cc: fields._cc || '',
+        replyTo: fields._replyto || '',
+        fields,
+        files: Object.entries(filesByName).map(([name, files]) => ({ name, files }))
+      });
+      return new Response(JSON.stringify({ success: 'true', message: 'Accepted by test FormSubmit endpoint' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
       });
     };
   });
@@ -112,20 +122,24 @@ try {
   assert.equal(config.fallbackFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(config.legacyPersonalAccountsEmail, 'acc.gmtelect@outlook.com');
   assert.equal(config.formSubmitCc, '');
-  assert.equal(result.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(result.action, 'https://formsubmit.co/ajax/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'routing.tester@example.com');
   assert.equal(result.replyTo, 'routing.tester@example.com');
-  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment', 'attachment_csv', 'attachment_calendar_sync']);
-  assert.ok(result.files[0].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
-  assert.ok(result.files[0].files[0].size > 1000);
-  assert.ok(result.files[1].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.csv'));
-  assert.ok(result.files[1].files[0].size > 100);
+  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
+  assert.ok(result.files[0].files[0].name.includes('GMT Timesheet Record - Routing Tester - 2026-06-22.json'));
+  assert.ok(result.files[0].files[0].size > 100);
+  assert.ok(result.files[1].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
+  assert.ok(result.files[1].files[0].size > 1000);
+  assert.ok(result.files[2].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.csv'));
+  assert.ok(result.files[2].files[0].size > 100);
   assert.equal(result.fields.gmt_type, 'timesheet');
   assert.equal(result.fields.gmt_action, 'submission');
   assert.equal(result.fields.gmt_schema_version, '1');
   assert.equal(result.fields.gmt_record_id, 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22');
   assert.equal(result.fields.gmt_submission_id, result.fields.gmt_record_id);
+  assert.equal(result.fields.gmt_workbook_key, 'timesheet-profile-tester-gmt-services-co-uk-2026-06');
+  assert.equal(result.fields.gmt_filing_mode, 'monthly-upsert');
   assert.equal(result.fields.gmt_employee, 'Routing Tester');
   assert.equal(result.fields.gmt_employee_upn, 'profile.tester@gmt-services.co.uk');
   assert.equal(result.fields.gmt_week_start, '2026-06-22');
@@ -140,13 +154,25 @@ try {
   assert.equal(result.fields.gmt_calendar_sync, 'requested');
   assert.equal(result.fields.gmt_calendar_name, 'GMT Operational Calendar');
   assert.equal(result.fields.gmt_calendar_event_count, '1');
-  assert.equal(result.fields.gmt_attachment_manifest, 'xlsx,csv,calendar-sync-json');
+  assert.equal(result.fields.gmt_attachment_manifest, 'record-json,xlsx,csv,calendar-sync-json');
   assert.match(result.fields.gmt_submitted_at, /^2026|^20\d{2}-\d{2}-\d{2}T/);
-  assert.ok(result.files[2].files[0].name.includes('GMT Calendar Sync - Routing Tester - 2026-06-22.json'));
-  assert.ok(result.files[2].files[0].size > 100);
+  assert.ok(result.files[3].files[0].name.includes('GMT Calendar Sync - Routing Tester - 2026-06-22.json'));
+  assert.ok(result.files[3].files[0].size > 100);
+  const recordEnvelope = await page.evaluate(async () => {
+    const file = window.__submittedRawForms[0].get('attachment_record');
+    return JSON.parse(await file.text());
+  });
+  assert.equal(recordEnvelope.recordId, `${result.fields.gmt_record_id}|2026-06-22`);
+  assert.equal(recordEnvelope.submissionId, result.fields.gmt_submission_id);
+  assert.equal(recordEnvelope.date, '2026-06-22');
+  assert.equal(recordEnvelope.startTime, '08:00');
+  assert.equal(recordEnvelope.finishTime, '16:00');
+  assert.equal(recordEnvelope.employeeName, 'Routing Tester');
+  assert.equal(recordEnvelope.action, 'submission');
+  assert.equal(recordEnvelope.weekStart, '2026-06-22');
+  assert.equal(recordEnvelope.workedHours, 8);
   const regularCalendarSync = await page.evaluate(async () => {
-    const form = window.__submittedRawForms[0];
-    const file = form.querySelector('[name="attachment_calendar_sync"]').files[0];
+    const file = window.__submittedRawForms[0].get('attachment_calendar_sync');
     return JSON.parse(await file.text());
   });
   assert.equal(regularCalendarSync.submissionId, result.fields.gmt_submission_id);
@@ -156,8 +182,7 @@ try {
   await page.locator('#submit-btn').click();
   await page.waitForFunction(() => window.__submittedForms.length === 2, null, { timeout: 15000 });
   const absenceCalendarSync = await page.evaluate(async () => {
-    const form = window.__submittedRawForms[1];
-    const file = form.querySelector('[name="attachment_calendar_sync"]').files[0];
+    const file = window.__submittedRawForms[1].get('attachment_calendar_sync');
     return JSON.parse(await file.text());
   });
   assert.equal(absenceCalendarSync.events.length, 2);

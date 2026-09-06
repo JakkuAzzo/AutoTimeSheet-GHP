@@ -1,0 +1,33 @@
+{
+  "name": "GMT staff portal timesheet history",
+  "version": 1,
+  "securityModel": "server-enforced Entra identity mapping",
+  "readRoute": {
+    "method": "GET",
+    "response": { "records": "array" },
+    "requiredClaims": ["tid", "oid", "preferred_username"],
+    "scope": "signed-in employee only unless member of GMT timesheet administrators"
+  },
+  "recordProjection": [
+    "employee_name",
+    "employee_upn",
+    "start_date",
+    "end_date",
+    "status",
+    "submitted_at",
+    "updated_at",
+    "issue",
+    "source_record_id"
+  ],
+  "editing": {
+    "mode": "mutable-record",
+    "key": "gmt_record_id",
+    "audit": "retain prior version metadata and reconciliation issues"
+  },
+  "visibility": {
+    "allEmployeeAdministrators": ["Amanda", "Faith", "Lidia", "Michelle"],
+    "ordinaryEmployees": "own records only",
+    "rawWorkbookLinks": false
+  },
+  "failureBehavior": "return an explicit error; never fall back to an unfiltered SharePoint URL"
+}

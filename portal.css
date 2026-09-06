@@ -396,6 +396,8 @@
   padding: .35rem .65rem;
   font-size: .9rem;
 }
+.portal-history-card { max-width: 920px; margin-inline: auto; }
+.portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; }
 .portal-status {
   display: inline-flex;
   align-items: center;

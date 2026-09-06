@@ -1,0 +1,17 @@
+{
+  "recordId": "TEST-POST-FIX-20260906-006",
+  "employeeName": "Jason",
+  "employeeEmail": "jason@gmt-services.co.uk",
+  "weekStart": "2026-09-01",
+  "weekEnd": "2026-09-05",
+  "date": "2026-09-06",
+  "status": "Submitted",
+  "notes": "Controlled post-correction mailbox validation record",
+  "hours": {
+    "monday": 8,
+    "tuesday": 8,
+    "wednesday": 8,
+    "thursday": 8,
+    "friday": 8
+  }
+}

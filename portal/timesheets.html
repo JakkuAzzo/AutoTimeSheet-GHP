@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>My timesheets | GMT Staff Portal</title>
+<link rel="stylesheet" href="../styles.css?v=timesheet-history-20260906">
+<link rel="stylesheet" href="../portal.css?v=timesheet-history-20260906">
+<script src="../config.js?v=portal-redirect-20260906"></script>
+<script defer src="../analytics.js?v=umami-20260819"></script>
+<script defer src="auth.js?v=entra-auth-20260906"></script>
+</head>
+<body>
+<header class="app-header portal-header">
+  <div class="brand-block">
+    <img src="../image.webp" alt="GMT Electrical Services Ltd logo" class="site-logo" width="1536" height="1024">
+    <div><p class="eyebrow">GMT Staff Portal</p><h1>My timesheets</h1><p class="portal-header-subtitle">Your submitted records and corrections</p></div>
+  </div>
+  <nav class="header-actions" aria-label="Timesheet navigation"><a href="index.html">Back to portal</a><a href="../timesheets/create.html">Create or edit</a><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
+</header>
+<main class="app-main" hidden>
+  <section class="card portal-history-card" aria-labelledby="history-title">
+    <p class="portal-card-kicker">Identity-filtered history</p>
+    <h2 id="history-title">My submitted timesheets</h2>
+    <p id="timesheet-history-status" class="small-text" role="status">Loading your records…</p>
+    <p id="timesheet-history-link" class="small-text" hidden></p>
+    <div id="timesheet-history-list" class="portal-list" aria-live="polite"></div>
+  </section>
+</main>
+<script defer src="timesheets.js?v=history-endpoint-20260906"></script>
+</body>
+</html>

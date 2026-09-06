@@ -15,6 +15,13 @@ window.GMT_APP_CONFIG = {
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
   formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   contactFormSubmitEndpoint: "https://formsubmit.co/ajax/a78f2a7fcd2b433809c0ee4f5d7a8cbe",
+  // Must be a server-enforced, Entra-authenticated history endpoint. Leave
+  // blank until the protected Microsoft 365 retrieval route is deployed.
+  timesheetHistoryEndpoint: "",
+  timesheetHistoryAppUrl: "",
+  // Drafts must be persisted by an Entra-authenticated route before they are
+  // treated as shared or recoverable across devices.
+  timesheetDraftEndpoint: "",
   umami: {
     enabled: true,
     scriptUrl: "https://cloud.umami.is/script.js",

@@ -1,5 +1,5 @@
 const CONFIG = window.GMT_APP_CONFIG || {};
-const STORAGE_KEY = 'gmt_guest_timesheet_manual_draft_v1';
+const STORAGE_KEY = 'gmt_guest_timesheet_manual_draft_v2';
 const HOLIDAY_PAID_MINUTES = 8 * 60;
 const BASIC_DAY_MINUTES = 8 * 60;
 const XLSX_SRC = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
@@ -606,6 +606,16 @@ function localPortalProfile() {
   }
 }
 
+function draftStorageKey() {
+  const profile = localPortalProfile();
+  const identity = profile.subject || profile.username || profile.notificationEmail || 'guest';
+  return `${STORAGE_KEY}:${submissionKeyPart(identity)}`;
+}
+
+function legacyDraftStorageKey() {
+  return 'gmt_guest_timesheet_manual_draft_v1';
+}
+
 function addDaysToIsoDate(value, days) {
   const date = dateObj(value);
   if (!date) return '';
@@ -672,6 +682,37 @@ function buildCalendarSyncFile(calendarSync) {
   return new File([JSON.stringify(calendarSync, null, 2)], fileName, { type: 'application/json' });
 }
 
+function buildTimesheetRecordFile(calendarSync, calculated, submissionId) {
+  const records = allRowsForExport(calculated).map((row) => {
+  const record = {
+    schemaVersion: 1,
+    recordId: `${submissionId}|${row.Date}`,
+    submissionId,
+    employeeName: employeeName.value.trim(),
+    employeeEmail: employeeEmail.value.trim(),
+    employeeUpn: calendarSync.employeeUpn || '',
+    weekStart: calendarSync.weekStart,
+    weekEnd: calendarSync.weekEnd,
+    date: row.Date,
+    action: 'submission',
+    status: row.Status,
+    startTime: row.Start,
+    finishTime: row.Finish,
+    absenceReason: row['Absence reason'],
+    workedHours: row['Worked hours'],
+    basicHours: row['Basic hours'],
+    ot15Hours: row['OT x1.5 hours'],
+    ot20Hours: row['OT x2.0 hours'],
+    note: [row.Note, `Break: ${row.Break}`].filter(Boolean).join(' | '),
+    submittedAt: calendarSync.submittedAt
+  };
+  return record;
+  });
+  const payload = records.length === 1 ? records[0] : records;
+  const fileName = `GMT Timesheet Record - ${employeeName.value.trim() || 'Employee'} - ${calendarSync.weekStart || 'unspecified'}.json`;
+  return new File([JSON.stringify(payload, null, 2)], fileName, { type: 'application/json' });
+}
+
 function submissionKeyPart(value) {
   return String(value || 'unknown')
     .trim()
@@ -684,6 +725,13 @@ function buildTimesheetSubmissionId(calendarSync) {
   const profile = localPortalProfile();
   const employeeIdentity = profile.username || employeeEmail.value.trim() || employeeName.value.trim();
   return `timesheet-${submissionKeyPart(employeeIdentity)}-${calendarSync.weekStart || 'unspecified'}`;
+}
+
+function buildTimesheetWorkbookKey(calendarSync) {
+  const profile = localPortalProfile();
+  const employeeIdentity = profile.username || employeeEmail.value.trim() || employeeName.value.trim();
+  const month = String(calendarSync.weekStart || '').slice(0, 7) || 'unspecified';
+  return `timesheet-${submissionKeyPart(employeeIdentity)}-${month}`;
 }
 
 function addCalendarEventKeys(calendarSync, submissionId) {
@@ -712,15 +760,16 @@ function formSubmitEndpoint() {
     || taggedFormSubmitEndpoint('timesheets');
 }
 
+function ajaxFormSubmitEndpoint(endpoint) {
+  const clean = cleanFormSubmitEndpoint(endpoint);
+  if (!clean) return '';
+  return clean.replace('https://formsubmit.co/', 'https://formsubmit.co/ajax/');
+}
+
 function createEmailForm() {
-  const iframe = document.createElement('iframe');
-  iframe.name = 'formsubmit-frame';
-  iframe.hidden = true;
-  document.body.appendChild(iframe);
   const emailForm = document.createElement('form');
   emailForm.method = 'POST';
   emailForm.enctype = 'multipart/form-data';
-  emailForm.target = 'formsubmit-frame';
   emailForm.hidden = true;
   emailForm.innerHTML = `
     <input type="hidden" name="_subject" data-clean-field="subject">
@@ -735,6 +784,8 @@ function createEmailForm() {
     <input type="hidden" name="gmt_schema_version" data-clean-field="gmtSchemaVersion">
     <input type="hidden" name="gmt_record_id" data-clean-field="gmtRecordId">
     <input type="hidden" name="gmt_submission_id" data-clean-field="gmtSubmissionId">
+    <input type="hidden" name="gmt_workbook_key" data-clean-field="gmtWorkbookKey">
+    <input type="hidden" name="gmt_filing_mode" data-clean-field="gmtFilingMode">
     <input type="hidden" name="gmt_employee" data-clean-field="gmtEmployee">
     <input type="hidden" name="gmt_employee_upn" data-clean-field="gmtEmployeeUpn">
     <input type="hidden" name="gmt_week_start" data-clean-field="gmtWeekStart">
@@ -753,6 +804,7 @@ function createEmailForm() {
     <input type="hidden" name="gmt_submitted_at" data-clean-field="gmtSubmittedAt">
     <input type="hidden" name="summary" data-clean-field="summary">
     <input type="hidden" name="message" data-clean-field="message">
+    <input type="file" name="attachment_record" data-clean-field="record">
     <input type="file" name="attachment" data-clean-field="xlsx">
     <input type="file" name="attachment_csv" data-clean-field="csv">
     <input type="file" name="attachment_calendar_sync" data-clean-field="calendarSync">
@@ -775,8 +827,10 @@ async function submitTimesheet(event) {
     const csvFile = buildCsvFile(calculated);
     const calendarSync = buildCalendarSync(calculated, totals);
     const submissionId = buildTimesheetSubmissionId(calendarSync);
+    const workbookKey = buildTimesheetWorkbookKey(calendarSync);
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
     const calendarSyncFile = buildCalendarSyncFile(calendarSyncWithIds);
+    const recordFile = buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId);
     const emailForm = createEmailForm();
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
@@ -792,6 +846,8 @@ async function submitTimesheet(event) {
     field('gmtSchemaVersion').value = '1';
     field('gmtRecordId').value = submissionId;
     field('gmtSubmissionId').value = submissionId;
+    field('gmtWorkbookKey').value = workbookKey;
+    field('gmtFilingMode').value = 'monthly-upsert';
     field('gmtEmployee').value = employeeName.value.trim();
     field('gmtEmployeeUpn').value = calendarSyncWithIds.employeeUpn;
     field('gmtWeekStart').value = calendarSyncWithIds.weekStart;
@@ -806,15 +862,26 @@ async function submitTimesheet(event) {
     field('gmtCalendarSync').value = 'requested';
     field('gmtCalendarName').value = calendarSyncWithIds.calendarName;
     field('gmtCalendarEventCount').value = String(calendarSyncWithIds.events.length);
-    field('gmtAttachmentManifest').value = 'xlsx,csv,calendar-sync-json';
+    field('gmtAttachmentManifest').value = 'record-json,xlsx,csv,calendar-sync-json';
     field('gmtSubmittedAt').value = calendarSync.submittedAt;
     field('summary').value = calculatedSummaryInput.value;
     field('message').value = `Timesheet spreadsheets are attached. Calendar sync requested for ${calendarSyncWithIds.calendarName}: ${calendarSyncWithIds.events.length} event(s), including ${calendarSyncWithIds.events.filter((event) => event.type === 'absence').length} absence event(s).`;
+    emailForm.querySelectorAll('[data-daily-record]').forEach((input) => input.remove());
+    setFileInputFiles(field('record'), [recordFile]);
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
     setFileInputFiles(field('calendarSync'), [calendarSyncFile]);
-    emailForm.submit();
-    showSuccess('Timesheet sent with generated XLSX and CSV attachments.');
+    const response = await fetch(ajaxFormSubmitEndpoint(emailForm.action), {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: new FormData(emailForm)
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result || String(result.success).toLowerCase() !== 'true') {
+      throw new Error(result?.message || 'FormSubmit did not accept the timesheet. Please try again.');
+    }
+    emailForm.remove();
+    showSuccess('Timesheet submitted successfully. Your generated XLSX and CSV attachments were accepted.');
   } catch (error) {
     showError(error.message || 'Submission failed.');
   }
@@ -822,7 +889,9 @@ async function submitTimesheet(event) {
 
 function saveDraftManually() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(draftStorageKey(), JSON.stringify({
+      schemaVersion: 2,
+      savedAt: new Date().toISOString(),
       employeeName: employeeName.value,
       employeeEmail: employeeEmail.value,
       weekStart: weekStart.value,
@@ -830,14 +899,45 @@ function saveDraftManually() {
       absenceRanges,
       rows: getRows()
     }));
-    showSuccess('Draft saved on this device. Draft loading is temporarily disabled while mobile input stability is verified.');
+    showSuccess('Draft saved on this device. It will be restored when you return on this browser.');
   } catch {
     showError('Draft could not be saved on this device. The form can still be submitted.');
   }
 }
 
+function loadSavedDraft() {
+  try {
+    const currentKey = draftStorageKey();
+    const legacyKey = legacyDraftStorageKey();
+    const raw = localStorage.getItem(currentKey) || localStorage.getItem(legacyKey);
+    if (!raw) return false;
+    const draft = JSON.parse(raw);
+    if (!draft || typeof draft !== 'object' || !Array.isArray(draft.rows)) {
+      localStorage.removeItem(draftStorageKey());
+      return false;
+    }
+    if (typeof draft.employeeName === 'string') employeeName.value = draft.employeeName;
+    if (typeof draft.employeeEmail === 'string') employeeEmail.value = draft.employeeEmail;
+    if (typeof draft.weekStart === 'string') weekStart.value = draft.weekStart;
+    if (typeof draft.weekEnd === 'string') weekEnd.value = draft.weekEnd;
+    absenceRanges = Array.isArray(draft.absenceRanges)
+      ? draft.absenceRanges.filter((range) => range && range.start && range.end && range.reason)
+      : [];
+    if (!localStorage.getItem(currentKey) && localStorage.getItem(legacyKey)) {
+      localStorage.setItem(currentKey, JSON.stringify({ ...draft, schemaVersion: 2, migratedAt: new Date().toISOString() }));
+    }
+    renderAbsenceRanges();
+    renderRows(draft.rows.slice(0, 45));
+    showSuccess('Saved draft restored from this device.');
+    return true;
+  } catch {
+    localStorage.removeItem(draftStorageKey());
+    return false;
+  }
+}
+
 function clearDraft() {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(draftStorageKey());
   showSuccess('Saved draft cleared on this device.');
 }
 
@@ -906,9 +1006,11 @@ loadPortalProfile();
 // Safari can visually restore native date controls while their DOM values are blank.
 // A concrete current-week default keeps the form state and visible controls aligned.
 initialiseWeekDates();
-renderAbsenceRanges();
-addDay();
-recalculate();
+if (!loadSavedDraft()) {
+  renderAbsenceRanges();
+  addDay();
+  recalculate();
+}
 
 window.addEventListener('pageshow', () => {
   window.setTimeout(() => {
