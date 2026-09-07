@@ -766,6 +766,18 @@ function ajaxFormSubmitEndpoint(endpoint) {
   return clean.replace('https://formsubmit.co/', 'https://formsubmit.co/ajax/');
 }
 
+function ensureTimesheetSubmitFrame() {
+  const existing = document.getElementById('gmt-timesheet-submit-frame');
+  if (existing) return existing;
+  const frame = document.createElement('iframe');
+  frame.id = 'gmt-timesheet-submit-frame';
+  frame.name = 'gmt-timesheet-submit-frame';
+  frame.title = 'Timesheet submission response';
+  frame.hidden = true;
+  document.body.appendChild(frame);
+  return frame;
+}
+
 function createEmailForm() {
   const emailForm = document.createElement('form');
   emailForm.method = 'POST';
@@ -871,17 +883,30 @@ async function submitTimesheet(event) {
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
     setFileInputFiles(field('calendarSync'), [calendarSyncFile]);
-    const response = await fetch(ajaxFormSubmitEndpoint(emailForm.action), {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: new FormData(emailForm)
+    // FormSubmit's documented AJAX endpoint is JSON-oriented. Use the native
+    // multipart POST for this form so the generated XLSX, CSV, record JSON and
+    // calendar-sync JSON arrive as real mail attachments for Power Automate.
+    // The hidden iframe keeps the user on the timesheet page while the response
+    // loads, after which the existing success state is shown.
+    const frame = ensureTimesheetSubmitFrame();
+    emailForm.target = frame.name;
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error('The timesheet submission timed out. Please try again.'));
+      }, 30000);
+      frame.onload = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve();
+      };
+      emailForm.submit();
     });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || !result || String(result.success).toLowerCase() !== 'true') {
-      throw new Error(result?.message || 'FormSubmit did not accept the timesheet. Please try again.');
-    }
     emailForm.remove();
-    showSuccess('Timesheet submitted successfully. Your generated XLSX and CSV attachments were accepted.');
+    showSuccess('Timesheet submitted successfully. Your XLSX and CSV attachments were sent to Accounts.');
   } catch (error) {
     showError(error.message || 'Submission failed.');
   }

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GMT monthly timesheet upsert flow specification",
+  "version": "1",
+  "status": "activation-ready-local-spec",
+  "ownership": {
+    "mailbox": "GMT-owned shared mailbox",
+    "storage": "GMT-owned SharePoint document library",
+    "index": "Microsoft List: Timesheet Submissions",
+    "flow": "GMT Portal - Timesheet Intake"
+  },
+  "trigger": {
+    "connector": "Office 365 Outlook",
+    "event": "When a new email arrives in a shared mailbox (V2)",
+    "mailbox": "accounts8765@gmtelectservsltd.onmicrosoft.com",
+    "folder": "Inbox",
+    "optionalRecipientRoute": "acc.gmtelect+timesheets@outlook.com",
+    "routingRule": "The legacy FormSubmit route remains acc.gmtelect@outlook.com. An enabled Outlook rule moves matching plus-address messages into the legacy Timesheets folder and forwards them to accounts8765@gmtelectservsltd.onmicrosoft.com. The tenant mailbox Inbox is the authoritative Power Automate intake; do not rely on the forwarded To field.",
+    "validatedMailboxEvidence": "Outlook shared-mailbox navigation exposes Accounts@GMTElectServsLtd.onmicrosoft.com and the live flow trigger is configured for accounts8765@gmtelectservsltd.onmicrosoft.com / Inbox. Fresh post-correction run proof remains required.",
+    "legacyRoute": {
+      "mailbox": "acc.gmtelect@outlook.com",
+      "folder": "Timesheets",
+      "plusAddress": "acc.gmtelect+timesheets@outlook.com",
+      "preserveExistingSubmissionRoute": true
+    }
+  },
+  "acceptedEnvelope": {
+    "types": ["timesheet", "timesheet_clock"],
+    "filingMode": "monthly-upsert",
+    "required": [
+      "gmt_record_id",
+      "gmt_workbook_key",
+      "gmt_employee",
+      "gmt_year",
+      "gmt_month",
+      "gmt_attachment_manifest"
+    ],
+    "monthFormat": "MM",
+    "acceptedAttachments": [".xlsx", ".csv"],
+    "rejectedAttachmentPolicy": "quarantine"
+  },
+  "storage": {
+    "root": "GMT Web-App/Timesheets",
+    "monthlyFolder": "{year}/{month}/{employee}",
+    "workbookName": "GMT Timesheet - {employee} - {year}-{month}.xlsx",
+    "rawEventFolder": "{year}/{month}/{employee}/Raw Events/{record-id}",
+    "template": "GMT Timesheet Monthly Template.xlsx"
+  },
+  "idempotency": {
+    "eventKey": "gmt_record_id",
+    "workbookKey": "gmt_workbook_key",
+    "listKey": "Record ID",
+    "duplicateBehavior": "update-existing-row-and-list-item"
+  },
+  "actions": [
+    "validate-envelope-and-attachments",
+    "get-or-create-monthly-folder",
+    "get-or-create-workbook-from-approved-template",
+    "save-raw-xlsx-and-csv-if-absent",
+    "run-office-script-upsert-monthly-timesheet-row",
+    "create-or-update-timesheet-submissions-list-item",
+    "move-email-to-Processed-after-success"
+  ],
+  "failurePolicy": {
+    "folder": "GMT Portal/Failed - Needs Review",
+    "retainSourceEmail": true,
+    "doNotMarkProcessedBefore": ["workbook-upsert", "raw-file-save", "list-upsert"]
+  },
+  "locationPolicy": {
+    "sourceField": "gmt_location",
+    "permissionDenied": "Location unavailable",
+    "manualSiteValue": "accepted",
+    "coordinates": "store only when the user explicitly requested location capture"
+  }
+}
