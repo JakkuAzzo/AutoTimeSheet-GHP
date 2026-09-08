@@ -1,4 +1,50 @@
 (function () {
+  var KNOWN_BLOCKED_FORM_EMAILS = ['tickettm2019@gmail.com'];
+
+  function normaliseFormEmail(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function prepareProtectedForm(form) {
+    if (!form || form.dataset.protectionReady === 'true') return;
+    form.dataset.protectionReady = 'true';
+    form.dataset.formStartedAt = String(Date.now());
+    var confirmationField = form.querySelector('[data-email-confirmation]');
+    if (confirmationField) {
+      confirmationField.addEventListener('input', function () {
+        confirmationField.setCustomValidity('');
+      });
+    }
+    form.addEventListener('input', function () {
+      form.dataset.lastInteractionAt = String(Date.now());
+    });
+  }
+
+  function validateProtectedForm(form) {
+    prepareProtectedForm(form);
+    var honey = form.querySelector('[name="_honey"]');
+    if (honey && honey.value.trim()) return 'We could not verify this submission. Please try again.';
+
+    var emailField = form.querySelector('[name="email"]');
+    var confirmationField = form.querySelector('[data-email-confirmation]');
+    var email = normaliseFormEmail(emailField && emailField.value);
+    var confirmation = normaliseFormEmail(confirmationField && confirmationField.value);
+    if (!email || !confirmation || email !== confirmation) {
+      if (confirmationField) confirmationField.setCustomValidity('Email addresses must match.');
+      return 'Please make sure both email fields match.';
+    }
+    if (confirmationField) confirmationField.setCustomValidity('');
+    if (KNOWN_BLOCKED_FORM_EMAILS.indexOf(email) !== -1) {
+      return 'This email address could not be verified. Please use another address.';
+    }
+
+    var startedAt = Number(form.dataset.formStartedAt || 0);
+    if (startedAt && Date.now() - startedAt < 1200) {
+      return 'Please take a moment to complete the form and try again.';
+    }
+    return '';
+  }
+
   function refreshMapSize() {
     if (!window.gmtMap) return;
     setTimeout(function () {
@@ -175,6 +221,7 @@
     var form = modal ? modal.querySelector('[data-contact-form]') : null;
     var status = modal ? modal.querySelector('[data-contact-status]') : null;
     if (!modal || !openButton || !form) return;
+    prepareProtectedForm(form);
 
     var lastFocus = null;
 
@@ -203,6 +250,11 @@
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
       if (!status) return;
+      var protectionError = validateProtectedForm(form);
+      if (protectionError) {
+        status.textContent = protectionError;
+        return;
+      }
       var endpoint = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.contactFormSubmitEndpoint;
       if (!endpoint) {
         status.textContent = 'The contact form is not configured yet. Please call the workshop.';
@@ -352,6 +404,7 @@
     var toggle = card ? card.querySelector('[data-workshop-enquiry-toggle]') : null;
     var enquiryNav = document.querySelector('[data-enquire-nav]');
     if (!form || !status || !card || !toggle) return;
+    prepareProtectedForm(form);
 
     function setExpanded(expanded) {
       card.classList.toggle('is-expanded', expanded);
@@ -380,6 +433,11 @@
 
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
+      var protectionError = validateProtectedForm(form);
+      if (protectionError) {
+        status.textContent = protectionError;
+        return;
+      }
       var endpoint = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.contactFormSubmitEndpoint;
       if (!endpoint) {
         status.textContent = 'The enquiry form is not configured yet. Please call the workshop.';
