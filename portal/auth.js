@@ -2,7 +2,12 @@
   "use strict";
 
   var config = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.entraSpaAuth;
+  var authReadyResolve;
+  window.GMT_PORTAL_AUTH_READY = new Promise(function (resolve) {
+    authReadyResolve = resolve;
+  });
   if (!config || !config.enabled) {
+    authReadyResolve({});
     var unavailableMain = document.querySelector("main");
     if (unavailableMain) unavailableMain.hidden = false;
     return;
@@ -147,6 +152,19 @@
     msalApp.setActiveAccount(account);
     sessionStorage.setItem(authSessionKey, account.homeAccountId || account.username || "");
     recordIdentity(account);
+
+    // Make the authenticated MSAL context available to protected portal
+    // features. The access token is acquired just-in-time for the configured
+    // API scope; no token is written to localStorage or exposed in the page.
+    window.GMT_PORTAL_AUTH = {
+      acquireToken: function (scopes) {
+        var requestedScopes = Array.isArray(scopes) ? scopes.filter(Boolean) : [];
+        if (!requestedScopes.length) return Promise.resolve("");
+        return msalApp.acquireTokenSilent({ account: account, scopes: requestedScopes })
+          .then(function (tokenResult) { return tokenResult.accessToken || ""; });
+      }
+    };
+    authReadyResolve(window.GMT_PORTAL_AUTH);
 
     var returnTo = requestedPath();
     if (window.location.pathname === config.redirectPath && returnTo && returnTo !== window.location.pathname) {
