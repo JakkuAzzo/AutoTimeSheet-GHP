@@ -16,7 +16,7 @@ window.GMT_APP_CONFIG = {
   formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   contactFormSubmitEndpoint: "https://formsubmit.co/ajax/a78f2a7fcd2b433809c0ee4f5d7a8cbe",
   // Server-enforced, tenant-only Power Automate history route.
-  timesheetHistoryEndpoint: "https://default8b182d6b6f344ca284ad50ca712b54.88.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/491610e0763f41269a645bde6346369d/triggers/manual/paths/invoke?api-version=1",
+  timesheetHistoryEndpoint: "https://b7db48c95976ef8e943878dfe20987.42.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/15/workflows/e25c8f033575417ea40c1ef91d2c852b/triggers/manual/paths/invoke?api-version=1",
   // OAuth audience exposed by the Power Automate HTTP trigger.
   timesheetHistoryScopes: ["https://service.flow.microsoft.com//.default"],
   timesheetHistoryAppUrl: "https://make.powerautomate.com/",
