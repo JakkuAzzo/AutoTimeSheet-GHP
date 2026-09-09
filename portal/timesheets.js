@@ -50,6 +50,12 @@
     list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + '</p>';
   }
 
+  function diagnosticSuffix(error) {
+    if (!/[?&]debug=1(?:&|$)/.test(window.location.search || "")) return "";
+    var detail = error && (error.errorCode || error.message || error.name) || "unknown";
+    return " [diagnostic: " + String(detail) + "]";
+  }
+
   function showSetupState() {
     status.textContent = "Your completed timesheets will appear here when the protected Microsoft 365 history connection is enabled.";
     if (config.timesheetHistoryAppUrl) {
@@ -117,8 +123,8 @@
         ? "Your GMT sign-in has expired. Sign in again and refresh this page."
         : error && error.message === "Your GMT account is not authorised to view these records"
           ? "Your GMT account is not authorised to view these records. Contact Accounts if this is unexpected."
-          : "Your completed timesheets could not be loaded. Please try again or contact Accounts.";
-      if (!lastRecords.length) showEmpty("No records are displayed until the protected history service responds.");
+          : "Your completed timesheets could not be loaded. Please try again or contact Accounts." + diagnosticSuffix(error);
+      if (!lastRecords.length) showEmpty("No records are displayed until the protected history service responds." + diagnosticSuffix(error));
     } finally {
       setBusy(false);
     }
