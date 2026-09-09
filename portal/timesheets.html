@@ -17,7 +17,7 @@
     <img src="../image.webp" alt="GMT Electrical Services Ltd logo" class="site-logo" width="1536" height="1024">
     <div><p class="eyebrow">GMT Staff Portal</p><h1>My completed timesheets</h1><p class="portal-header-subtitle">Your completed records and corrections</p></div>
   </div>
-  <nav class="header-actions" aria-label="Timesheet navigation"><a href="index.html">Back to portal</a><a href="../timesheets/create.html">Create or edit</a><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
+  <nav class="header-actions" aria-label="Timesheet navigation"><a href="index.html">Dashboard</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main" hidden>
   <section class="card portal-history-card" aria-labelledby="history-title">
@@ -29,6 +29,7 @@
     </div>
     <p id="timesheet-history-link" class="small-text" hidden></p>
     <div id="timesheet-history-list" class="portal-list" aria-live="polite"></div>
+    <div class="portal-history-actions"><a class="button button-link portal-primary-link" href="../timesheets/">Create or edit</a></div>
   </section>
 </main>
 <script defer src="timesheets.js?v=history-section-20260909-debug"></script>

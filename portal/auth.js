@@ -112,10 +112,20 @@
       profile.username = accountEmail;
       profile.subject = accountSubject;
       localStorage.setItem(profileKey, JSON.stringify(profile));
+      renderIdentityLabels(profile);
       document.dispatchEvent(new CustomEvent("gmtportalidentity", { detail: profile }));
     } catch (_) {
       // The portal remains usable when browser storage is unavailable.
     }
+  }
+
+  function renderIdentityLabels(profile) {
+    var identity = profile || {};
+    var label = String(identity.name || identity.username || "").trim();
+    document.querySelectorAll("[data-portal-identity-name]").forEach(function (element) {
+      element.textContent = label;
+      element.hidden = !label;
+    });
   }
 
   loadMsal().then(async function () {
@@ -207,9 +217,21 @@
       signOutButton.addEventListener("click", function () {
         sessionStorage.removeItem(authSessionKey);
         msalApp.setActiveAccount(null);
-        msalApp.logoutRedirect({
+        try {
+          localStorage.removeItem(profileKey);
+        } catch (_) {
+          // A storage failure must not prevent the Microsoft sign-out.
+        }
+        var logoutOptions = {
           account: account,
           postLogoutRedirectUri: window.location.origin + config.redirectPath
+        };
+        msalApp.logoutRedirect(logoutOptions).catch(function () {
+          // Safari can reject a redirect after the page has been restored from
+          // history. Fall back to Microsoft's logout endpoint so the account
+          // session is still ended and the portal returns to its sign-in path.
+          var logoutUrl = "https://login.microsoftonline.com/" + encodeURIComponent(config.tenantId) + "/oauth2/v2.0/logout?post_logout_redirect_uri=" + encodeURIComponent(logoutOptions.postLogoutRedirectUri);
+          window.location.replace(logoutUrl);
         });
       }, { once: true });
     }

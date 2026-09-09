@@ -397,9 +397,12 @@
   font-size: .9rem;
 }
 .portal-history-card { max-width: 920px; margin-inline: auto; }
+.portal-identity-name { display: inline-flex; align-items: center; max-width: 15rem; padding: .55rem .85rem; color: #fff; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .portal-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
 .portal-history-toolbar .small-text { margin: 0; }
 .portal-history-toolbar button { flex: 0 0 auto; min-height: 38px; }
+.portal-history-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }
+.portal-primary-link { background: var(--green); color: #fff; border-radius: 999px; font-weight: 900; }
 .portal-history-empty { margin: 0; padding: 1rem; background: #f5f8f3; border: 1px dashed var(--line); border-radius: .75rem; }
 .portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; }
 .portal-status {
