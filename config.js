@@ -3,6 +3,12 @@ const GMT_SITE_BASE_PATH = /(^|\.)gmt-services\.co\.uk$/i.test(window.location.h
   : "/AutoTimeSheet-GHP";
 
 window.GMT_APP_CONFIG = {
+  // The public FormSubmit route is retained as a delivery fallback until the
+  // tenant-only Power Automate intake route has a licensed owner and a
+  // server-side secret store. The client always uses its JSON response path
+  // and only reports success after a 2xx response.
+  timesheetIntakeEndpoint: "",
+  timesheetIntakeScopes: [],
   timesheetFormSubmitEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   auditFormSubmitEndpoint: "",
   jobCardFormSubmitEndpoint: "",
@@ -24,6 +30,7 @@ window.GMT_APP_CONFIG = {
   contactFormSubmitEndpoint: "https://formsubmit.co/ajax/a78f2a7fcd2b433809c0ee4f5d7a8cbe",
   // Server-enforced, tenant-only Power Automate history route.
   timesheetHistoryEndpoint: "https://b7db48c95976ef8e943878dfe20987.42.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/15/workflows/e25c8f033575417ea40c1ef91d2c852b/triggers/manual/paths/invoke?api-version=1",
+  timesheetHistoryDetailEndpoint: "",
   // OAuth audience exposed by the Power Automate HTTP trigger.
   timesheetHistoryScopes: ["https://service.flow.microsoft.com//.default"],
   timesheetHistoryAppUrl: "https://make.powerautomate.com/",

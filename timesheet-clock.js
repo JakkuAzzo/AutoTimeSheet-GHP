@@ -3,7 +3,15 @@
   const EVENT_ACTIONS = ['clock_in', 'lunch_start', 'lunch_end', 'clock_out'];
 
   function cleanEndpoint(value) {
-    return String(value || '').trim().replace('/ajax/', '/');
+    return String(value || '').trim();
+  }
+
+  function ajaxEndpoint(value) {
+    const endpoint = cleanEndpoint(value);
+    if (!endpoint) return '';
+    if (/^https:\/\/formsubmit\.co\/ajax\//i.test(endpoint)) return endpoint;
+    if (/^https:\/\/formsubmit\.co\//i.test(endpoint)) return endpoint.replace('https://formsubmit.co/', 'https://formsubmit.co/ajax/');
+    return endpoint;
   }
 
   function taggedEndpoint(tag) {
@@ -13,8 +21,27 @@
   }
 
   function timesheetEndpoint() {
-    return cleanEndpoint(CONFIG.timesheetFormSubmitEndpoint || CONFIG.formSubmitTimesheetEndpoint)
+    return ajaxEndpoint(CONFIG.timesheetFormSubmitEndpoint || CONFIG.formSubmitTimesheetEndpoint)
       || taggedEndpoint('timesheets');
+  }
+
+  async function submitMultipartForm(form, endpoint) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { Accept: 'application/json' },
+      credentials: 'omit'
+    });
+    const responseText = await response.text();
+    let result = null;
+    try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+    if (!response.ok) {
+      throw new Error(`Timesheet delivery failed (${response.status}). Please try again or contact Accounts.`);
+    }
+    if (result && (result.success === false || result.success === 'false')) {
+      throw new Error(result.message || 'Timesheet delivery was rejected. Please try again or contact Accounts.');
+    }
+    return result;
   }
 
   function pad(value) {
@@ -439,14 +466,14 @@
       await window.ensureXlsxLoaded();
       const files = buildClockFiles(payload);
       const form = createEmailForm(payload, files);
-      form.submit();
+      await submitMultipartForm(form, endpoint);
+      form.remove();
       showStatus(card, 'ok', `${payload.actionLabel} sent for ${payload.date}${payload.time && payload.action !== 'full_day' && payload.action !== 'absent' ? ` at ${payload.time}` : ''}.`);
       card.elements.clock_date.value = localDate();
       card.elements.clock_time.value = localTime();
       card.elements.clock_note.value = '';
-      setTimeout(() => form.remove(), 2000);
-    } catch (_) {
-      showStatus(card, 'error', 'Clock submission could not be sent.');
+    } catch (error) {
+      showStatus(card, 'error', error && error.message ? error.message : 'Clock submission could not be sent.');
     }
   }
 

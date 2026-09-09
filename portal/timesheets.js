@@ -52,6 +52,17 @@
     list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + '</p>';
   }
 
+  function editHref(record) {
+    var sourceId = String(record && (record.source_record_id || record.sourceRecordId) || '').trim();
+    var status = String(record && record.status || '').toLowerCase();
+    var action = String(record && (record.action || record.category || '') || '').toLowerCase();
+    // Clock events are immutable audit timestamps. Weekly submissions can be
+    // corrected from the edit form when a protected detail route is available
+    // or when the same browser has the submitted draft copy.
+    if (!sourceId || status === 'recorded' || action.indexOf('clock') !== -1) return '';
+    return '../timesheets/create.html?edit=' + encodeURIComponent(sourceId);
+  }
+
   function diagnosticSuffix(error) {
     if (!/[?&]debug=1(?:&|$)/.test(window.location.search || "")) return "";
     var detail = error && (error.errorCode || error.message || error.name) || "unknown";
@@ -81,11 +92,13 @@
         : (String(record.status || "").toLowerCase() === "recorded" && (record.start_date || record.weekStart) === (record.end_date || record.weekEnd)
           ? "Date " + (record.start_date || record.weekStart || "not dated")
           : "Week " + (record.start_date || record.weekStart || "not dated") + " to " + (record.end_date || record.weekEnd || "not dated"));
+      var edit = editHref(record);
       return '<article class="portal-item"><strong>' + safe(record.employee_name || record.employeeName || "Timesheet") + '</strong>' +
         '<span class="portal-status ' + safe(statusClass) + '">' + safe(record.status || "Submitted") + '</span>' +
         '<p class="portal-item-meta">' + safe(action) + ' · ' + safe(period) + '</p>' +
         '<p class="portal-item-meta">Last updated ' + safe(record.updated_at || record.submitted_at || record.submittedAt || "not recorded") + '</p>' +
         (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') +
+        (edit ? '<div class="portal-item-actions"><a class="button button-link" href="' + safe(edit) + '">Edit submission</a></div>' : '') +
         '</article>';
     }).join("");
   }

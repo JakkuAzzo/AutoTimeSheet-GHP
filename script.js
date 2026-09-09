@@ -25,6 +25,8 @@ const payloadInput = document.getElementById('timesheet-payload');
 const calculatedSummaryInput = document.getElementById('calculated-summary');
 const timesheetEntryTitle = document.getElementById('timesheet-entry-title');
 const timesheetEntryCopy = document.getElementById('timesheet-entry-copy');
+const timesheetEditStatus = document.getElementById('timesheet-edit-status');
+const editSourceId = new URLSearchParams(window.location.search).get('edit') || '';
 
 let dayCount = 0;
 let absenceRanges = [];
@@ -745,6 +747,65 @@ function buildTimesheetWorkbookKey(calendarSync) {
   return `timesheet-${submissionKeyPart(employeeIdentity)}-${month}`;
 }
 
+function submittedDraftStorageKey(sourceId) {
+  return `gmt.timesheet.submitted.v1:${submissionKeyPart(sourceId)}`;
+}
+
+function saveSubmittedDraft(sourceId) {
+  if (!sourceId) return;
+  try {
+    localStorage.setItem(submittedDraftStorageKey(sourceId), JSON.stringify({
+      schemaVersion: 1,
+      savedAt: new Date().toISOString(),
+      employeeName: employeeName.value,
+      employeeEmail: employeeEmail.value,
+      weekStart: weekStart.value,
+      weekEnd: weekEnd.value,
+      absenceRanges,
+      rows: getRows()
+    }));
+  } catch {
+    // A browser storage restriction must not prevent delivery.
+  }
+}
+
+function loadSubmittedDraft() {
+  if (!editSourceId) return false;
+  if (timesheetEntryTitle) timesheetEntryTitle.textContent = 'Edit your timesheet';
+  if (timesheetEntryCopy) timesheetEntryCopy.textContent = 'Correct the saved copy, recalculate, then submit the updated timesheet to Accounts.';
+  try {
+    const raw = localStorage.getItem(submittedDraftStorageKey(editSourceId));
+    if (!raw) {
+      if (timesheetEditStatus) {
+        timesheetEditStatus.hidden = false;
+        timesheetEditStatus.textContent = 'This submission is not stored on this browser. A protected Microsoft 365 detail route is required to edit it here.';
+      }
+      return false;
+    }
+    const draft = JSON.parse(raw);
+    if (!draft || !Array.isArray(draft.rows) || !draft.rows.length) return false;
+    employeeName.value = String(draft.employeeName || employeeName.value || '');
+    employeeEmail.value = String(draft.employeeEmail || employeeEmail.value || '');
+    weekStart.value = String(draft.weekStart || '');
+    weekEnd.value = String(draft.weekEnd || '');
+    absenceRanges = Array.isArray(draft.absenceRanges) ? draft.absenceRanges : [];
+    renderAbsenceRanges();
+    renderRows(draft.rows.slice(0, 45));
+    if (timesheetEditStatus) {
+      timesheetEditStatus.hidden = false;
+      timesheetEditStatus.textContent = 'A browser-saved copy was loaded. Submitting will create a corrected version with the same source submission ID.';
+    }
+    showSuccess('Saved submission copy loaded for editing.');
+    return true;
+  } catch {
+    if (timesheetEditStatus) {
+      timesheetEditStatus.hidden = false;
+      timesheetEditStatus.textContent = 'The saved submission copy could not be read. Contact Accounts for a protected edit link.';
+    }
+    return false;
+  }
+}
+
 function addCalendarEventKeys(calendarSync, submissionId) {
   return {
     ...calendarSync,
@@ -757,7 +818,7 @@ function addCalendarEventKeys(calendarSync, submissionId) {
 }
 
 function cleanFormSubmitEndpoint(value) {
-  return String(value || '').trim().replace('/ajax/', '/');
+  return String(value || '').trim();
 }
 
 function taggedFormSubmitEndpoint(tag) {
@@ -767,14 +828,35 @@ function taggedFormSubmitEndpoint(tag) {
 }
 
 function formSubmitEndpoint() {
-  return cleanFormSubmitEndpoint(CONFIG.timesheetFormSubmitEndpoint || CONFIG.formSubmitTimesheetEndpoint)
-    || taggedFormSubmitEndpoint('timesheets');
+  return ajaxFormSubmitEndpoint(cleanFormSubmitEndpoint(CONFIG.timesheetFormSubmitEndpoint || CONFIG.formSubmitTimesheetEndpoint)
+    || taggedFormSubmitEndpoint('timesheets'));
 }
 
 function ajaxFormSubmitEndpoint(endpoint) {
   const clean = cleanFormSubmitEndpoint(endpoint);
   if (!clean) return '';
-  return clean.replace('https://formsubmit.co/', 'https://formsubmit.co/ajax/');
+  return /^https:\/\/formsubmit\.co\/ajax\//i.test(clean)
+    ? clean
+    : clean.replace('https://formsubmit.co/', 'https://formsubmit.co/ajax/');
+}
+
+async function submitMultipartForm(emailForm) {
+  const response = await fetch(emailForm.action, {
+    method: 'POST',
+    body: new FormData(emailForm),
+    headers: { Accept: 'application/json' },
+    credentials: 'omit'
+  });
+  const responseText = await response.text();
+  let result = null;
+  try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+  if (!response.ok) {
+    throw new Error(`Timesheet delivery failed (${response.status}). Please try again or contact Accounts.`);
+  }
+  if (result && (result.success === false || result.success === 'false')) {
+    throw new Error(result.message || 'Timesheet delivery was rejected. Please try again or contact Accounts.');
+  }
+  return result;
 }
 
 function ensureTimesheetSubmitFrame() {
@@ -855,6 +937,7 @@ async function submitTimesheet(event) {
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
     const calendarSyncFile = buildCalendarSyncFile(calendarSyncWithIds);
     const recordFile = buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId);
+    saveSubmittedDraft(submissionId);
     const emailForm = createEmailForm();
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
@@ -895,28 +978,7 @@ async function submitTimesheet(event) {
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
     setFileInputFiles(field('calendarSync'), [calendarSyncFile]);
-    // FormSubmit's documented AJAX endpoint is JSON-oriented. Use the native
-    // multipart POST for this form so the generated XLSX, CSV, record JSON and
-    // calendar-sync JSON arrive as real mail attachments for Power Automate.
-    // The hidden iframe keeps the user on the timesheet page while the response
-    // loads, after which the existing success state is shown.
-    const frame = ensureTimesheetSubmitFrame();
-    emailForm.target = frame.name;
-    await new Promise((resolve, reject) => {
-      let settled = false;
-      const timeout = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        reject(new Error('The timesheet submission timed out. Please try again.'));
-      }, 30000);
-      frame.onload = () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        resolve();
-      };
-      emailForm.submit();
-    });
+    await submitMultipartForm(emailForm);
     emailForm.remove();
     showSuccess('Timesheet submitted successfully. Your XLSX and CSV attachments were sent to Accounts.');
   } catch (error) {
@@ -1044,7 +1106,7 @@ syncPortalProfileWhenReady();
 // Safari can visually restore native date controls while their DOM values are blank.
 // A concrete current-week default keeps the form state and visible controls aligned.
 initialiseWeekDates();
-if (!loadSavedDraft()) {
+if (!loadSubmittedDraft() && !loadSavedDraft()) {
   renderAbsenceRanges();
   addDay();
   recalculate();
