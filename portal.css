@@ -397,6 +397,10 @@
   font-size: .9rem;
 }
 .portal-history-card { max-width: 920px; margin-inline: auto; }
+.portal-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+.portal-history-toolbar .small-text { margin: 0; }
+.portal-history-toolbar button { flex: 0 0 auto; min-height: 38px; }
+.portal-history-empty { margin: 0; padding: 1rem; background: #f5f8f3; border: 1px dashed var(--line); border-radius: .75rem; }
 .portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; }
 .portal-status {
   display: inline-flex;

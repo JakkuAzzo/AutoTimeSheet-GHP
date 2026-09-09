@@ -4,6 +4,9 @@
   var status = document.getElementById("timesheet-history-status");
   var historyLink = document.getElementById("timesheet-history-link");
   var list = document.getElementById("timesheet-history-list");
+  var refreshButton = document.getElementById("timesheet-history-refresh");
+  var lastRecords = [];
+  var requestInFlight = false;
 
   function safe(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (char) {
@@ -11,9 +14,54 @@
     });
   }
 
+  function normaliseScopes(value) {
+    if (Array.isArray(value)) return value.map(function (scope) { return String(scope || "").trim(); }).filter(Boolean);
+    if (typeof value === "string") return value.split(/\s+/).map(function (scope) { return scope.trim(); }).filter(Boolean);
+    return [];
+  }
+
+  function projectedRecord(record) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+    return {
+      employee_name: record.employee_name || record.employeeName || "",
+      start_date: record.start_date || record.weekStart || "",
+      end_date: record.end_date || record.weekEnd || "",
+      status: record.status || "Submitted",
+      submitted_at: record.submitted_at || record.submittedAt || "",
+      updated_at: record.updated_at || record.updatedAt || "",
+      issue: record.issue || "",
+      source_record_id: record.source_record_id || record.sourceRecordId || ""
+    };
+  }
+
+  function readRecords(body) {
+    if (!body || typeof body !== "object" || !Array.isArray(body.records)) return null;
+    return body.records.map(projectedRecord).filter(Boolean);
+  }
+
+  function setBusy(isBusy) {
+    requestInFlight = isBusy;
+    if (!refreshButton) return;
+    refreshButton.disabled = isBusy;
+    refreshButton.textContent = isBusy ? "Refreshing…" : "Refresh";
+  }
+
+  function showEmpty(message) {
+    list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + '</p>';
+  }
+
+  function showSetupState() {
+    status.textContent = "Your completed timesheets will appear here when the protected Microsoft 365 history connection is enabled.";
+    if (config.timesheetHistoryAppUrl) {
+      historyLink.hidden = false;
+      historyLink.innerHTML = '<a class="portal-text-link" href="' + safe(config.timesheetHistoryAppUrl) + '" target="_blank" rel="noopener">Open protected timesheet records <span aria-hidden="true">→</span></a>';
+    }
+    showEmpty("History is securely unavailable until the protected connection is enabled.");
+  }
+
   function render(records) {
     if (!records.length) {
-      list.innerHTML = '<p class="small-text">No submitted timesheets were found for this account.</p>';
+      showEmpty("No completed timesheets were found for this account.");
       return;
     }
     list.innerHTML = records.map(function (record) {
@@ -28,26 +76,54 @@
   }
 
   async function load() {
+    if (requestInFlight) return;
     if (!config.timesheetHistoryEndpoint) {
-      status.textContent = "Your secure history endpoint is not connected yet. The underlying SharePoint register is intentionally not exposed here.";
-      if (config.timesheetHistoryAppUrl) {
-        historyLink.hidden = false;
-        historyLink.innerHTML = '<a class="portal-text-link" href="' + safe(config.timesheetHistoryAppUrl) + '" target="_blank" rel="noopener">Open protected timesheet records <span aria-hidden="true">→</span></a>';
-      }
-      list.innerHTML = '<p class="small-text">Ask an administrator to complete the protected Microsoft 365 history connection.</p>';
+      showSetupState();
       return;
     }
+    setBusy(true);
+    status.textContent = "Loading your completed timesheets…";
     try {
-      var response = await fetch(config.timesheetHistoryEndpoint, { credentials: "include", headers: { Accept: "application/json" } });
+      var headers = { Accept: "application/json" };
+      var scopes = normaliseScopes(config.timesheetHistoryScopes);
+      var auth = window.GMT_PORTAL_AUTH || {};
+      if (scopes.length) {
+        if (typeof auth.acquireToken !== "function" && window.GMT_PORTAL_AUTH_READY) {
+          auth = await window.GMT_PORTAL_AUTH_READY;
+        }
+        if (typeof auth.acquireToken !== "function") throw new Error("Sign-in context unavailable");
+        var accessToken = await auth.acquireToken(scopes);
+        if (!accessToken) throw new Error("History access token unavailable");
+        headers.Authorization = "Bearer " + accessToken;
+      }
+      var response = await fetch(config.timesheetHistoryEndpoint, {
+        credentials: "include",
+        cache: "no-store",
+        headers: headers
+      });
+      if (response.status === 401) throw new Error("Your GMT sign-in has expired");
+      if (response.status === 403) throw new Error("Your GMT account is not authorised to view these records");
       if (!response.ok) throw new Error("History request failed");
       var body = await response.json();
-      render(Array.isArray(body.records) ? body.records : []);
-      status.textContent = "Only records authorised for your signed-in GMT identity are shown.";
+      var records = readRecords(body);
+      if (!records) throw new Error("History response was not valid");
+      lastRecords = records;
+      render(records);
+      status.textContent = records.length
+        ? "Showing " + records.length + " completed timesheet" + (records.length === 1 ? "" : "s") + " authorised for your signed-in GMT identity."
+        : "No completed timesheets were found for this account.";
     } catch (error) {
-      status.textContent = "Your timesheet history could not be loaded. Please try again or contact Accounts.";
-      list.innerHTML = "";
+      status.textContent = error && error.message === "Your GMT sign-in has expired"
+        ? "Your GMT sign-in has expired. Sign in again and refresh this page."
+        : error && error.message === "Your GMT account is not authorised to view these records"
+          ? "Your GMT account is not authorised to view these records. Contact Accounts if this is unexpected."
+          : "Your completed timesheets could not be loaded. Please try again or contact Accounts.";
+      if (!lastRecords.length) showEmpty("No records are displayed until the protected history service responds.");
+    } finally {
+      setBusy(false);
     }
   }
 
+  if (refreshButton) refreshButton.addEventListener("click", load);
   document.addEventListener("DOMContentLoaded", load);
 }());

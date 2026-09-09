@@ -15,10 +15,11 @@ window.GMT_APP_CONFIG = {
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
   formSubmitTimesheetEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   contactFormSubmitEndpoint: "https://formsubmit.co/ajax/a78f2a7fcd2b433809c0ee4f5d7a8cbe",
-  // Must be a server-enforced, Entra-authenticated history endpoint. Leave
-  // blank until the protected Microsoft 365 retrieval route is deployed.
-  timesheetHistoryEndpoint: "",
-  timesheetHistoryAppUrl: "",
+  // Server-enforced, tenant-only Power Automate history route.
+  timesheetHistoryEndpoint: "https://default8b182d6b6f344ca284ad50ca712b54.88.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/491610e0763f41269a645bde6346369d/triggers/manual/paths/invoke?api-version=1",
+  // OAuth audience exposed by the Power Automate HTTP trigger.
+  timesheetHistoryScopes: ["https://service.flow.microsoft.com//.default"],
+  timesheetHistoryAppUrl: "https://make.powerautomate.com/",
   // Drafts must be persisted by an Entra-authenticated route before they are
   // treated as shared or recoverable across devices.
   timesheetDraftEndpoint: "",
