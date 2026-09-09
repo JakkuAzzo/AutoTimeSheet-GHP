@@ -26,6 +26,8 @@
       employee_name: record.employee_name || record.employeeName || "",
       start_date: record.start_date || record.weekStart || "",
       end_date: record.end_date || record.weekEnd || "",
+      record_date: record.record_date || record.recordDate || record.date || "",
+      action: record.action || record.category || record.record_type || (String(record.status || "").toLowerCase() === "recorded" ? "Clock event" : "Timesheet"),
       status: record.status || "Submitted",
       submitted_at: record.submitted_at || record.submittedAt || "",
       updated_at: record.updated_at || record.updatedAt || "",
@@ -72,9 +74,16 @@
     }
     list.innerHTML = records.map(function (record) {
       var statusClass = String(record.status || "Submitted").toLowerCase().replace(/\s+/g, "-");
+      var action = String(record.action || (String(record.status || "").toLowerCase() === "recorded" ? "Clock event" : "Timesheet")).replace(/_/g, " ").replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
+      var date = record.record_date || "";
+      var period = date
+        ? "Date " + date
+        : (String(record.status || "").toLowerCase() === "recorded" && (record.start_date || record.weekStart) === (record.end_date || record.weekEnd)
+          ? "Date " + (record.start_date || record.weekStart || "not dated")
+          : "Week " + (record.start_date || record.weekStart || "not dated") + " to " + (record.end_date || record.weekEnd || "not dated"));
       return '<article class="portal-item"><strong>' + safe(record.employee_name || record.employeeName || "Timesheet") + '</strong>' +
         '<span class="portal-status ' + safe(statusClass) + '">' + safe(record.status || "Submitted") + '</span>' +
-        '<p class="portal-item-meta">Week ' + safe(record.start_date || record.weekStart || "not dated") + ' to ' + safe(record.end_date || record.weekEnd || "not dated") + '</p>' +
+        '<p class="portal-item-meta">' + safe(action) + ' · ' + safe(period) + '</p>' +
         '<p class="portal-item-meta">Last updated ' + safe(record.updated_at || record.submitted_at || record.submittedAt || "not recorded") + '</p>' +
         (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') +
         '</article>';

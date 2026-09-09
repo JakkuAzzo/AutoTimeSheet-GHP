@@ -13,6 +13,8 @@
   "timesheet": {
     "required": [
       "gmt_submission_id",
+      "gmt_workbook_key",
+      "gmt_filing_mode",
       "gmt_employee",
       "gmt_week_start",
       "gmt_week_end",
@@ -32,7 +34,27 @@
       ".csv",
       "GMT Calendar Sync - *.json"
     ],
-    "attachmentRule": "Reject inline attachments and all JSON files other than the controlled calendar-sync filename."
+    "attachmentRule": "Reject inline attachments and all JSON files other than the controlled calendar-sync filename.",
+    "filingMode": "monthly-upsert",
+    "dedupeKey": "gmt_record_id",
+    "workbookKey": "gmt_workbook_key"
+  },
+  "estimate": {
+    "required": [
+      "gmt_estimate_number",
+      "gmt_estimate_date",
+      "gmt_client_company",
+      "gmt_client_contact",
+      "gmt_client_email",
+      "gmt_accounts_bcc",
+      "gmt_send_mode",
+      "gmt_submitted_at"
+    ],
+    "sendMode": "client",
+    "acceptedAttachments": [".doc", ".docx", ".pdf"],
+    "routing": "The protected Microsoft 365 flow validates the client recipient and approved Accounts BCC route, stores the estimate in GMT Web-App/Estimates/{year}/{month}/{estimate-number}/, records status in the Estimates list, and sends from the approved GMT mailbox.",
+    "dedupeKey": "gmt_estimate_number",
+    "browserDeliveryClaim": false
   },
   "clockEvent": {
     "required": [

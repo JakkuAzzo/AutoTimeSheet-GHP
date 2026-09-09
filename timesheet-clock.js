@@ -323,7 +323,9 @@
     hidden(form, 'gmt_action', payload.action);
     const recordIdentity = payload.employeeEmail || payload.employeeName;
     const recordId = `${recordIdentity}|${payload.date}|${payload.action}|${payload.time || payload.dayStart || 'absence'}`;
-    const workbookKey = `clock-${safeKeyPart(recordIdentity)}-${payload.date.slice(0, 7)}`;
+    // Weekly submissions and quick clock events share one employee/month
+    // workbook. The event-specific record ID remains the dedupe key.
+    const workbookKey = `timesheet-${safeKeyPart(recordIdentity)}-${payload.date.slice(0, 7)}`;
     hidden(form, 'gmt_record_id', recordId);
     hidden(form, 'gmt_workbook_key', workbookKey);
     hidden(form, 'gmt_filing_mode', 'monthly-upsert');
@@ -339,13 +341,13 @@
     hidden(form, 'gmt_lunch_end', payload.lunchEnd);
     hidden(form, 'gmt_day_finish', payload.dayFinish);
     hidden(form, 'gmt_year', payload.date.slice(0, 4));
-    hidden(form, 'gmt_month', payload.date.slice(0, 7));
+    hidden(form, 'gmt_month', payload.date.slice(5, 7));
     hidden(form, 'gmt_worked_hours', files.row['Worked hours']);
     hidden(form, 'gmt_basic_hours', files.row['Basic hours']);
     hidden(form, 'gmt_ot15_hours', 0);
     hidden(form, 'gmt_ot20_hours', 0);
     hidden(form, 'gmt_attachment_type', 'xlsx,csv');
-    hidden(form, 'gmt_attachment_manifest', 'xlsx,csv');
+    hidden(form, 'gmt_attachment_manifest', 'record-json,xlsx,csv');
     hidden(form, 'gmt_submitted_at', payload.submittedAt);
     hidden(form, 'employee_name', payload.employeeName);
     hidden(form, 'clock_action', payload.actionLabel);
@@ -356,8 +358,35 @@
     hidden(form, 'note', payload.note);
     hidden(form, 'summary', `${payload.employeeName} submitted ${payload.actionLabel.toLowerCase()} for ${payload.date}${payload.time ? ` at ${payload.time}` : ''}.`);
     hidden(form, 'message', 'GMT timesheet quick-record submission. XLSX and CSV attachments are included for accounts and Power Automate filing.');
+    const record = {
+      schemaVersion: 1,
+      recordId,
+      employeeName: payload.employeeName,
+      employeeEmail: payload.employeeEmail,
+      weekStart: payload.date,
+      weekEnd: payload.date,
+      date: payload.date,
+      action: payload.action,
+      status: files.row.Status,
+      absenceReason: files.row['Absence reason'],
+      startTime: files.row.Start,
+      lunchStart: files.row['Lunch start'],
+      lunchEnd: files.row['Lunch end'],
+      finishTime: files.row.Finish,
+      workedHours: Number(files.row['Worked hours'] || 0),
+      basicHours: Number(files.row['Basic hours'] || 0),
+      ot15Hours: 0,
+      ot20Hours: 0,
+      location: payload.location,
+      note: files.row.Note,
+      submittedAt: payload.submittedAt
+    };
+    const recordFile = new File([
+      JSON.stringify(record, null, 2)
+    ], `GMT Timesheet Record - ${safeFilePart(payload.employeeName)} - ${payload.date} - ${safeFilePart(payload.actionLabel)}.json`, { type: 'application/json' });
     // FormSubmit preserves one file per multipart field reliably. Keeping
     // distinct names prevents the CSV from replacing the XLSX attachment.
+    addFileInput(form, 'attachment_record', recordFile);
     addFileInput(form, 'attachment', files.workbook);
     addFileInput(form, 'attachment_csv', files.csv);
     document.body.appendChild(form);

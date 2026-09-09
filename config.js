@@ -8,8 +8,15 @@ window.GMT_APP_CONFIG = {
   jobCardFormSubmitEndpoint: "",
   taskFormSubmitEndpoint: "",
   calendarFormSubmitEndpoint: "",
-  // Leave blank until the dedicated estimate intake mailbox/token and filing flow are approved.
+  // Estimate sending/history stay blank until the dedicated Microsoft 365
+  // intake and protected read route are approved and tested.
   estimateFormSubmitEndpoint: "",
+  estimateSendEndpoint: "",
+  estimateHistoryEndpoint: "",
+  estimateHistoryScopes: [],
+  // Never fall back to a personal mailbox for client delivery. Populate this
+  // only with the approved Accounts BCC route.
+  estimateAccountsBcc: "",
   fallbackFormSubmitEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",

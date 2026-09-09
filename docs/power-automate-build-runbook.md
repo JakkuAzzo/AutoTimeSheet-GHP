@@ -98,8 +98,8 @@ URLs and metadata that may contain inconsistent formats.
 
 `Record ID`, `Employee Name`, `Employee Email`, `Week Start`, `Week End`,
 `Year`, `Month`, `Worked Hours`, `Basic Hours`, `OT 1.5`, `OT 2.0`, `Status`,
-`Submitted At`, `XLSX Link`, `CSV Link`, `Folder Link`, `Source Email Subject`,
-`Processed By Flow`.
+`Submitted At`, `Workbook Key`, `Filing Mode`, `XLSX Link`, `CSV Link`,
+`Folder Link`, `Source Email Subject`, `Processed By Flow`.
 
 ### Clock Events
 
@@ -161,6 +161,34 @@ allowed to create an event in `GMT Operational Calendar`.
    `GMT Operational Calendar`. Use `startDate` as the all-day start and
    `endDateExclusive` as the all-day end; do not subtract a day from the end.
 11. Move the email to `GMT Portal/Processed`.
+
+### Monthly workbook upsert
+
+For both `gmt_type=timesheet` and `gmt_type=timesheet_clock` when
+`gmt_filing_mode=monthly-upsert`:
+
+1. Use `gmt_workbook_key` to locate the employee/month workbook under
+   `GMT Web-App/Timesheets/{year}/{month}/{employee}/`. Do not create a workbook
+   named after an individual event.
+2. If the workbook is absent, copy the approved GMT monthly-timesheet template
+   and name it `GMT Timesheet - {employee} - {year}-{month}.xlsx`.
+3. Save the source XLSX and CSV under `Raw Events/{gmt_record_id}/`. Check for
+   the same file before creating it so a replay does not create another copy.
+4. Run
+   [`upsert-monthly-timesheet-row.ts`](../power-platform/office-scripts/upsert-monthly-timesheet-row.ts)
+   with the validated envelope mapped to one JSON record. The script creates the
+   `TimesheetEvents` table on first use and replaces a row with the same
+   `Source record ID` on retry.
+5. Create or update the `Timesheet Submissions` list item using `Record ID` as
+   the idempotency key. Store the workbook, folder and raw-file links.
+6. Move the source email to `GMT Portal/Processed` only after the workbook,
+   raw files and list item succeed. On any failure, move it to `Failed - Needs
+   Review` and retain the error details.
+
+The flow must use the company-owned SharePoint document library as the durable
+storage location. If the business chooses OneDrive for Business instead, use a
+GMT-owned account or shared library, not an employee's personal OneDrive, and
+keep the same folder, workbook-key and idempotency contract.
 
 ### Calendar visibility
 

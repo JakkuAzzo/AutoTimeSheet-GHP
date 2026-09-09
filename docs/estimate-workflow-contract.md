@@ -8,7 +8,9 @@ The authenticated static portal may collect estimate details, calculate totals, 
 
 Power Automate should receive a dedicated `[GMT][ESTIMATE]` submission in the approved Accounts intake mailbox, validate the envelope, store the estimate document and metadata in the approved `GMT Web-App/Estimates/{year}/{month}/{estimate-number}/` SharePoint path, and record the file link and status in an Estimates list.
 
-The flow may prepare or send a client message from the approved GMT mailbox only after the recipient, attachment, sender and approval status are validated. The browser's estimate route must not reuse the timesheet FormSubmit endpoint.
+The flow may prepare or send a client message from the approved GMT mailbox only after the recipient, attachment, sender and approval status are validated. The client recipient comes from the required `gmt_client_email` field and the approved Accounts mailbox is added as BCC for filing. The browser's estimate route must not reuse the timesheet FormSubmit endpoint.
+
+The protected history route returns a projection-only `records` array for the signed-in user. Each projection includes the estimate number, client company, date, status, totals and a safe source record ID; raw SharePoint links and unfiltered list data stay server-side. The browser may retain a per-account local copy of submitted requests as a fallback, labelled as browser-only until the protected history route responds.
 
 ## Release gates
 

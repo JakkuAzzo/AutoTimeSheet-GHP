@@ -5,6 +5,15 @@
 .estimate-status-chip { padding:.4rem .7rem; color:#0d4c16; background:#e4f2e0; border:1px solid #a9caa1; border-radius:999px; font-weight:800; white-space:nowrap; }
 .estimate-layout { display:grid; grid-template-columns:minmax(320px, .95fr) minmax(440px, 1.05fr); gap:1rem; align-items:start; }
 .estimate-form, .estimate-preview-panel { display:grid; gap:1rem; }
+.estimate-history-panel { display:grid; gap:1rem; margin-top:1rem; }
+.estimate-history-layout { display:grid; grid-template-columns:minmax(240px,.7fr) minmax(420px,1.3fr); gap:1rem; align-items:start; }
+.estimate-history-list { display:grid; gap:.6rem; max-height:650px; overflow:auto; }
+.estimate-history-item { display:grid; gap:.2rem; width:100%; padding:.8rem 1rem; color:var(--ink); background:#f6f9f3; border:1px solid var(--line); border-radius:.7rem; text-align:left; cursor:pointer; }
+.estimate-history-item:hover, .estimate-history-item:focus-visible { border-color:var(--green); box-shadow:0 0 0 3px rgba(18,61,29,.12); outline:0; }
+.estimate-history-item[aria-current="true"] { border-color:#cda72e; background:#fffbed; }
+.estimate-history-item strong { color:var(--green); }
+.estimate-history-item small { color:var(--muted); }
+.estimate-history-preview { min-height:520px; }
 .estimate-form-heading, .estimate-preview-toolbar { display:flex; justify-content:space-between; gap:1rem; align-items:end; }
 .estimate-form-heading h2, .estimate-preview-toolbar h2 { margin:0; }
 .estimate-lines { display:grid; gap:.65rem; }
@@ -31,6 +40,6 @@
 .estimate-paper-total p { display:flex; justify-content:space-between; gap:1rem; margin:.35rem 0; }
 .estimate-paper-total .grand-total { padding-top:.55rem; color:#123d1d; border-top:2px solid #cda72e; font-size:1.1rem; font-weight:900; }
 .estimate-paper-terms { margin-top:2rem; white-space:pre-line; font-size:.88rem; line-height:1.5; }
-@media (max-width:900px) { .estimate-layout { grid-template-columns:1fr; } .estimate-preview-panel { position:static; } }
+@media (max-width:900px) { .estimate-layout, .estimate-history-layout { grid-template-columns:1fr; } .estimate-preview-panel { position:static; } }
 @media (max-width:700px) { .estimate-intro, .estimate-form-heading, .estimate-preview-toolbar { align-items:flex-start; flex-direction:column; } .estimate-line { grid-template-columns:1fr 1fr; } .estimate-line label:first-child { grid-column:1/-1; } .estimate-line-total { text-align:left; } .estimate-paper { min-height:0; padding:1.1rem; } .estimate-paper-header { flex-direction:column; } .estimate-paper-logo { max-width:80%; } .estimate-paper-company { text-align:left; } }
 @media print { body { background:#fff; } .app-header, .estimate-intro, .estimate-form, .estimate-preview-toolbar { display:none !important; } .estimate-main, .estimate-layout, .estimate-preview-panel { display:block; max-width:none; margin:0; padding:0; } .estimate-paper { min-height:0; border:0; box-shadow:none; } }
