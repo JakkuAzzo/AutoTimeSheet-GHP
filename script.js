@@ -51,6 +51,17 @@ function loadPortalProfile() {
   }
 }
 
+function syncPortalProfileWhenReady() {
+  // auth.js is deferred on this page, so the first profile read can happen
+  // before the Entra redirect has restored the signed-in account. The auth
+  // module dispatches gmtportalidentity as its primary signal; this promise
+  // read is a second, race-safe pass for Safari page restores.
+  const ready = window.GMT_PORTAL_AUTH_READY;
+  if (ready && typeof ready.then === 'function') {
+    ready.then(loadPortalProfile).catch(() => {});
+  }
+}
+
 function pad(value) {
   return String(value).padStart(2, '0');
 }
@@ -830,6 +841,7 @@ async function submitTimesheet(event) {
   clearMessage();
   const { calculated, totals, weighted } = recalculate();
   if (!employeeName.value.trim()) return showError('Please enter your full name before submitting.');
+  if (!employeeEmail.value.trim()) return showError('Your GMT email could not be detected. Sign in again or enter the address linked to your GMT account.');
   if (!calculated.length) return showError('Please add at least one day.');
   if (totals.errors.length) return showError(totals.errors.join(' '));
   if (!formSubmitEndpoint()) return showError('FormSubmit is not configured yet.');
@@ -1028,6 +1040,7 @@ form.addEventListener('submit', submitTimesheet);
 document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail, true));
 
 loadPortalProfile();
+syncPortalProfileWhenReady();
 // Safari can visually restore native date controls while their DOM values are blank.
 // A concrete current-week default keeps the form state and visible controls aligned.
 initialiseWeekDates();
