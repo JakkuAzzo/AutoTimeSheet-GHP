@@ -234,6 +234,7 @@
         }
         var logoutOptions = {
           account: account,
+          logoutHint: account.username || (account.idTokenClaims && (account.idTokenClaims.login_hint || account.idTokenClaims.preferred_username)) || "",
           postLogoutRedirectUri: window.location.origin + config.redirectPath
         };
         msalApp.logoutRedirect(logoutOptions).catch(function () {
