@@ -160,7 +160,16 @@
       acquireToken: function (scopes) {
         var requestedScopes = Array.isArray(scopes) ? scopes.filter(Boolean) : [];
         if (!requestedScopes.length) return Promise.resolve("");
-        return msalApp.acquireTokenSilent({ account: account, scopes: requestedScopes })
+        var request = { account: account, scopes: requestedScopes };
+        return msalApp.acquireTokenSilent(request)
+          .catch(function (error) {
+            // The first protected-history request may need interactive consent
+            // for the Power Automate resource. Retry in a Microsoft popup while
+            // keeping the bearer token in memory only.
+            var code = String(error && error.errorCode || "").toLowerCase();
+            if (code !== "interaction_required" && code !== "consent_required" && code !== "login_required") throw error;
+            return msalApp.acquireTokenPopup(request);
+          })
           .then(function (tokenResult) { return tokenResult.accessToken || ""; });
       }
     };
