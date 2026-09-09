@@ -84,17 +84,32 @@
       var profile = JSON.parse(localStorage.getItem(profileKey) || "{}");
       // The authenticated Entra account is authoritative. Do not retain a
       // previous user's name when another account signs in on this browser.
-      var accountName = String(account.name || "").trim();
+      var claims = account.idTokenClaims || {};
+      var accountName = "";
+      var nameCandidates = [claims.name, account.name];
+      for (var candidateIndex = 0; candidateIndex < nameCandidates.length; candidateIndex += 1) {
+        var candidate = String(nameCandidates[candidateIndex] || "").trim();
+        if (candidate && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)) {
+          accountName = candidate;
+          break;
+        }
+      }
+      if (!accountName) {
+        accountName = [claims.given_name || claims.givenName, claims.family_name || claims.familyName]
+          .map(function (part) { return String(part || "").trim(); })
+          .filter(Boolean)
+          .join(" ");
+      }
       var accountSubject = account.homeAccountId || "";
-      var emailLikeName = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accountName);
+      var accountEmail = String(account.username || claims.preferred_username || claims.email || claims.upn || "").trim();
       // Keep a manually entered name for the same account when Microsoft has
       // only returned its email address as the display name.
-      if (!emailLikeName) {
+      if (accountName) {
         profile.name = accountName;
       } else if (profile.subject !== accountSubject || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(profile.name || "").trim())) {
         profile.name = "";
       }
-      profile.username = account.username || "";
+      profile.username = accountEmail;
       profile.subject = accountSubject;
       localStorage.setItem(profileKey, JSON.stringify(profile));
       document.dispatchEvent(new CustomEvent("gmtportalidentity", { detail: profile }));
