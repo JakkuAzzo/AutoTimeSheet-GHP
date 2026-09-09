@@ -39,6 +39,13 @@
     "acceptedAttachments": [".xlsx", ".csv"],
     "rejectedAttachmentPolicy": "quarantine"
   },
+  "testIsolation": {
+    "policy": "Synthetic and admin-account submissions are retained only as raw intake evidence and never filed into payroll or employee history.",
+    "syntheticRecordIdPrefix": "TEST-",
+    "adminAccountMarkers": ["acc.gmtelect", "Amanda"],
+    "expectedOfficeScriptResult": "skipped",
+    "employeeHistoryExclusion": true
+  },
   "storage": {
     "root": "GMT Web-App/Timesheets",
     "monthlyFolder": "{year}/{month}/{employee}",

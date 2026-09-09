@@ -120,6 +120,7 @@ try {
       name: entry.name,
       files: await Promise.all(entry.files.map(async (file) => {
         const buffer = await file.arrayBuffer();
+        if (file.name.endsWith('.json')) return { name: file.name, type: file.type, size: file.size, json: JSON.parse(new TextDecoder().decode(buffer)) };
         if (file.name.endsWith('.csv')) return { name: file.name, type: file.type, size: file.size, csv: new TextDecoder().decode(buffer) };
         const workbook = window.XLSX.read(buffer, { type: 'array' });
         return {
@@ -162,15 +163,21 @@ try {
     assert.equal(fields.get('gmt_employee_email'), 'clock.tester@gmt-services.co.uk');
     assert.equal(fields.get('gmt_clock_date'), '2026-07-03');
     assert.equal(fields.get('gmt_year'), '2026');
-    assert.equal(fields.get('gmt_month'), '2026-07');
-    assert.equal(fields.get('gmt_attachment_manifest'), 'xlsx,csv');
-    assert.equal(fields.get('gmt_workbook_key'), 'clock-clock-tester-gmt-services-co-uk-2026-07');
+    assert.equal(fields.get('gmt_month'), '07');
+    assert.equal(fields.get('gmt_attachment_manifest'), 'record-json,xlsx,csv');
+    assert.equal(fields.get('gmt_workbook_key'), 'timesheet-clock-tester-gmt-services-co-uk-2026-07');
     assert.equal(fields.get('gmt_filing_mode'), 'monthly-upsert');
     assert.equal(fields.get('gmt_absence_reason'), entry.absence || '');
     assert.equal(fields.get('gmt_location'), 'Workshop');
     assert.equal(fields.get('location'), 'Workshop');
-    assert.deepEqual(form.files.map((entry) => entry.name), ['attachment', 'attachment_csv']);
-    assert.equal(fileList.length, 2, 'each quick record should attach XLSX and CSV');
+    assert.deepEqual(form.files.map((entry) => entry.name), ['attachment_record', 'attachment', 'attachment_csv']);
+    assert.equal(fileList.length, 3, 'each quick record should attach record JSON, XLSX and CSV');
+    const recordFile = fileList.find((file) => file.name.endsWith('.json'));
+    assert.ok(recordFile.size > 100, 'record JSON attachment should not be empty');
+    assert.equal(recordFile.json.recordId, fields.get('gmt_record_id'));
+    assert.equal(recordFile.json.employeeName, 'Clock Tester');
+    assert.equal(recordFile.json.action, entry.action);
+    assert.equal(recordFile.json.date, '2026-07-03');
     assert.ok(workbook.size > 1000, 'XLSX attachment should not be empty');
     assert.deepEqual(workbook.sheets, ['All', 'Totals', 'Notes']);
     assert.equal(workbook.firstAllRow.Employee, 'Clock Tester');

@@ -13,6 +13,8 @@
     "employee_upn",
     "start_date",
     "end_date",
+    "record_date",
+    "action",
     "status",
     "submitted_at",
     "updated_at",

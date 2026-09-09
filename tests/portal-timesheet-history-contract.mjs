@@ -73,6 +73,8 @@ const successful = await runPage({
       employee_name: '<employee>',
       start_date: '2026-09-01',
       end_date: '2026-09-07',
+      record_date: '2026-09-03',
+      action: 'clock_in',
       status: 'Completed',
       submitted_at: '2026-09-08T10:00:00Z',
       updated_at: '2026-09-08T10:05:00Z',
@@ -88,6 +90,8 @@ assert.equal(successful.request.options.credentials, 'include');
 assert.equal(successful.request.options.headers.Authorization, 'Bearer test-access-token');
 assert.match(successful.elements['timesheet-history-list'].innerHTML, /&lt;employee&gt;/);
 assert.doesNotMatch(successful.elements['timesheet-history-list'].innerHTML, /must-not-render/);
+assert.match(successful.elements['timesheet-history-list'].innerHTML, /Clock In/);
+assert.match(successful.elements['timesheet-history-list'].innerHTML, /Date 2026-09-03/);
 assert.match(successful.elements['timesheet-history-status'].textContent, /1 completed timesheet/);
 
 const notConfigured = await runPage({ endpoint: '', response: { records: [] } });
