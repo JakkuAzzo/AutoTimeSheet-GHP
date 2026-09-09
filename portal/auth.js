@@ -128,6 +128,16 @@
     });
   }
 
+  // Paint a cached identity immediately while the current Entra account is
+  // being restored. The authenticated result below replaces it before the
+  // protected application is revealed, so a prior account is never used for
+  // data access.
+  try {
+    renderIdentityLabels(JSON.parse(localStorage.getItem(profileKey) || "{}"));
+  } catch (_) {
+    // A malformed profile is ignored; the authenticated result will replace it.
+  }
+
   loadMsal().then(async function () {
     var redirectUri = window.location.origin + config.redirectPath;
     var msalApp = new window.msal.PublicClientApplication({
