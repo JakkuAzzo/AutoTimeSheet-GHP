@@ -747,6 +747,63 @@ function buildTimesheetWorkbookKey(calendarSync) {
   return `timesheet-${submissionKeyPart(employeeIdentity)}-${month}`;
 }
 
+function portalTimesheetRecord(calendarSync, calculated, totals, weighted, submissionId, status = 'Pending delivery', issue = '') {
+  const profile = localPortalProfile();
+  const rows = calculated.map((row) => ({
+    label: row.label,
+    collapsed: !!row.collapsed,
+    date: row.date,
+    start: row.start,
+    finish: row.finish,
+    lunchHad: !!row.lunchHad,
+    lunchMinutes: normaliseBreakMinutes(row.lunchMinutes),
+    absenceStatus: row.absenceStatus || 'NA',
+    description: row.description || ''
+  }));
+  return {
+    recordId: submissionId,
+    kind: 'timesheets',
+    action: 'submission',
+    status,
+    issue,
+    submittedAt: calendarSync.submittedAt,
+    updatedAt: new Date().toISOString(),
+    employeeName: employeeName.value.trim(),
+    employeeEmail: employeeEmail.value.trim(),
+    employeeUpn: calendarSync.employeeUpn || profile.username || '',
+    weekStart: calendarSync.weekStart,
+    weekEnd: calendarSync.weekEnd,
+    payload: {
+      schemaVersion: 2,
+      employeeName: employeeName.value.trim(),
+      employeeEmail: employeeEmail.value.trim(),
+      employeeUpn: calendarSync.employeeUpn || profile.username || '',
+      weekStart: calendarSync.weekStart,
+      weekEnd: calendarSync.weekEnd,
+      rows,
+      totals: {
+        workedActual: totals.workedActual,
+        total: totals.total,
+        basic: totals.basic,
+        ot15: totals.ot15,
+        ot20: totals.ot20,
+        absent: totals.absent,
+        holiday: totals.holiday,
+        sick: totals.sick,
+        timeOff: totals.timeOff,
+        errors: totals.errors
+      },
+      weightedHours: weighted,
+      absenceRanges,
+      calendarSync
+    }
+  };
+}
+
+function portalApiEnabled() {
+  return !!(window.GMTPortalApi && typeof window.GMTPortalApi.enabled === 'function' && window.GMTPortalApi.enabled());
+}
+
 function submittedDraftStorageKey(sourceId) {
   return `gmt.timesheet.submitted.v1:${submissionKeyPart(sourceId)}`;
 }
@@ -801,6 +858,41 @@ function loadSubmittedDraft() {
     if (timesheetEditStatus) {
       timesheetEditStatus.hidden = false;
       timesheetEditStatus.textContent = 'The saved submission copy could not be read. Contact Accounts for a protected edit link.';
+    }
+    return false;
+  }
+}
+
+async function loadProtectedSubmittedDraft() {
+  if (!editSourceId || !portalApiEnabled()) return false;
+  try {
+    if (localStorage.getItem(submittedDraftStorageKey(editSourceId))) return false;
+  } catch (_) {
+    // Continue with the protected route when browser storage is unavailable.
+  }
+  try {
+    const result = await window.GMTPortalApi.getRecord(editSourceId);
+    const record = result && result.record;
+    const payload = result && result.payload;
+    const rows = payload && Array.isArray(payload.rows) ? payload.rows : [];
+    if (!rows.length) throw new Error('The protected record does not contain editable daily rows.');
+    employeeName.value = String(payload.employeeName || record?.employee_name || employeeName.value || '');
+    employeeEmail.value = String(payload.employeeEmail || record?.employee_upn || employeeEmail.value || '');
+    weekStart.value = String(payload.weekStart || record?.start_date || '');
+    weekEnd.value = String(payload.weekEnd || record?.end_date || '');
+    absenceRanges = Array.isArray(payload.absenceRanges) ? payload.absenceRanges : [];
+    renderAbsenceRanges();
+    renderRows(rows.slice(0, 45));
+    if (timesheetEditStatus) {
+      timesheetEditStatus.hidden = false;
+      timesheetEditStatus.textContent = 'The protected submission was loaded. Submit the correction to update the same record.';
+    }
+    showSuccess('Protected submission loaded for editing.');
+    return true;
+  } catch (_) {
+    if (timesheetEditStatus && !timesheetEditStatus.textContent) {
+      timesheetEditStatus.hidden = false;
+      timesheetEditStatus.textContent = 'This submission could not be loaded from protected history. Return to your submissions and try again, or contact Accounts.';
     }
     return false;
   }
@@ -927,6 +1019,7 @@ async function submitTimesheet(event) {
   if (!calculated.length) return showError('Please add at least one day.');
   if (totals.errors.length) return showError(totals.errors.join(' '));
   if (!formSubmitEndpoint()) return showError('FormSubmit is not configured yet.');
+  let protectedRecord = null;
   try {
     await ensureXlsxLoaded();
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
@@ -938,6 +1031,10 @@ async function submitTimesheet(event) {
     const calendarSyncFile = buildCalendarSyncFile(calendarSyncWithIds);
     const recordFile = buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId);
     saveSubmittedDraft(submissionId);
+    if (portalApiEnabled()) {
+      protectedRecord = portalTimesheetRecord(calendarSyncWithIds, calculated, totals, weighted, submissionId, 'Pending delivery');
+      await window.GMTPortalApi.saveRecord(protectedRecord);
+    }
     const emailForm = createEmailForm();
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
@@ -979,9 +1076,22 @@ async function submitTimesheet(event) {
     setFileInputFiles(field('csv'), [csvFile]);
     setFileInputFiles(field('calendarSync'), [calendarSyncFile]);
     await submitMultipartForm(emailForm);
+    if (portalApiEnabled() && protectedRecord) {
+      protectedRecord = { ...protectedRecord, status: 'Submitted', updatedAt: new Date().toISOString(), issue: '' };
+      await window.GMTPortalApi.updateRecord(submissionId, protectedRecord);
+    }
     emailForm.remove();
-    showSuccess('Timesheet submitted successfully. Your XLSX and CSV attachments were sent to Accounts.');
+    showSuccess(portalApiEnabled()
+      ? 'Timesheet submitted successfully. Your record and XLSX/CSV attachments were saved for Accounts.'
+      : 'Timesheet submitted successfully. Your XLSX and CSV attachments were sent to Accounts.');
   } catch (error) {
+    if (portalApiEnabled() && protectedRecord) {
+      try {
+        await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Delivery failed', issue: error.message || 'Timesheet delivery failed', updatedAt: new Date().toISOString() });
+      } catch (_) {
+        // Keep the original delivery error visible; the protected service can be retried from history.
+      }
+    }
     showError(error.message || 'Submission failed.');
   }
 }
@@ -1111,6 +1221,11 @@ if (!loadSubmittedDraft() && !loadSavedDraft()) {
   addDay();
   recalculate();
 }
+
+// A protected record can be edited from a different browser. The local copy
+// above remains the fast path; this route fills the form when only the durable
+// portal record is available.
+loadProtectedSubmittedDraft();
 
 window.addEventListener('pageshow', () => {
   window.setTimeout(() => {

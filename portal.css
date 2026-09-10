@@ -401,6 +401,9 @@
 .portal-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
 .portal-history-toolbar .small-text { margin: 0; }
 .portal-history-toolbar button { flex: 0 0 auto; min-height: 38px; }
+.portal-history-filter { display: inline-flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .9rem; font-weight: 800; }
+.portal-history-filter select { min-height: 38px; padding: .35rem 2rem .35rem .65rem; border: 1px solid var(--line); border-radius: .65rem; background: #fff; color: var(--ink); font: inherit; }
+.portal-history-frame { display: block; width: 100%; min-height: 360px; margin-top: .8rem; border: 1px solid var(--line); border-radius: .85rem; background: #fff; }
 .portal-history-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }
 .portal-primary-link { background: var(--green); color: #fff; border-radius: 999px; font-weight: 900; }
 .portal-history-empty { margin: 0; padding: 1rem; background: #f5f8f3; border: 1px dashed var(--line); border-radius: .75rem; }
@@ -533,6 +536,10 @@
   .portal-section-heading { align-items: flex-start; flex-direction: column; }
   .portal-action-grid, .portal-overview-grid { grid-template-columns: 1fr; }
   .portal-updates { align-items: flex-start; flex-direction: column; }
+  .portal-history-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .portal-history-toolbar .small-text { flex: 1 1 100%; }
+  .portal-history-filter { flex: 1 1 auto; justify-content: space-between; }
+  .portal-history-filter select { flex: 1 1 auto; min-width: 0; }
   .portal-notification-empty { width: 100%; }
   .portal-dashboard-grid { grid-template-columns: 1fr; }
   .portal-calendar-preview { grid-column: auto; }

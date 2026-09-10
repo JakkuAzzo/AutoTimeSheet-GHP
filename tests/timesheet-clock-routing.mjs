@@ -34,6 +34,22 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
+  await page.addInitScript(() => {
+    window.__submittedForms = [];
+    window.fetch = async (input, init = {}) => {
+      const body = init && init.body;
+      if (body instanceof FormData) {
+        const entries = [...body.entries()];
+        window.__submittedForms.push({
+          action: typeof input === 'string' ? input : input?.url || '',
+          subject: entries.find(([name]) => name === '_subject')?.[1] || '',
+          fields: entries.filter(([, value]) => !(value instanceof File)).map(([name, value]) => [name, value]),
+          files: entries.filter(([, value]) => value instanceof File).map(([name, value]) => ({ name, files: [value] }))
+        });
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+  });
   const logs = [];
   page.on('console', (msg) => {
     if (['error', 'warning'].includes(msg.type()) && !/Failed to load resource: the server responded with a status of 404/.test(msg.text())) logs.push(`${msg.type()}: ${msg.text()}`);
@@ -43,17 +59,6 @@ try {
   await page.goto(`http://127.0.0.1:${port}/timesheets/`, { waitUntil: 'load' });
   await page.evaluate(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Clock Profile Tester', username: 'clock.tester@gmt-services.co.uk' })));
   await page.reload({ waitUntil: 'load' });
-  await page.evaluate(() => {
-    window.__submittedForms = [];
-    HTMLFormElement.prototype.submit = function submitStub() {
-      window.__submittedForms.push({
-        action: this.action,
-        subject: this.querySelector('[name="_subject"]')?.value || '',
-        fields: [...this.querySelectorAll('input[type="hidden"]')].map((input) => [input.name, input.value]),
-        files: [...this.querySelectorAll('input[type="file"]')].map((input) => ({ name: input.name, files: [...input.files] }))
-      });
-    };
-  });
 
   const beforeSubmit = await page.evaluate(() => {
     const card = document.querySelector('[data-clock-form]');
@@ -154,7 +159,7 @@ try {
     const fileList = form.files.flatMap((entry) => entry.files);
     const workbook = fileList.find((file) => file.name.endsWith('.xlsx'));
     const csv = fileList.find((file) => file.name.endsWith('.csv'));
-    assert.equal(form.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
+    assert.equal(form.action, 'https://formsubmit.co/ajax/7aa066a9c2d177d1c0702281ab88d0fe');
     assert.equal(form.subject, `[GMT][TIMESHEET][${entry.subjectKind}] Clock Tester | ${entry.label} | 2026-07-03${entry.time ? ` ${entry.time}` : ''}`);
     assert.equal(fields.get('gmt_schema_version'), '2');
     assert.equal(fields.get('gmt_type'), 'timesheet_clock');

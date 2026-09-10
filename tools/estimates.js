@@ -48,6 +48,31 @@
     }
   }
 
+  function portalApiEnabled() {
+    return !!(window.GMTPortalApi && typeof window.GMTPortalApi.enabled === 'function' && window.GMTPortalApi.enabled());
+  }
+
+  function estimateRecordId(d) {
+    const identity = portalProfile().username || d.email || d.company || 'estimate';
+    return `estimate-${String(identity).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80)}-${String(d.number || 'draft').replace(/[^a-z0-9._-]+/gi, '-').slice(0, 80)}`;
+  }
+
+  function protectedEstimateRecord(d, status = 'Pending client send', issue = '') {
+    return {
+      recordId: estimateRecordId(d),
+      kind: 'estimates',
+      action: 'client_send',
+      status,
+      issue,
+      submittedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      employeeName: portalProfile().name || d.preparedBy || '',
+      employeeEmail: portalProfile().username || d.email || '',
+      recordDate: d.date,
+      payload: { ...d, estimateNumber: d.number }
+    };
+  }
+
   function addLine(values = {}) {
     const row = document.createElement('div');
     row.className = 'estimate-line';
@@ -104,7 +129,7 @@
     form.appendChild(input);
   }
 
-  function sendToClient() {
+  async function sendToClient() {
     const formElement = $('estimate-form');
     if (!formElement.reportValidity()) return;
     const d = data();
@@ -121,6 +146,7 @@
     form.method = 'POST'; form.action = endpoint; form.target = frame.name; form.enctype = 'multipart/form-data'; form.hidden = true;
     addHidden(form, '_subject', `[GMT][ESTIMATE][CLIENT] ${d.number} | ${d.company}`);
     addHidden(form, '_template', 'box'); addHidden(form, '_captcha', 'false');
+    addHidden(form, '_to', d.email); addHidden(form, 'to', d.email);
     addHidden(form, '_bcc', accountsBcc); addHidden(form, 'bcc', accountsBcc);
     addHidden(form, 'gmt_type', 'estimate'); addHidden(form, 'gmt_schema_version', '2');
     addHidden(form, 'gmt_send_mode', 'client'); addHidden(form, 'gmt_estimate_number', d.number); addHidden(form, 'gmt_estimate_date', d.date);
@@ -129,14 +155,33 @@
     addHidden(form, 'gmt_subtotal', d.subtotal.toFixed(2)); addHidden(form, 'gmt_vat', d.vat.toFixed(2));
     addHidden(form, 'gmt_total', d.total.toFixed(2)); addHidden(form, 'gmt_submitted_at', new Date().toISOString());
     addHidden(form, 'message', 'Please send the attached estimate to the client email and BCC Accounts for filing.');
-    addAttachment(form, file); document.body.appendChild(form); form.submit();
-    const sentAt = new Date().toISOString();
-    const localRecord = { ...d, sentAt, status: 'Submitted for client send', recordId: `${d.number || 'estimate'}|${sentAt}` };
-    saveLocalEstimate(localRecord);
-    historyRecords = [localRecord, ...historyRecords.filter((record) => record.recordId !== localRecord.recordId)];
-    renderHistory(historyRecords, 'this browser');
-    status.textContent = 'Estimate request submitted to the protected client-send route. Microsoft 365 will confirm delivery and filing.';
-    setTimeout(() => { form.remove(); frame.remove(); }, 2000);
+    addAttachment(form, file);
+    let protectedRecord = null;
+    try {
+      if (portalApiEnabled()) {
+        protectedRecord = protectedEstimateRecord(d);
+        await window.GMTPortalApi.saveRecord(protectedRecord);
+      }
+      const response = await fetch(endpoint, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' }, credentials: 'omit' });
+      const responseText = await response.text();
+      let result = null;
+      try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+      if (!response.ok || (result && (result.success === false || result.success === 'false'))) throw new Error(result && result.message ? result.message : `Estimate delivery failed (${response.status}).`);
+      const sentAt = new Date().toISOString();
+      const localRecord = { ...d, sentAt, status: 'Sent to client', recordId: protectedRecord ? protectedRecord.recordId : `${d.number || 'estimate'}|${sentAt}` };
+      saveLocalEstimate(localRecord);
+      historyRecords = [localRecord, ...historyRecords.filter((record) => record.recordId !== localRecord.recordId)];
+      renderHistory(historyRecords, portalApiEnabled() ? 'protected portal history' : 'this browser');
+      if (protectedRecord) await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Sent to client', issue: '', updatedAt: sentAt });
+      status.textContent = 'Estimate sent to the client and recorded for Accounts filing.';
+    } catch (error) {
+      if (protectedRecord) {
+        try { await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Delivery failed', issue: error.message || 'Estimate delivery failed', updatedAt: new Date().toISOString() }); } catch (_) {}
+      }
+      status.textContent = error.message || 'Estimate could not be sent.';
+    } finally {
+      form.remove(); frame.remove();
+    }
   }
 
   function normaliseHistoryRecord(record) {
@@ -169,6 +214,16 @@
   async function loadEstimateHistory() {
     const localRecords = readLocalHistory();
     const endpoint = String(CONFIG.estimateHistoryEndpoint || '').trim();
+    if (!endpoint && portalApiEnabled()) {
+      historyStatus.textContent = 'Loading protected estimate history…';
+      try {
+        const body = await window.GMTPortalApi.history('estimates');
+        renderHistory(body && Array.isArray(body.records) ? body.records : [], 'protected portal history');
+        return;
+      } catch (_) {
+        // The labelled local fallback below remains available during an outage.
+      }
+    }
     if (!endpoint) {
       if (localRecords.length) {
         renderHistory(localRecords, 'this browser; protected history is not connected');

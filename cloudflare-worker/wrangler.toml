@@ -1,0 +1,19 @@
+name = "gmt-portal-api"
+main = "src/index.js"
+compatibility_date = "2026-09-10"
+
+# Replace the database_id after creating the GMT portal D1 database in the
+# Cloudflare account. Runtime values are configured as Worker variables/secrets.
+[[d1_databases]]
+binding = "DB"
+database_name = "gmt-portal"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[vars]
+ENTRA_TENANT_ID = "8b182d6b-6f34-4ca2-84ad-50ca712b5488"
+ENTRA_AUDIENCES = "https://service.flow.microsoft.com/"
+ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,https://gmt-timesheets.pages.dev"
+ADMIN_UPNS = ""
+ADMIN_OIDS = ""
+ADMIN_GROUP_IDS = ""
+HISTORY_UPSTREAM_URL = ""

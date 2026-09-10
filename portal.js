@@ -29,6 +29,22 @@
     return store.get('gmt.portal.profile.v1', {});
   }
 
+  function portalApiEnabled() {
+    return !!(window.GMTPortalApi && typeof window.GMTPortalApi.enabled === 'function' && window.GMTPortalApi.enabled());
+  }
+
+  async function saveProtectedRecord(record) {
+    if (!portalApiEnabled()) return false;
+    await window.GMTPortalApi.saveRecord(record);
+    return true;
+  }
+
+  async function updateProtectedRecord(record, status, issue = '') {
+    if (!portalApiEnabled()) return false;
+    await window.GMTPortalApi.updateRecord(record.recordId, { ...record, status, issue, updatedAt: new Date().toISOString() });
+    return true;
+  }
+
   function dateParts(value) {
     const match = String(value || '').match(/^(\d{4})-(\d{2})/);
     return match ? { year: match[1], month: match[2] } : { year: '', month: '' };
@@ -229,8 +245,9 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function renderJobs() {
-    const jobs = store.get(keys.jobs, []);
+  function renderJobs(remoteJobs = []) {
+    const localJobs = store.get(keys.jobs, []);
+    const jobs = [...remoteJobs, ...localJobs.filter((local) => !remoteJobs.some((remote) => String(remote.ref || '') === String(local.ref || '') && remote.ref))];
     const list = $('#job-card-list');
     if (!list) return;
     if (!jobs.length) {
@@ -328,8 +345,28 @@
     $('[data-back-to-timesheets]')?.addEventListener('click', backToTimesheets);
   }
 
+  async function loadProtectedJobs() {
+    if (!portalApiEnabled()) return;
+    try {
+      const body = await window.GMTPortalApi.history('job-cards');
+      const remoteJobs = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
+        id: record.source_record_id,
+        ref: record.job_ref || record.source_record_id,
+        client: record.client || '',
+        site: record.site || '',
+        engineer: record.engineer || record.employee_name || '',
+        date: record.planned_date || record.record_date || '',
+        description: record.description || '',
+        status: record.status || 'Submitted'
+      }));
+      renderJobs(remoteJobs);
+    } catch (_) {
+      // The local draft list remains visible when the protected service is unavailable.
+    }
+  }
+
   function bindJobs() {
-    $('#job-card-form')?.addEventListener('submit', (event) => {
+    $('#job-card-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const jobs = store.get(keys.jobs, []);
       const imageFile = $('#job-image')?.files?.[0] || null;
@@ -338,7 +375,33 @@
       };
       jobs.unshift(job);
       store.set(keys.jobs, jobs);
-      sendPortalFormSubmit('Job Card', {
+      const recordId = `job-${job.ref || job.id}`;
+      const protectedRecord = {
+        recordId,
+        kind: 'job-cards',
+        action: 'create_request',
+        status: 'Pending',
+        submittedAt: new Date().toISOString(),
+        employeeName: portalProfileName(),
+        employeeEmail: portalProfile().username || '',
+        recordDate: job.date,
+        payload: {
+          jobReference: job.ref,
+          client: job.client,
+          site: job.site,
+          engineer: job.engineer,
+          plannedDate: job.date,
+          description: job.description
+        }
+      };
+      try {
+        await saveProtectedRecord(protectedRecord);
+      } catch (error) {
+        logNotification('Job card', `Job card could not be saved to protected history: ${error.message || 'service unavailable'}.`);
+        renderJobs();
+        return;
+      }
+      const sent = sendPortalFormSubmit('Job Card', {
         job_reference: job.ref,
         client: job.client,
         site_address: job.site,
@@ -348,24 +411,44 @@
         description: job.description,
         submitted_at: new Date().toISOString()
       }, { file: imageFile });
+      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
       event.target.reset();
       prefillPortalIdentity();
-      logNotification('Job card', `Job card ${job.ref || job.client || job.id} created and emailed for admin review.`);
+      logNotification('Job card', sent
+        ? `Job card ${job.ref || job.client || job.id} submitted for admin review.`
+        : `Job card ${job.ref || job.client || job.id} stored locally only. It still needs an approved submission route.`);
       renderJobs();
+      loadProtectedJobs();
     });
   }
 
   function bindTasks() {
-    $('#task-form')?.addEventListener('submit', (event) => {
+    $('#task-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const tasks = store.get(keys.tasks, []);
       const task = { id: id(), title: $('#task-title').value.trim(), jobRef: $('#task-job-ref').value.trim(), assignee: $('#task-assignee').value.trim(), due: $('#task-due').value, priority: $('#task-priority').value, status: 'Pending approval', requestedBy: portalProfileName() };
       if (!task.title) return;
       tasks.unshift(task);
       store.set(keys.tasks, tasks);
+      const protectedRecord = {
+        recordId: `task-${task.id}`,
+        kind: 'tasks',
+        action: 'create_request',
+        status: task.status,
+        submittedAt: new Date().toISOString(),
+        employeeName: task.requestedBy,
+        employeeEmail: portalProfile().username || '',
+        recordDate: task.due,
+        payload: { title: task.title, jobReference: task.jobRef, assignee: task.assignee, due: task.due, priority: task.priority }
+      };
+      try { await saveProtectedRecord(protectedRecord); } catch (error) {
+        logNotification('Task', `Task could not be saved to protected history: ${error.message || 'service unavailable'}.`);
+        renderTasks();
+        return;
+      }
       event.target.reset();
       prefillPortalIdentity();
-      sendPortalFormSubmit('Task', {
+      const sent = sendPortalFormSubmit('Task', {
         task_title: task.title,
         task_id: task.id,
         job_reference: task.jobRef,
@@ -377,7 +460,10 @@
         requested_by_upn: portalProfile().username || '',
         submitted_at: new Date().toISOString()
       });
-      logNotification('Task', `Task request sent for accounts approval: ${task.title}.`);
+      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
+      logNotification('Task', sent
+        ? `Task request submitted for accounts approval: ${task.title}.`
+        : `Task request stored locally only. It still needs an approved submission route: ${task.title}.`);
       renderTasks();
     });
   }
@@ -432,7 +518,7 @@
   }
 
   function bindCalendar() {
-    $('#calendar-form')?.addEventListener('submit', (event) => {
+    $('#calendar-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const events = store.get(keys.calendar, []);
       const type = $('#calendar-type').value;
@@ -440,9 +526,25 @@
       if (!entry.title || !entry.date) return;
       events.push(entry);
       store.set(keys.calendar, events);
+      const protectedRecord = {
+        recordId: `calendar-${entry.id}`,
+        kind: 'calendar',
+        action: 'create_request',
+        status: entry.status,
+        submittedAt: new Date().toISOString(),
+        employeeName: entry.requestedBy,
+        employeeEmail: portalProfile().username || '',
+        recordDate: entry.date,
+        payload: { title: entry.title, date: entry.date, type: entry.type, owner: entry.owner, notes: entry.notes }
+      };
+      try { await saveProtectedRecord(protectedRecord); } catch (error) {
+        logNotification('Calendar', `Calendar request could not be saved to protected history: ${error.message || 'service unavailable'}.`);
+        renderCalendar();
+        return;
+      }
       event.target.reset();
       prefillPortalIdentity();
-      sendPortalFormSubmit('Calendar Request', {
+      const sent = sendPortalFormSubmit('Calendar Request', {
         event_id: entry.id,
         event_title: entry.title,
         event_date: entry.date,
@@ -454,15 +556,31 @@
         notes: entry.notes,
         submitted_at: new Date().toISOString()
       });
-      logNotification('Calendar', `Calendar request sent for accounts approval: ${entry.title}.`);
+      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
+      logNotification('Calendar', sent
+        ? `Calendar request submitted for accounts approval: ${entry.title}.`
+        : `Calendar request stored locally only. It still needs an approved submission route: ${entry.title}.`);
       renderCalendar();
     });
-    $('#calendar-list')?.addEventListener('click', (event) => {
+    $('#calendar-list')?.addEventListener('click', async (event) => {
       const del = event.target.closest('[data-calendar-delete]');
       const events = store.get(keys.calendar, []);
       if (del) {
         const item = events.find((entry) => entry.id === del.dataset.calendarDelete);
-        if (item) sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
+        if (item) {
+          sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
+          try {
+            await updateProtectedRecord({
+              recordId: `calendar-${item.id}`,
+              kind: 'calendar',
+              action: 'update_request',
+              employeeName: item.requestedBy || portalProfileName(),
+              employeeEmail: portalProfile().username || '',
+              recordDate: item.date,
+              payload: { title: item.title, date: item.date, type: item.type, owner: item.owner, notes: item.notes }
+            }, 'Cancelled');
+          } catch (_) {}
+        }
         store.set(keys.calendar, events.filter((entry) => entry.id !== del.dataset.calendarDelete));
         logNotification('Calendar', 'Calendar request cancelled.');
       }
@@ -475,6 +593,7 @@
     bindTabs(); bindJobs(); bindTasks(); bindOrg(); bindNotifications(); bindCalendar();
     renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
     prefillPortalIdentity();
+    loadProtectedJobs();
   });
   document.addEventListener('gmtportalidentity', prefillPortalIdentity);
 })();

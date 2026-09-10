@@ -25,13 +25,24 @@
     <h2 id="history-title">My completed timesheets</h2>
     <div class="portal-history-toolbar">
       <p id="timesheet-history-status" class="small-text" role="status">Loading your records…</p>
+      <label class="portal-history-filter">Show
+        <select id="portal-history-filter" aria-label="Filter my submissions">
+          <option value="all" selected>All submissions</option>
+          <option value="timesheets">Weekly timesheets</option>
+          <option value="clock">Clock in and breaks</option>
+          <option value="job-cards">Job cards</option>
+          <option value="estimates">Estimates</option>
+          <option value="calendar">Calendar requests</option>
+          <option value="tasks">Tasks</option>
+        </select>
+      </label>
       <button type="button" id="timesheet-history-refresh" class="secondary">Refresh</button>
     </div>
     <p id="timesheet-history-link" class="small-text" hidden></p>
-    <div id="timesheet-history-list" class="portal-list" aria-live="polite"></div>
+    <iframe id="portal-history-frame" class="portal-history-frame" title="Protected GMT submission history" src="history-frame.html?filter=all" loading="lazy" referrerpolicy="same-origin"></iframe>
     <div class="portal-history-actions"><a class="button button-link portal-primary-link" href="../timesheets/">Create or edit</a></div>
   </section>
 </main>
-<script defer src="timesheets.js?v=history-section-20260909-edit"></script>
+<script defer src="timesheets.js?v=history-frame-20260910"></script>
 </body>
 </html>

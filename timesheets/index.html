@@ -24,6 +24,8 @@
 <form class="portal-feature-card clock-card" data-clock-form data-default-action="clock_in">
 <div class="clock-card-heading"><span data-clock-title>Clock In</span><small data-clock-description>Record an arrival time and send it to accounts.</small></div>
 <label>Full name<input name="employee_name" autocomplete="name" required placeholder="Your name"></label>
+<input name="employee_email" type="hidden" autocomplete="email">
+<p class="small-text" data-clock-identity aria-live="polite">Your signed-in GMT email will be attached to this record.</p>
 <input name="clock_action" type="hidden" value="clock_in">
 <fieldset class="clock-actions" aria-label="What are you recording?">
 <legend>Record</legend>
@@ -60,6 +62,7 @@
 </form>
 </section>
 </main>
+<script src="../portal-api.js?v=portal-api-20260910"></script>
 <script src="../lazy-xlsx.js"></script>
 <script src="../timesheet-clock.js?v=timesheet-delivery-20260909"></script>
 </body>

@@ -125,6 +125,10 @@
   function prefillClockIdentity(card, profile = portalProfile(), force = false) {
     const name = String(profile && profile.name || '').trim();
     if (name && (force || !card.elements.employee_name.value.trim())) card.elements.employee_name.value = name;
+    const email = String(profile && (profile.username || profile.notificationEmail) || '').trim();
+    if (card.elements.employee_email && email && (force || !card.elements.employee_email.value.trim())) card.elements.employee_email.value = email;
+    const identityLabel = card.querySelector('[data-clock-identity]');
+    if (identityLabel && email) identityLabel.textContent = `Signed-in GMT email: ${email}`;
   }
 
   function setDisabled(element, disabled) {
@@ -349,7 +353,7 @@
     hidden(form, 'gmt_type', 'timesheet_clock');
     hidden(form, 'gmt_action', payload.action);
     const recordIdentity = payload.employeeEmail || payload.employeeName;
-    const recordId = `${recordIdentity}|${payload.date}|${payload.action}|${payload.time || payload.dayStart || 'absence'}`;
+    const recordId = clockRecordId(payload);
     // Weekly submissions and quick clock events share one employee/month
     // workbook. The event-specific record ID remains the dedupe key.
     const workbookKey = `timesheet-${safeKeyPart(recordIdentity)}-${payload.date.slice(0, 7)}`;
@@ -425,7 +429,7 @@
     const action = card.elements.clock_action.value;
     return {
       employeeName: card.elements.employee_name.value.trim(),
-      employeeEmail: String(profile.username || '').trim(),
+      employeeEmail: String(card.elements.employee_email?.value || profile.username || profile.notificationEmail || '').trim(),
       notificationEmail: String(profile.notificationEmail || '').trim(),
       action,
       actionLabel: actionLabel(action),
@@ -439,6 +443,32 @@
       lunchEnd: card.elements.day_lunch_end.value || '',
       dayFinish: card.elements.day_finish.value || '',
       submittedAt: new Date().toISOString()
+    };
+  }
+
+  function clockRecordId(payload) {
+    const recordIdentity = payload.employeeEmail || payload.employeeName;
+    return `clock-${safeKeyPart(recordIdentity)}-${payload.date}-${payload.action}-${payload.time || payload.dayStart || 'absence'}`;
+  }
+
+  function protectedClockRecord(payload, files, status = 'Pending delivery', issue = '') {
+    return {
+      recordId: clockRecordId(payload),
+      kind: 'clock',
+      action: payload.action,
+      status,
+      issue,
+      submittedAt: payload.submittedAt,
+      updatedAt: new Date().toISOString(),
+      recordDate: payload.date,
+      employeeName: payload.employeeName,
+      employeeEmail: payload.employeeEmail,
+      payload: {
+        schemaVersion: 2,
+        ...payload,
+        row: files.row,
+        hours: files.hours
+      }
     };
   }
 
@@ -460,19 +490,34 @@
       showStatus(card, 'error', fullDayError);
       return;
     }
+    let protectedRecord = null;
     try {
       showStatus(card, 'ok', 'Preparing timesheet files...');
       if (typeof window.ensureXlsxLoaded !== 'function') throw new Error('Excel generator is not available.');
       await window.ensureXlsxLoaded();
       const files = buildClockFiles(payload);
+      if (window.GMTPortalApi && typeof window.GMTPortalApi.enabled === 'function' && window.GMTPortalApi.enabled()) {
+        protectedRecord = protectedClockRecord(payload, files);
+        await window.GMTPortalApi.saveRecord(protectedRecord);
+      }
       const form = createEmailForm(payload, files);
       await submitMultipartForm(form, endpoint);
+      if (protectedRecord) {
+        await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Submitted', issue: '', updatedAt: new Date().toISOString() });
+      }
       form.remove();
-      showStatus(card, 'ok', `${payload.actionLabel} sent for ${payload.date}${payload.time && payload.action !== 'full_day' && payload.action !== 'absent' ? ` at ${payload.time}` : ''}.`);
+      showStatus(card, 'ok', `${payload.actionLabel} saved for ${payload.date}${payload.time && payload.action !== 'full_day' && payload.action !== 'absent' ? ` at ${payload.time}` : ''}.`);
       card.elements.clock_date.value = localDate();
       card.elements.clock_time.value = localTime();
       card.elements.clock_note.value = '';
     } catch (error) {
+      if (protectedRecord) {
+        try {
+          await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Delivery failed', issue: error && error.message ? error.message : 'Clock delivery failed', updatedAt: new Date().toISOString() });
+        } catch (_) {
+          // Preserve the original delivery error for the employee.
+        }
+      }
       showStatus(card, 'error', error && error.message ? error.message : 'Clock submission could not be sent.');
     }
   }

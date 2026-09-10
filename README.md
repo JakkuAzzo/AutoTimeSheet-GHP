@@ -100,6 +100,25 @@ approval model. The portal does not treat a browser-side action as an approval:
 licensed accounts users approve records in Microsoft 365 before a calendar event
 is created.
 
+## Cloudflare protected portal
+
+`cloudflare-worker/` contains the Entra-verified D1 history service. It exposes
+owner-filtered history and record create/read/update operations for timesheets,
+clock events, estimates, job cards, tasks and calendar requests. The optional
+soft-delete route is restricted to drafts or approved administrator identities;
+submitted versions remain in the audit table.
+
+Build the Pages upload from a hydrated checkout with:
+
+```bash
+node tools/build-cloudflare-pages.mjs /tmp/gmt-pages-build
+```
+
+Set `GMT_WORKER_URL` when building the production bundle so the protected API
+origin is written into `config.js`. Existing intake flows still own attachment
+filing into SharePoint/Excel; the Worker provides the durable protected history
+and cross-device edit source.
+
 ## Current structure
 
 - `index.html` — guest employee timesheet form

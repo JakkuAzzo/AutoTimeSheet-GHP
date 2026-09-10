@@ -36,6 +36,13 @@ window.GMT_APP_CONFIG = {
   // Future backend endpoint for sending magic links and reading encrypted GitHub records.
   magicLinkApiBase: "",
 
+  // Protected staff portal API. The Worker verifies Entra tokens and owns the
+  // durable history/edit store; keep the origin empty until it is deployed.
+  portalApiEndpoint: "",
+  portalApiScopes: [],
+  portalHistoryEndpoint: "",
+  portalHistoryScopes: [],
+
   // Protected staff-history API. Set only after an Entra-authenticated,
   // server-enforced Microsoft 365 retrieval service has passed its access tests.
   timesheetHistoryEndpoint: "",
