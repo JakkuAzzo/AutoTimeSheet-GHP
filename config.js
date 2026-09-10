@@ -23,6 +23,12 @@ window.GMT_APP_CONFIG = {
   // Never fall back to a personal mailbox for client delivery. Populate this
   // only with the approved Accounts BCC route.
   estimateAccountsBcc: "",
+  // Cloudflare Worker protected portal API. Set this to the deployed Worker
+  // origin in the Pages bundle; leave blank in local development.
+  portalApiEndpoint: "",
+  portalApiScopes: ["https://service.flow.microsoft.com//.default"],
+  portalHistoryEndpoint: "",
+  portalHistoryScopes: ["https://service.flow.microsoft.com//.default"],
   fallbackFormSubmitEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
