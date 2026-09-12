@@ -16,4 +16,4 @@ ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,htt
 ADMIN_UPNS = ""
 ADMIN_OIDS = ""
 ADMIN_GROUP_IDS = ""
-HISTORY_UPSTREAM_URL = ""
+HISTORY_UPSTREAM_URL = "https://b7db48c95976ef8e943878dfe20987.42.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/15/workflows/e25c8f033575417ea40c1ef91d2c852b/triggers/manual/paths/invoke?api-version=1"
