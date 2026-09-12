@@ -972,6 +972,7 @@ function createEmailForm() {
     <input type="hidden" name="_subject" data-clean-field="subject">
     <input type="hidden" name="_template" value="box">
     <input type="hidden" name="_captcha" value="false">
+    <input type="hidden" name="_url" data-clean-field="url">
     <input type="hidden" name="_replyto" data-clean-field="replyto">
     <input type="hidden" name="_cc" data-clean-field="cc">
     <input type="hidden" name="employee_name" data-clean-field="employeeName">
@@ -1043,6 +1044,7 @@ async function submitTimesheet(event) {
     const userEmail = employeeEmail.value.trim();
     emailForm.action = formSubmitEndpoint();
     field('subject').value = `[GMT][TIMESHEET][SUBMISSION] ${employeeName.value.trim()} | Week ${weekStart.value || 'unspecified'}`;
+    field('url').value = window.location.href;
     field('replyto').value = userEmail;
     const profile = localPortalProfile();
     field('cc').value = [CONFIG.formSubmitCc, userEmail, profile.notificationEmail].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(',');

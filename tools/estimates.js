@@ -145,7 +145,7 @@
     const form = document.createElement('form');
     form.method = 'POST'; form.action = endpoint; form.target = frame.name; form.enctype = 'multipart/form-data'; form.hidden = true;
     addHidden(form, '_subject', `[GMT][ESTIMATE][CLIENT] ${d.number} | ${d.company}`);
-    addHidden(form, '_template', 'box'); addHidden(form, '_captcha', 'false');
+    addHidden(form, '_template', 'box'); addHidden(form, '_captcha', 'false'); addHidden(form, '_url', window.location.href);
     addHidden(form, '_to', d.email); addHidden(form, 'to', d.email);
     addHidden(form, '_bcc', accountsBcc); addHidden(form, 'bcc', accountsBcc);
     addHidden(form, 'gmt_type', 'estimate'); addHidden(form, 'gmt_schema_version', '2');

@@ -150,6 +150,7 @@
     add('_subject', subjectForKind(kind, fields));
     add('_template', 'box');
     add('_captcha', 'false');
+    add('_url', window.location.href);
     const cc = isJobCard
       ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, GMT_JOB_CARD_CC)
       : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);

@@ -348,6 +348,7 @@
     hidden(form, '_subject', `[GMT][TIMESHEET][${subjectType}] ${payload.employeeName} | ${payload.actionLabel} | ${payload.date}${payload.time ? ` ${payload.time}` : ''}`);
     hidden(form, '_template', 'box');
     hidden(form, '_captcha', 'false');
+    hidden(form, '_url', window.location.href);
     hidden(form, '_cc', payload.notificationEmail);
     hidden(form, 'gmt_schema_version', '2');
     hidden(form, 'gmt_type', 'timesheet_clock');
