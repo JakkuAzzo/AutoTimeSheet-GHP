@@ -1025,7 +1025,10 @@ async function submitTimesheet(event) {
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
     const csvFile = buildCsvFile(calculated);
     const calendarSync = buildCalendarSync(calculated, totals);
-    const submissionId = buildTimesheetSubmissionId(calendarSync);
+    // Preserve the source ID when this form was opened from protected history.
+    // That makes a correction update the existing record instead of creating a
+    // second submission for the same employee and week.
+    const submissionId = editSourceId || buildTimesheetSubmissionId(calendarSync);
     const workbookKey = buildTimesheetWorkbookKey(calendarSync);
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
     const calendarSyncFile = buildCalendarSyncFile(calendarSyncWithIds);

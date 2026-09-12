@@ -7,6 +7,7 @@ const config = fs.readFileSync(new URL('../config.js', import.meta.url), 'utf8')
 const html = fs.readFileSync(new URL('../portal/timesheets.html', import.meta.url), 'utf8');
 const page = fs.readFileSync(new URL('../portal/timesheets.js', import.meta.url), 'utf8');
 const auth = fs.readFileSync(new URL('../portal/auth.js', import.meta.url), 'utf8');
+const timesheet = fs.readFileSync(new URL('../script.js', import.meta.url), 'utf8');
 
 assert.equal(contract.securityModel, 'server-enforced Entra identity mapping');
 assert.equal(contract.visibility.ordinaryEmployees, 'own records only');
@@ -24,6 +25,9 @@ assert.match(page, /No records are displayed until the protected history service
 assert.match(auth, /window\.GMT_PORTAL_AUTH/);
 assert.match(auth, /window\.GMT_PORTAL_AUTH_READY/);
 assert.match(auth, /acquireTokenSilent/);
+assert.match(auth, /window\.location\.origin \+ portalRootPath\(\)/);
+assert.doesNotMatch(auth, /oauth2\/v2\.0\/logout/i, 'portal sign out must not sign the browser out of Microsoft');
+assert.match(timesheet, /const submissionId = editSourceId \|\| buildTimesheetSubmissionId\(calendarSync\)/);
 assert.match(config, /timesheetHistoryEndpoint:\s*["']?["']/);
 assert.doesNotMatch(page, /sharepoint\.com/i, 'the browser must not call SharePoint directly');
 
