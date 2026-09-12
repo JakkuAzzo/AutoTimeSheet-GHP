@@ -235,20 +235,17 @@
         try {
           localStorage.removeItem(profileKey);
         } catch (_) {
-          // A storage failure must not prevent the Microsoft sign-out.
+          // A storage failure must not prevent the portal sign-out.
         }
-        var logoutHint = account.username || (account.idTokenClaims && (account.idTokenClaims.login_hint || account.idTokenClaims.preferred_username)) || "";
-        var postLogoutRedirectUri = window.location.origin + config.redirectPath;
-        var logoutUrl = "https://login.microsoftonline.com/" + encodeURIComponent(config.tenantId) + "/oauth2/v2.0/logout?post_logout_redirect_uri=" + encodeURIComponent(postLogoutRedirectUri);
-        if (logoutHint) logoutUrl += "&logout_hint=" + encodeURIComponent(logoutHint);
-        // Safari can retain the MSAL account after logoutRedirect resolves. Remove
-        // the cached account, then navigate directly to Microsoft's logout URL.
+        // Remove only this application's cached account. Do not call Microsoft's
+        // global logout endpoint: the browser's Microsoft 365 session must remain
+        // available for Outlook and other GMT services.
         var tokenCache = typeof msalApp.getTokenCache === "function" ? msalApp.getTokenCache() : null;
         var clearAccount = tokenCache && typeof tokenCache.removeAccount === "function"
           ? tokenCache.removeAccount(account)
           : Promise.resolve();
         Promise.resolve(clearAccount).catch(function () {}).then(function () {
-          window.location.replace(logoutUrl);
+          window.location.replace(window.location.origin + portalRootPath());
         });
       }, { once: true });
     }
