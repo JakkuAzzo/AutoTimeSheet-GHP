@@ -245,12 +245,14 @@
         // global logout endpoint: the browser's Microsoft 365 session must remain
         // available for Outlook and other GMT services.
         var tokenCache = typeof msalApp.getTokenCache === "function" ? msalApp.getTokenCache() : null;
-        var clearAccount = tokenCache && typeof tokenCache.removeAccount === "function"
-          ? tokenCache.removeAccount(account)
-          : Promise.resolve();
-        Promise.resolve(clearAccount).catch(function () {}).then(function () {
-          window.location.replace(window.location.origin + portalRootPath());
-        });
+        try {
+          if (tokenCache && typeof tokenCache.removeAccount === "function") {
+            Promise.resolve(tokenCache.removeAccount(account)).catch(function () {});
+          }
+        } catch (_) {
+          // Cache cleanup is best effort; the portal session keys are already gone.
+        }
+        window.location.replace(window.location.origin + portalRootPath());
       }, { once: true });
     }
   }).catch(function (error) {
