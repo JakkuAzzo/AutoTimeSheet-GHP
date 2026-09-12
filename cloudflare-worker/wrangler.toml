@@ -7,7 +7,7 @@ compatibility_date = "2026-09-10"
 [[d1_databases]]
 binding = "DB"
 database_name = "gmt-portal"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "911701fb-bad4-4615-a715-98f92b41144c"
 
 [vars]
 ENTRA_TENANT_ID = "8b182d6b-6f34-4ca2-84ad-50ca712b5488"
