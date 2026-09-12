@@ -199,22 +199,17 @@
         return msalApp.acquireTokenSilent(request)
           .catch(function (error) {
             // The first protected-history request may need interactive consent
-            // for the Power Automate resource. Safari can block a popup, so keep
-            // the request path and use a redirect when the popup is unavailable.
+            // for the Power Automate resource. Use a redirect so Safari does not
+            // depend on a popup being allowed by the browser.
             var code = String(error && error.errorCode || "").toLowerCase();
             var message = String(error && (error.errorMessage || error.message) || "").toLowerCase();
             var needsConsent = code === "invalid_grant" || message.indexOf("aadsts65001") !== -1 || message.indexOf("consent") !== -1;
             if (!needsConsent && code !== "interaction_required" && code !== "consent_required" && code !== "login_required") throw error;
             var interactiveRequest = Object.assign({}, request, { prompt: "consent" });
-            return msalApp.acquireTokenPopup(interactiveRequest).catch(function (interactiveError) {
-              var interactiveCode = String(interactiveError && interactiveError.errorCode || "").toLowerCase();
-              var interactiveMessage = String(interactiveError && (interactiveError.errorMessage || interactiveError.message) || "").toLowerCase();
-              if (interactiveCode !== "popup_window_error" && interactiveMessage.indexOf("popup") === -1) throw interactiveError;
-              sessionStorage.setItem(postSignInKey, window.location.pathname + window.location.search + window.location.hash);
-              return msalApp.acquireTokenRedirect(Object.assign({}, interactiveRequest, {
-                redirectStartPage: window.location.href
-              }));
-            });
+            sessionStorage.setItem(postSignInKey, window.location.pathname + window.location.search + window.location.hash);
+            return msalApp.acquireTokenRedirect(Object.assign({}, interactiveRequest, {
+              redirectStartPage: window.location.href
+            }));
           })
           .then(function (tokenResult) { return tokenResult.accessToken || ""; });
       }

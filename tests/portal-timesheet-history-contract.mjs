@@ -25,6 +25,8 @@ assert.match(page, /No records are displayed until the protected history service
 assert.match(auth, /window\.GMT_PORTAL_AUTH/);
 assert.match(auth, /window\.GMT_PORTAL_AUTH_READY/);
 assert.match(auth, /acquireTokenSilent/);
+assert.match(auth, /acquireTokenRedirect/);
+assert.doesNotMatch(auth, /acquireTokenPopup/);
 assert.match(auth, /window\.location\.origin \+ portalRootPath\(\)/);
 assert.doesNotMatch(auth, /oauth2\/v2\.0\/logout/i, 'portal sign out must not sign the browser out of Microsoft');
 assert.match(timesheet, /const submissionId = editSourceId \|\| buildTimesheetSubmissionId\(calendarSync\)/);
