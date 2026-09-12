@@ -202,8 +202,10 @@
             // for the Power Automate resource. Retry in a Microsoft popup while
             // keeping the bearer token in memory only.
             var code = String(error && error.errorCode || "").toLowerCase();
-            if (code !== "interaction_required" && code !== "consent_required" && code !== "login_required") throw error;
-            return msalApp.acquireTokenPopup(request);
+            var message = String(error && (error.errorMessage || error.message) || "").toLowerCase();
+            var needsConsent = code === "invalid_grant" || message.indexOf("aadsts65001") !== -1 || message.indexOf("consent") !== -1;
+            if (!needsConsent && code !== "interaction_required" && code !== "consent_required" && code !== "login_required") throw error;
+            return msalApp.acquireTokenPopup(Object.assign({}, request, { prompt: "consent" }));
           })
           .then(function (tokenResult) { return tokenResult.accessToken || ""; });
       }
@@ -225,23 +227,27 @@
     if (signOutButton) {
       signOutButton.hidden = false;
       signOutButton.addEventListener("click", function () {
+        signOutButton.disabled = true;
+        signOutButton.textContent = "Signing out…";
         sessionStorage.removeItem(authSessionKey);
+        sessionStorage.removeItem(postSignInKey);
         msalApp.setActiveAccount(null);
         try {
           localStorage.removeItem(profileKey);
         } catch (_) {
           // A storage failure must not prevent the Microsoft sign-out.
         }
-        var logoutOptions = {
-          account: account,
-          logoutHint: account.username || (account.idTokenClaims && (account.idTokenClaims.login_hint || account.idTokenClaims.preferred_username)) || "",
-          postLogoutRedirectUri: window.location.origin + config.redirectPath
-        };
-        msalApp.logoutRedirect(logoutOptions).catch(function () {
-          // Safari can reject a redirect after the page has been restored from
-          // history. Fall back to Microsoft's logout endpoint so the account
-          // session is still ended and the portal returns to its sign-in path.
-          var logoutUrl = "https://login.microsoftonline.com/" + encodeURIComponent(config.tenantId) + "/oauth2/v2.0/logout?post_logout_redirect_uri=" + encodeURIComponent(logoutOptions.postLogoutRedirectUri);
+        var logoutHint = account.username || (account.idTokenClaims && (account.idTokenClaims.login_hint || account.idTokenClaims.preferred_username)) || "";
+        var postLogoutRedirectUri = window.location.origin + config.redirectPath;
+        var logoutUrl = "https://login.microsoftonline.com/" + encodeURIComponent(config.tenantId) + "/oauth2/v2.0/logout?post_logout_redirect_uri=" + encodeURIComponent(postLogoutRedirectUri);
+        if (logoutHint) logoutUrl += "&logout_hint=" + encodeURIComponent(logoutHint);
+        // Safari can retain the MSAL account after logoutRedirect resolves. Remove
+        // the cached account, then navigate directly to Microsoft's logout URL.
+        var tokenCache = typeof msalApp.getTokenCache === "function" ? msalApp.getTokenCache() : null;
+        var clearAccount = tokenCache && typeof tokenCache.removeAccount === "function"
+          ? tokenCache.removeAccount(account)
+          : Promise.resolve();
+        Promise.resolve(clearAccount).catch(function () {}).then(function () {
           window.location.replace(logoutUrl);
         });
       }, { once: true });
