@@ -11,7 +11,7 @@ database_id = "911701fb-bad4-4615-a715-98f92b41144c"
 
 [vars]
 ENTRA_TENANT_ID = "8b182d6b-6f34-4ca2-84ad-50ca712b5488"
-ENTRA_AUDIENCES = "https://service.flow.microsoft.com/"
+ENTRA_AUDIENCES = "01b5a6c6-f6c1-47cb-aebe-67f07f415e4b,https://service.flow.microsoft.com/"
 ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,https://gmt-timesheets.pages.dev"
 ADMIN_UPNS = ""
 ADMIN_OIDS = ""

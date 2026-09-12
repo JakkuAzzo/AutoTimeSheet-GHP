@@ -10,8 +10,10 @@ include an Edit submission link that restores the protected daily rows.
 The browser never calls SharePoint directly or stores access tokens. The
 Cloudflare Worker in `cloudflare-worker/` validates the Microsoft Entra token,
 uses the verified tenant/object/UPN identity, stores records in D1, and returns
-projection-only history. `portal-api.js` sends just-in-time bearer tokens with
-`credentials: include` and `cache: no-store`.
+projection-only history. The portal uses its signed OIDC identity token when the
+Power Automate Flow Service permission is unavailable; a Flow-scoped access
+token is accepted as an optional upstream-history path. `portal-api.js` sends
+just-in-time bearer tokens with `credentials: include` and `cache: no-store`.
 
 The Worker accepts `GET /api/history`, `POST /api/records`,
 `GET/PATCH/DELETE /api/records/:id`, and `GET /api/health`. DELETE is a protected

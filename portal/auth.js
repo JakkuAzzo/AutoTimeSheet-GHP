@@ -153,6 +153,7 @@
     await msalApp.initialize();
     var result = await msalApp.handleRedirectPromise();
     var account = (result && result.account) || msalApp.getActiveAccount();
+    var initialIdToken = result && result.idToken ? result.idToken : "";
     var rememberedAccountId = sessionStorage.getItem(authSessionKey) || "";
 
     // Only reuse an account that this tab explicitly authenticated. Do not
@@ -189,18 +190,23 @@
     recordIdentity(account);
 
     // Make the authenticated MSAL context available to protected portal
-    // features. The access token is acquired just-in-time for the configured
-    // API scope; no token is written to localStorage or exposed in the page.
+    // features. Tokens are acquired just-in-time for the configured scope;
+    // no token is written to localStorage or exposed in the page. The Worker
+    // can validate the SPA's signed ID token when a separate API permission
+    // is unavailable, and will use a Flow Service access token when that
+    // delegated permission is configured later.
     window.GMT_PORTAL_AUTH = {
       acquireToken: function (scopes) {
         var requestedScopes = Array.isArray(scopes) ? scopes.filter(Boolean) : [];
-        if (!requestedScopes.length) return Promise.resolve("");
+        if (!requestedScopes.length) return Promise.resolve(initialIdToken);
+        var oidcOnly = requestedScopes.every(function (scope) {
+          return /^(openid|profile|email|offline_access)$/i.test(String(scope || "").trim());
+        });
         var request = { account: account, scopes: requestedScopes };
         return msalApp.acquireTokenSilent(request)
           .catch(function (error) {
-            // The first protected-history request may need interactive consent
-            // for the Power Automate resource. Use a redirect so Safari does not
-            // depend on a popup being allowed by the browser.
+            // Use a redirect so Safari does not depend on a popup being
+            // allowed by the browser when an interactive token request is needed.
             var code = String(error && error.errorCode || "").toLowerCase();
             var message = String(error && (error.errorMessage || error.message) || "").toLowerCase();
             var needsConsent = code === "invalid_grant" || message.indexOf("aadsts65001") !== -1 || message.indexOf("consent") !== -1;
@@ -211,7 +217,16 @@
               redirectStartPage: window.location.href
             }));
           })
-          .then(function (tokenResult) { return tokenResult.accessToken || ""; });
+          .then(function (tokenResult) {
+            // AuthenticationResult includes an ID token even when no API
+            // access token is issued for the requested OIDC-only scopes. Use
+            // that signed identity token for the first-party Worker; resource
+            // access tokens remain preferred for any configured API scopes.
+            var token = oidcOnly
+              ? (tokenResult.idToken || tokenResult.accessToken)
+              : (tokenResult.accessToken || tokenResult.idToken);
+            return token || initialIdToken || "";
+          });
       }
     };
     authReadyResolve(window.GMT_PORTAL_AUTH);

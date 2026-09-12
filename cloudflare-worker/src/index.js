@@ -115,6 +115,7 @@ function tokenIdentity(claims, env) {
     oid,
     upn,
     name: String(claims.name || '').trim(),
+    aud: audienceValue(claims.aud),
     tid: tokenTenant,
     isAdmin: adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group))
   };
@@ -383,7 +384,8 @@ async function listRecords(request, env, identity) {
   let upstream = 'not-configured';
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
   const token = bearerToken(request);
-  if (upstreamUrl && token && (!kind || kind === 'timesheets' || kind === 'clock')) {
+  const flowAudience = audienceValue('https://service.flow.microsoft.com/');
+  if (upstreamUrl && token && identity.aud === flowAudience && (!kind || kind === 'timesheets' || kind === 'clock')) {
     try {
       const upstreamResponse = await fetch(upstreamUrl, { headers: { accept: 'application/json', authorization: `Bearer ${token}` }, cf: { cacheTtl: 0, cacheEverything: false } });
       if (upstreamResponse.ok) {
@@ -410,6 +412,8 @@ async function listRecords(request, env, identity) {
     } catch (_) {
       upstream = 'unavailable';
     }
+  } else if (upstreamUrl && token && (!kind || kind === 'timesheets' || kind === 'clock')) {
+    upstream = 'flow-permission-not-configured';
   }
   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
   return { records, meta: { upstream } };

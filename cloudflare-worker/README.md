@@ -18,9 +18,12 @@ against the GMT tenant signing keys before any record is read or written.
    the client bundle.
 
 The Pages `config.js` should point `portalApiEndpoint` and
-`portalHistoryEndpoint` at the deployed Worker origin and use the same
-`https://service.flow.microsoft.com//.default` scope used by the existing
-Entra-protected Power Automate route.
+`portalHistoryEndpoint` at the deployed Worker origin. The portal can use the
+OIDC scopes `openid profile email`; the Worker validates the signed SPA ID token
+against the SPA audience so portal CRUD does not depend on Power Automate
+permissions. When the delegated Power Automate Flow Service permission is
+configured, a Flow-scoped access token is also accepted and enables the
+optional upstream history merge.
 
 The Worker does not fabricate SharePoint or Excel records. Existing intake
 flows remain responsible for filing generated attachments; D1 is the durable

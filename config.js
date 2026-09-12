@@ -26,9 +26,12 @@ window.GMT_APP_CONFIG = {
   // Cloudflare Worker protected portal API. Set this to the deployed Worker
   // origin in the Pages bundle; leave blank in local development.
   portalApiEndpoint: "",
-  portalApiScopes: ["https://service.flow.microsoft.com//.default"],
+  // The protected Worker accepts the signed-in SPA's Entra ID token. This
+  // keeps portal CRUD available without requesting the Power Automate Flow
+  // Service resource, whose delegated permission may not be present yet.
+  portalApiScopes: ["openid", "profile", "email"],
   portalHistoryEndpoint: "",
-  portalHistoryScopes: ["https://service.flow.microsoft.com//.default"],
+  portalHistoryScopes: ["openid", "profile", "email"],
   fallbackFormSubmitEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
   formSubmitEndpoint: "https://formsubmit.co/ajax/acc.gmtelect@outlook.com",
