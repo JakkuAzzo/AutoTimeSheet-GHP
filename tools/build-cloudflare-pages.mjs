@@ -35,10 +35,13 @@ for (const file of [
   'styles.css', 'portal.css', 'analytics.js', 'add-logo.js', 'favicon.svg',
   'image.png', 'image.webp', 'lazy-xlsx.js', 'portal-api.js', 'portal.js',
   'script.js', 'timesheet-clock.js', 'timesheet-input-fix.js',
-  'timesheet-mobile-fixes.js', 'timesheet-preflight.js', 'timesheet-status-labels.js'
+  'timesheet-mobile-fixes.js', 'timesheet-preflight.js', 'timesheet-status-labels.js',
+  // The custom domain serves the public company site at /. Keep its scripts
+  // and media in the same Pages bundle as the protected portal.
+  'public-site.css', 'public-site.js'
 ]) copy(file);
 copy('portal/profile.js', 'profile.js');
-copy('assets/brand/gmt-icon-256.png');
+copy('assets');
 
 const rootTransform = (contents) => contents
   .replaceAll('../portal/auth.js', './auth.js')
@@ -58,7 +61,10 @@ const rootTransform = (contents) => contents
   .replaceAll('../training/', './training/')
   .replaceAll('../', './');
 
-copyText('portal/index.html', 'index.html', rootTransform);
+// The public company homepage owns the Pages root. The protected portal is
+// already available at /portal/ from the directory copied above; replacing
+// the root with portal/index.html would make every public visitor hit Entra.
+copy('index.html', 'index.html');
 copyText('portal/account.html', 'account.html', rootTransform);
 copyText('portal/timesheets.html', 'timesheets.html', (contents) => rootTransform(contents)
   .replace('src="./history-frame.html', 'src="history-frame.html')
