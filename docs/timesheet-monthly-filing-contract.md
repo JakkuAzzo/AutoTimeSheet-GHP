@@ -1,5 +1,19 @@
 # GMT monthly timesheet filing contract
 
+## Portal correction dispatch
+
+Signed-in corrections retain the original `gmt_record_id` and are saved in the
+protected Worker before filing. The Worker retains the generated XLSX, CSV,
+record JSON and controlled calendar JSON attachments in D1, then sends the
+latest queued correction through the existing FormSubmit route during the
+configured weekly Europe/London window. A retry replaces the queued files for
+that record ID and never creates a second dispatch row.
+
+The Worker reports `Queued for Accounts`, `Sent to Accounts`, or `Delivery
+failed`. `Sent to Accounts` confirms FormSubmit acceptance only; the mailbox
+intake remains responsible for SharePoint and Excel filing. Synthetic test
+records are retained for protected verification and are never dispatched.
+
 Status: frontend envelope and Excel Online upsert script prepared; Microsoft 365
 flow activation and company-owned filing remain required before this is live.
 

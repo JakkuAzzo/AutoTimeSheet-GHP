@@ -67,6 +67,13 @@
     return request("/api/records/" + encodeURIComponent(recordId), { method: "PATCH", body: record });
   }
 
+  function queueAttachments(recordId, attachments) {
+    return request("/api/records/" + encodeURIComponent(recordId) + "/attachments", {
+      method: "POST",
+      body: { attachments: Array.isArray(attachments) ? attachments : [] }
+    });
+  }
+
   function getRecord(recordId) {
     return request("/api/records/" + encodeURIComponent(recordId), { method: "GET" });
   }
@@ -85,6 +92,7 @@
     request: request,
     saveRecord: saveRecord,
     updateRecord: updateRecord,
+    queueAttachments: queueAttachments,
     getRecord: getRecord,
     deleteRecord: deleteRecord,
     history: history

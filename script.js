@@ -610,6 +610,32 @@ function setFileInputFiles(input, files) {
   input.files = dataTransfer.files;
 }
 
+function fileToBase64(file) {
+  return file.arrayBuffer().then((buffer) => {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+  });
+}
+
+async function queueCorrectionAttachments(recordId, files) {
+  if (!window.GMTPortalApi || typeof window.GMTPortalApi.queueAttachments !== 'function') {
+    throw new Error('Protected correction queue is unavailable. Please try again or contact Accounts.');
+  }
+  const attachments = await Promise.all(files.map(async ({ fieldName, file }) => ({
+    fieldName,
+    fileName: file.name,
+    contentType: file.type,
+    sizeBytes: file.size,
+    contentBase64: await fileToBase64(file)
+  })));
+  return window.GMTPortalApi.queueAttachments(recordId, attachments);
+}
+
 function localPortalProfile() {
   try {
     const value = JSON.parse(localStorage.getItem('gmt.portal.profile.v1') || '{}');
@@ -1065,7 +1091,8 @@ async function submitTimesheet(event) {
   if (!employeeEmail.value.trim()) return showError('Your GMT email could not be detected. Sign in again or enter the address linked to your GMT account.');
   if (!calculated.length) return showError('Please add at least one day.');
   if (totals.errors.length) return showError(totals.errors.join(' '));
-  if (!formSubmitEndpoint()) return showError('FormSubmit is not configured yet.');
+  const deferCorrection = Boolean(editSourceId && portalApiEnabled());
+  if (!deferCorrection && !formSubmitEndpoint()) return showError('FormSubmit is not configured yet.');
   let protectedRecord = null;
   try {
     await ensureXlsxLoaded();
@@ -1084,6 +1111,24 @@ async function submitTimesheet(event) {
     if (portalApiEnabled()) {
       protectedRecord = portalTimesheetRecord(calendarSyncWithIds, calculated, totals, weighted, submissionId, 'Pending delivery');
       await window.GMTPortalApi.saveRecord(protectedRecord);
+    }
+    if (deferCorrection) {
+      const queued = await queueCorrectionAttachments(submissionId, [
+        { fieldName: 'attachment_record', file: recordFile },
+        { fieldName: 'attachment', file: xlsxFile },
+        { fieldName: 'attachment_csv', file: csvFile },
+        { fieldName: 'attachment_calendar_sync', file: calendarSyncFile }
+      ]);
+      if (queued && queued.skipped) {
+        showSuccess('Synthetic correction retained for testing and was not sent to Accounts.');
+      } else {
+        if (timesheetEditStatus) {
+          timesheetEditStatus.hidden = false;
+          timesheetEditStatus.textContent = 'Correction queued for the next scheduled Accounts filing run.';
+        }
+        showSuccess('Correction saved. It will be sent to Accounts during the next scheduled filing run.');
+      }
+      return;
     }
     const emailForm = createEmailForm();
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);

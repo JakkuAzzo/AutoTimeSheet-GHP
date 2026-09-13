@@ -1,7 +1,11 @@
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit']);
-const MAX_BODY_BYTES = 900_000;
+const MAX_BODY_BYTES = 1_300_000;
 const MAX_RECORD_ID = 180;
 const MAX_TEXT = 6000;
+const MAX_ATTACHMENT_BYTES = 220_000;
+const MAX_ATTACHMENT_TOTAL_BYTES = 700_000;
+const MAX_QUEUE_BATCH = 25;
+const ATTACHMENT_FIELDS = new Set(['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
 const JWKS_CACHE = new Map();
 
 function now() {
@@ -148,6 +152,78 @@ async function authenticate(request, env) {
 function text(value, fallback = '', max = MAX_TEXT) {
   const result = String(value == null ? fallback : value).trim();
   return result.slice(0, max);
+}
+
+function base64ByteLength(value) {
+  const candidate = String(value || '');
+  if (!candidate || candidate.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(candidate)) return -1;
+  const padding = candidate.endsWith('==') ? 2 : (candidate.endsWith('=') ? 1 : 0);
+  return Math.max(0, Math.floor(candidate.length * 3 / 4) - padding);
+}
+
+function safeAttachmentName(value) {
+  const name = text(value, '', 220);
+  if (!name || /[\\/\u0000-\u001f\u007f]/.test(name) || name === '.' || name === '..') return '';
+  return name;
+}
+
+function attachmentType(fieldName, fileName, contentType) {
+  if (!ATTACHMENT_FIELDS.has(fieldName)) return '';
+  const extension = String(fileName || '').toLowerCase().split('.').pop();
+  const allowed = {
+    attachment_record: ['json'],
+    attachment: ['xlsx'],
+    attachment_csv: ['csv'],
+    attachment_calendar_sync: ['json']
+  };
+  if (!allowed[fieldName]?.includes(extension)) return '';
+  const expected = {
+    json: 'application/json',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    csv: 'text/csv'
+  }[extension];
+  const supplied = text(contentType, '', 160).toLowerCase();
+  return !supplied || supplied === expected || (extension === 'json' && supplied === 'text/json') ? expected : '';
+}
+
+function syntheticRecord(record, payload = null) {
+  const body = payload || payloadObject(record || {});
+  return body && body.testMode === true || /^TEST(?:[\s_-]|$)/i.test(text(record?.employee_name, '', 240)) || /^TEST(?:[\s_-]|$)/i.test(text(body?.employeeName, '', 240));
+}
+
+function hours(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? (numeric / 60).toFixed(2) : '0.00';
+}
+
+function dispatchSettings(env) {
+  const configuredHour = Number(env.DISPATCH_HOUR);
+  return {
+    enabled: /^(1|true|yes|on)$/i.test(String(env.DISPATCH_ENABLED || '')),
+    weekday: text(env.DISPATCH_WEEKDAY, 'Friday', 20).toLowerCase(),
+    hour: Number.isFinite(configuredHour) ? Math.max(0, Math.min(23, configuredHour)) : 18,
+    timeZone: text(env.DISPATCH_TIMEZONE, 'Europe/London', 80)
+  };
+}
+
+function localTimeParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    weekday: 'long',
+    hour: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  return {
+    weekday: String(parts.find((part) => part.type === 'weekday')?.value || '').toLowerCase(),
+    hour: Number(parts.find((part) => part.type === 'hour')?.value || -1)
+  };
+}
+
+function shouldDispatchNow(date = new Date(), env = {}) {
+  const settings = dispatchSettings(env);
+  if (!settings.enabled) return false;
+  const local = localTimeParts(date, settings.timeZone);
+  return local.weekday === settings.weekday && local.hour === settings.hour;
 }
 
 function canonicalKind(value) {
@@ -302,6 +378,15 @@ function projectRow(row, includeDetails = true) {
     issue: row.issue || '',
     source_record_id: row.record_id
   };
+  if (row.dispatch_status) {
+    result.dispatch = {
+      status: row.dispatch_status,
+      attempts: Number(row.dispatch_attempts || 0),
+      queued_at: row.dispatch_queued_at || '',
+      sent_at: row.dispatch_last_sent_at || '',
+      error: row.dispatch_last_error || ''
+    };
+  }
   if (!includeDetails) return result;
   if (row.kind === 'estimates') Object.assign(result, estimateProjection(row, payload));
   if (row.kind === 'job-cards') Object.assign(result, jobProjection(row, payload));
@@ -378,15 +463,209 @@ async function readJson(request) {
   }
 }
 
+function parseQueuedAttachments(body) {
+  const raw = body && Array.isArray(body.attachments) ? body.attachments : [];
+  if (raw.length < 2 || raw.length > ATTACHMENT_FIELDS.size) {
+    throw Object.assign(new Error('The correction must include its XLSX and CSV attachments'), { status: 400 });
+  }
+  const seen = new Set();
+  let totalBytes = 0;
+  const attachments = raw.map((item) => {
+    if (!item || typeof item !== 'object') throw Object.assign(new Error('Invalid attachment'), { status: 400 });
+    const fieldName = text(item.fieldName || item.field_name, '', 80);
+    if (!ATTACHMENT_FIELDS.has(fieldName) || seen.has(fieldName)) throw Object.assign(new Error('Unsupported or duplicate attachment field'), { status: 400 });
+    seen.add(fieldName);
+    const fileName = safeAttachmentName(item.fileName || item.file_name);
+    const contentType = attachmentType(fieldName, fileName, item.contentType || item.content_type);
+    const contentBase64 = String(item.contentBase64 || item.content_base64 || '');
+    const sizeBytes = base64ByteLength(contentBase64);
+    if (!fileName || !contentType || sizeBytes < 1 || sizeBytes > MAX_ATTACHMENT_BYTES) {
+      throw Object.assign(new Error('Invalid or oversized attachment'), { status: 400 });
+    }
+    totalBytes += sizeBytes;
+    if (totalBytes > MAX_ATTACHMENT_TOTAL_BYTES) throw Object.assign(new Error('Correction attachments are too large'), { status: 413 });
+    return { fieldName, fileName, contentType, contentBase64, sizeBytes };
+  });
+  if (!seen.has('attachment') || !seen.has('attachment_csv')) {
+    throw Object.assign(new Error('Both XLSX and CSV attachments are required'), { status: 400 });
+  }
+  return attachments;
+}
+
+function queueRecordAttachments(env, record, body) {
+  const payload = payloadObject(record);
+  if (syntheticRecord(record, payload)) {
+    return { queued: false, skipped: true, reason: 'synthetic-test-record' };
+  }
+  const attachments = parseQueuedAttachments(body);
+  const timestamp = now();
+  const statements = [
+    env.DB.prepare('DELETE FROM record_attachments WHERE record_id = ?').bind(record.record_id),
+    ...attachments.map((attachment) => env.DB.prepare(`INSERT INTO record_attachments (record_id, field_name, file_name, content_type, content_base64, size_bytes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(record.record_id, attachment.fieldName, attachment.fileName, attachment.contentType, attachment.contentBase64, attachment.sizeBytes, timestamp)),
+    env.DB.prepare(`INSERT INTO dispatch_queue (record_id, status, queued_at, updated_at, attempts, next_attempt_at, last_sent_at, last_error)
+      VALUES (?, 'queued', ?, ?, 0, ?, NULL, NULL)
+      ON CONFLICT(record_id) DO UPDATE SET status = 'queued', queued_at = excluded.queued_at,
+        updated_at = excluded.updated_at, attempts = 0, next_attempt_at = excluded.next_attempt_at,
+        last_sent_at = NULL, last_error = NULL`).bind(record.record_id, timestamp, timestamp, timestamp),
+    env.DB.prepare("UPDATE records SET status = 'Queued for Accounts', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, record.record_id)
+  ];
+  return env.DB.batch(statements).then(() => ({ queued: true, recordId: record.record_id, attachments: attachments.length, queuedAt: timestamp }));
+}
+
+function dispatchEndpoint(env) {
+  const endpoint = text(env.FORM_SUBMIT_TIMESHEET_ENDPOINT, '', 2000);
+  if (!endpoint) return '';
+  if (/^https:\/\/formsubmit\.co\/ajax\//i.test(endpoint)) return endpoint;
+  if (/^https:\/\/formsubmit\.co\//i.test(endpoint)) return endpoint.replace('https://formsubmit.co/', 'https://formsubmit.co/ajax/');
+  return endpoint;
+}
+
+function submissionKeyPart(value) {
+  return text(value, 'unknown', 240).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+}
+
+function decodeBase64(value) {
+  const candidate = String(value || '');
+  const binary = atob(candidate);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function dispatchForm(record, attachments) {
+  const payload = payloadObject(record);
+  const calendarSync = payload.calendarSync && typeof payload.calendarSync === 'object' ? payload.calendarSync : {};
+  const totals = payload.totals && typeof payload.totals === 'object' ? payload.totals : {};
+  const events = Array.isArray(calendarSync.events) ? calendarSync.events : [];
+  const employeeName = text(record.employee_name || payload.employeeName || record.owner_upn, record.owner_upn, 240);
+  const employeeEmail = text(payload.employeeEmail || record.owner_upn, record.owner_upn, 320);
+  const employeeUpn = text(payload.employeeUpn || record.owner_upn, record.owner_upn, 320);
+  const weekStart = text(payload.weekStart || record.start_date, '', 80);
+  const weekEnd = text(payload.weekEnd || record.end_date || weekStart, weekStart, 80);
+  const month = weekStart.slice(0, 7) || 'unspecified';
+  const workbookKey = `timesheet-${submissionKeyPart(employeeUpn || employeeEmail || employeeName)}-${month}`;
+  const form = new FormData();
+  const set = (name, value) => form.set(name, String(value == null ? '' : value));
+  set('_subject', `[GMT][TIMESHEET][CORRECTION] ${employeeName} | Week ${weekStart || 'unspecified'}`);
+  set('_template', 'box');
+  set('_captcha', 'false');
+  set('_url', 'https://gmt-services.co.uk/portal/timesheets');
+  set('_replyto', employeeEmail);
+  set('email', employeeEmail);
+  set('employee_name', employeeName);
+  set('gmt_type', 'timesheet');
+  set('gmt_action', 'correction');
+  set('gmt_schema_version', '1');
+  set('gmt_record_id', record.record_id);
+  set('gmt_submission_id', record.record_id);
+  set('gmt_workbook_key', workbookKey);
+  set('gmt_filing_mode', 'monthly-upsert');
+  set('gmt_employee', employeeName);
+  set('gmt_employee_upn', employeeUpn);
+  set('gmt_week_start', weekStart);
+  set('gmt_week_end', weekEnd);
+  set('gmt_year', weekStart.slice(0, 4));
+  set('gmt_month', weekStart.slice(5, 7));
+  set('gmt_worked_hours', hours(totals.workedActual));
+  set('gmt_basic_hours', hours(totals.basic));
+  set('gmt_ot15_hours', hours(totals.ot15));
+  set('gmt_ot20_hours', hours(totals.ot20));
+  set('gmt_absence_count', events.filter((event) => event && event.type === 'absence').length);
+  set('gmt_calendar_sync', 'requested');
+  set('gmt_calendar_name', text(calendarSync.calendarName, 'GMT Operational Calendar', 240));
+  set('gmt_calendar_event_count', events.length);
+  set('gmt_attachment_manifest', 'record-json,xlsx,csv,calendar-sync-json');
+  set('gmt_submitted_at', text(calendarSync.submittedAt || record.submitted_at, record.submitted_at, 100));
+  set('summary', `Worked ${(Number(totals.workedActual) / 60 || 0).toFixed(2)}h | Basic ${(Number(totals.basic) / 60 || 0).toFixed(2)}h | OT x1.5 ${(Number(totals.ot15) / 60 || 0).toFixed(2)}h | OT x2.0 ${(Number(totals.ot20) / 60 || 0).toFixed(2)}h`);
+  set('message', `Corrected timesheet attachments for ${employeeName}, week ${weekStart || 'unspecified'}. The existing Record ID is retained for idempotent filing.`);
+  attachments.forEach((attachment) => {
+    const fieldName = attachment.field_name || attachment.fieldName;
+    const contentType = attachment.content_type || attachment.contentType;
+    const fileName = attachment.file_name || attachment.fileName;
+    const bytes = decodeBase64(attachment.content_base64 || attachment.contentBase64);
+    form.append(fieldName, new Blob([bytes], { type: contentType }), fileName);
+  });
+  return form;
+}
+
+function retryAt(timestamp, attempts) {
+  const delay = Math.min(24 * 60 * 60 * 1000, 5 * 60 * 1000 * (2 ** Math.min(Math.max(attempts - 1, 0), 7)));
+  return new Date(new Date(timestamp).getTime() + delay).toISOString();
+}
+
+async function dispatchQueued(env, options = {}) {
+  const endpoint = dispatchEndpoint(env);
+  if (!endpoint) return { status: 'not-configured', sent: 0, failed: 0, skipped: 0 };
+  const timestamp = options.now || now();
+  const limit = Math.min(Math.max(Number(options.limit || MAX_QUEUE_BATCH), 1), MAX_QUEUE_BATCH);
+  const result = await env.DB.prepare(`SELECT q.record_id, q.status AS dispatch_status, q.queued_at, q.updated_at AS dispatch_updated_at,
+      q.attempts, q.next_attempt_at, q.last_sent_at, q.last_error, r.*
+    FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id
+    WHERE q.status IN ('queued', 'failed') AND q.next_attempt_at <= ? AND r.status <> 'Deleted'
+    ORDER BY q.queued_at ASC LIMIT ?`).bind(timestamp, limit).all();
+  const summary = { status: 'complete', sent: 0, failed: 0, skipped: 0, dryRun: Boolean(options.dryRun), records: [] };
+  for (const row of result.results || []) {
+    const payload = payloadObject(row);
+    if (options.dryRun) {
+      summary.records.push({ recordId: row.record_id, status: syntheticRecord(row, payload) ? 'skipped-dry-run' : 'dry-run' });
+      continue;
+    }
+    if (syntheticRecord(row, payload)) {
+      await env.DB.prepare("UPDATE dispatch_queue SET status = 'skipped', updated_at = ?, last_error = ? WHERE record_id = ?").bind(timestamp, timestamp, 'Synthetic test record was not dispatched').run();
+      await env.DB.prepare("UPDATE records SET status = 'Test - not sent', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, row.record_id).run();
+      summary.skipped += 1;
+      summary.records.push({ recordId: row.record_id, status: 'skipped' });
+      continue;
+    }
+    const claim = await env.DB.prepare(`UPDATE dispatch_queue SET status = 'sending', attempts = attempts + 1, updated_at = ?
+      WHERE record_id = ? AND status IN ('queued', 'failed') AND next_attempt_at <= ?`).bind(timestamp, row.record_id, timestamp).run();
+    if (Number(claim?.meta?.changes ?? 1) < 1) continue;
+    try {
+      const attachmentsResult = await env.DB.prepare(`SELECT field_name, file_name, content_type, content_base64, size_bytes
+        FROM record_attachments WHERE record_id = ? ORDER BY field_name`).bind(row.record_id).all();
+      const attachments = attachmentsResult.results || [];
+      if (!attachments.some((attachment) => attachment.field_name === 'attachment') || !attachments.some((attachment) => attachment.field_name === 'attachment_csv')) {
+        throw new Error('Queued correction attachments are incomplete');
+      }
+      const response = await (options.fetchImpl || fetch)(endpoint, {
+        method: 'POST',
+        body: dispatchForm(row, attachments),
+        headers: { Accept: 'application/json' }
+      });
+      const responseText = await response.text();
+      let body = null;
+      try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+      if (!response.ok || (body && (body.success === false || body.success === 'false'))) {
+        throw new Error(`FormSubmit rejected the correction (${response.status})`);
+      }
+      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'sent', updated_at = ?, last_sent_at = ?, last_error = NULL WHERE record_id = ?`).bind(timestamp, timestamp, row.record_id).run();
+      await env.DB.prepare("UPDATE records SET status = 'Sent to Accounts', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, row.record_id).run();
+      summary.sent += 1;
+      summary.records.push({ recordId: row.record_id, status: 'sent' });
+    } catch (error) {
+      const attempts = Number(row.attempts || 0) + 1;
+      const message = text(error?.message, 'Correction dispatch failed', 1000);
+      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'failed', updated_at = ?, next_attempt_at = ?, last_error = ? WHERE record_id = ?`).bind(timestamp, retryAt(timestamp, attempts), message, row.record_id).run();
+      await env.DB.prepare("UPDATE records SET status = 'Delivery failed', issue = ?, updated_at = ? WHERE record_id = ?").bind(message, timestamp, row.record_id).run();
+      summary.failed += 1;
+      summary.records.push({ recordId: row.record_id, status: 'failed', error: message });
+    }
+  }
+  return summary;
+}
+
 async function listRecords(request, env, identity) {
   const url = new URL(request.url);
   const requestedKind = url.searchParams.get('kind') || 'all';
   const kind = requestedKind === 'all' ? '' : canonicalKind(requestedKind);
   if (kind && !ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
   const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 500);
+  const projection = `SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
+      q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
+      q.last_error AS dispatch_last_error
+    FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
   const sql = identity.isAdmin
-    ? (kind ? "SELECT * FROM records WHERE status <> 'Deleted' AND kind = ? ORDER BY updated_at DESC LIMIT ?" : "SELECT * FROM records WHERE status <> 'Deleted' ORDER BY updated_at DESC LIMIT ?")
-    : (kind ? "SELECT * FROM records WHERE owner_oid = ? AND status <> 'Deleted' AND kind = ? ORDER BY updated_at DESC LIMIT ?" : "SELECT * FROM records WHERE owner_oid = ? AND status <> 'Deleted' ORDER BY updated_at DESC LIMIT ?");
+    ? (kind ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`)
+    : (kind ? `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
   const bindings = identity.isAdmin ? (kind ? [kind, limit] : [limit]) : (kind ? [identity.oid, kind, limit] : [identity.oid, limit]);
   const result = await env.DB.prepare(sql).bind(...bindings).all();
   let records = (result.results || []).map((row) => projectRow(row));
@@ -454,10 +733,31 @@ async function handle(request, env) {
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
 
+  const attachmentMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/attachments$/);
+  if (attachmentMatch && request.method === 'POST') {
+    const recordId = decodeURIComponent(attachmentMatch[1]);
+    const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
+    if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
+    if (existing.owner_oid !== identity.oid && !identity.isAdmin) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
+    if (existing.kind !== 'timesheets') return json({ error: 'Only timesheet corrections can be queued' }, 400, origin || '');
+    const body = await readJson(request);
+    const result = await queueRecordAttachments(env, existing, body);
+    if (result.skipped) {
+      const timestamp = now();
+      await env.DB.prepare("UPDATE records SET status = 'Test - not sent', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, recordId).run();
+      return json({ ok: true, record_id: recordId, ...result }, 200, origin || '');
+    }
+    return json({ ok: true, record_id: recordId, ...result }, 202, origin || '');
+  }
+
   const detailMatch = url.pathname.match(/^\/api\/records\/([^/]+)$/);
   if (detailMatch) {
     const recordId = decodeURIComponent(detailMatch[1]);
-    const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
+    const existing = await env.DB.prepare(`SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
+        q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
+        q.last_error AS dispatch_last_error
+      FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id WHERE r.record_id = ?`).bind(recordId).first();
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
     if (existing.owner_oid !== identity.oid && !identity.isAdmin) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
@@ -486,5 +786,19 @@ export default {
       const origin = allowedOrigin(request, env);
       return json({ error: message }, status, origin || '');
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    const scheduledAt = new Date(Number(event?.scheduledTime || Date.now()));
+    if (!shouldDispatchNow(scheduledAt, env)) return;
+    ctx.waitUntil(dispatchQueued(env));
   }
+};
+
+export {
+  dispatchEndpoint,
+  dispatchForm,
+  dispatchQueued,
+  parseQueuedAttachments,
+  shouldDispatchNow
 };

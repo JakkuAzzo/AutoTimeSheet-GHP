@@ -2,6 +2,12 @@ name = "gmt-portal-api"
 main = "src/index.js"
 compatibility_date = "2026-09-10"
 
+# Check hourly and dispatch only during the configured local filing window.
+# Cloudflare cron expressions are UTC; the Worker converts the scheduled time
+# to Europe/London so the window remains stable across daylight-saving changes.
+[triggers]
+crons = ["0 * * * *"]
+
 # Replace the database_id after creating the GMT portal D1 database in the
 # Cloudflare account. Runtime values are configured as Worker variables/secrets.
 [[d1_databases]]
@@ -17,3 +23,7 @@ ADMIN_UPNS = ""
 ADMIN_OIDS = ""
 ADMIN_GROUP_IDS = ""
 HISTORY_UPSTREAM_URL = "https://b7db48c95976ef8e943878dfe20987.42.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/15/workflows/e25c8f033575417ea40c1ef91d2c852b/triggers/manual/paths/invoke?api-version=1"
+DISPATCH_ENABLED = "true"
+DISPATCH_WEEKDAY = "Friday"
+DISPATCH_HOUR = "18"
+DISPATCH_TIMEZONE = "Europe/London"
