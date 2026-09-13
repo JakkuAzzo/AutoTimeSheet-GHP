@@ -214,7 +214,7 @@ function normaliseInput(body, identity, existing = null) {
   // outgoing files and current protected projection never contain a real
   // employee name. Normal submissions remain mapped to the signed-in Entra
   // identity and cannot spoof another employee by editing this field.
-  const syntheticTestName = requestedTestMode && /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
+  const syntheticTestName = /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
   const employeeName = syntheticTestName
     ? requestedEmployeeName
     : (identity.name || requestedEmployeeName || identity.upn);
