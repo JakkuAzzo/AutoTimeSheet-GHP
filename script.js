@@ -936,22 +936,65 @@ function ajaxFormSubmitEndpoint(endpoint) {
 }
 
 async function submitMultipartForm(emailForm) {
-  const response = await fetch(emailForm.action, {
-    method: 'POST',
-    body: new FormData(emailForm),
-    headers: { Accept: 'application/json' },
-    credentials: 'omit'
-  });
-  const responseText = await response.text();
-  let result = null;
-  try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
-  if (!response.ok) {
-    throw new Error(`Timesheet delivery failed (${response.status}). Please try again or contact Accounts.`);
+  try {
+    const response = await fetch(emailForm.action, {
+      method: 'POST',
+      body: new FormData(emailForm),
+      headers: { Accept: 'application/json' },
+      credentials: 'omit'
+    });
+    const responseText = await response.text();
+    let result = null;
+    try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+    if (!response.ok) {
+      throw new Error(`Timesheet delivery failed (${response.status}). Please try again or contact Accounts.`);
+    }
+    if (result && (result.success === false || result.success === 'false')) {
+      throw new Error(result.message || 'Timesheet delivery was rejected. Please try again or contact Accounts.');
+    }
+    return result;
+  } catch (error) {
+    // Safari can reject a cross-origin multipart fetch after the attachments
+    // have been generated, even though the same FormSubmit route accepts a
+    // normal browser form post. Retry that transport through a hidden iframe;
+    // the load event means the provider accepted the request without exposing
+    // the response body cross-origin.
+    const action = String(emailForm.action || '');
+    const message = String(error && error.message || '');
+    const isFormSubmit = /^https:\/\/formsubmit\.co\//i.test(action);
+    const isBrowserTransportFailure = /failed to fetch|load failed|cors|web server|network/i.test(message);
+    if (!isFormSubmit || !isBrowserTransportFailure) throw error;
+
+    const frame = ensureTimesheetSubmitFrame();
+    const previousAction = emailForm.action;
+    const previousTarget = emailForm.target;
+    const nativeAction = action.replace('https://formsubmit.co/ajax/', 'https://formsubmit.co/');
+    emailForm.action = nativeAction;
+    emailForm.target = frame.name;
+    try {
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        const timeout = window.setTimeout(() => finish(new Error('Timesheet delivery timed out. Please try again or contact Accounts.')), 30000);
+        const finish = (failure) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeout);
+          frame.removeEventListener('load', onLoad);
+          frame.removeEventListener('error', onError);
+          if (failure) reject(failure); else resolve();
+        };
+        const onLoad = () => finish();
+        const onError = () => finish(new Error('Timesheet delivery failed. Please try again or contact Accounts.'));
+        frame.addEventListener('load', onLoad);
+        frame.addEventListener('error', onError);
+        try { HTMLFormElement.prototype.submit.call(emailForm); } catch (submitError) { finish(submitError); }
+      });
+    } finally {
+      emailForm.action = previousAction;
+      emailForm.target = previousTarget;
+    }
+    return { success: true, transport: 'native-form' };
   }
-  if (result && (result.success === false || result.success === 'false')) {
-    throw new Error(result.message || 'Timesheet delivery was rejected. Please try again or contact Accounts.');
-  }
-  return result;
 }
 
 function ensureTimesheetSubmitFrame() {
