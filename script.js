@@ -749,6 +749,7 @@ function buildTimesheetWorkbookKey(calendarSync) {
 
 function portalTimesheetRecord(calendarSync, calculated, totals, weighted, submissionId, status = 'Pending delivery', issue = '') {
   const profile = localPortalProfile();
+  const testMode = /^TEST(?:[\s_-]|$)/i.test(employeeName.value.trim());
   const rows = calculated.map((row) => ({
     label: row.label,
     collapsed: !!row.collapsed,
@@ -771,6 +772,7 @@ function portalTimesheetRecord(calendarSync, calculated, totals, weighted, submi
     employeeName: employeeName.value.trim(),
     employeeEmail: employeeEmail.value.trim(),
     employeeUpn: calendarSync.employeeUpn || profile.username || '',
+    testMode,
     weekStart: calendarSync.weekStart,
     weekEnd: calendarSync.weekEnd,
     payload: {
@@ -778,6 +780,7 @@ function portalTimesheetRecord(calendarSync, calculated, totals, weighted, submi
       employeeName: employeeName.value.trim(),
       employeeEmail: employeeEmail.value.trim(),
       employeeUpn: calendarSync.employeeUpn || profile.username || '',
+      testMode,
       weekStart: calendarSync.weekStart,
       weekEnd: calendarSync.weekEnd,
       rows,

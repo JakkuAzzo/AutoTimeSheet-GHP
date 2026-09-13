@@ -192,7 +192,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
+  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -208,7 +208,16 @@ function normaliseInput(body, identity, existing = null) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._|:/-]*$/.test(recordId)) throw Object.assign(new Error('Record ID contains unsupported characters'), { status: 400 });
   const submittedAt = isoOrBlank(body.submittedAt || body.submitted_at || payload.submittedAt) || (existing && existing.submitted_at) || now();
   const updatedAt = isoOrBlank(body.updatedAt || body.updated_at || payload.updatedAt) || now();
-  const employeeName = identity.name || text(body.employeeName || body.employee_name || payload.employeeName, identity.upn, 240);
+  const requestedEmployeeName = text(body.employeeName || body.employee_name || payload.employeeName, '', 240);
+  const requestedTestMode = body.testMode === true || payload.testMode === true || /^(true|1|yes)$/i.test(String(body.testMode || payload.testMode || '').trim());
+  // Synthetic verification runs may use a TEST-prefixed label so their
+  // outgoing files and current protected projection never contain a real
+  // employee name. Normal submissions remain mapped to the signed-in Entra
+  // identity and cannot spoof another employee by editing this field.
+  const syntheticTestName = requestedTestMode && /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
+  const employeeName = syntheticTestName
+    ? requestedEmployeeName
+    : (identity.name || requestedEmployeeName || identity.upn);
   const action = text(body.action || body.gmtAction || payload.action || (kind === 'clock' ? 'clock_event' : 'submission'), 'submission', 100);
   const status = text(body.status || payload.status || (kind === 'calendar' || kind === 'tasks' ? 'Pending approval' : 'Submitted'), 'Submitted', 100);
   const startDate = isoOrBlank(body.startDate || body.start_date || payload.weekStart || body.weekStart);
