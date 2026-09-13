@@ -536,9 +536,13 @@ function dispatchForm(record, attachments) {
   const calendarSync = payload.calendarSync && typeof payload.calendarSync === 'object' ? payload.calendarSync : {};
   const totals = payload.totals && typeof payload.totals === 'object' ? payload.totals : {};
   const events = Array.isArray(calendarSync.events) ? calendarSync.events : [];
+  const isSynthetic = syntheticRecord(record, payload);
   const employeeName = text(record.employee_name || payload.employeeName || record.owner_upn, record.owner_upn, 240);
-  const employeeEmail = text(payload.employeeEmail || record.owner_upn, record.owner_upn, 320);
-  const employeeUpn = text(payload.employeeUpn || record.owner_upn, record.owner_upn, 320);
+  // For real records, the verified D1 owner is authoritative. Browser payload
+  // fields are retained for the synthetic test path only, so a user cannot
+  // redirect a correction to another employee's workbook or reply address.
+  const employeeEmail = text(isSynthetic ? (payload.employeeEmail || record.owner_upn) : record.owner_upn, record.owner_upn, 320);
+  const employeeUpn = text(isSynthetic ? (payload.employeeUpn || record.owner_upn) : record.owner_upn, record.owner_upn, 320);
   const weekStart = text(payload.weekStart || record.start_date, '', 80);
   const weekEnd = text(payload.weekEnd || record.end_date || weekStart, weekStart, 80);
   const month = weekStart.slice(0, 7) || 'unspecified';

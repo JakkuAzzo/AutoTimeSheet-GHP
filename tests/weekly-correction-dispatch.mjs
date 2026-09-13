@@ -42,6 +42,11 @@ assert.equal(form.get('gmt_workbook_key'), 'timesheet-queue-tester-gmt-services-
 assert.equal(form.get('attachment').name, 'GMT Timesheet - Queue Tester - 2026-09-07.xlsx');
 assert.equal(form.get('attachment_csv').name, 'GMT Timesheet - Queue Tester - 2026-09-07.csv');
 
+const spoofedRecord = { ...record, payload_json: JSON.stringify({ ...JSON.parse(record.payload_json), employeeEmail: 'other@example.invalid', employeeUpn: 'other@example.invalid' }) };
+const spoofedForm = dispatchForm(spoofedRecord, attachments);
+assert.equal(spoofedForm.get('email'), 'queue.tester@gmt-services.co.uk', 'real dispatch recipient is bound to the verified owner');
+assert.equal(spoofedForm.get('gmt_employee_upn'), 'queue.tester@gmt-services.co.uk', 'real workbook identity is bound to the verified owner');
+
 function mockDb(queueRows, attachmentRows) {
   const calls = [];
   return {
