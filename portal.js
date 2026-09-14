@@ -696,6 +696,7 @@
       const revisionNotice = $('#job-revision-notice');
       if (revisionNotice) revisionNotice.textContent = '';
       prefillPortalIdentity();
+      renderJobPreview();
       logNotification('Job card', sent
         ? `Job card ${job.ref || job.client || job.id} submitted for admin review.`
         : `Job card ${job.ref || job.client || job.id} stored locally only. It still needs an approved submission route.`);
