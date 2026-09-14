@@ -17,6 +17,8 @@
   var refreshButton = document.getElementById("timesheet-history-refresh");
   var frame = document.getElementById("portal-history-frame");
   var lastRecords = [];
+  var lastMeta = {};
+  var lastCompletion = null;
   var requestInFlight = false;
 
   function safe(value) {
@@ -55,6 +57,8 @@
   }
 
   function updateMeta(meta) {
+    lastMeta = meta || {};
+    lastCompletion = lastMeta.completion || null;
     var isAdmin = meta && meta.is_admin === true;
     if (scope) {
       scope.hidden = false;
@@ -105,11 +109,16 @@
         : "Portal history is loaded; Microsoft 365 history source status: " + upstream + ".";
     var syntheticMessage = Number(meta && meta.synthetic_record_count || 0) ? " Synthetic test rows are excluded from completion counts and the default Accounts list." : "";
     if (completionNote) completionNote.textContent = sourceMessage + (completion.directory_configured ? " The employee roster is configured." : " The employee roster is not configured, so missing rows are limited to employees present in the returned history.") + syntheticMessage;
-    if (!completion.employees || !completion.employees.length) {
+    var selectedEmployee = currentEmployee().toLowerCase();
+    var employees = (completion.employees || []).filter(function (employee) {
+      if (!selectedEmployee) return true;
+      return String(employee.employee_upn || "").toLowerCase() === selectedEmployee || String(employee.employee_name || "").toLowerCase() === selectedEmployee;
+    });
+    if (!employees.length) {
       completionTable.innerHTML = '<tbody><tr><td colspan="4">No employee rows were returned.</td></tr></tbody>';
       return;
     }
-    completionTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Completed weeks</th><th>Missing / needs attention</th></tr></thead><tbody>' + completion.employees.map(function (employee) {
+    completionTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Completed weeks</th><th>Missing / needs attention</th></tr></thead><tbody>' + employees.map(function (employee) {
       var statusValue = String(employee.status || "missing");
       var statusLabel = statusValue === "completed" ? "Completed" : statusValue === "incomplete" ? "Incomplete" : "Missing";
       var completed = (employee.completed_weeks || []).join(", ") || "None";
@@ -204,7 +213,10 @@
   }
 
   if (filterControl) filterControl.addEventListener("change", sendCurrentFilter);
-  if (employeeControl) employeeControl.addEventListener("change", sendCurrentFilter);
+  if (employeeControl) employeeControl.addEventListener("change", function () {
+    sendCurrentFilter();
+    if (lastMeta.is_admin === true) renderCompletion(lastCompletion, lastMeta);
+  });
   if (refreshButton) refreshButton.addEventListener("click", refresh);
   if (frame) frame.addEventListener("load", sendCurrentFilter);
   if (typeof window.addEventListener === "function") {

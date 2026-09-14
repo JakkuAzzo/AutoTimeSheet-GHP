@@ -53,6 +53,11 @@ assert.match(elements['timesheet-completion-table'].innerHTML, /Missing/);
 assert.match(elements['timesheet-completion-note'].textContent, /Microsoft 365 history source is not connected/);
 assert.match(elements['timesheet-history-edit-policy'].textContent, /All employee timesheets are viewable/);
 
+elements['portal-history-employee'].value = 'matthew@gmt-services.co.uk';
+elements['portal-history-employee'].listeners.change();
+assert.match(elements['timesheet-completion-table'].innerHTML, /Matthew/);
+assert.doesNotMatch(elements['timesheet-completion-table'].innerHTML, /Jason/);
+
 messageListener({ origin: 'https://gmt.test', data: { type: 'gmt:history-records', records: [], meta: { is_admin: true, completion } } });
 assert.equal(elements['timesheet-completion'].hidden, false);
 
