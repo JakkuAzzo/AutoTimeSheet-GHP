@@ -134,6 +134,7 @@ function tokenIdentity(claims, env) {
   const adminOids = csvSet(env.ADMIN_OIDS);
   const adminGroups = csvSet(env.ADMIN_GROUP_IDS);
   const jobCardAdminUpns = csvSet(env.JOB_CARD_ADMIN_UPNS);
+  const operationsAdminUpns = csvSet(env.OPERATIONS_ADMIN_UPNS);
   const groups = Array.isArray(claims.groups) ? claims.groups.map((item) => String(item).toLowerCase()) : [];
   const isAdmin = adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group));
   return {
@@ -143,16 +144,17 @@ function tokenIdentity(claims, env) {
     aud: audienceValue(claims.aud),
     tid: tokenTenant,
     isAdmin,
-    isJobCardAdmin: isAdmin || jobCardAdminUpns.has(upn)
+    isOperationsAdmin: isAdmin || operationsAdminUpns.has(upn),
+    isJobCardAdmin: isAdmin || operationsAdminUpns.has(upn) || jobCardAdminUpns.has(upn)
   };
 }
 
 function canViewAllRecords(identity, kind = '') {
-  return Boolean(identity?.isAdmin || (kind === 'job-cards' && identity?.isJobCardAdmin));
+  return Boolean(identity?.isAdmin || (identity?.isOperationsAdmin && kind !== 'timesheets' && kind !== 'clock') || (kind === 'job-cards' && identity?.isJobCardAdmin));
 }
 
 function canAccessRecord(identity, row) {
-  return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
+  return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (identity.isOperationsAdmin && row.kind !== 'timesheets' && row.kind !== 'clock') || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
 }
 
 async function authenticateToken(token, env) {
@@ -1346,9 +1348,12 @@ async function listRecords(request, env, identity) {
       q.last_error AS dispatch_last_error
     FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
   const viewAll = canViewAllRecords(identity, kind);
+  const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
   const sql = identity.isAdmin
     ? (kind ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`)
+    : operationsAdminAcrossKinds
+      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR r.owner_oid = ?) ORDER BY r.updated_at DESC LIMIT ?`
     : viewAll
       ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`
       : jobCardAdminAcrossKinds
@@ -1356,8 +1361,10 @@ async function listRecords(request, env, identity) {
         : (kind ? `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
   const bindings = identity.isAdmin
     ? (kind ? [kind, limit] : [limit])
+    : operationsAdminAcrossKinds
+      ? [identity.oid, limit]
     : viewAll
-      ? ['job-cards', limit]
+      ? [kind || 'job-cards', limit]
       : jobCardAdminAcrossKinds
         ? [identity.oid, limit]
         : (kind ? [identity.oid, kind, limit] : [identity.oid, limit]);
@@ -1436,10 +1443,11 @@ async function listRecords(request, env, identity) {
       upstream_record_count: upstreamRecordCount,
       synthetic_record_count: syntheticRecordCount,
       synthetic_included: includeSynthetic,
-      role: identity.isAdmin ? 'accounts-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee'),
+      role: identity.isAdmin ? 'accounts-admin' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee')),
       is_admin: identity.isAdmin,
+      is_operations_admin: identity.isOperationsAdmin,
       is_job_card_admin: identity.isJobCardAdmin,
-      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions'),
+      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isOperationsAdmin ? 'all non-timesheet submissions; this account timesheets and clock records' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions')),
       completion
     }
   };

@@ -18,10 +18,11 @@ through the existing FormSubmit intake during the configured weekly window.
 5. Set `ADMIN_UPNS`, `ADMIN_OIDS`, or `ADMIN_GROUP_IDS` to the approved GMT
    administrator identities in Cloudflare variables. Do not hard-code them in
    the client bundle.
-   `JOB_CARD_ADMIN_UPNS` can additionally grant Accounts job-card access to
-   identities such as `info@gmt-services.co.uk` without exposing that account
-   to every employee's timesheet history. Full administrators retain access to
-   all categories.
+   `OPERATIONS_ADMIN_UPNS` can grant an Accounts or office identity access to
+   all non-timesheet submissions while keeping employee timesheets and clock
+   records owner-filtered. `JOB_CARD_ADMIN_UPNS` can additionally grant job-card
+   access to identities such as `info@gmt-services.co.uk`. Full administrators
+   retain access to all categories.
 6. Store the activated timesheet FormSubmit endpoint as the Worker secret
    `FORM_SUBMIT_TIMESHEET_ENDPOINT`. The endpoint is never returned to the
    browser. The default dispatch window is Friday at 18:00 Europe/London and

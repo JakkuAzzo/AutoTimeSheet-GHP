@@ -81,7 +81,10 @@
     try {
       var body = await window.GMTPortalApi.history("all");
       records = body && Array.isArray(body.records) ? body.records : [];
-      if (status) status.textContent = "Showing " + records.length + " submitted document" + (records.length === 1 ? "" : "s") + " authorised for your signed-in GMT identity.";
+      var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";
+      if (status) status.textContent = records.length
+        ? "Showing " + records.length + " submitted document" + (records.length === 1 ? "" : "s") + " authorised for your signed-in GMT identity." + scope
+        : "No submitted documents are currently available for this account." + scope;
       render();
     } catch (error) {
       records = [];

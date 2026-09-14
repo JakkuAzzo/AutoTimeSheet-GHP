@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   canAccessRecord,
   canViewAllRecords,
+  listRecords,
   projectRow,
   tokenIdentity
 } from '../cloudflare-worker/src/index.js';
@@ -24,14 +25,19 @@ const identityFromInfoToken = tokenIdentity({
   ADMIN_UPNS: 'acc.gmtelect@gmt-services.co.uk',
   ADMIN_OIDS: '',
   ADMIN_GROUP_IDS: '',
+  OPERATIONS_ADMIN_UPNS: 'info@gmt-services.co.uk',
   JOB_CARD_ADMIN_UPNS: 'info@gmt-services.co.uk'
 });
 assert.equal(identityFromInfoToken.isAdmin, false);
+assert.equal(identityFromInfoToken.isOperationsAdmin, true);
 assert.equal(identityFromInfoToken.isJobCardAdmin, true);
 
 assert.equal(canViewAllRecords(employee, 'job-cards'), false);
 assert.equal(canViewAllRecords(jobCardAdmin, 'job-cards'), true);
 assert.equal(canViewAllRecords(jobCardAdmin, 'timesheets'), false);
+assert.equal(canViewAllRecords(identityFromInfoToken, 'estimates'), true);
+assert.equal(canViewAllRecords(identityFromInfoToken, 'tasks'), true);
+assert.equal(canViewAllRecords(identityFromInfoToken, 'timesheets'), false);
 assert.equal(canViewAllRecords(accountsAdmin, 'timesheets'), true);
 
 const jobCard = {
@@ -69,6 +75,8 @@ const jobCard = {
 assert.equal(canAccessRecord(employee, jobCard), true);
 assert.equal(canAccessRecord(jobCardAdmin, { ...jobCard, owner_oid: 'other-oid' }), true);
 assert.equal(canAccessRecord(jobCardAdmin, { ...jobCard, kind: 'timesheets', owner_oid: 'other-oid' }), false);
+assert.equal(canAccessRecord(identityFromInfoToken, { ...jobCard, kind: 'estimates', owner_oid: 'other-oid' }), true);
+assert.equal(canAccessRecord(identityFromInfoToken, { ...jobCard, kind: 'timesheets', owner_oid: 'other-oid' }), false);
 assert.equal(canAccessRecord(accountsAdmin, { ...jobCard, owner_oid: 'other-oid' }), true);
 
 const projected = projectRow(jobCard);
@@ -81,5 +89,14 @@ assert.equal(projected.invoice_number, 'INV-123');
 assert.equal(projected.xero_reference, 'XERO-123');
 assert.equal(projected.job_email_url, 'https://outlook.office.com/mail/id/123');
 assert.equal(projected.job_email_message_id, 'message-123');
+
+let historySql = '';
+let historyBindings = [];
+const historyDb = { prepare(sql) { historySql = sql; return { bind(...values) { historyBindings = values; return { all: async () => ({ results: [] }) }; } }; } };
+const operationsHistory = await listRecords(new Request('https://gmt.example/api/history?kind=all'), { DB: historyDb, STAFF_DIRECTORY_JSON: '[]' }, identityFromInfoToken);
+assert.equal(operationsHistory.records.length, 0);
+assert.match(historySql, /kind NOT IN \('timesheets', 'clock'\) OR r\.owner_oid = \?/);
+assert.deepEqual(historyBindings, ['info-oid', 200]);
+assert.equal(operationsHistory.meta.is_operations_admin, true);
 
 console.log('Job-card access and projection policy: PASS');
