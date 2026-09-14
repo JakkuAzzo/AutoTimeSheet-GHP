@@ -41,14 +41,38 @@
 </header>
 <main class="app-main" hidden>
   <section class="portal-updates" aria-labelledby="portal-updates-title">
-    <div>
-      <p class="eyebrow">GMT updates</p>
-      <h2 id="portal-updates-title">Updates and notifications</h2>
-      <p>Important operational notices and approved shared information will appear here.</p>
-    </div>
-    <div class="portal-notification-empty" role="status">
-      <span aria-hidden="true">✓</span>
-      <div><strong>No new notifications</strong><small>You are up to date.</small></div>
+    <div class="portal-updates-carousel" data-updates-carousel aria-roledescription="carousel" aria-label="GMT updates">
+      <div id="portal-updates-slide-0" class="portal-updates-slide" data-updates-slide="0" role="group" aria-roledescription="slide" aria-label="Page 1 of 2">
+        <div>
+          <p class="eyebrow">GMT updates</p>
+          <h2 id="portal-updates-title">Updates and notifications</h2>
+          <p>Important operational notices and approved shared information will appear here.</p>
+        </div>
+        <div class="portal-notification-empty" role="status">
+          <span aria-hidden="true">✓</span>
+          <div><strong>No new notifications</strong><small>You are up to date.</small></div>
+        </div>
+      </div>
+      <div id="portal-updates-slide-1" class="portal-updates-slide portal-updates-task-slide" data-updates-slide="1" role="group" aria-roledescription="slide" aria-label="Page 2 of 2" hidden>
+        <div class="portal-updates-task-heading">
+          <p class="eyebrow">GMT work board</p>
+          <h2>Task Board</h2>
+          <p>Submitted tasks, ownership and progress in one view.</p>
+        </div>
+        <div class="portal-updates-task-content">
+          <p id="portal-task-board-status" class="portal-updates-task-status" role="status" aria-live="polite">Loading submitted tasks…</p>
+          <div id="portal-task-board" class="portal-task-board" aria-live="polite"></div>
+          <a class="portal-updates-task-link" href="../tasks/">Open task tools <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+      <div class="portal-updates-controls" aria-label="Updates pages">
+        <button type="button" class="portal-carousel-button" data-updates-prev aria-label="Show previous updates page">←</button>
+        <div class="portal-carousel-indicators" role="tablist" aria-label="Updates pages">
+          <button type="button" class="portal-carousel-indicator is-active" data-updates-dot="0" role="tab" aria-selected="true" aria-controls="portal-updates-slide-0">1</button>
+          <button type="button" class="portal-carousel-indicator" data-updates-dot="1" role="tab" aria-selected="false" aria-controls="portal-updates-slide-1">2</button>
+        </div>
+        <button type="button" class="portal-carousel-button" data-updates-next aria-label="Show next updates page">→</button>
+      </div>
     </div>
   </section>
 
@@ -98,5 +122,6 @@
 </main>
 <script defer src="../portal-api.js?v=portal-api-xero-20260914"></script>
 <script defer src="calendar-preview.js?v=portal-calendar-picker-20260914"></script>
+<script defer src="dashboard-updates.js?v=dashboard-updates-carousel-20260914"></script>
 </body>
 </html>

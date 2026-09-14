@@ -15,6 +15,7 @@
     "test:jobs:access-policy": "node tests/job-card-access-policy.mjs",
     "test:enquiries": "node tests/enquiry-contract.mjs",
     "test:submissions-ui": "node tests/submissions-ui-smoke.mjs",
+    "test:dashboard-updates": "node tests/dashboard-updates-smoke.mjs",
     "test:xero:integration-contract": "node tests/xero-integration-contract.mjs",
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",

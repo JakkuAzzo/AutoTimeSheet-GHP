@@ -80,6 +80,37 @@
 .portal-updates h2 { margin: .25rem 0 .4rem; color: #fff; font-size: clamp(1.4rem, 3.5vw, 2rem); }
 .portal-updates p:not(.eyebrow) { margin: 0; color: #e7f2e5; line-height: 1.5; }
 .portal-updates .eyebrow { margin: 0; color: #fff3b8; }
+.portal-updates-carousel { width: 100%; min-width: 0; }
+.portal-updates-slide { display: flex; justify-content: space-between; gap: 1rem; align-items: center; min-width: 0; }
+.portal-updates-slide[hidden] { display: none; }
+.portal-updates-task-slide { align-items: flex-start; }
+.portal-updates-task-heading { flex: 0 1 24rem; min-width: 0; }
+.portal-updates-task-content { flex: 1 1 32rem; min-width: 0; }
+.portal-updates-task-status { margin: .1rem 0 .65rem !important; font-size: .9rem; }
+.portal-task-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .65rem; min-width: 0; }
+.portal-task-board-empty { margin: 0; padding: .75rem; color: #e7f2e5 !important; background: rgba(255,255,255,.1); border: 1px dashed rgba(255,255,255,.4); border-radius: .7rem; }
+.portal-task-card { min-width: 0; padding: .75rem; color: #fff; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.35); border-radius: .75rem; }
+.portal-task-card h3 { min-width: 0; margin: 0; color: #fff; font-size: 1rem; overflow-wrap: anywhere; }
+.portal-task-card-heading { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; }
+.portal-task-status { flex: 0 0 auto; padding: .18rem .4rem; color: #123d1d; background: #fff3b8; border-radius: 999px; font-size: .67rem; font-weight: 900; text-transform: capitalize; }
+.portal-task-card-reference { margin: .3rem 0 .55rem !important; color: #d9ecd5 !important; font-size: .78rem; overflow-wrap: anywhere; }
+.portal-task-card-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin: 0; }
+.portal-task-card-meta div { min-width: 0; }
+.portal-task-card-meta dt { color: #d9ecd5; font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.portal-task-card-meta dd { margin: .12rem 0 0; color: #fff; font-size: .82rem; overflow-wrap: anywhere; }
+.portal-task-progress { margin-top: .65rem; }
+.portal-task-progress-label { display: flex; justify-content: space-between; gap: .5rem; color: #fff; font-size: .75rem; }
+.portal-task-progress-label span { color: #d9ecd5; text-align: right; }
+.portal-task-progress-track { height: .4rem; margin-top: .25rem; overflow: hidden; background: rgba(255,255,255,.25); border-radius: 999px; }
+.portal-task-progress-bar { display: block; height: 100%; min-width: 0; background: #d5b64a; border-radius: inherit; transition: width .2s ease; }
+.portal-updates-task-link { display: inline-block; margin-top: .7rem; color: #fff3b8; font-weight: 900; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.portal-updates-controls { display: flex; justify-content: flex-end; gap: .5rem; align-items: center; margin-top: .85rem; }
+.portal-carousel-button, .portal-carousel-indicator { display: inline-grid; place-items: center; min-width: 2rem; min-height: 2rem; color: #123d1d; background: #fff; border: 1px solid rgba(255,255,255,.65); border-radius: 999px; font: inherit; font-weight: 900; }
+.portal-carousel-button { width: 2rem; padding: 0; }
+.portal-carousel-button:hover, .portal-carousel-button:focus-visible, .portal-carousel-indicator:hover, .portal-carousel-indicator:focus-visible { background: #fff3b8; }
+.portal-carousel-indicators { display: flex; gap: .35rem; align-items: center; }
+.portal-carousel-indicator { width: 1.8rem; min-width: 1.8rem; min-height: 1.8rem; padding: 0; color: #e7f2e5; background: transparent; border-color: rgba(255,255,255,.5); font-size: .75rem; }
+.portal-carousel-indicator.is-active { color: #123d1d; background: #fff3b8; border-color: #fff3b8; }
 .portal-notification-empty {
   display: flex;
   gap: .65rem;
@@ -709,6 +740,10 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-section-heading { align-items: flex-start; flex-direction: column; }
   .portal-action-grid, .portal-overview-grid { grid-template-columns: 1fr; }
   .portal-updates { align-items: flex-start; flex-direction: column; }
+  .portal-updates-slide { align-items: flex-start; flex-direction: column; }
+  .portal-updates-task-heading, .portal-updates-task-content { width: 100%; }
+  .portal-task-board { grid-template-columns: 1fr; }
+  .portal-updates-controls { justify-content: space-between; width: 100%; }
   .portal-history-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: .55rem; width: 100%; }
   .portal-history-toolbar .small-text { width: 100%; min-width: 0; }
   .portal-history-filter { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; width: 100%; min-width: 0; }
