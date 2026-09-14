@@ -1623,6 +1623,7 @@ async function listRecords(request, env, identity) {
             upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
             const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
             upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
+            if (identity.isAdmin) console.log('history-projection', JSON.stringify({ sourceRows: upstreamSourceRowCount, normalized: upstreamNormalisedRecordCount, matched: upstreamEmployeeMatchedRecordCount, sampleFields: upstreamSampleFields }));
             const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
             const localIds = new Set(records.map((row) => row.source_record_id));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
