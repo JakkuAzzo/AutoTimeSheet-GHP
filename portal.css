@@ -516,6 +516,26 @@
 .calendar-event-holiday { background: #fff1b8; color: #5a4100; }
 .calendar-event-job { background: #dfeaf7; color: #17456d; }
 .calendar-more { display: block; margin-top: .2rem; color: var(--muted); font-size: .7rem; font-weight: 700; }
+
+.timesheet-editor { padding: 1rem; border: 1px solid var(--line); border-radius: .85rem; background: #fff; }
+.timesheet-editor h2 { margin: .8rem 0 .4rem; color: var(--green); }
+.timesheet-editor .notice { margin: .8rem 0; }
+.table-scroll { overflow-x: auto; margin-top: .9rem; }
+.timesheet-editor-grid { width: 100%; min-width: 760px; border-collapse: collapse; }
+.timesheet-editor-grid th, .timesheet-editor-grid td { padding: .45rem; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+.timesheet-editor-grid th { background: #f5f8f3; color: var(--green); font-size: .78rem; }
+.timesheet-editor-grid input, .timesheet-editor-grid select { width: 100%; min-width: 7rem; padding: .45rem; border: 1px solid var(--line); border-radius: .45rem; background: #fff; color: var(--ink); font: inherit; }
+.timesheet-editor-grid input[type="number"] { min-width: 5rem; }
+.job-card-preview { margin-top: 1rem; padding: 1rem; border: 2px solid #1f3a50; background: #fff; color: #17202a; font-family: Georgia, "Times New Roman", serif; }
+.job-card-preview[hidden] { display: none; }
+.job-card-preview-header { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 2px solid #1f3a50; padding-bottom: .65rem; }
+.job-card-preview-header strong { letter-spacing: .04em; }
+.job-card-preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem 1rem; margin: .8rem 0; }
+.job-card-preview-grid p { margin: 0; padding: .35rem; border-bottom: 1px solid #9ba6ae; }
+.job-card-preview-report { min-height: 12rem; padding: .6rem; border: 1px solid #9ba6ae; white-space: pre-wrap; }
+.job-card-preview-label { margin: .7rem 0 .25rem; font-weight: 800; text-transform: uppercase; font-size: .76rem; }
+.task-card-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .65rem; }
+.task-card-actions button { font-size: .78rem; padding: .35rem .55rem; }
 .back-button {
   margin: .5rem 0;
 }

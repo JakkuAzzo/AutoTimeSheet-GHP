@@ -2340,3 +2340,6 @@ body.modal-open {
 .content-carousel .service-card p {
   flex: 1;
 }
+
+.booking-fields { display: grid; gap: .65rem; padding: .7rem; border: 1px solid rgba(255,255,255,.24); border-radius: .55rem; background: rgba(0,0,0,.16); }
+.booking-fields[hidden] { display: none; }

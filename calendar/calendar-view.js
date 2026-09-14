@@ -71,6 +71,28 @@
     renderMonth();
   }
 
+  async function loadProtectedEvents() {
+    if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== 'function' || !window.GMTPortalApi.enabled()) return;
+    try {
+      const body = await window.GMTPortalApi.history('calendar');
+      const records = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
+        id: record.source_record_id,
+        title: record.event_title || 'Untitled event',
+        date: record.event_date || record.record_date || '',
+        type: record.event_type || 'General',
+        owner: record.owner || record.employee_name || '',
+        status: record.status || 'Pending approval'
+      }));
+      const existing = new Set(publishedEvents.map((event) => String(event.id || '')));
+      publishedEvents = publishedEvents.concat(records.filter((event) => event.date && !existing.has(String(event.id))));
+      const status = $('#calendar-sync-status');
+      if (status && records.length) status.textContent = status.textContent + ' Protected requests: ' + records.length + '.';
+      renderMonth();
+    } catch (_) {
+      // The static published feed remains usable if protected history is unavailable.
+    }
+  }
+
   function init() {
     const outlook = $('#open-outlook-calendar');
     if (outlook) outlook.href = outlookUrl;
@@ -78,7 +100,7 @@
     $('#calendar-next')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); renderMonth(); });
     $('#calendar-form')?.addEventListener('submit', () => setTimeout(renderMonth, 0));
     $('#calendar-list')?.addEventListener('click', () => setTimeout(renderMonth, 0));
-    loadPublishedEvents();
+    loadPublishedEvents().then(loadProtectedEvents);
   }
 
   document.addEventListener('DOMContentLoaded', init);
