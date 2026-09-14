@@ -70,15 +70,30 @@ try {
   assert.equal(await page.locator('#job-engineer').inputValue(), 'Profile Engineer');
   assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'EC');
   assert.match(await page.locator('#job-card-preview').innerText(), /E\.C\.No/i);
+  assert.equal(await page.locator('.job-sheet-logo').count(), 1, 'EC preview should include the GMT logo');
+  const previewFits = async () => page.locator('#job-card-preview').evaluate((element) => {
+    const sheet = element.querySelector('.job-card-sheet');
+    return { previewWidth: element.clientWidth, previewScrollWidth: element.scrollWidth, sheetWidth: sheet?.clientWidth || 0, sheetScrollWidth: sheet?.scrollWidth || 0 };
+  });
+  let fit = await previewFits();
+  assert.ok(fit.previewScrollWidth <= fit.previewWidth + 1, `EC preview overflows: ${JSON.stringify(fit)}`);
   assert.equal(await page.locator('[data-preview-card-type]').count(), 2);
   await page.locator('[data-preview-card-type="MTA"]').click();
   assert.equal(await page.locator('#job-card-type').inputValue(), 'MTA');
   assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'MTA');
   assert.match(await page.locator('#job-card-preview').innerText(), /MTA No\./i);
+  assert.equal(await page.locator('.job-sheet-logo').count(), 1, 'MTA preview should include the GMT logo');
+  fit = await previewFits();
+  assert.ok(fit.previewScrollWidth <= fit.previewWidth + 1, `MTA preview overflows at desktop width: ${JSON.stringify(fit)}`);
   assert.equal(await page.locator('[data-preview-card-type="MTA"]').getAttribute('aria-pressed'), 'true');
+  await page.setViewportSize({ width: 390, height: 844 });
+  fit = await previewFits();
+  assert.ok(fit.previewScrollWidth <= fit.previewWidth + 1, `MTA preview overflows at mobile width: ${JSON.stringify(fit)}`);
   await page.locator('#job-card-type').selectOption('EC');
   assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'EC');
   assert.match(await page.locator('#job-card-preview').innerText(), /Job description \/ Report/);
+  fit = await previewFits();
+  assert.ok(fit.previewScrollWidth <= fit.previewWidth + 1, `EC preview overflows at mobile width: ${JSON.stringify(fit)}`);
   await page.evaluate(() => {
     window.__submittedForms = [];
     HTMLFormElement.prototype.submit = function submitStub() {

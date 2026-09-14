@@ -18,6 +18,10 @@ through the existing FormSubmit intake during the configured weekly window.
 5. Set `ADMIN_UPNS`, `ADMIN_OIDS`, or `ADMIN_GROUP_IDS` to the approved GMT
    administrator identities in Cloudflare variables. Do not hard-code them in
    the client bundle.
+   `JOB_CARD_ADMIN_UPNS` can additionally grant Accounts job-card access to
+   identities such as `info@gmt-services.co.uk` without exposing that account
+   to every employee's timesheet history. Full administrators retain access to
+   all categories.
 6. Store the activated timesheet FormSubmit endpoint as the Worker secret
    `FORM_SUBMIT_TIMESHEET_ENDPOINT`. The endpoint is never returned to the
    browser. The default dispatch window is Friday at 18:00 Europe/London and
@@ -38,6 +42,14 @@ protected portal history and edit source. The scheduled dispatcher records
 `Queued for Accounts`, `Sent to Accounts`, or `Delivery failed`; `Sent to
 Accounts` means FormSubmit accepted the message and does not claim that a
 SharePoint workbook has finished processing it.
+
+Job-card payloads preserve the card reference, revision, lifecycle status,
+invoice number, Xero reference, previous-card ID, and optional Outlook message
+link. Each submitted revision receives a new protected record ID, so an update
+can be assigned a new invoice while the earlier card remains in the chain.
+Those fields are ready for a future Xero or Microsoft Graph connector; this
+Worker does not claim that either provider is synchronised until its OAuth
+permissions and live API responses are configured and verified.
 
 ## API behavior
 

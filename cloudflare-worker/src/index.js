@@ -114,15 +114,26 @@ function tokenIdentity(claims, env) {
   const adminUpns = csvSet(env.ADMIN_UPNS);
   const adminOids = csvSet(env.ADMIN_OIDS);
   const adminGroups = csvSet(env.ADMIN_GROUP_IDS);
+  const jobCardAdminUpns = csvSet(env.JOB_CARD_ADMIN_UPNS);
   const groups = Array.isArray(claims.groups) ? claims.groups.map((item) => String(item).toLowerCase()) : [];
+  const isAdmin = adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group));
   return {
     oid,
     upn,
     name: String(claims.name || '').trim(),
     aud: audienceValue(claims.aud),
     tid: tokenTenant,
-    isAdmin: adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group))
+    isAdmin,
+    isJobCardAdmin: isAdmin || jobCardAdminUpns.has(upn)
   };
+}
+
+function canViewAllRecords(identity, kind = '') {
+  return Boolean(identity?.isAdmin || (kind === 'job-cards' && identity?.isJobCardAdmin));
+}
+
+function canAccessRecord(identity, row) {
+  return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
 }
 
 async function authenticate(request, env) {
@@ -152,6 +163,17 @@ async function authenticate(request, env) {
 function text(value, fallback = '', max = MAX_TEXT) {
   const result = String(value == null ? fallback : value).trim();
   return result.slice(0, max);
+}
+
+function httpUrl(value, max = 2000) {
+  const candidate = text(value, '', max);
+  if (!candidate) return '';
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? candidate : '';
+  } catch (_) {
+    return '';
+  }
 }
 
 function base64ByteLength(value) {
@@ -299,7 +321,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
+  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -330,10 +352,11 @@ function normaliseInput(body, identity, existing = null) {
   const startDate = isoOrBlank(body.startDate || body.start_date || payload.weekStart || body.weekStart);
   const endDate = isoOrBlank(body.endDate || body.end_date || payload.weekEnd || body.weekEnd);
   const recordDate = isoOrBlank(body.recordDate || body.record_date || payload.recordDate || payload.date || body.date);
+  const privilegedEdit = Boolean(existing && (identity.isAdmin || (existing.kind === 'job-cards' && identity.isJobCardAdmin)));
   return {
     recordId,
-    ownerOid: identity.oid,
-    ownerUpn: identity.upn,
+    ownerOid: privilegedEdit ? existing.owner_oid : identity.oid,
+    ownerUpn: privilegedEdit ? existing.owner_upn : identity.upn,
     employeeName,
     kind,
     action,
@@ -390,7 +413,16 @@ function jobProjection(row, payload) {
     engineer: text(payload.engineer || payload.assignedEngineer, '', 240),
     planned_date: text(payload.plannedDate || payload.date || row.record_date, '', 80),
     description: text(payload.description, '', 3000),
-    card_type: text(payload.cardType, 'EC', 20).toUpperCase() === 'MTA' ? 'MTA' : 'EC'
+    card_type: text(payload.cardType, 'EC', 20).toUpperCase() === 'MTA' ? 'MTA' : 'EC',
+    job_status: text(payload.jobStatus || payload.status, row.status || 'Received', 100),
+    job_revision: Math.max(1, Number(payload.jobRevision || payload.revision || 1) || 1),
+    previous_record_id: text(payload.previousRecordId, '', MAX_RECORD_ID),
+    invoice_number: text(payload.invoiceNumber, '', 180),
+    xero_reference: text(payload.xeroReference, '', 240),
+    job_email_url: httpUrl(payload.jobEmailUrl),
+    job_email_message_id: text(payload.jobEmailMessageId, '', 500),
+    update_reason: text(payload.updateReason, '', 1000),
+    account_notes: text(payload.accountNotes, '', 2000)
   };
 }
 
@@ -722,10 +754,22 @@ async function listRecords(request, env, identity) {
       q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
       q.last_error AS dispatch_last_error
     FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
+  const viewAll = canViewAllRecords(identity, kind);
+  const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
   const sql = identity.isAdmin
     ? (kind ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`)
-    : (kind ? `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
-  const bindings = identity.isAdmin ? (kind ? [kind, limit] : [limit]) : (kind ? [identity.oid, kind, limit] : [identity.oid, limit]);
+    : viewAll
+      ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`
+      : jobCardAdminAcrossKinds
+        ? `${projection} WHERE r.status <> 'Deleted' AND (r.owner_oid = ? OR r.kind = 'job-cards') ORDER BY r.updated_at DESC LIMIT ?`
+        : (kind ? `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
+  const bindings = identity.isAdmin
+    ? (kind ? [kind, limit] : [limit])
+    : viewAll
+      ? ['job-cards', limit]
+      : jobCardAdminAcrossKinds
+        ? [identity.oid, limit]
+        : (kind ? [identity.oid, kind, limit] : [identity.oid, limit]);
   const result = await env.DB.prepare(sql).bind(...bindings).all();
   let records = (result.results || []).map((row) => projectRow(row));
   let upstream = 'not-configured';
@@ -768,9 +812,10 @@ async function listRecords(request, env, identity) {
     records,
     meta: {
       upstream,
-      role: identity.isAdmin ? 'accounts-admin' : 'employee',
+      role: identity.isAdmin ? 'accounts-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee'),
       is_admin: identity.isAdmin,
-      visible_scope: identity.isAdmin ? 'all employee submissions' : 'this account submissions'
+      is_job_card_admin: identity.isJobCardAdmin,
+      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions')
     }
   };
 }
@@ -795,9 +840,9 @@ async function handle(request, env) {
     const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
-    if (existing && existing.owner_oid !== identity.oid && !identity.isAdmin) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
+    if (existing && !canAccessRecord(identity, existing)) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
     if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) throw Object.assign(new Error('Only timesheets made within the current pay month may be edited.'), { status: 409 });
-    const input = normaliseInput(body, existing && identity.isAdmin ? { ...identity, name: existing.employee_name } : identity, existing);
+    const input = normaliseInput(body, existing && (identity.isAdmin || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
@@ -807,7 +852,7 @@ async function handle(request, env) {
     const recordId = decodeURIComponent(attachmentMatch[1]);
     const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
-    if (existing.owner_oid !== identity.oid && !identity.isAdmin) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (existing.kind !== 'timesheets') return json({ error: 'Only timesheet corrections can be queued' }, 400, origin || '');
     const body = await readJson(request);
@@ -828,13 +873,13 @@ async function handle(request, env) {
         q.last_error AS dispatch_last_error
       FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id WHERE r.record_id = ?`).bind(recordId).first();
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
-    if (existing.owner_oid !== identity.oid && !identity.isAdmin) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (request.method === 'GET') return json({ record: projectRow(existing, true), payload: payloadObject(existing) }, 200, origin || '');
     if (request.method === 'PATCH') {
       if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) return json({ error: 'Only timesheets made within the current pay month may be edited.' }, 409, origin || '');
       const body = await readJson(request);
-      const input = normaliseInput({ ...body, recordId }, identity.isAdmin ? { ...identity, name: existing.employee_name } : identity, existing);
+      const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing);
       const result = await saveRecord(env, input, identity, existing);
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
     }
@@ -875,5 +920,8 @@ export {
   recordMonthKey,
   isCurrentPayMonthRecord,
   isCurrentMonthRecord,
-  projectRow
+  projectRow,
+  canViewAllRecords,
+  canAccessRecord,
+  tokenIdentity
 };

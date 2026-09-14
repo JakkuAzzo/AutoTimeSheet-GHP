@@ -19,9 +19,20 @@
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const id = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const safeJobEmailUrl = (value) => {
+    try {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      const parsed = new URL(raw, window.location.origin);
+      return /^https?:$/.test(parsed.protocol) ? parsed.href : '';
+    } catch (_) {
+      return '';
+    }
+  };
   const GMT_JOB_CARD_CC = 'gmtelectricalservices+jobcards@outlook.com';
   const taskIndex = new Map();
   const calendarIndex = new Map();
+  const jobCardIndex = new Map();
 
   function portalProfileName() {
     return store.get('gmt.portal.profile.v1', {}).name || '';
@@ -163,12 +174,21 @@
       const parts = dateParts(fields.planned_date || fields.gmt_planned_date || '');
       add('gmt_type', 'jobcard');
       add('gmt_action', kind === 'Job Card' ? 'new' : 'update');
+      // The human job reference groups a chain, while the submission ID keeps
+      // each revised card immutable in protected history.
       add('gmt_record_id', jobRef);
+      add('gmt_submission_id', fields.record_id || fields.gmt_submission_id || jobRef);
       add('gmt_job_ref', jobRef);
       add('gmt_client', fields.client || fields.gmt_client || '');
       add('gmt_site', fields.site_address || fields.gmt_site || '');
       add('gmt_engineer', fields.assigned_engineer || fields.gmt_engineer || '');
       add('gmt_planned_date', fields.planned_date || fields.gmt_planned_date || '');
+      add('gmt_job_status', fields.job_status || 'Received');
+      add('gmt_job_revision', fields.job_revision || '1');
+      add('gmt_invoice_number', fields.invoice_number || '');
+      add('gmt_xero_reference', fields.xero_reference || '');
+      add('gmt_job_email_url', fields.job_email_url || '');
+      add('gmt_job_email_message_id', fields.job_email_message_id || '');
       add('gmt_schema_version', '1');
       add('gmt_year', parts.year);
       add('gmt_month', parts.month);
@@ -248,23 +268,37 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function renderJobs(remoteJobs = []) {
+  function renderJobs(remoteJobs = [], meta = {}) {
     const localJobs = store.get(keys.jobs, []);
-    const jobs = [...remoteJobs, ...localJobs.filter((local) => !remoteJobs.some((remote) => String(remote.ref || '') === String(local.ref || '') && remote.ref))];
+    const remoteIds = new Set(remoteJobs.map((remote) => String(remote.id || '')).filter(Boolean));
+    const jobs = [...remoteJobs, ...localJobs.filter((local) => !remoteIds.has(String(local.id || '')))];
     const list = $('#job-card-list');
     if (!list) return;
+    jobCardIndex.clear();
+    jobs.forEach((job) => jobCardIndex.set(String(job.id || ''), job));
     if (!jobs.length) {
       list.innerHTML = '<p class="small-text">No job cards created yet.</p>';
       return;
     }
+    const canManage = Boolean(meta.is_admin || meta.is_job_card_admin);
+    const lifecycleOptions = ['Received', 'Assigned', 'In progress', 'Awaiting parts', 'Completed', 'Cancelled'];
     list.innerHTML = jobs.map((job) => `
       <article class="portal-item">
         <strong>${safe(job.ref || 'Untitled job')}</strong>
-        <span class="portal-status ${job.status.toLowerCase().replace(/\s+/g, '-')}">${safe(job.status)}</span>
+        <span class="portal-status ${safe(String(job.jobStatus || job.status || 'Received').toLowerCase().replace(/\s+/g, '-'))}">${safe(job.jobStatus || job.status || 'Received')}</span>
         <p class="portal-item-meta">${safe(job.client)} · ${safe(job.site)}</p>
-        <p class="portal-item-meta">${safe(job.cardType || 'EC')} format · Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
+        <p class="portal-item-meta">${safe(job.cardType || 'EC')} format · Revision ${safe(job.revision || 1)}${job.previousRecordId ? ` · Follows ${safe(job.previousRecordId)}` : ''} · Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
         <p>${safe(job.description || 'No description')}</p>
-        <p class="small-text">Status changes are managed by Accounts in Microsoft 365.</p>
+        <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${safeJobEmailUrl(job.emailUrl) ? ` · <a href="${safe(safeJobEmailUrl(job.emailUrl))}" target="_blank" rel="noopener">Job email</a>` : ''}</p>
+        ${canManage && job.remote ? `<div class="job-card-account-fields" data-job-account-fields="${safe(job.id)}">
+          <strong>Accounts tracking</strong>
+          <label>Invoice number<input data-job-invoice value="${safe(job.invoiceNumber || '')}" placeholder="Assigned by Accounts"></label>
+          <label>Xero reference<input data-job-xero value="${safe(job.xeroReference || '')}" placeholder="Xero invoice or tracking reference"></label>
+          <label>Job status<select data-job-status>${[...new Set([job.jobStatus || job.status || 'Received', ...lifecycleOptions])].map((status) => `<option value="${safe(status)}" ${status === (job.jobStatus || job.status || 'Received') ? 'selected' : ''}>${safe(status)}</option>`).join('')}</select></label>
+          <label>Job email link<input data-job-email-url type="url" value="${safe(safeJobEmailUrl(job.emailUrl))}" placeholder="Outlook message link"></label>
+          <button type="button" class="secondary" data-job-account-save="${safe(job.id)}">Save Accounts fields</button>
+          <span class="small-text" data-job-account-feedback></span>
+        </div>` : '<p class="small-text">Status changes are managed by Accounts in Microsoft 365. Invoice and Xero tracking are managed there too.</p>'}
       </article>`).join('');
   }
 
@@ -281,7 +315,7 @@
 
   function renderEcJobPreview(data) {
     return `<article class="job-card-sheet job-card-sheet-ec" aria-label="EC job card preview">
-        <div class="job-sheet-topline"><div class="job-sheet-brand">GMT Electrical Services</div><div class="job-sheet-number"><span>E.C.No</span><strong>${safe(data.ref || 'EC 00000')}</strong></div></div>
+        <div class="job-sheet-topline"><div class="job-sheet-branding"><img class="job-sheet-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><span class="job-sheet-brand">GMT Electrical Services</span></div><div class="job-sheet-number"><span>E.C.No</span><strong>${safe(data.ref || 'EC 00000')}</strong></div></div>
       <div class="job-sheet-meta-grid job-sheet-meta-ec">
         <div class="job-sheet-field"><span>Date:</span><strong>${safe(data.date)}</strong></div>
         <div class="job-sheet-field job-sheet-address"><span>Job Address:</span><strong>${safe(data.site)}</strong></div>
@@ -303,9 +337,9 @@
 
   function renderMtaJobPreview(data) {
     return `<article class="job-card-sheet job-card-sheet-mta" aria-label="MTA job card preview">
-      <div class="job-sheet-topline"><div class="job-sheet-brand job-sheet-brand-wide">GMT Electrical Services Ltd.</div><div class="job-sheet-number"><span>MTA No.</span><strong>${safe(data.ref || 'MTA 00000')}</strong></div></div>
+      <div class="job-sheet-topline"><div class="job-sheet-branding"><img class="job-sheet-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><span class="job-sheet-brand job-sheet-brand-wide">GMT Electrical Services Ltd.</span></div><div class="job-sheet-number"><span>MTA No.</span><strong>${safe(data.ref || 'MTA 00000')}</strong></div></div>
       <div class="job-sheet-mta-meta"><div class="job-sheet-field"><span>Date:</span><strong>${safe(data.date)}</strong></div><div class="job-sheet-field"><span>Job authorised by:</span><strong>________________</strong></div><div class="job-sheet-field"><span>Tally:</span><strong>________________</strong></div></div>
-      <div class="job-sheet-mta-parties"><div class="job-sheet-box"><span>Invoiced to</span><strong>${safe(data.client)}</strong></div><div class="job-sheet-box"><span>Dispatched to</span><strong>${safe(data.site)}</strong><small>Signature: __________________ Date: __________</small><small>Print name: ______________________________</small></div></div>
+      <div class="job-sheet-mta-parties"><div class="job-sheet-box"><span>Invoiced to</span><strong>${safe(data.client)}</strong></div><div class="job-sheet-box"><span>Dispatched to</span><strong>${safe(data.site)}</strong><div class="job-sheet-signature"><small>Signature: __________________</small><small>Date: __________</small></div><small>Print name: ______________________________</small></div></div>
       <div class="job-sheet-equipment"><div>MAKE</div><div>HP / KW</div><div>VOLTS</div><div>RPM</div><div>SERIAL No.</div><strong>${safe(data.client)}</strong><span>________</span><span>________</span><span>________</span><span>________________</span></div>
       <div class="job-sheet-section-title">Report</div>
       <div class="job-sheet-mta-report"><div class="job-sheet-lined job-sheet-report">${safe(data.description)}</div><div class="job-sheet-checklist"><span>SLOTS __________________</span><span>COILS __________________</span><span>GROUPS ________________</span><span>SPAN __________________</span><span>CONNECTION ____________</span><span>EXTRA __________________</span><span>WINDER _________________</span></div></div>
@@ -432,9 +466,24 @@
         date: record.planned_date || record.record_date || '',
         description: record.description || '',
         cardType: record.card_type || 'EC',
-        status: record.status || 'Submitted'
+        status: record.status || 'Submitted',
+        jobStatus: record.job_status || record.status || 'Received',
+        invoiceNumber: record.invoice_number || '',
+        xeroReference: record.xero_reference || '',
+        emailUrl: record.job_email_url || '',
+        emailMessageId: record.job_email_message_id || '',
+        revision: record.job_revision || 1,
+        previousRecordId: record.previous_record_id || '',
+        updateReason: record.update_reason || '',
+        accountNotes: record.account_notes || '',
+        action: record.action || 'create_request',
+        employeeName: record.employee_name || '',
+        employeeEmail: record.employee_upn || '',
+        recordDate: record.record_date || record.planned_date || '',
+        submittedAt: record.submitted_at || '',
+        remote: true
       }));
-      renderJobs(remoteJobs);
+      renderJobs(remoteJobs, body?.meta || {});
     } catch (_) {
       // The local draft list remains visible when the protected service is unavailable.
     }
@@ -494,21 +543,79 @@
       renderJobPreview(type);
     }));
     renderJobPreview();
+    $('#job-card-list')?.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-job-account-save]');
+      if (!button || !portalApiEnabled()) return;
+      const card = button.closest('[data-job-account-fields]');
+      const job = jobCardIndex.get(String(button.dataset.jobAccountSave || ''));
+      if (!card || !job || !job.remote) return;
+      const feedback = card.querySelector('[data-job-account-feedback]');
+      const invoiceNumber = card.querySelector('[data-job-invoice]')?.value.trim() || '';
+      const xeroReference = card.querySelector('[data-job-xero]')?.value.trim() || '';
+      const jobStatus = card.querySelector('[data-job-status]')?.value || job.jobStatus || 'Received';
+      const emailUrl = card.querySelector('[data-job-email-url]')?.value.trim() || '';
+      const payload = {
+        jobReference: job.ref,
+        client: job.client,
+        site: job.site,
+        engineer: job.engineer,
+        plannedDate: job.date,
+        cardType: job.cardType,
+        description: job.description,
+        jobStatus,
+        jobRevision: Number(job.revision || 1),
+        previousRecordId: job.previousRecordId || '',
+        invoiceNumber,
+        xeroReference,
+        jobEmailUrl: emailUrl,
+        jobEmailMessageId: job.emailMessageId || '',
+        updateReason: job.updateReason || '',
+        accountNotes: job.accountNotes || ''
+      };
+      button.disabled = true;
+      if (feedback) feedback.textContent = 'Saving…';
+      try {
+        await updateProtectedRecord({
+          recordId: job.id,
+          kind: 'job-cards',
+          action: job.action || 'create_request',
+          submittedAt: job.submittedAt || new Date().toISOString(),
+          employeeName: job.employeeName || '',
+          employeeEmail: job.employeeEmail || '',
+          recordDate: job.recordDate || job.date,
+          payload
+        }, jobStatus);
+        job.invoiceNumber = invoiceNumber;
+        job.xeroReference = xeroReference;
+        job.jobStatus = jobStatus;
+        job.emailUrl = emailUrl;
+        if (feedback) feedback.textContent = 'Saved to protected job history.';
+        logNotification('Job card', `${job.ref || job.id} Accounts fields updated.`);
+        renderJobs([...jobCardIndex.values()].filter((item) => item.remote), { is_job_card_admin: true });
+      } catch (error) {
+        if (feedback) feedback.textContent = error.message || 'Could not save Accounts fields.';
+        button.disabled = false;
+      }
+    });
     $('#job-card-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const jobs = store.get(keys.jobs, []);
       const imageFile = $('#job-image')?.files?.[0] || null;
       const job = {
-        id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), cardType: $('#job-card-type').value, status: 'Pending'
+        id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), cardType: $('#job-card-type').value, status: 'Received', jobStatus: 'Received', revision: 1,
+        emailUrl: $('#job-email-link')?.value.trim() || '', emailMessageId: $('#job-email-message-id')?.value.trim() || ''
       };
       jobs.unshift(job);
       store.set(keys.jobs, jobs);
-      const recordId = `job-${job.ref || job.id}`;
+      // Every submitted revision gets a new protected record. The job reference
+      // still groups the chain, while this ID prevents an update from replacing
+      // the earlier card or its invoice trail.
+      const recordId = `job-${job.ref || 'unreferenced'}-${job.id}`;
       const protectedRecord = {
         recordId,
         kind: 'job-cards',
         action: 'create_request',
-        status: 'Pending',
+        status: job.jobStatus,
         submittedAt: new Date().toISOString(),
         employeeName: portalProfileName(),
         employeeEmail: portalProfile().username || '',
@@ -520,7 +627,15 @@
           engineer: job.engineer,
           plannedDate: job.date,
           cardType: job.cardType,
-          description: job.description
+          description: job.description,
+          jobStatus: job.jobStatus,
+          jobRevision: job.revision,
+          previousRecordId: '',
+          invoiceNumber: '',
+          xeroReference: '',
+          jobEmailUrl: job.emailUrl,
+          jobEmailMessageId: job.emailMessageId,
+          updateReason: ''
         }
       };
       try {
@@ -537,8 +652,13 @@
         assigned_engineer: job.engineer,
         planned_date: job.date,
         card_type: job.cardType,
-        status: job.status,
+        status: job.jobStatus,
         description: job.description,
+        record_id: recordId,
+        job_status: job.jobStatus,
+        job_revision: job.revision,
+        job_email_url: job.emailUrl,
+        job_email_message_id: job.emailMessageId,
         submitted_at: new Date().toISOString()
       }, { file: imageFile });
       try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
