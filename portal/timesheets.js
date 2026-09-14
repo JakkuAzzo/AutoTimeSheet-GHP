@@ -122,6 +122,12 @@
       : upstream === "flow-permission-not-configured"
         ? "Portal history is loaded, but the Microsoft 365 history source is not connected for this signed-in session. Grant the protected Flow Service permission to include older filed submissions."
         : "Portal history is loaded; Microsoft 365 history source status: " + upstream + ".";
+    var sourceCount = Number(meta && meta.upstream_source_row_count || 0);
+    var normalizedCount = Number(meta && meta.upstream_normalized_record_count || 0);
+    var matchedCount = Number(meta && meta.upstream_employee_matched_record_count || 0);
+    if (upstream === "ok" && Object.prototype.hasOwnProperty.call(meta || {}, "upstream_source_row_count")) {
+      sourceMessage += " Source rows: " + sourceCount + "; recognised: " + normalizedCount + "; matched: " + matchedCount + ".";
+    }
     var syntheticMessage = Number(meta && meta.synthetic_record_count || 0) ? " Synthetic test rows are excluded from completion counts and the default Accounts list." : "";
     if (completionNote) completionNote.textContent = sourceMessage + (completion.directory_configured ? " The employee roster is configured." : " The employee roster is not configured, so missing rows are limited to employees present in the returned history.") + syntheticMessage;
     var selectedEmployee = currentEmployee().toLowerCase();

@@ -1592,6 +1592,10 @@ async function listRecords(request, env, identity) {
   const localRecordCount = records.length;
   let upstream = 'not-configured';
   let upstreamRecordCount = 0;
+  let upstreamSourceRowCount = 0;
+  let upstreamNormalisedRecordCount = 0;
+  let upstreamEmployeeMatchedRecordCount = 0;
+  let upstreamSampleFields = [];
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
   const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
   if (upstreamUrl && upstreamEnabledForKind) {
@@ -1613,7 +1617,13 @@ async function listRecords(request, env, identity) {
                 ? body.data
                 : null;
           if (sourceRows) {
-            const upstreamRecords = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env)).filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase()))).filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+            upstreamSourceRowCount = sourceRows.length;
+            upstreamSampleFields = sourceRows.slice(0, 5).map((row) => row && typeof row === 'object' && !Array.isArray(row) ? Object.keys(row).slice(0, 60) : []);
+            const normalisedRows = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env));
+            upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
+            const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
+            upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
+            const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
             const localIds = new Set(records.map((row) => row.source_record_id));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
             upstreamRecordCount = visibleUpstreamRecords.length;
@@ -1638,6 +1648,10 @@ async function listRecords(request, env, identity) {
       upstream,
       local_record_count: localRecordCount,
       upstream_record_count: upstreamRecordCount,
+      upstream_source_row_count: upstreamSourceRowCount,
+      upstream_normalized_record_count: upstreamNormalisedRecordCount,
+      upstream_employee_matched_record_count: upstreamEmployeeMatchedRecordCount,
+      upstream_sample_fields: upstreamSampleFields,
       synthetic_record_count: syntheticRecordCount,
       synthetic_included: includeSynthetic,
       role: identity.isAdmin ? 'accounts-admin' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee')),
