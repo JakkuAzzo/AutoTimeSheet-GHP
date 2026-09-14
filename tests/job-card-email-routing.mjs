@@ -68,6 +68,17 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/jobs/`, { waitUntil: 'load' });
   assert.equal(await page.locator('#job-engineer').inputValue(), 'Profile Engineer');
+  assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'EC');
+  assert.match(await page.locator('#job-card-preview').innerText(), /E\.C\.No/i);
+  assert.equal(await page.locator('[data-preview-card-type]').count(), 2);
+  await page.locator('[data-preview-card-type="MTA"]').click();
+  assert.equal(await page.locator('#job-card-type').inputValue(), 'MTA');
+  assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'MTA');
+  assert.match(await page.locator('#job-card-preview').innerText(), /MTA No\./i);
+  assert.equal(await page.locator('[data-preview-card-type="MTA"]').getAttribute('aria-pressed'), 'true');
+  await page.locator('#job-card-type').selectOption('EC');
+  assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'EC');
+  assert.match(await page.locator('#job-card-preview').innerText(), /Job description \/ Report/);
   await page.evaluate(() => {
     window.__submittedForms = [];
     HTMLFormElement.prototype.submit = function submitStub() {

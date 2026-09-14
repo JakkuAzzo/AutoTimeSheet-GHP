@@ -268,17 +268,68 @@
       </article>`).join('');
   }
 
-  function renderJobPreview() {
+  function jobPreviewData() {
+    return {
+      ref: $('#job-ref')?.value.trim() || '',
+      client: $('#job-client')?.value.trim() || 'Customer / client',
+      site: $('#job-site')?.value.trim() || 'Job address',
+      engineer: $('#job-engineer')?.value.trim() || 'Engineer',
+      date: $('#job-date')?.value || 'Date',
+      description: $('#job-description')?.value.trim() || 'Job description / report'
+    };
+  }
+
+  function renderEcJobPreview(data) {
+    return `<article class="job-card-sheet job-card-sheet-ec" aria-label="EC job card preview">
+        <div class="job-sheet-topline"><div class="job-sheet-brand">GMT Electrical Services</div><div class="job-sheet-number"><span>E.C.No</span><strong>${safe(data.ref || 'EC 00000')}</strong></div></div>
+      <div class="job-sheet-meta-grid job-sheet-meta-ec">
+        <div class="job-sheet-field"><span>Date:</span><strong>${safe(data.date)}</strong></div>
+        <div class="job-sheet-field job-sheet-address"><span>Job Address:</span><strong>${safe(data.site)}</strong></div>
+        <div class="job-sheet-field"><span>Customer:</span><strong>${safe(data.client)}</strong></div>
+        <div class="job-sheet-field"><span>Contact:</span><strong>________________</strong></div>
+        <div class="job-sheet-field"><span>Order No:</span><strong>${safe(data.ref || 'EC 00000')}</strong></div>
+        <div class="job-sheet-field"><span>Tel:</span><strong>________________</strong></div>
+      </div>
+      <div class="job-sheet-rule"></div>
+      <div class="job-sheet-section-title">Job description / Report</div>
+      <div class="job-sheet-lined job-sheet-report">${safe(data.description)}</div>
+      <div class="job-sheet-footer-grid">
+        <div class="job-sheet-field"><span>Engineer:</span><strong>${safe(data.engineer)}</strong></div>
+        <div class="job-sheet-field"><span>Date Started:</span><strong>${safe(data.date)}</strong></div>
+        <div class="job-sheet-field"><span>Date Completed:</span><strong>________________</strong></div>
+      </div>
+    </article>`;
+  }
+
+  function renderMtaJobPreview(data) {
+    return `<article class="job-card-sheet job-card-sheet-mta" aria-label="MTA job card preview">
+      <div class="job-sheet-topline"><div class="job-sheet-brand job-sheet-brand-wide">GMT Electrical Services Ltd.</div><div class="job-sheet-number"><span>MTA No.</span><strong>${safe(data.ref || 'MTA 00000')}</strong></div></div>
+      <div class="job-sheet-mta-meta"><div class="job-sheet-field"><span>Date:</span><strong>${safe(data.date)}</strong></div><div class="job-sheet-field"><span>Job authorised by:</span><strong>________________</strong></div><div class="job-sheet-field"><span>Tally:</span><strong>________________</strong></div></div>
+      <div class="job-sheet-mta-parties"><div class="job-sheet-box"><span>Invoiced to</span><strong>${safe(data.client)}</strong></div><div class="job-sheet-box"><span>Dispatched to</span><strong>${safe(data.site)}</strong><small>Signature: __________________ Date: __________</small><small>Print name: ______________________________</small></div></div>
+      <div class="job-sheet-equipment"><div>MAKE</div><div>HP / KW</div><div>VOLTS</div><div>RPM</div><div>SERIAL No.</div><strong>${safe(data.client)}</strong><span>________</span><span>________</span><span>________</span><span>________________</span></div>
+      <div class="job-sheet-section-title">Report</div>
+      <div class="job-sheet-mta-report"><div class="job-sheet-lined job-sheet-report">${safe(data.description)}</div><div class="job-sheet-checklist"><span>SLOTS __________________</span><span>COILS __________________</span><span>GROUPS ________________</span><span>SPAN __________________</span><span>CONNECTION ____________</span><span>EXTRA __________________</span><span>WINDER _________________</span></div></div>
+      <div class="job-sheet-mta-footer"><div class="job-sheet-box"><span>Material / time / operative / price</span><strong>Engineer: ${safe(data.engineer)}</strong></div><div class="job-sheet-box"><span>Test report</span><small>2500 volts __________________</small><small>Megger _____________________</small><small>Tested by __________________</small><small>Authorised by ______________</small><small>Date ______________________</small></div></div>
+    </article>`;
+  }
+
+  function updateJobPreviewToggle(type) {
+    const selected = type === 'MTA' ? 'MTA' : 'EC';
+    $$('[data-preview-card-type]').forEach((button) => {
+      const isSelected = button.dataset.previewCardType === selected;
+      button.classList.toggle('is-selected', isSelected);
+      button.setAttribute('aria-pressed', String(isSelected));
+    });
+    $('#job-card-preview')?.setAttribute('data-card-type', selected);
+  }
+
+  function renderJobPreview(type) {
     const preview = $('#job-card-preview');
     if (!preview) return;
-    const type = $('#job-card-type')?.value || 'EC';
-    const ref = $('#job-ref')?.value.trim() || 'EC 00000';
-    const client = $('#job-client')?.value.trim() || 'Customer / client';
-    const site = $('#job-site')?.value.trim() || 'Job address';
-    const engineer = $('#job-engineer')?.value.trim() || 'Engineer';
-    const date = $('#job-date')?.value || 'Date';
-    const description = $('#job-description')?.value.trim() || 'Job description / report';
-    preview.innerHTML = `<div class="job-card-preview-header"><strong>GMT Electrical Services</strong><strong>${safe(type)} No. ${safe(ref)}</strong></div><div class="job-card-preview-grid"><p><b>Date:</b> ${safe(date)}</p><p><b>Customer:</b> ${safe(client)}</p><p><b>Job address:</b> ${safe(site)}</p><p><b>Engineer:</b> ${safe(engineer)}</p><p><b>Order / reference:</b> ${safe(ref)}</p><p><b>Card format:</b> ${safe(type)}</p></div><div class="job-card-preview-label">Job description / report</div><div class="job-card-preview-report">${safe(description)}</div><div class="job-card-preview-grid"><p><b>Date started:</b> ${safe(date)}</p><p><b>Date completed:</b> __________________</p></div>`;
+    const selectedType = type === 'MTA' ? 'MTA' : (type === 'EC' ? 'EC' : ($('#job-card-type')?.value || 'EC'));
+    const data = jobPreviewData();
+    preview.innerHTML = selectedType === 'MTA' ? renderMtaJobPreview(data) : renderEcJobPreview(data);
+    updateJobPreviewToggle(selectedType);
   }
 
   function renderTasks(remoteTasks = []) {
@@ -434,7 +485,15 @@
   }
 
   function bindJobs() {
-    ['#job-card-type', '#job-ref', '#job-client', '#job-site', '#job-engineer', '#job-date', '#job-description'].forEach((selector) => $(selector)?.addEventListener('input', renderJobPreview));
+    ['#job-ref', '#job-client', '#job-site', '#job-engineer', '#job-date', '#job-description'].forEach((selector) => $(selector)?.addEventListener('input', () => renderJobPreview()));
+    $('#job-card-type')?.addEventListener('change', (event) => renderJobPreview(event.target.value));
+    $$('[data-preview-card-type]').forEach((button) => button.addEventListener('click', () => {
+      const type = button.dataset.previewCardType === 'MTA' ? 'MTA' : 'EC';
+      const select = $('#job-card-type');
+      if (select) select.value = type;
+      renderJobPreview(type);
+    }));
+    renderJobPreview();
     $('#job-card-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const jobs = store.get(keys.jobs, []);

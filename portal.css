@@ -526,14 +526,43 @@
 .timesheet-editor-grid th { background: #f5f8f3; color: var(--green); font-size: .78rem; }
 .timesheet-editor-grid input, .timesheet-editor-grid select { width: 100%; min-width: 7rem; padding: .45rem; border: 1px solid var(--line); border-radius: .45rem; background: #fff; color: var(--ink); font: inherit; }
 .timesheet-editor-grid input[type="number"] { min-width: 5rem; }
-.job-card-preview { margin-top: 1rem; padding: 1rem; border: 2px solid #1f3a50; background: #fff; color: #17202a; font-family: Georgia, "Times New Roman", serif; }
+.job-card-preview-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: end; }
+.job-card-preview-heading h3 { margin: 0; }
+.job-card-preview-toggle { display: flex; gap: .35rem; flex-wrap: wrap; }
+.job-card-preview-toggle button { min-height: 38px; padding: .45rem .7rem; font-size: .88rem; }
+.job-card-preview-toggle button.is-selected { color: #fff; background: var(--green); }
+.job-card-preview { margin-top: 1rem; padding: .65rem; border: 2px solid #1f3a50; background: #e9edf0; color: #17202a; font-family: Georgia, "Times New Roman", serif; }
 .job-card-preview[hidden] { display: none; }
-.job-card-preview-header { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 2px solid #1f3a50; padding-bottom: .65rem; }
-.job-card-preview-header strong { letter-spacing: .04em; }
-.job-card-preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem 1rem; margin: .8rem 0; }
-.job-card-preview-grid p { margin: 0; padding: .35rem; border-bottom: 1px solid #9ba6ae; }
-.job-card-preview-report { min-height: 12rem; padding: .6rem; border: 1px solid #9ba6ae; white-space: pre-wrap; }
-.job-card-preview-label { margin: .7rem 0 .25rem; font-weight: 800; text-transform: uppercase; font-size: .76rem; }
+.job-card-sheet { padding: .85rem; border: 1px solid #1f3a50; background: #fff; }
+.job-sheet-topline { display: flex; justify-content: space-between; gap: 1rem; align-items: start; padding-bottom: .55rem; border-bottom: 2px solid #1f3a50; }
+.job-sheet-brand { color: #243d6b; font-size: 1.08rem; font-weight: 900; text-decoration: underline; text-underline-offset: .16em; }
+.job-sheet-brand-wide { font-size: 1rem; }
+.job-sheet-number { display: grid; gap: .1rem; min-width: 8rem; text-align: right; }
+.job-sheet-number span, .job-sheet-field span, .job-sheet-box > span { font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.job-sheet-number strong { font-size: 1.05rem; }
+.job-sheet-meta-grid { display: grid; gap: .4rem .75rem; margin-top: .7rem; }
+.job-sheet-meta-ec { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.job-sheet-field { display: flex; gap: .4rem; align-items: baseline; min-width: 0; padding: .35rem .4rem; border-bottom: 1px solid #9ba6ae; }
+.job-sheet-field strong { overflow-wrap: anywhere; font-weight: 700; }
+.job-sheet-address { grid-row: span 2; min-height: 4rem; align-items: flex-start; flex-direction: column; }
+.job-sheet-rule { margin: .7rem 0 .45rem; border-top: 1px solid #1f3a50; }
+.job-sheet-section-title { margin: .6rem 0 .3rem; font-size: .83rem; font-weight: 900; text-align: center; text-decoration: underline; }
+.job-sheet-lined { min-height: 13rem; padding: .55rem; border: 1px solid #9ba6ae; white-space: pre-wrap; background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 1.34rem, #b5bec4 1.34rem, #b5bec4 calc(1.34rem + 1px)); background-size: 100% 1.35rem; overflow-wrap: anywhere; }
+.job-sheet-footer-grid { display: grid; grid-template-columns: 1.35fr 1fr 1fr; gap: .45rem; margin-top: .75rem; }
+.job-sheet-mta-meta { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: .45rem; margin-top: .55rem; }
+.job-sheet-mta-parties, .job-sheet-mta-report, .job-sheet-mta-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; margin-top: .6rem; }
+.job-sheet-box { display: grid; gap: .35rem; min-width: 0; padding: .5rem; border: 1px solid #9ba6ae; }
+.job-sheet-box strong { min-height: 2rem; overflow-wrap: anywhere; }
+.job-sheet-box small { min-height: 1.1rem; }
+.job-sheet-equipment { display: grid; grid-template-columns: 1.35fr repeat(3, .7fr) 1.5fr; margin-top: .6rem; border: 1px solid #9ba6ae; }
+.job-sheet-equipment > * { min-width: 0; padding: .3rem; border-right: 1px solid #9ba6ae; border-bottom: 1px solid #9ba6ae; overflow-wrap: anywhere; font-size: .7rem; }
+.job-sheet-equipment > :nth-child(5n) { border-right: 0; }
+.job-sheet-equipment > :nth-last-child(-n + 5) { border-bottom: 0; }
+.job-sheet-equipment > div { color: #243d6b; font-weight: 900; text-align: center; }
+.job-sheet-mta-report .job-sheet-lined { min-height: 11rem; }
+.job-sheet-checklist { display: grid; align-content: start; gap: .1rem; padding: .5rem; border: 1px solid #9ba6ae; font-size: .69rem; }
+.job-sheet-checklist span { display: block; padding: .28rem 0; border-bottom: 1px solid #9ba6ae; }
+.job-sheet-checklist span:last-child { border-bottom: 0; }
 .task-card-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .65rem; }
 .task-card-actions button { font-size: .78rem; padding: .35rem .55rem; }
 .back-button {
@@ -547,6 +576,22 @@
   }
 }
 @media (max-width: 700px) {
+  .job-card-preview-heading { align-items: flex-start; flex-direction: column; }
+  .job-card-preview-toggle { width: 100%; }
+  .job-card-preview-toggle button { flex: 1 1 0; }
+  .job-card-preview { padding: .35rem; }
+  .job-card-sheet { padding: .6rem; }
+  .job-sheet-topline { gap: .5rem; }
+  .job-sheet-brand { font-size: .88rem; }
+  .job-sheet-number { min-width: 5.5rem; }
+  .job-sheet-number span, .job-sheet-field span, .job-sheet-box > span { font-size: .58rem; }
+  .job-sheet-number strong { font-size: .8rem; }
+  .job-sheet-meta-ec, .job-sheet-mta-meta, .job-sheet-footer-grid, .job-sheet-mta-parties, .job-sheet-mta-report, .job-sheet-mta-footer { grid-template-columns: 1fr; }
+  .job-sheet-address { grid-row: auto; min-height: 0; }
+  .job-sheet-lined { min-height: 11rem; }
+  .job-sheet-equipment { grid-template-columns: 1.35fr repeat(3, .7fr) 1.25fr; }
+  .job-sheet-equipment > * { padding: .22rem; font-size: .58rem; }
+  .job-sheet-mta-report .job-sheet-lined { min-height: 9rem; }
   .portal-header { text-align: center; }
   .portal-header .brand-block { justify-content: center; }
   .portal-header .brand-block .site-logo { width: min(230px,72vw); height: 70px; }
