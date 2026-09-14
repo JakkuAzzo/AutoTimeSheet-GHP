@@ -14,6 +14,8 @@ assert.match(page, /id="submissions-list"/);
 assert.match(page, /id="submissions-preview"/);
 assert.match(page, /submissions-calendar-panel/);
 assert.match(page, /data-submissions-calendar/);
+assert.match(page, /submissions-admin-timesheet-summary/);
+assert.match(script, /renderAdminTimesheetSummary/);
 assert.match(page, /submissions-calendar\.js/);
 for (const value of ['enquiries', 'job-cards', 'estimates', 'tasks', 'calendar', 'timesheets']) assert.match(page, new RegExp(`value="${value}"`));
 assert.match(script, /GMTPortalApi\.history\("all"\)/);

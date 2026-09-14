@@ -6,6 +6,10 @@
   var preview = document.getElementById("submissions-preview");
   var filter = document.getElementById("submissions-filter");
   var refresh = document.getElementById("submissions-refresh");
+  var adminTimesheetSummary = document.getElementById("submissions-admin-timesheet-summary");
+  var adminTimesheetStatus = document.getElementById("submissions-admin-timesheet-status");
+  var adminTimesheetNote = document.getElementById("submissions-admin-timesheet-note");
+  var adminTimesheetTable = document.getElementById("submissions-admin-timesheet-table");
   var records = [];
   var realRecordCount = 0;
   var historyMeta = {};
@@ -20,6 +24,9 @@
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character];
     });
+  }
+  function money(value) {
+    try { return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(Number(value) || 0); } catch (_) { return "£" + (Number(value) || 0).toFixed(2); }
   }
   function actionKey(record) {
     var value = String(record && (record.kind || record.action || record.category || record.record_type || "timesheet")).toLowerCase();
@@ -55,12 +62,118 @@
     var result = Array.isArray(realRecords) ? realRecords.slice() : [];
     var today = new Date().toISOString().slice(0, 10);
     var examples = [
-      { record_id: "demo-job-card", kind: "job-cards", action: "job_card_example", demo_label: "Job card example", demo_name: "Example job card", status: "Example only", record_date: today, source: "GMT demonstration" },
-      { record_id: "demo-estimate", kind: "estimates", action: "estimate_example", demo_label: "Estimate example", demo_name: "Example estimate", status: "Example only", record_date: today, source: "GMT demonstration" },
-      { record_id: "demo-task", kind: "tasks", action: "task_example", demo_label: "Task example", demo_name: "Example task", status: "Example only", record_date: today, source: "GMT demonstration" }
+      { record_id: "demo-job-card", kind: "job-cards", action: "job_card_example", demo_label: "Job card example", demo_name: "Example job card", status: "Example only", record_date: today, source: "GMT demonstration", payload: { jobReference: "GMT-DEMO-001", client: "Example client", site: "93-95 Gloucester Road, Croydon CR0 2DN", engineer: "Example engineer", plannedDate: today, description: "Example job card for review before a real job is submitted.", cardType: "EC", jobStatus: "Received", jobRevision: 1 } },
+      { record_id: "demo-estimate", kind: "estimates", action: "estimate_example", demo_label: "Estimate example", demo_name: "Example estimate", status: "Example only", record_date: today, source: "GMT demonstration", payload: { number: "GMT-EST-DEMO-001", date: today, attention: "Example contact", company: "Example client", email: "client@example.com", validity: "30", preparedBy: "GMT Accounts", vatRate: 20, reference: "Re: example motor service", opening: "Thank you for your enquiry. This labelled example shows the client-facing estimate layout.", terms: "All works quoted are subject to confirmation. This is demonstration data only.", items: [{ description: "Inspection and service", quantity: 1, unit: 250 }], subtotal: 250, vat: 50, total: 300 } },
+      { record_id: "demo-task", kind: "tasks", action: "task_example", demo_label: "Task example", demo_name: "Example task", status: "Example only", record_date: today, source: "GMT demonstration", payload: { title: "Example task", jobReference: "GMT-DEMO-001", assignee: "Example engineer", due: today, priority: "Normal", notes: "Example task for the GMT operational workflow." } }
     ];
     examples.forEach(function (example) { result.push(Object.assign({ is_demo: true }, example)); });
     return result;
+  }
+
+  function payloadFor(record) {
+    return record && record.payload && typeof record.payload === "object" ? record.payload : {};
+  }
+
+  function jobPreviewData(record) {
+    var payload = payloadFor(record);
+    return {
+      ref: record.job_ref || payload.jobReference || payload.ref || record.record_id || "EC 00000",
+      client: record.client || payload.client || payload.company || "Customer / client",
+      site: record.site || payload.site || payload.siteAddress || "Job address",
+      engineer: record.engineer || payload.engineer || payload.assignedEngineer || "Engineer",
+      date: record.planned_date || payload.plannedDate || payload.date || record.record_date || "Date",
+      description: record.description || payload.description || "Job description / report"
+    };
+  }
+
+  function renderEcJobSheet(data) {
+    return '<article class="job-card-sheet job-card-sheet-ec" aria-label="EC job card preview">' +
+      '<div class="job-sheet-topline"><div class="job-sheet-branding"><img class="job-sheet-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><span class="job-sheet-brand">GMT Electrical Services</span></div><div class="job-sheet-number"><span>E.C.No</span><strong>' + safe(data.ref || "EC 00000") + '</strong></div></div>' +
+      '<div class="job-sheet-meta-grid job-sheet-meta-ec"><div class="job-sheet-field"><span>Date:</span><strong>' + safe(data.date) + '</strong></div><div class="job-sheet-field job-sheet-address"><span>Job Address:</span><strong>' + safe(data.site) + '</strong></div><div class="job-sheet-field"><span>Customer:</span><strong>' + safe(data.client) + '</strong></div><div class="job-sheet-field"><span>Contact:</span><strong>________________</strong></div><div class="job-sheet-field"><span>Order No:</span><strong>' + safe(data.ref || "EC 00000") + '</strong></div><div class="job-sheet-field"><span>Tel:</span><strong>________________</strong></div></div>' +
+      '<div class="job-sheet-rule"></div><div class="job-sheet-section-title">Job description / Report</div><div class="job-sheet-lined job-sheet-report">' + safe(data.description) + '</div>' +
+      '<div class="job-sheet-footer-grid"><div class="job-sheet-field"><span>Engineer:</span><strong>' + safe(data.engineer) + '</strong></div><div class="job-sheet-field"><span>Date Started:</span><strong>' + safe(data.date) + '</strong></div><div class="job-sheet-field"><span>Date Completed:</span><strong>________________</strong></div></div></article>';
+  }
+
+  function renderMtaJobSheet(data) {
+    return '<article class="job-card-sheet job-card-sheet-mta" aria-label="MTA job card preview">' +
+      '<div class="job-sheet-topline"><div class="job-sheet-branding"><img class="job-sheet-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><span class="job-sheet-brand job-sheet-brand-wide">GMT Electrical Services Ltd.</span></div><div class="job-sheet-number"><span>MTA No.</span><strong>' + safe(data.ref || "MTA 00000") + '</strong></div></div>' +
+      '<div class="job-sheet-mta-meta"><div class="job-sheet-field"><span>Date:</span><strong>' + safe(data.date) + '</strong></div><div class="job-sheet-field"><span>Job authorised by:</span><strong>________________</strong></div><div class="job-sheet-field"><span>Tally:</span><strong>________________</strong></div></div>' +
+      '<div class="job-sheet-mta-parties"><div class="job-sheet-box"><span>Invoiced to</span><strong>' + safe(data.client) + '</strong></div><div class="job-sheet-box"><span>Dispatched to</span><strong>' + safe(data.site) + '</strong><div class="job-sheet-signature"><small>Signature: __________________</small><small>Date: __________</small></div><small>Print name: ______________________________</small></div></div>' +
+      '<div class="job-sheet-equipment"><div>MAKE</div><div>HP / KW</div><div>VOLTS</div><div>RPM</div><div>SERIAL No.</div><strong>' + safe(data.client) + '</strong><span>________</span><span>________</span><span>________</span><span>________________</span></div>' +
+      '<div class="job-sheet-section-title">Report</div><div class="job-sheet-mta-report"><div class="job-sheet-lined job-sheet-report">' + safe(data.description) + '</div><div class="job-sheet-checklist"><span>SLOTS __________________</span><span>COILS __________________</span><span>GROUPS ________________</span><span>SPAN __________________</span><span>CONNECTION ____________</span><span>EXTRA __________________</span><span>WINDER _________________</span></div></div>' +
+      '<div class="job-sheet-mta-footer"><div class="job-sheet-box"><span>Material / time / operative / price</span><strong>Engineer: ' + safe(data.engineer) + '</strong></div><div class="job-sheet-box"><span>Test report</span><small>2500 volts __________________</small><small>Megger _____________________</small><small>Tested by __________________</small><small>Authorised by ______________</small><small>Date ______________________</small></div></div></article>';
+  }
+
+  function renderJobCardPreview(record) {
+    var payload = payloadFor(record);
+    var data = jobPreviewData(record);
+    var selectedType = String(record.card_type || payload.cardType || "EC").toUpperCase() === "MTA" ? "MTA" : "EC";
+    preview.innerHTML = '<div class="submission-document-preview"><div class="job-card-preview-heading"><div><p class="portal-card-kicker">' + safe(selectedType) + ' card</p><h3>' + safe(record.is_demo ? "Example job card" : (record.job_ref || record.record_id || "Job card")) + '</h3></div><div class="job-card-preview-toggle" role="group" aria-label="Preview card format"><button type="button" class="secondary' + (selectedType === "EC" ? ' is-selected' : '') + '" data-submission-card-type="EC" aria-pressed="' + String(selectedType === "EC") + '">EC card</button><button type="button" class="secondary' + (selectedType === "MTA" ? ' is-selected' : '') + '" data-submission-card-type="MTA" aria-pressed="' + String(selectedType === "MTA") + '">MTA card</button></div></div><div class="job-card-preview" data-submission-job-sheet>' + (selectedType === "MTA" ? renderMtaJobSheet(data) : renderEcJobSheet(data)) + '</div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + '</div>';
+    preview.querySelectorAll("[data-submission-card-type]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var type = button.getAttribute("data-submission-card-type") === "MTA" ? "MTA" : "EC";
+        preview.querySelectorAll("[data-submission-card-type]").forEach(function (item) { var active = item.getAttribute("data-submission-card-type") === type; item.classList.toggle("is-selected", active); item.setAttribute("aria-pressed", String(active)); });
+        var sheet = preview.querySelector("[data-submission-job-sheet]");
+        if (sheet) sheet.innerHTML = type === "MTA" ? renderMtaJobSheet(data) : renderEcJobSheet(data);
+      });
+    });
+  }
+
+  function estimatePreviewData(record) {
+    var payload = payloadFor(record);
+    var items = Array.isArray(record.items) && record.items.length ? record.items : (Array.isArray(payload.items) ? payload.items : []);
+    items = items.map(function (item) { return { description: item.description || item.Description || "", quantity: Number(item.quantity ?? item.Quantity) || 0, unit: Number(item.unit ?? item.Unit ?? item.unitPrice) || 0 }; }).filter(function (item) { return item.description; });
+    var subtotal = Number(record.subtotal ?? payload.subtotal);
+    if (!Number.isFinite(subtotal)) subtotal = items.reduce(function (sum, item) { return sum + item.quantity * item.unit; }, 0);
+    var vatRate = Number(record.vat_rate ?? payload.vatRate) || 0;
+    var vat = Number(record.vat ?? payload.vat);
+    if (!Number.isFinite(vat)) vat = subtotal * vatRate / 100;
+    var total = Number(record.total ?? payload.total);
+    if (!Number.isFinite(total)) total = subtotal + vat;
+    return { number: record.estimate_number || payload.number || payload.estimateNumber || record.record_id || "GMT-EST-DEMO-001", date: record.estimate_date || payload.date || record.record_date || "", attention: record.client_contact || payload.attention || "Client contact", company: record.client_company || payload.company || "Client company", email: record.client_email || payload.email || "", validity: record.validity || payload.validity || "30", preparedBy: record.prepared_by || payload.preparedBy || "GMT Electrical Services Ltd", vatRate: vatRate, reference: record.reference || payload.reference || "Estimate", opening: record.opening || payload.opening || "", terms: record.terms || payload.terms || "", items: items, subtotal: subtotal, vat: vat, total: total };
+  }
+
+  function renderEstimatePreview(record) {
+    var d = estimatePreviewData(record);
+    var rows = d.items.map(function (item) { return '<tr><td>' + safe(item.description) + '</td><td>' + safe(item.quantity) + '</td><td>' + safe(money(item.unit)) + '</td><td>' + safe(money(item.quantity * item.unit)) + '</td></tr>'; }).join("") || '<tr><td colspan="4">No line items added.</td></tr>';
+    preview.innerHTML = '<div class="estimate-paper-header"><img class="estimate-paper-logo" src="../image.png" alt="GMT Electrical Services Ltd logo"><div class="estimate-paper-company"><p>Electric Motor Repairs &amp; Rewinds</p><p>Electrical &amp; Mechanical Engineers</p><p>Air Conditioning Repair &amp; Service</p><p>93-95 Gloucester Rd, Croydon CR0 2DN</p><p>Tel 020 8683 0464</p><p>info@gmt-services.co.uk</p></div></div><h1 class="estimate-paper-title">Estimate</h1><div class="estimate-paper-meta"><div><p><strong>For the attention of:</strong> ' + safe(d.attention) + '</p><p><strong>Company:</strong> ' + safe(d.company) + '</p><p><strong>Re:</strong> ' + safe(d.reference) + '</p></div><div><p><strong>Date:</strong> ' + safe(d.date) + '</p><p><strong>Estimate no:</strong> ' + safe(d.number) + '</p></div></div><div class="estimate-paper-body"><p>' + safe(d.opening).replace(/\n/g, '<br>') + '</p><table class="estimate-paper-table"><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>' + rows + '</tbody></table><div class="estimate-paper-total"><p><span>Subtotal</span><strong>' + safe(money(d.subtotal)) + '</strong></p><p><span>VAT (' + safe(d.vatRate) + '%)</span><strong>' + safe(money(d.vat)) + '</strong></p><p class="grand-total"><span>Total</span><strong>' + safe(money(d.total)) + '</strong></p></div></div><p class="estimate-paper-terms">' + safe(d.terms) + '<br><br>Estimate validity: ' + safe(d.validity) + ' days.</p><p>Regards,<br>' + safe(d.preparedBy) + '</p>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '');
+  }
+
+  function renderTaskPreview(record) {
+    var payload = payloadFor(record);
+    var title = record.task_title || payload.title || (record.is_demo ? "Example task" : "Task");
+    var job = record.job_reference || payload.jobReference || "No job reference";
+    var assignee = record.assignee || payload.assignee || "Unassigned";
+    var due = record.due_date || payload.due || record.record_date || "No due date";
+    var priority = record.priority || payload.priority || "Normal";
+    preview.innerHTML = '<div class="submission-task-preview"><div class="submission-task-preview-header"><img class="submission-task-preview-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><div><p class="portal-card-kicker">GMT task</p><h2>' + safe(title) + '</h2></div><span class="portal-status">' + safe(record.status || "Example only") + '</span></div><div class="submission-task-preview-meta"><p><strong>Job reference:</strong> ' + safe(job) + '</p><p><strong>Assigned to:</strong> ' + safe(assignee) + '</p><p><strong>Due:</strong> ' + safe(due) + '</p><p><strong>Priority:</strong> ' + safe(priority) + '</p></div><div class="submission-task-preview-notes"><strong>Notes</strong><p>' + safe(payload.notes || "Example task for the GMT operational workflow.") + '</p></div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + '</div>';
+  }
+
+  function renderAdminTimesheetSummary(meta) {
+    if (!adminTimesheetSummary) return;
+    var completion = meta && meta.completion;
+    if (!meta || meta.is_admin !== true || !completion) {
+      adminTimesheetSummary.hidden = true;
+      return;
+    }
+    adminTimesheetSummary.hidden = false;
+    var counts = completion.counts || {};
+    if (adminTimesheetStatus) adminTimesheetStatus.textContent = "Pay month " + (completion.pay_month || "current") + " · " + Number(counts.completed || 0) + " completed · " + Number(counts.incomplete || 0) + " incomplete · " + Number(counts.missing || 0) + " missing.";
+    var upstream = String(meta.upstream || "not-configured");
+    var sourceMessage = upstream === "ok" ? "Microsoft 365 history is included in this Accounts view." : "Microsoft 365 history source status: " + upstream + ".";
+    if (adminTimesheetNote) adminTimesheetNote.textContent = sourceMessage + (completion.directory_configured ? " The configured employee roster is shown below." : " The employee roster is not configured, so only employees returned by history can be listed.");
+    var employees = Array.isArray(completion.employees) ? completion.employees : [];
+    if (!adminTimesheetTable) return;
+    if (!employees.length) {
+      adminTimesheetTable.innerHTML = '<tbody><tr><td>No employee rows were returned by the protected history source.</td></tr></tbody>';
+      return;
+    }
+    adminTimesheetTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Submitted records</th><th>Missing / needs attention</th></tr></thead><tbody>' + employees.map(function (employee) {
+      var statusValue = String(employee.status || "missing");
+      var statusLabel = statusValue === "completed" ? "Completed" : statusValue === "incomplete" ? "Incomplete" : "Missing";
+      var missing = Array.isArray(employee.missing) && employee.missing.length ? employee.missing.join("; ") : "None";
+      return '<tr><td><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td>' + safe(employee.submitted_records || 0) + '</td><td>' + safe(missing) + '</td></tr>';
+    }).join("") + '</tbody>';
   }
   function renderEnquiryPreview(record) {
     var messages = Array.isArray(record.messages) ? record.messages : [];
@@ -108,6 +221,9 @@
     if (!preview) return;
     if (!record) { preview.innerHTML = '<p class="small-text">Select a document to preview it.</p>'; return; }
     if (actionKey(record) === "enquiries") { renderEnquiryPreview(record); return; }
+    if (actionKey(record) === "job-cards") { renderJobCardPreview(record); return; }
+    if (actionKey(record) === "estimates") { renderEstimatePreview(record); return; }
+    if (actionKey(record) === "tasks") { renderTaskPreview(record); return; }
     var label = actionLabel(record);
     var employee = displayName(record);
     var statusValue = record.is_demo ? "Example only" : (record.status || "Submitted");
@@ -161,10 +277,24 @@
       realRecordCount = realRecords.length;
       records = withExamples(realRecords);
       historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
+      renderAdminTimesheetSummary(historyMeta);
       var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";
       if (status) status.textContent = realRecordCount
         ? "Showing " + realRecordCount + " submitted document" + (realRecordCount === 1 ? "" : "s") + " authorised for your signed-in GMT identity, plus labelled examples." + scope
         : "No submitted documents are currently available for this account. Labelled examples are shown below." + scope;
+      var adminNotice = document.getElementById("submissions-admin-timesheet-notice");
+      if (adminNotice) {
+        var hasTimesheet = realRecords.some(function (record) { return actionKey(record) === "timesheets" || actionKey(record) === "clock"; });
+        if (historyMeta.is_admin === true && !hasTimesheet) {
+          var upstream = String(historyMeta.upstream || "not-configured");
+          var sourceText = upstream === "ok" ? "Microsoft 365 returned no employee timesheet rows for this account." : "The protected Microsoft 365 history source is currently " + upstream + ".";
+          adminNotice.hidden = false;
+          adminNotice.innerHTML = "Accounts access is enabled. " + safe(sourceText) + " <a class=\"portal-text-link\" href=\"timesheets.html\">Open Accounts timesheet history and completion status →</a>";
+        } else {
+          adminNotice.hidden = true;
+          adminNotice.textContent = "";
+        }
+      }
       render();
     } catch (error) {
       realRecordCount = 0;

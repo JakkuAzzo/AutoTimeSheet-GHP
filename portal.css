@@ -643,6 +643,17 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .job-sheet-checklist span:last-child { border-bottom: 0; }
 .task-card-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .65rem; }
 .task-card-actions button { font-size: .78rem; padding: .35rem .55rem; }
+.submission-document-preview { display: grid; gap: .75rem; }
+.submission-document-preview .job-card-preview-heading { align-items: center; }
+.submission-document-preview .job-card-preview { margin-top: 0; }
+.submission-task-preview { display: grid; gap: 1rem; padding: 1.2rem; color: var(--ink); background: #fff; border: 1px solid var(--line); }
+.submission-task-preview-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding-bottom: .9rem; border-bottom: 2px solid #cda72e; }
+.submission-task-preview-header h2 { margin: .1rem 0 0; color: var(--green); }
+.submission-task-preview-logo { width: 3.25rem; height: 3.25rem; object-fit: contain; }
+.submission-task-preview-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem 1rem; }
+.submission-task-preview-meta p { margin: 0; padding: .55rem; background: #f6f9f3; border: 1px solid var(--line); }
+.submission-task-preview-notes { padding: .8rem; border: 1px solid #9ba6ae; }
+.submission-task-preview-notes p { margin: .45rem 0 0; white-space: pre-wrap; }
 .back-button {
   margin: .5rem 0;
 }
@@ -671,6 +682,9 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .job-sheet-footer-grid .job-sheet-field { grid-template-columns: 1fr; }
   .job-sheet-signature { grid-template-columns: 1fr; }
   .job-card-account-fields { grid-template-columns: 1fr; }
+  .submission-task-preview-header { grid-template-columns: auto minmax(0, 1fr); }
+  .submission-task-preview-header .portal-status { grid-column: 1 / -1; justify-self: start; }
+  .submission-task-preview-meta { grid-template-columns: 1fr; }
   .timesheet-paper-meta { grid-template-columns: 1fr; }
   .timesheet-calendar-grid .calendar-day { min-height: 86px; padding: .25rem; }
   .timesheet-calendar-label { padding: .16rem .2rem; font-size: .62rem; }
