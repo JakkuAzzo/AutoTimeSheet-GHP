@@ -1496,8 +1496,10 @@ async function listRecords(request, env, identity) {
         const upstreamResponse = await fetchUpstreamHistory(upstreamUrl, upstreamAuth.token, kind, identity);
         if (upstreamResponse.ok) {
           const body = await upstreamResponse.json();
-          const sourceRows = body && Array.isArray(body.records)
-            ? body.records
+          const sourceRows = Array.isArray(body)
+            ? body
+            : body && Array.isArray(body.records)
+              ? body.records
             : body && Array.isArray(body.value)
               ? body.value
               : body && Array.isArray(body.data)
