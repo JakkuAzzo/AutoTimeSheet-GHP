@@ -908,12 +908,21 @@ async function verifiedUpstreamToken(request, env, identity) {
 
 async function fetchUpstreamHistory(upstreamUrl, token, kind, identity) {
   const headers = { accept: 'application/json', authorization: `Bearer ${token}` };
-  let response = await fetch(upstreamUrl, { headers, cf: { cacheTtl: 0, cacheEverything: false } });
-  if (response.status === 405) {
+  const requestInit = { headers, cf: { cacheTtl: 0, cacheEverything: false }, signal: AbortSignal.timeout(15000) };
+  let response = await fetch(upstreamUrl, requestInit);
+  // Power Automate's HTTP trigger rejects the probe GET with 400 in some
+  // tenants (and 405 in others).  Both responses mean that the trigger is
+  // reachable and expects its documented POST payload.
+  if (response.status === 400 || response.status === 405) {
     response = await fetch(upstreamUrl, {
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ kind: kind || 'all', scope: identity.isAdmin ? 'all' : 'own' }),
+      body: JSON.stringify({
+        kind: kind || 'all',
+        scope: identity.isAdmin ? 'all' : 'own',
+        employeeEmail: identity.upn
+      }),
+      signal: AbortSignal.timeout(15000),
       cf: { cacheTtl: 0, cacheEverything: false }
     });
   }
