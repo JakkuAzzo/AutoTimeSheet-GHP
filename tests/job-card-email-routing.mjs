@@ -185,6 +185,11 @@ try {
   assert.ok(imageFields.get('gmt_submitted_at'), 'gmt_submitted_at should be populated');
   assert.equal(await page.locator('[data-job-approve], [data-job-pending], [data-job-reject], [data-job-delete]').count(), 0, 'the static portal must not expose local approval controls');
   assert.equal(await page.locator('#job-card-list').innerText().then((text) => text.includes('Status changes are managed by Accounts in Microsoft 365.')), true);
+  assert.equal(await page.locator('#job-card-list [data-job-select]').count(), 2, 'submitted cards should be selectable in history');
+  assert.match(await page.locator('#job-card-history-preview').innerText(), /GMT-ROUTE-000/);
+  await page.locator('#job-card-list [data-job-select]').filter({ hasText: 'GMT-ROUTE-001' }).click();
+  assert.match(await page.locator('#job-card-history-preview').innerText(), /GMT-ROUTE-001/);
+  assert.equal(await page.locator('#job-card-history-preview .job-card-sheet').count(), 1, 'selected history item should render its paper card');
 
   console.log(JSON.stringify({
     forms: result.map((form) => ({ subject: form.subject, action: form.action, cc: form.cc, files: form.files }))

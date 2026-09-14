@@ -423,6 +423,18 @@
 .portal-history-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }
 .portal-primary-link { background: var(--green); color: #fff; border-radius: 999px; font-weight: 900; }
 .portal-history-empty { margin: 0; padding: 1rem; background: #f5f8f3; border: 1px dashed var(--line); border-radius: .75rem; }
+.job-card-history-preview { display: grid; gap: .8rem; min-width: 0; padding: .8rem; border: 1px solid var(--line); background: #fff; }
+.job-card-history-document > .job-card-sheet { margin-top: .25rem; }
+.job-card-history-preview-toolbar { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.job-card-history-preview-toolbar h3 { margin: .1rem 0 0; color: var(--green); }
+.timesheet-history-preview { min-height: 520px; }
+.timesheet-paper-header { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 2px solid #cda72e; }
+.timesheet-paper-header h2 { margin: .15rem 0 0; color: var(--green); }
+.timesheet-paper-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin: 1rem 0; }
+.timesheet-paper-meta p { margin: .2rem 0; }
+.timesheet-paper-rows { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.timesheet-paper-rows th, .timesheet-paper-rows td { padding: .4rem; border-bottom: 1px solid #d9dfd4; text-align: left; }
+.timesheet-paper-rows th { color: var(--green); background: #f5f8f3; }
 .portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; }
 .timesheet-completion { margin-top: 1rem; padding: .85rem; border: 1px solid var(--line); border-radius: .85rem; background: #f8fbf6; }
 .timesheet-completion h3 { margin: 0; color: var(--green); }
@@ -623,6 +635,8 @@
   .job-sheet-footer-grid .job-sheet-field { grid-template-columns: 1fr; }
   .job-sheet-signature { grid-template-columns: 1fr; }
   .job-card-account-fields { grid-template-columns: 1fr; }
+  .timesheet-paper-meta { grid-template-columns: 1fr; }
+  .job-card-history-preview-toolbar { flex-direction: column; }
   .job-card-account-fields > strong { grid-column: auto; }
   .job-sheet-address { grid-row: auto; min-height: 0; }
   .job-sheet-lined { min-height: 11rem; }

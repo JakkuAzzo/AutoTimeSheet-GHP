@@ -16,9 +16,11 @@
   var editPolicy = document.getElementById("timesheet-history-edit-policy");
   var refreshButton = document.getElementById("timesheet-history-refresh");
   var frame = document.getElementById("portal-history-frame");
+  var historyPreview = document.getElementById("timesheet-history-preview");
   var lastRecords = [];
   var lastMeta = {};
   var lastCompletion = null;
+  var selectedHistory = -1;
   var requestInFlight = false;
 
   function safe(value) {
@@ -54,6 +56,7 @@
 
   function sendCurrentFilter() {
     send("gmt:history-filter", { filter: currentFilter(), employee: currentEmployee() });
+    render(lastRecords);
   }
 
   function updateMeta(meta) {
@@ -129,17 +132,82 @@
 
   function showEmpty(message) {
     if (list) list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + '</p>';
+    if (historyPreview) historyPreview.innerHTML = '<p class="small-text">' + safe(message) + '</p>';
+  }
+
+  function actionKey(record) {
+    var value = String(record && (record.kind || record.action || record.category || record.record_type || 'timesheet')).toLowerCase();
+    if (value.indexOf('clock') !== -1 || value.indexOf('break') !== -1 || value.indexOf('absence') !== -1) return 'clock';
+    if (value.indexOf('job') !== -1) return 'job-cards';
+    if (value.indexOf('estimate') !== -1 || value.indexOf('quote') !== -1) return 'estimates';
+    if (value.indexOf('calendar') !== -1 || value.indexOf('event') !== -1 || value.indexOf('leave') !== -1) return 'calendar';
+    if (value.indexOf('task') !== -1 || value.indexOf('request') !== -1) return 'tasks';
+    return 'timesheets';
+  }
+
+  function actionLabel(record) {
+    return String(record && (record.action || record.kind || 'Timesheet')).replace(/_/g, ' ').replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
+  }
+
+  function periodLabel(record) {
+    var date = record && record.record_date || '';
+    return date ? 'Date ' + date : 'Week ' + ((record && record.start_date) || 'not dated') + ' to ' + ((record && record.end_date) || 'not dated');
+  }
+
+  function renderTimesheetPreview(record) {
+    if (!historyPreview) return;
+    if (!record) {
+      historyPreview.innerHTML = '<p class="small-text">Select a timesheet to preview it.</p>';
+      return;
+    }
+    var key = actionKey(record);
+    var statusValue = String(record.status || 'Submitted');
+    var statusClass = statusValue.toLowerCase().replace(/\s+/g, '-');
+    var editable = record.can_edit === true && key === 'timesheets' && recordPayMonth(record) === currentPayMonth() && !!record.source_record_id;
+    var sourceLabel = record.source === 'portal-d1' ? 'Protected GMT portal' : (record.source || 'Microsoft 365 history');
+    var payload = record.payload && typeof record.payload === 'object' ? record.payload : {};
+    var rows = Array.isArray(payload.rows) ? payload.rows : [];
+    var rowTable = rows.length ? '<div class="table-scroll"><table class="timesheet-paper-rows"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Notes</th></tr></thead><tbody>' + rows.map(function (row) {
+      return '<tr><td>' + safe(row.date || '') + '</td><td>' + safe(row.start || '') + '</td><td>' + safe(row.finish || '') + '</td><td>' + safe(row.lunchMinutes || 0) + ' min</td><td>' + safe(row.absenceStatus || 'None') + '</td><td>' + safe(row.description || row.note || '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>' : '<p class="small-text">The protected history response includes submission metadata. Spreadsheet rows are available when the record detail is returned.</p>';
+    historyPreview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(record.employee_name || 'Timesheet') + '</h2></div><span class="portal-status ' + safe(statusClass) + '">' + safe(statusValue) + '</span></div>' +
+      '<div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(actionLabel(record)) + '</p><p><strong>Period:</strong> ' + safe(periodLabel(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.submitted_at || 'Not recorded') + '</p><p><strong>Updated:</strong> ' + safe(record.updated_at || record.submitted_at || 'Not recorded') + '</p><p><strong>Source:</strong> ' + safe(sourceLabel) + '</p><p><strong>Pay month:</strong> ' + safe(recordPayMonth(record) || 'Not dated') + '</p></div>' +
+      '<p class="small-text">Viewable at any time; editing is limited to the current pay month.</p>' +
+      (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') + rowTable +
+      (editable ? '<div class="portal-item-actions"><a class="button button-link" href="history-frame.html?edit=' + encodeURIComponent(record.source_record_id) + '">Edit spreadsheet</a></div>' : '<p class="small-text">This submission is view-only because it is outside the current pay month or has no editable portal record.</p>');
+  }
+
+  function selectHistory(index) {
+    selectedHistory = Number(index);
+    if (list && typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.setAttribute('aria-current', String(Number(button.getAttribute('data-history-index')) === selectedHistory)); });
+    var visible = filteredRecords();
+    renderTimesheetPreview(visible[selectedHistory]);
+  }
+
+  function filteredRecords() {
+    return (lastRecords || []).filter(function (record) {
+      if (currentFilter() !== 'all' && actionKey(record) !== currentFilter()) return false;
+      var selectedEmployee = currentEmployee().toLowerCase();
+      if (!selectedEmployee) return true;
+      return String(record.employee_upn || '').toLowerCase() === selectedEmployee || String(record.employee_name || '').toLowerCase() === selectedEmployee;
+    });
   }
 
   function render(records) {
-    if (!list) return;
-    if (!records.length) return showEmpty('No completed timesheets were found for this account.');
-    list.innerHTML = records.map(function (record) {
-      var action = String(record.action || 'Timesheet').replace(/_/g, ' ').replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
-      var date = record.record_date || '';
-      var period = date ? 'Date ' + date : 'Week ' + (record.start_date || 'not dated') + ' to ' + (record.end_date || 'not dated');
-      return '<article class="portal-item"><strong>' + safe(record.employee_name || 'Timesheet') + '</strong><span class="portal-status">' + safe(record.status || 'Submitted') + '</span><p class="portal-item-meta">' + safe(action) + ' · ' + safe(period) + '</p><p class="portal-item-meta">Last updated ' + safe(record.updated_at || record.submitted_at || 'not recorded') + '</p>' + (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') + '</article>';
-    }).join('');
+    lastRecords = Array.isArray(records) ? records : [];
+    var visible = filteredRecords();
+    if (!visible.length) return showEmpty(lastRecords.length ? 'No submissions match this filter.' : 'No completed timesheets were found for this account.');
+    if (list) {
+      list.innerHTML = visible.map(function (record, index) {
+        var action = actionLabel(record);
+        var statusValue = String(record.status || 'Submitted');
+        var statusClass = statusValue.toLowerCase().replace(/\s+/g, '-');
+        return '<button type="button" class="estimate-history-item" data-history-index="' + index + '" aria-current="' + String(index === selectedHistory) + '"><strong>' + safe(record.employee_name || 'Timesheet') + '</strong><span>' + safe(action) + '</span><small>' + safe(periodLabel(record)) + ' · ' + safe(statusValue) + '</small></button>';
+      }).join('');
+      if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index'))); }); });
+    }
+    if (selectedHistory < 0 || selectedHistory >= visible.length) selectedHistory = 0;
+    selectHistory(selectedHistory);
   }
 
   function showSetupState() {
@@ -230,6 +298,7 @@
       } else if (event.data.type === "gmt:history-records") {
         lastRecords = Array.isArray(event.data.records) ? event.data.records : [];
         updateMeta(event.data.meta || {});
+        render(lastRecords);
       } else if (event.data.type === "gmt:history-status") {
         setBusy(false);
         if (status && event.data.message) status.textContent = String(event.data.message);

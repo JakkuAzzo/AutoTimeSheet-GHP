@@ -36,6 +36,7 @@
   let jobCardRevisionSource = null;
   let jobHistoryMeta = {};
   let xeroStatusSnapshot = null;
+  let selectedJobId = '';
 
   function portalProfileName() {
     return store.get('gmt.portal.profile.v1', {}).name || '';
@@ -273,6 +274,56 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  function jobPreviewDataFromRecord(job) {
+    return {
+      ref: job.ref || '',
+      client: job.client || 'Customer / client',
+      site: job.site || 'Job address',
+      engineer: job.engineer || 'Engineer',
+      date: job.date || 'Date',
+      description: job.description || 'Job description / report'
+    };
+  }
+
+  function renderJobHistoryPreview(job) {
+    const preview = $('#job-card-history-preview');
+    if (!preview) return;
+    if (!job) {
+      preview.innerHTML = '<p class="small-text">Select a job card to preview it.</p>';
+      return;
+    }
+    const effectiveMeta = jobHistoryMeta || {};
+    const canManage = Boolean(effectiveMeta.is_admin || effectiveMeta.is_job_card_admin);
+    const canUseXero = Boolean(effectiveMeta.is_admin);
+    const lifecycleOptions = ['Received', 'Assigned', 'In progress', 'Awaiting parts', 'Completed', 'Cancelled'];
+    const statusValue = job.jobStatus || job.status || 'Received';
+    const statusClass = String(statusValue).toLowerCase().replace(/\s+/g, '-');
+    const data = jobPreviewDataFromRecord(job);
+    const accountFields = canManage && job.remote ? `<div class="job-card-account-fields" data-job-account-fields="${safe(job.id)}">
+      <strong>Accounts tracking</strong>
+      <label>Invoice number<input data-job-invoice value="${safe(job.invoiceNumber || '')}" placeholder="Assigned by Accounts"></label>
+      <label>Xero reference<input data-job-xero value="${safe(job.xeroReference || '')}" placeholder="Xero invoice or tracking reference"></label>
+      <label>Job status<select data-job-status>${[...new Set([statusValue, ...lifecycleOptions])].map((statusOption) => `<option value="${safe(statusOption)}" ${statusOption === statusValue ? 'selected' : ''}>${safe(statusOption)}</option>`).join('')}</select></label>
+      <label>Job email link<input data-job-email-url type="url" value="${safe(safeJobEmailUrl(job.emailUrl))}" placeholder="Outlook message link"></label>
+      <button type="button" class="secondary" data-job-account-save="${safe(job.id)}">Save Accounts fields</button>
+      ${canUseXero ? `<button type="button" class="secondary" data-job-xero-sync="${safe(job.id)}">Find invoice in Xero</button><span class="small-text" data-job-xero-feedback></span>` : ''}
+      <span class="small-text" data-job-account-feedback></span>
+    </div>` : '<p class="small-text">Status changes are managed by Accounts in Microsoft 365. Invoice and Xero tracking are managed there too.</p>';
+    preview.innerHTML = `<div class="job-card-history-preview-toolbar"><div><p class="portal-card-kicker">${safe(job.cardType || 'EC')} card · Revision ${safe(job.revision || 1)}</p><h3>${safe(job.ref || 'Untitled job')}</h3></div><span class="portal-status ${safe(statusClass)}">${safe(statusValue)}</span></div>
+      <p class="small-text">${safe(job.client || 'Customer / client')} · ${safe(job.site || 'Job address')} · Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
+      ${safeJobEmailUrl(job.emailUrl) ? `<p class="small-text"><a href="${safe(safeJobEmailUrl(job.emailUrl))}" target="_blank" rel="noopener">Open job email</a></p>` : ''}
+      <div class="job-card-history-document">${job.cardType === 'MTA' ? renderMtaJobPreview(data) : renderEcJobPreview(data)}</div>
+      <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${job.xeroInvoiceStatus ? ` · Xero status ${safe(job.xeroInvoiceStatus)}` : ''}${job.xeroLastSyncedAt ? ` · Synced ${safe(job.xeroLastSyncedAt)}` : ''}</p>
+      <div class="portal-item-actions"><button type="button" class="secondary" data-job-revise="${safe(job.id)}">Create revision</button></div>
+      ${accountFields}`;
+  }
+
+  function selectJobHistory(jobId) {
+    selectedJobId = String(jobId || '');
+    $$('#job-card-list [data-job-select]').forEach((button) => button.setAttribute('aria-current', String(button.dataset.jobSelect === selectedJobId)));
+    renderJobHistoryPreview(jobCardIndex.get(selectedJobId));
+  }
+
   function renderJobs(remoteJobs = [], meta = null) {
     if (meta && Object.keys(meta).length) jobHistoryMeta = meta;
     const effectiveMeta = jobHistoryMeta || {};
@@ -284,32 +335,22 @@
     jobCardIndex.clear();
     jobs.forEach((job) => jobCardIndex.set(String(job.id || ''), job));
     if (!jobs.length) {
-      list.innerHTML = '<p class="small-text">No job cards created yet.</p>';
+      list.innerHTML = '<p class="small-text portal-history-empty">No job cards created yet.</p>';
+      renderJobHistoryPreview(null);
+      const historyStatus = $('#job-card-history-status');
+      if (historyStatus) historyStatus.textContent = 'No submitted job cards are available for this account.';
       return;
     }
-    const canManage = Boolean(effectiveMeta.is_admin || effectiveMeta.is_job_card_admin);
-    const canUseXero = Boolean(effectiveMeta.is_admin);
-    const lifecycleOptions = ['Received', 'Assigned', 'In progress', 'Awaiting parts', 'Completed', 'Cancelled'];
-    list.innerHTML = jobs.map((job) => `
-      <article class="portal-item">
-        <strong>${safe(job.ref || 'Untitled job')}</strong>
-        <span class="portal-status ${safe(String(job.jobStatus || job.status || 'Received').toLowerCase().replace(/\s+/g, '-'))}">${safe(job.jobStatus || job.status || 'Received')}</span>
-        <p class="portal-item-meta">${safe(job.client)} · ${safe(job.site)}</p>
-        <p class="portal-item-meta">${safe(job.cardType || 'EC')} format · Revision ${safe(job.revision || 1)}${job.previousRecordId ? ` · Follows ${safe(job.previousRecordId)}` : ''} · Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
-        <p>${safe(job.description || 'No description')}</p>
-        <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${job.xeroInvoiceStatus ? ` · Xero status ${safe(job.xeroInvoiceStatus)}` : ''}${job.xeroLastSyncedAt ? ` · Synced ${safe(job.xeroLastSyncedAt)}` : ''}${safeJobEmailUrl(job.xeroInvoiceUrl) ? ` · <a href="${safe(safeJobEmailUrl(job.xeroInvoiceUrl))}" target="_blank" rel="noopener">Xero invoice</a>` : ''}${safeJobEmailUrl(job.emailUrl) ? ` · <a href="${safe(safeJobEmailUrl(job.emailUrl))}" target="_blank" rel="noopener">Job email</a>` : ''}</p>
-        <div class="portal-item-actions"><button type="button" class="secondary" data-job-revise="${safe(job.id)}">Create revision</button></div>
-        ${canManage && job.remote ? `<div class="job-card-account-fields" data-job-account-fields="${safe(job.id)}">
-          <strong>Accounts tracking</strong>
-          <label>Invoice number<input data-job-invoice value="${safe(job.invoiceNumber || '')}" placeholder="Assigned by Accounts"></label>
-          <label>Xero reference<input data-job-xero value="${safe(job.xeroReference || '')}" placeholder="Xero invoice or tracking reference"></label>
-          <label>Job status<select data-job-status>${[...new Set([job.jobStatus || job.status || 'Received', ...lifecycleOptions])].map((status) => `<option value="${safe(status)}" ${status === (job.jobStatus || job.status || 'Received') ? 'selected' : ''}>${safe(status)}</option>`).join('')}</select></label>
-          <label>Job email link<input data-job-email-url type="url" value="${safe(safeJobEmailUrl(job.emailUrl))}" placeholder="Outlook message link"></label>
-          <button type="button" class="secondary" data-job-account-save="${safe(job.id)}">Save Accounts fields</button>
-          ${canUseXero ? `<button type="button" class="secondary" data-job-xero-sync="${safe(job.id)}">Find invoice in Xero</button><span class="small-text" data-job-xero-feedback></span>` : ''}
-          <span class="small-text" data-job-account-feedback></span>
-        </div>` : '<p class="small-text">Status changes are managed by Accounts in Microsoft 365. Invoice and Xero tracking are managed there too.</p>'}
-      </article>`).join('');
+    list.innerHTML = jobs.map((job) => {
+      const statusValue = job.jobStatus || job.status || 'Received';
+      const notice = job.remote && (effectiveMeta.is_admin || effectiveMeta.is_job_card_admin) ? '' : '<small>Status changes are managed by Accounts in Microsoft 365.</small>';
+      return `<button type="button" class="estimate-history-item" data-job-select="${safe(job.id)}" aria-current="${String(String(job.id) === selectedJobId)}"><strong>${safe(job.ref || 'Untitled job')}</strong><span>${safe(job.client || 'Customer / client')}</span><small>${safe(job.cardType || 'EC')} card · ${safe(job.date || 'No date')} · ${safe(statusValue)}</small>${notice}</button>`;
+    }).join('');
+    const historyStatus = $('#job-card-history-status');
+    if (historyStatus) historyStatus.textContent = `Showing ${jobs.length} job card${jobs.length === 1 ? '' : 's'} in protected history.`;
+    list.querySelectorAll('[data-job-select]').forEach((button) => button.addEventListener('click', () => selectJobHistory(button.dataset.jobSelect)));
+    if (!jobCardIndex.has(selectedJobId)) selectedJobId = String(jobs[0].id || '');
+    selectJobHistory(selectedJobId);
   }
 
   function jobPreviewData() {
@@ -624,7 +665,13 @@
         if (feedback) feedback.textContent = error.message || 'Xero could not be started.';
       }
     });
-    $('#job-card-list')?.addEventListener('click', async (event) => {
+    $('#job-card-history-refresh')?.addEventListener('click', loadProtectedJobs);
+    $('#job-card-history')?.addEventListener('click', async (event) => {
+      const selectButton = event.target.closest('[data-job-select]');
+      if (selectButton) {
+        selectJobHistory(selectButton.dataset.jobSelect);
+        return;
+      }
       const reviseButton = event.target.closest('[data-job-revise]');
       if (reviseButton) {
         const source = jobCardIndex.get(String(reviseButton.dataset.jobRevise || ''));

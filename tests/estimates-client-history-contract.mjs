@@ -17,6 +17,8 @@ assert.match(page, /estimateAccountsBcc/);
 assert.match(page, /_bcc/);
 assert.match(page, /gmt_client_email/);
 assert.match(page, /estimateHistoryEndpoint/);
+assert.match(page, /function assetUrl/);
+assert.match(page, /assetUrl\('image\.png'\)/);
 assert.match(page, /cache: 'no-store'/);
 assert.match(page, /gmt\.estimates\.history\.v1/);
 assert.doesNotMatch(page, /sendToAccounts/);
