@@ -33,6 +33,7 @@
   const taskIndex = new Map();
   const calendarIndex = new Map();
   const jobCardIndex = new Map();
+  let jobCardRevisionSource = null;
 
   function portalProfileName() {
     return store.get('gmt.portal.profile.v1', {}).name || '';
@@ -185,6 +186,7 @@
       add('gmt_planned_date', fields.planned_date || fields.gmt_planned_date || '');
       add('gmt_job_status', fields.job_status || 'Received');
       add('gmt_job_revision', fields.job_revision || '1');
+      add('gmt_previous_record_id', fields.previous_record_id || '');
       add('gmt_invoice_number', fields.invoice_number || '');
       add('gmt_xero_reference', fields.xero_reference || '');
       add('gmt_job_email_url', fields.job_email_url || '');
@@ -290,6 +292,7 @@
         <p class="portal-item-meta">${safe(job.cardType || 'EC')} format · Revision ${safe(job.revision || 1)}${job.previousRecordId ? ` · Follows ${safe(job.previousRecordId)}` : ''} · Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
         <p>${safe(job.description || 'No description')}</p>
         <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${safeJobEmailUrl(job.emailUrl) ? ` · <a href="${safe(safeJobEmailUrl(job.emailUrl))}" target="_blank" rel="noopener">Job email</a>` : ''}</p>
+        <div class="portal-item-actions"><button type="button" class="secondary" data-job-revise="${safe(job.id)}">Create revision</button></div>
         ${canManage && job.remote ? `<div class="job-card-account-fields" data-job-account-fields="${safe(job.id)}">
           <strong>Accounts tracking</strong>
           <label>Invoice number<input data-job-invoice value="${safe(job.invoiceNumber || '')}" placeholder="Assigned by Accounts"></label>
@@ -544,6 +547,29 @@
     }));
     renderJobPreview();
     $('#job-card-list')?.addEventListener('click', async (event) => {
+      const reviseButton = event.target.closest('[data-job-revise]');
+      if (reviseButton) {
+        const source = jobCardIndex.get(String(reviseButton.dataset.jobRevise || ''));
+        if (!source) return;
+        jobCardRevisionSource = source;
+        const values = {
+          '#job-card-type': source.cardType || 'EC',
+          '#job-ref': source.ref || '',
+          '#job-client': source.client || '',
+          '#job-site': source.site || '',
+          '#job-engineer': source.engineer || '',
+          '#job-date': source.date || '',
+          '#job-description': source.description || '',
+          '#job-email-link': source.emailUrl || '',
+          '#job-email-message-id': source.emailMessageId || ''
+        };
+        Object.entries(values).forEach(([selector, value]) => { const input = $(selector); if (input) input.value = value; });
+        const notice = $('#job-revision-notice');
+        if (notice) notice.textContent = `Creating revision ${Number(source.revision || 1) + 1} of ${source.ref || 'this job'}. Submit to create a new card and invoice trail.`;
+        renderJobPreview(source.cardType || 'EC');
+        $('#job-card-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
       const button = event.target.closest('[data-job-account-save]');
       if (!button || !portalApiEnabled()) return;
       const card = button.closest('[data-job-account-fields]');
@@ -601,8 +627,9 @@
       event.preventDefault();
       const jobs = store.get(keys.jobs, []);
       const imageFile = $('#job-image')?.files?.[0] || null;
+      const revisionSource = jobCardRevisionSource;
       const job = {
-        id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), cardType: $('#job-card-type').value, status: 'Received', jobStatus: 'Received', revision: 1,
+        id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), cardType: $('#job-card-type').value, status: 'Received', jobStatus: 'Received', revision: revisionSource ? Number(revisionSource.revision || 1) + 1 : 1, previousRecordId: revisionSource?.id || '',
         emailUrl: $('#job-email-link')?.value.trim() || '', emailMessageId: $('#job-email-message-id')?.value.trim() || ''
       };
       jobs.unshift(job);
@@ -630,7 +657,7 @@
           description: job.description,
           jobStatus: job.jobStatus,
           jobRevision: job.revision,
-          previousRecordId: '',
+          previousRecordId: job.previousRecordId,
           invoiceNumber: '',
           xeroReference: '',
           jobEmailUrl: job.emailUrl,
@@ -657,12 +684,16 @@
         record_id: recordId,
         job_status: job.jobStatus,
         job_revision: job.revision,
+        previous_record_id: job.previousRecordId,
         job_email_url: job.emailUrl,
         job_email_message_id: job.emailMessageId,
         submitted_at: new Date().toISOString()
       }, { file: imageFile });
       try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
       event.target.reset();
+      jobCardRevisionSource = null;
+      const revisionNotice = $('#job-revision-notice');
+      if (revisionNotice) revisionNotice.textContent = '';
       prefillPortalIdentity();
       logNotification('Job card', sent
         ? `Job card ${job.ref || job.client || job.id} submitted for admin review.`
