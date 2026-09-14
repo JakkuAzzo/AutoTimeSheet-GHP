@@ -23,7 +23,7 @@ try {
   assert.doesNotMatch(publicRoot, /<title>GMT Staff Portal/);
   assert.doesNotMatch(publicRoot, /portal\/auth\.js|\.\/auth\.js/);
 
-  assert.match(portalRoot, /<title>GMT Staff Portal/);
+  assert.match(portalRoot, /<title>GMT Dashboard/);
   assert.match(portalRoot, /auth\.js\?v=/);
   assert.ok(fs.existsSync(path.join(output, 'public-site.js')));
   assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));

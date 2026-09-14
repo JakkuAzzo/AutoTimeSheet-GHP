@@ -60,6 +60,15 @@ assert.match(portalCss, /overflow-wrap: anywhere/);
 assert.match(estimateCss, /\.estimate-history-layout > \*, \.estimate-history-list, \.estimate-history-preview \{ min-width:0; \}/);
 assert.match(auth, /connectHistoryRequested/);
 assert.match(auth, /acquireTokenRedirect/);
+assert.match(auth, /ensureSignOutButton/);
+assert.match(auth, /await tokenCache\.removeAccount\(account\)/);
+for (const file of ['../timesheets/index.html', '../timesheets/create.html', '../jobs/index.html', '../tasks/index.html', '../calendar/index.html', '../tools/index.html', '../tools/estimates.html', '../training/index.html', '../audit/index.html']) {
+  const protectedPage = fs.readFileSync(new URL(file, import.meta.url), 'utf8');
+  assert.match(protectedPage, /portal\/auth\.js/);
+  assert.match(protectedPage, /Dashboard|Back to dashboard/);
+}
+assert.match(dashboard, /<title>GMT Dashboard<\/title>/);
+assert.match(dashboard, /<h1>Dashboard<\/h1>/);
 assert.match(preview, /GMTPortalApi\.history\("calendar"\)/);
 assert.match(timesheets, /timesheet-calendar-grid/);
 assert.match(timesheets, /Request time off/);

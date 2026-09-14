@@ -14,7 +14,23 @@
   }
 
   var appMain = document.querySelector("main");
-  var signOutButton = document.getElementById("portal-sign-out");
+
+  function ensureSignOutButton() {
+    var existing = document.getElementById("portal-sign-out");
+    if (existing) return existing;
+    var host = document.querySelector(".header-actions") || document.querySelector(".audit-brand > div") || document.querySelector("header");
+    if (!host) return null;
+    var button = document.createElement("button");
+    button.type = "button";
+    button.id = "portal-sign-out";
+    button.textContent = "Sign out";
+    button.hidden = true;
+    if (!host.classList.contains("header-actions")) button.className = "top-link";
+    host.appendChild(button);
+    return button;
+  }
+
+  var signOutButton = ensureSignOutButton();
   var postSignInKey = "gmt.portal.postSignInPath";
   var authSessionKey = "gmt.portal.authenticated.v1";
   var profileKey = "gmt.portal.profile.v1";
@@ -283,7 +299,7 @@
     });
     if (signOutButton) {
       signOutButton.hidden = false;
-      signOutButton.addEventListener("click", function () {
+      signOutButton.addEventListener("click", async function () {
         signOutButton.disabled = true;
         signOutButton.textContent = "Signing out…";
         sessionStorage.removeItem(authSessionKey);
@@ -300,7 +316,7 @@
         var tokenCache = typeof msalApp.getTokenCache === "function" ? msalApp.getTokenCache() : null;
         try {
           if (tokenCache && typeof tokenCache.removeAccount === "function") {
-            Promise.resolve(tokenCache.removeAccount(account)).catch(function () {});
+            await tokenCache.removeAccount(account);
           }
         } catch (_) {
           // Cache cleanup is best effort; the portal session keys are already gone.
