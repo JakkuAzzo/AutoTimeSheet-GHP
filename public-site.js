@@ -200,8 +200,6 @@
       if (!paused) setIndex(index + 1);
     }
 
-    root.addEventListener('pointerenter', function () { setPaused(true); });
-    root.addEventListener('pointerleave', function () { setPaused(false); });
     root.addEventListener('focusin', function () { setPaused(true); });
     root.addEventListener('focusout', function (event) {
       if (!root.contains(event.relatedTarget)) setPaused(false);
