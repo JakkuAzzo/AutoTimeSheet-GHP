@@ -71,7 +71,8 @@
   }
 
   function render() {
-    var visible = records.filter(function (record) {
+    var available = Array.isArray(records) ? records : [];
+    var visible = available.filter(function (record) {
       var matchesKind = filter === "all" || actionKey(record) === filter;
       if (!matchesKind) return false;
       if (!employeeFilter) return true;
@@ -80,7 +81,7 @@
       return upn === employeeFilter.toLowerCase() || name === employeeFilter.toLowerCase();
     });
     if (!visible.length) {
-      showEmpty(records.length ? "No submissions match this filter." : "No records are displayed until the protected history service responds.");
+      showEmpty(available.length ? "No submissions match this filter." : "No records are displayed until the protected history service responds.");
       return;
     }
     list.innerHTML = visible.map(function (record) {

@@ -154,6 +154,17 @@
     return date ? 'Date ' + date : 'Week ' + ((record && record.start_date) || 'not dated') + ' to ' + ((record && record.end_date) || 'not dated');
   }
 
+  function currentPayMonth() {
+    var parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+    var year = parts.find(function (part) { return part.type === 'year'; });
+    var month = parts.find(function (part) { return part.type === 'month'; });
+    return (year && year.value ? year.value : '') + '-' + (month && month.value ? month.value : '');
+  }
+
+  function recordPayMonth(record) {
+    return String(record && (record.start_date || record.record_date || record.end_date) || '').slice(0, 7);
+  }
+
   function renderTimesheetPreview(record) {
     if (!historyPreview) return;
     if (!record) {
