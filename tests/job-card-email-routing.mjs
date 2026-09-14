@@ -71,6 +71,12 @@ try {
   assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'EC');
   assert.match(await page.locator('#job-card-preview').innerText(), /E\.C\.No/i);
   assert.equal(await page.locator('.job-sheet-logo').count(), 1, 'EC preview should include the GMT logo');
+  const logoSize = async () => page.locator('.job-sheet-logo').evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return { width: box.width, height: box.height };
+  });
+  let logo = await logoSize();
+  assert.ok(logo.width <= 48 && logo.height <= 48, `EC preview logo is too large: ${JSON.stringify(logo)}`);
   const previewFits = async () => page.locator('#job-card-preview').evaluate((element) => {
     const sheet = element.querySelector('.job-card-sheet');
     return { previewWidth: element.clientWidth, previewScrollWidth: element.scrollWidth, sheetWidth: sheet?.clientWidth || 0, sheetScrollWidth: sheet?.scrollWidth || 0 };
@@ -83,10 +89,14 @@ try {
   assert.equal(await page.locator('#job-card-preview').getAttribute('data-card-type'), 'MTA');
   assert.match(await page.locator('#job-card-preview').innerText(), /MTA No\./i);
   assert.equal(await page.locator('.job-sheet-logo').count(), 1, 'MTA preview should include the GMT logo');
+  logo = await logoSize();
+  assert.ok(logo.width <= 48 && logo.height <= 48, `MTA preview logo is too large: ${JSON.stringify(logo)}`);
   fit = await previewFits();
   assert.ok(fit.previewScrollWidth <= fit.previewWidth + 1, `MTA preview overflows at desktop width: ${JSON.stringify(fit)}`);
   assert.equal(await page.locator('[data-preview-card-type="MTA"]').getAttribute('aria-pressed'), 'true');
   await page.setViewportSize({ width: 390, height: 844 });
+  logo = await logoSize();
+  assert.ok(logo.width <= 40 && logo.height <= 40, `MTA mobile preview logo is too large: ${JSON.stringify(logo)}`);
   fit = await previewFits();
   assert.ok(fit.previewScrollWidth <= fit.previewWidth + 1, `MTA preview overflows at mobile width: ${JSON.stringify(fit)}`);
   await page.locator('#job-card-type').selectOption('EC');
