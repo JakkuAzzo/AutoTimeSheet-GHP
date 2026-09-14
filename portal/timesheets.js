@@ -80,6 +80,13 @@
       populateEmployees(meta.completion && meta.completion.employees || []);
     }
     if (completionSection) completionSection.hidden = !isAdmin;
+    if (historyLink) {
+      historyLink.hidden = true;
+      if (isAdmin && String(meta && meta.upstream || "") === "flow-permission-not-configured") {
+        historyLink.hidden = false;
+        historyLink.innerHTML = '<a class="portal-text-link" href="timesheets.html?connect-history=1">Connect Microsoft 365 history access <span aria-hidden="true">→</span></a>';
+      }
+    }
     if (isAdmin) {
       renderCompletion(meta.completion || null, meta);
     }

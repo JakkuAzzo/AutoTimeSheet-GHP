@@ -9,6 +9,8 @@ const timesheets = fs.readFileSync(new URL('../portal/timesheets.html', import.m
 const calendar = fs.readFileSync(new URL('../calendar/calendar-view.js', import.meta.url), 'utf8');
 const preview = fs.readFileSync(new URL('../portal/calendar-preview.js', import.meta.url), 'utf8');
 const portalCss = fs.readFileSync(new URL('../portal.css', import.meta.url), 'utf8');
+const estimateCss = fs.readFileSync(new URL('../tools/estimates.css', import.meta.url), 'utf8');
+const auth = fs.readFileSync(new URL('../portal/auth.js', import.meta.url), 'utf8');
 const tools = fs.readFileSync(new URL('../tools/index.html', import.meta.url), 'utf8');
 
 assert.match(page, /id="submissions-list"/);
@@ -22,6 +24,7 @@ for (const value of ['enquiries', 'job-cards', 'estimates', 'tasks', 'calendar',
 assert.match(script, /GMTPortalApi\.history\("all"\)/);
 assert.match(script, /signed-in GMT identity/);
 assert.match(script, /withExamples/);
+assert.match(script, /connect-history=1/);
 for (const value of ['demo-job-card', 'demo-estimate', 'demo-task', 'Example only', 'enquiry-thread', 'Open inbox thread']) assert.match(script, new RegExp(value));
 assert.match(calendarScript, /data-submissions-calendar/);
 assert.match(calendarScript, /GMTPortalApi\.history\("calendar"\)/);
@@ -41,6 +44,11 @@ assert.match(dashboard, /data-portal-calendar-input[^>]*type="month"/);
 assert.match(preview, /showPicker/);
 assert.match(preview, /data-portal-calendar-input/);
 assert.match(portalCss, /\.portal-calendar-toolbar \{ display: grid; grid-template-columns: 38px minmax\(0, 1fr\) 38px;/);
+assert.match(portalCss, /\.portal-history-toolbar \{ display: grid; grid-template-columns: minmax\(0, 1fr\)/);
+assert.match(portalCss, /overflow-wrap: anywhere/);
+assert.match(estimateCss, /\.estimate-history-layout > \*, \.estimate-history-list, \.estimate-history-preview \{ min-width:0; \}/);
+assert.match(auth, /connectHistoryRequested/);
+assert.match(auth, /acquireTokenRedirect/);
 assert.match(preview, /GMTPortalApi\.history\("calendar"\)/);
 assert.match(timesheets, /timesheet-calendar-grid/);
 assert.match(timesheets, /Request time off/);

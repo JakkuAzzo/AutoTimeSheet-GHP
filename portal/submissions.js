@@ -161,7 +161,12 @@
     if (adminTimesheetStatus) adminTimesheetStatus.textContent = "Pay month " + (completion.pay_month || "current") + " · " + Number(counts.completed || 0) + " completed · " + Number(counts.incomplete || 0) + " incomplete · " + Number(counts.missing || 0) + " missing.";
     var upstream = String(meta.upstream || "not-configured");
     var sourceMessage = upstream === "ok" ? "Microsoft 365 history is included in this Accounts view." : "Microsoft 365 history source status: " + upstream + ".";
-    if (adminTimesheetNote) adminTimesheetNote.textContent = sourceMessage + (completion.directory_configured ? " The configured employee roster is shown below." : " The employee roster is not configured, so only employees returned by history can be listed.");
+    if (adminTimesheetNote) {
+      var connectionAction = upstream === "flow-permission-not-configured"
+        ? ' <a class="portal-text-link" href="timesheets.html?connect-history=1">Connect Microsoft 365 history access →</a>'
+        : "";
+      adminTimesheetNote.innerHTML = safe(sourceMessage + (completion.directory_configured ? " The configured employee roster is shown below." : " The employee roster is not configured, so only employees returned by history can be listed.")) + connectionAction;
+    }
     var employees = Array.isArray(completion.employees) ? completion.employees : [];
     if (!adminTimesheetTable) return;
     if (!employees.length) {
@@ -289,8 +294,10 @@
         if (historyMeta.is_admin === true && !hasTimesheet) {
           var upstream = String(historyMeta.upstream || "not-configured");
           var sourceText = upstream === "ok" ? "Microsoft 365 returned no employee timesheet rows for this account." : "The protected Microsoft 365 history source is currently " + upstream + ".";
+          var historyHref = upstream === "flow-permission-not-configured" ? "timesheets.html?connect-history=1" : "timesheets.html";
+          var historyAction = upstream === "flow-permission-not-configured" ? "Connect Microsoft 365 history access →" : "Open Accounts timesheet history and completion status →";
           adminNotice.hidden = false;
-          adminNotice.innerHTML = "Accounts access is enabled. " + safe(sourceText) + " <a class=\"portal-text-link\" href=\"timesheets.html\">Open Accounts timesheet history and completion status →</a>";
+          adminNotice.innerHTML = "Accounts access is enabled. " + safe(sourceText) + " <a class=\"portal-text-link\" href=\"" + historyHref + "\">" + historyAction + "</a>";
         } else {
           adminNotice.hidden = true;
           adminNotice.textContent = "";

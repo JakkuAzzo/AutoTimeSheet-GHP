@@ -26,6 +26,8 @@ try {
   assert.match(examples, /Example only/);
   assert.equal(await page.locator('#submissions-admin-timesheet-summary').getAttribute('hidden'), null);
   assert.match(await page.locator('#submissions-admin-timesheet-table').innerText(), /Jason/);
+  assert.equal(await page.locator('#submissions-admin-timesheet-notice a').getAttribute('href'), 'timesheets.html?connect-history=1');
+  assert.match(await page.locator('#submissions-admin-timesheet-notice').innerText(), /Connect Microsoft 365 history access/);
   await page.locator('#submissions-list [data-submission-index="0"]').click();
   assert.match(await page.locator('#submissions-preview').innerText(), /Example preview only/);
   assert.equal(await page.locator('#submissions-preview .job-card-sheet').count(), 1);
@@ -69,6 +71,15 @@ try {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
   assert.equal(await dashboardTitle.innerText(), 'February 2025');
+
+  const mobilePage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await mobilePage.setContent('<main class="app-main estimate-main"><section class="card estimate-history-panel"><div class="portal-history-toolbar"><p class="small-text">No submitted documents are currently available for this account. Labelled examples are shown below. Access: all employee submissions.</p><label class="portal-history-filter">Show <select><option>All documents</option></select></label></div><p class="portal-history-warning">Accounts access is enabled. The protected Microsoft 365 history source is currently flow-permission-not-configured. <a href="timesheets.html?connect-history=1">Connect Microsoft 365 history access →</a></p><section class="timesheet-completion"><div class="table-scroll"><table class="portal-table"><tbody><tr><td>' + 'x'.repeat(1000) + '</td></tr></tbody></table></div></section><div class="estimate-history-layout"><div class="estimate-history-list"><button class="estimate-history-item">Example</button></div><article class="estimate-paper estimate-history-preview">Preview</article></div></section></main>');
+  await mobilePage.addStyleTag({ path: resolve(repoRoot, 'styles.css') });
+  await mobilePage.addStyleTag({ path: resolve(repoRoot, 'portal.css') });
+  await mobilePage.addStyleTag({ path: resolve(repoRoot, 'tools/estimates.css') });
+  const mobileMetrics = await mobilePage.evaluate(() => ({ viewport: window.innerWidth, body: document.body.scrollWidth, document: document.documentElement.scrollWidth }));
+  assert.ok(mobileMetrics.body <= mobileMetrics.viewport, `submitted documents overflow mobile viewport: ${JSON.stringify(mobileMetrics)}`);
+  assert.ok(mobileMetrics.document <= mobileMetrics.viewport, `submitted documents document overflow: ${JSON.stringify(mobileMetrics)}`);
   console.log('Submitted documents examples and calendar UI: PASS');
 } finally {
   await browser.close();

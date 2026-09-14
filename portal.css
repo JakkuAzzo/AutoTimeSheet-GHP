@@ -432,9 +432,10 @@
 .job-card-account-fields select { width: 100%; min-width: 0; margin-top: .2rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: .45rem; background: #fff; color: var(--ink); font: inherit; }
 .job-card-account-fields button { justify-self: start; }
 .job-card-account-fields [data-job-account-feedback] { align-self: center; }
-.portal-history-card { max-width: 920px; margin-inline: auto; }
+.portal-history-card { max-width: 920px; min-width: 0; margin-inline: auto; }
 .portal-identity-name { display: inline-flex; align-items: center; max-width: 15rem; padding: .55rem .85rem; color: #fff; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.portal-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+.portal-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; min-width: 0; }
+.portal-history-toolbar > *, .portal-history-warning, .timesheet-completion, .table-scroll { min-width: 0; }
 .portal-history-toolbar .small-text { margin: 0; }
 .portal-history-toolbar button { flex: 0 0 auto; min-height: 38px; }
 .portal-history-filter { display: inline-flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .9rem; font-weight: 800; }
@@ -473,7 +474,7 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .timesheet-paper-rows { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .timesheet-paper-rows th, .timesheet-paper-rows td { padding: .4rem; border-bottom: 1px solid #d9dfd4; text-align: left; }
 .timesheet-paper-rows th { color: var(--green); background: #f5f8f3; }
-.portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; }
+.portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; overflow-wrap: anywhere; }
 .timesheet-completion { margin-top: 1rem; padding: .85rem; border: 1px solid var(--line); border-radius: .85rem; background: #f8fbf6; }
 .timesheet-completion h3 { margin: 0; color: var(--green); }
 .timesheet-completion .portal-section-heading { margin: 0; }
@@ -708,10 +709,10 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-section-heading { align-items: flex-start; flex-direction: column; }
   .portal-action-grid, .portal-overview-grid { grid-template-columns: 1fr; }
   .portal-updates { align-items: flex-start; flex-direction: column; }
-  .portal-history-toolbar { align-items: stretch; flex-wrap: wrap; }
-  .portal-history-toolbar .small-text { flex: 1 1 100%; }
-  .portal-history-filter { flex: 1 1 auto; justify-content: space-between; }
-  .portal-history-filter select { flex: 1 1 auto; min-width: 0; }
+  .portal-history-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: .55rem; width: 100%; }
+  .portal-history-toolbar .small-text { width: 100%; min-width: 0; }
+  .portal-history-filter { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; width: 100%; min-width: 0; }
+  .portal-history-filter select { width: 100%; min-width: 0; }
   .portal-notification-empty { width: 100%; }
   .portal-dashboard-grid { grid-template-columns: 1fr; }
   .portal-calendar-preview { grid-column: auto; }

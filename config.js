@@ -40,7 +40,9 @@ window.GMT_APP_CONFIG = {
   // Server-enforced, tenant-only Power Automate history route.
   timesheetHistoryEndpoint: "https://b7db48c95976ef8e943878dfe20987.42.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/15/workflows/e25c8f033575417ea40c1ef91d2c852b/triggers/manual/paths/invoke?api-version=1",
   timesheetHistoryDetailEndpoint: "",
-  // OAuth audience exposed by the Power Automate HTTP trigger.
+  // OAuth audience exposed by the Power Automate HTTP trigger. The Flow
+  // Service resource URI ends in a slash, so Entra requires the double slash
+  // before /.default when requesting its delegated token.
   timesheetHistoryScopes: ["https://service.flow.microsoft.com//.default"],
   timesheetHistoryAppUrl: "https://make.powerautomate.com/",
   // Drafts must be persisted by an Entra-authenticated route before they are

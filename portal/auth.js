@@ -189,6 +189,40 @@
     sessionStorage.setItem(authSessionKey, account.homeAccountId || account.username || "");
     recordIdentity(account);
 
+    // The history resource is optional during normal portal sign-in so
+    // employees are never surprised by a consent prompt. Accounts can start
+    // an explicit, one-time connection from the protected history notice;
+    // after Microsoft completes consent, the normal silent acquisition path
+    // supplies the Flow token to the Worker.
+    var historyConsentKey = "gmt.portal.historyConsentRequested";
+    var connectHistoryRequested = false;
+    try {
+      connectHistoryRequested = new URLSearchParams(window.location.search || "").get("connect-history") === "1";
+    } catch (_) {
+      connectHistoryRequested = false;
+    }
+    var historyScopes = window.GMT_APP_CONFIG && Array.isArray(window.GMT_APP_CONFIG.timesheetHistoryScopes)
+      ? window.GMT_APP_CONFIG.timesheetHistoryScopes.map(function (scope) { return String(scope || "").trim(); }).filter(Boolean)
+      : [];
+    if (connectHistoryRequested && historyScopes.length && !sessionStorage.getItem(historyConsentKey)) {
+      sessionStorage.setItem(historyConsentKey, "true");
+      var cleanHistoryUrl = new URL(window.location.href);
+      cleanHistoryUrl.searchParams.delete("connect-history");
+      try {
+        await msalApp.acquireTokenRedirect({
+          account: account,
+          scopes: historyScopes,
+          prompt: "consent",
+          redirectStartPage: cleanHistoryUrl.href
+        });
+        return;
+      } catch (error) {
+        sessionStorage.removeItem(historyConsentKey);
+        throw error;
+      }
+    }
+    if (!connectHistoryRequested) sessionStorage.removeItem(historyConsentKey);
+
     // Make the authenticated MSAL context available to protected portal
     // features. Tokens are acquired just-in-time for the configured scope;
     // no token is written to localStorage or exposed in the page. The Worker
