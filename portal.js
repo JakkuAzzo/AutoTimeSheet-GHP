@@ -550,9 +550,15 @@
 
   function renderXeroPanel(body = {}) {
     const panel = $('#xero-account-panel');
-    if (!panel || !jobHistoryMeta.is_admin) return;
+    if (!panel) return;
+    if (!jobHistoryMeta.is_admin) {
+      panel.hidden = true;
+      panel.setAttribute('aria-hidden', 'true');
+      return;
+    }
     xeroStatusSnapshot = body;
     panel.hidden = false;
+    panel.removeAttribute('aria-hidden');
     const status = $('#xero-account-status');
     const feedback = $('#xero-account-feedback');
     const connect = $('#xero-connect-button');
@@ -586,8 +592,14 @@
   }
 
   async function loadProtectedXero(meta = {}) {
-    if (!portalApiEnabled() || !meta.is_admin) return;
     const panel = $('#xero-account-panel');
+    if (!portalApiEnabled() || !meta.is_admin) {
+      if (panel) {
+        panel.hidden = true;
+        panel.setAttribute('aria-hidden', 'true');
+      }
+      return;
+    }
     if (panel) panel.hidden = false;
     try {
       renderXeroPanel(await window.GMTPortalApi.xeroStatus());
@@ -642,6 +654,8 @@
   }
 
   function bindJobs() {
+    const xeroPanel = $('#xero-account-panel');
+    if (xeroPanel) xeroPanel.setAttribute('aria-hidden', 'true');
     ['#job-ref', '#job-client', '#job-site', '#job-engineer', '#job-date', '#job-description'].forEach((selector) => $(selector)?.addEventListener('input', () => renderJobPreview()));
     $('#job-card-type')?.addEventListener('change', (event) => renderJobPreview(event.target.value));
     $$('[data-preview-card-type]').forEach((button) => button.addEventListener('click', () => {
