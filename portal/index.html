@@ -76,9 +76,9 @@
         <span><strong>Tools</strong><small>Tasks, calendar and shared tools</small></span>
         <span class="portal-arrow" aria-hidden="true">→</span>
       </a>
-      <a class="portal-action-card" href="timesheets.html">
+      <a class="portal-action-card" href="submissions.html">
         <span class="portal-action-icon" aria-hidden="true">▤</span>
-        <span><strong>My completed timesheets</strong><small>View your identity-filtered history</small></span>
+        <span><strong>Submitted documents</strong><small>View job cards, estimates, tasks, calendar and timesheets</small></span>
         <span class="portal-arrow" aria-hidden="true">→</span>
       </a>
       <a class="portal-action-card portal-action-gold" href="../training/">
@@ -95,7 +95,8 @@
         <div><span class="portal-card-kicker">Shared information</span><h2 id="portal-calendar-title">Calendar</h2></div>
         <a class="portal-text-link" href="../tools/">Open calendar tools <span aria-hidden="true">→</span></a>
       </div>
-      <p class="small-text">Approved operational events will appear here when the protected Microsoft 365 calendar feed is connected.</p>
+      <p id="portal-calendar-status" class="small-text" role="status">Loading shared calendar…</p>
+      <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-portal-calendar-prev aria-label="Previous month">&lt;</button><h3 data-portal-calendar-title></h3><button type="button" class="icon-button" data-portal-calendar-next aria-label="Next month">&gt;</button></div>
       <div class="portal-calendar-month" data-portal-calendar aria-label="Current month calendar"></div>
     </section>
     <article class="portal-overview-card portal-dashboard-help">
@@ -106,6 +107,7 @@
     </article>
   </section>
 </main>
-<script defer src="calendar-preview.js?v=portal-calendar-preview-20260819"></script>
+<script defer src="../portal-api.js?v=portal-api-xero-20260914"></script>
+<script defer src="calendar-preview.js?v=portal-calendar-preview-20260914"></script>
 </body>
 </html>

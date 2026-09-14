@@ -96,6 +96,15 @@
   function init() {
     const outlook = $('#open-outlook-calendar');
     if (outlook) outlook.href = outlookUrl;
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('request') === 'time-off') {
+      const title = $('#calendar-title');
+      const type = $('#calendar-type');
+      if (title && !title.value) title.value = 'Time off request';
+      if (type) type.value = 'Holiday';
+      const date = $('#calendar-date');
+      if (date && typeof date.focus === 'function') setTimeout(() => date.focus(), 0);
+    }
     $('#calendar-previous')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); renderMonth(); });
     $('#calendar-next')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); renderMonth(); });
     $('#calendar-form')?.addEventListener('submit', () => setTimeout(renderMonth, 0));

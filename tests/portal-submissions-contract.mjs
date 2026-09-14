@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const page = fs.readFileSync(new URL('../portal/submissions.html', import.meta.url), 'utf8');
+const script = fs.readFileSync(new URL('../portal/submissions.js', import.meta.url), 'utf8');
+const dashboard = fs.readFileSync(new URL('../portal/index.html', import.meta.url), 'utf8');
+const timesheets = fs.readFileSync(new URL('../portal/timesheets.html', import.meta.url), 'utf8');
+const calendar = fs.readFileSync(new URL('../calendar/calendar-view.js', import.meta.url), 'utf8');
+const preview = fs.readFileSync(new URL('../portal/calendar-preview.js', import.meta.url), 'utf8');
+const tools = fs.readFileSync(new URL('../tools/index.html', import.meta.url), 'utf8');
+
+assert.match(page, /id="submissions-list"/);
+assert.match(page, /id="submissions-preview"/);
+for (const value of ['job-cards', 'estimates', 'tasks', 'calendar', 'timesheets']) assert.match(page, new RegExp(`value="${value}"`));
+assert.match(script, /GMTPortalApi\.history\("all"\)/);
+assert.match(script, /signed-in GMT identity/);
+assert.match(dashboard, /href="submissions\.html"/);
+assert.match(dashboard, /Submitted documents/);
+assert.doesNotMatch(dashboard, />My completed timesheets</);
+assert.match(dashboard, /data-portal-calendar-prev/);
+assert.match(dashboard, /data-portal-calendar-next/);
+assert.match(preview, /GMTPortalApi\.history\("calendar"\)/);
+assert.match(timesheets, /timesheet-calendar-grid/);
+assert.match(timesheets, /Request time off/);
+assert.doesNotMatch(timesheets, /value="job-cards"/);
+assert.doesNotMatch(timesheets, /value="estimates"/);
+assert.doesNotMatch(timesheets, /value="tasks"/);
+assert.match(calendar, /request.*time-off/);
+assert.match(tools, /Request time off/);
+assert.doesNotMatch(tools, /Calendar<\/span><small>Add and export calendar events\.<\/small><strong class="in-progress-badge">/);
+console.log(JSON.stringify({ submissionsPage: true, timesheetCalendar: true, dashboardCalendar: true, timeOffShortcut: true }));

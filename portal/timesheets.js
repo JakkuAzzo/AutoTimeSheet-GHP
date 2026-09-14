@@ -17,11 +17,16 @@
   var refreshButton = document.getElementById("timesheet-history-refresh");
   var frame = document.getElementById("portal-history-frame");
   var historyPreview = document.getElementById("timesheet-history-preview");
+  var calendarTitle = document.getElementById("timesheet-calendar-title");
+  var calendarPrevious = document.getElementById("timesheet-calendar-previous");
+  var calendarNext = document.getElementById("timesheet-calendar-next");
+  var viewDate = new Date();
   var lastRecords = [];
   var lastMeta = {};
   var lastCompletion = null;
   var selectedHistory = -1;
   var requestInFlight = false;
+  var previewRequest = 0;
 
   function safe(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
@@ -131,7 +136,7 @@
   }
 
   function showEmpty(message) {
-    if (list) list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + '</p>';
+    if (list && (!calendarTitle || !list.classList || typeof list.classList.contains !== 'function' || !list.classList.contains('timesheet-calendar-grid'))) list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + '</p>';
     if (historyPreview) historyPreview.innerHTML = '<p class="small-text">' + safe(message) + '</p>';
   }
 
@@ -188,15 +193,130 @@
       (editable ? '<div class="portal-item-actions"><a class="button button-link" href="history-frame.html?edit=' + encodeURIComponent(record.source_record_id) + '">Edit spreadsheet</a></div>' : '<p class="small-text">This submission is view-only because it is outside the current pay month or has no editable portal record.</p>');
   }
 
+  function dateOnly(value) {
+    var match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return null;
+    var date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function dateKey(value) {
+    var date = value instanceof Date ? value : dateOnly(value);
+    if (!date) return '';
+    return date.getUTCFullYear() + '-' + String(date.getUTCMonth() + 1).padStart(2, '0') + '-' + String(date.getUTCDate()).padStart(2, '0');
+  }
+
+  function dateRange(start, end) {
+    var from = dateOnly(start);
+    var to = dateOnly(end || start);
+    if (!from || !to) return [];
+    if (to < from) { var swap = from; from = to; to = swap; }
+    var days = [];
+    for (var date = new Date(from); date <= to && days.length < 62; date.setUTCDate(date.getUTCDate() + 1)) days.push(dateKey(date));
+    return days;
+  }
+
+  function recordDateKeys(record) {
+    if (!record) return [];
+    var start = record.start_date || record.startDate;
+    var end = record.end_date || record.endDate;
+    if (start || end) {
+      var range = dateRange(start || end, end || start);
+      if (range.length) return range;
+    }
+    var single = record.record_date || record.date || record.event_date || record.eventDate;
+    return single ? [dateKey(single)].filter(Boolean) : [];
+  }
+
+  function completionMissingLabels() {
+    var labels = {};
+    if (!(currentFilter() === 'all' || currentFilter() === 'timesheets') || !lastCompletion) return labels;
+    (lastCompletion.employees || []).forEach(function (employee) {
+      var selectedEmployee = currentEmployee().toLowerCase();
+      var employeeValue = String(employee.employee_upn || employee.employee_name || '');
+      if (selectedEmployee && employeeValue.toLowerCase() !== selectedEmployee && String(employee.employee_name || '').toLowerCase() !== selectedEmployee) return;
+      (employee.missing || []).forEach(function (reason) {
+        var match = String(reason || '').match(/(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/i);
+        var keys = match ? dateRange(match[1], match[2]) : [currentPayMonth() + '-01'];
+        keys.forEach(function (key) {
+          if (!labels[key]) labels[key] = [];
+          labels[key].push({ missing: true, label: 'Missing · ' + (employee.employee_name || employee.employee_upn || 'Employee'), detail: reason });
+        });
+      });
+    });
+    return labels;
+  }
+
+  function renderFallbackList(visible) {
+    if (!list) return;
+    list.innerHTML = visible.map(function (record, index) {
+      var action = actionLabel(record);
+      var statusValue = String(record.status || 'Submitted');
+      var statusClass = statusValue.toLowerCase().replace(/\s+/g, '-');
+      return '<button type="button" class="estimate-history-item" data-history-index="' + index + '" aria-current="' + String(index === selectedHistory) + '"><strong>' + safe(record.employee_name || 'Timesheet') + '</strong><span>' + safe(action) + '</span><small>' + safe(periodLabel(record)) + ' · ' + safe(statusValue) + '</small></button>';
+    }).join('');
+    if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index'))); }); });
+  }
+
+  function renderCalendar(visible) {
+    if (!list || !calendarTitle || !list.classList || typeof list.classList.contains !== 'function' || !list.classList.contains('timesheet-calendar-grid')) {
+      renderFallbackList(visible);
+      return;
+    }
+    var year = viewDate.getFullYear();
+    var month = viewDate.getMonth();
+    calendarTitle.textContent = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(viewDate);
+    var first = new Date(year, month, 1);
+    var offset = (first.getDay() + 6) % 7;
+    var days = new Date(year, month + 1, 0).getDate();
+    var byDate = {};
+    visible.forEach(function (record, index) {
+      recordDateKeys(record).forEach(function (key) {
+        if (!byDate[key]) byDate[key] = [];
+        byDate[key].push({ record: record, index: index });
+      });
+    });
+    var missing = completionMissingLabels();
+    var html = '';
+    for (var blank = 0; blank < offset; blank += 1) html += '<div class="calendar-day calendar-day-empty" aria-hidden="true"></div>';
+    var today = dateKey(new Date());
+    for (var day = 1; day <= days; day += 1) {
+      var key = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+      var entries = byDate[key] || [];
+      var labels = entries.map(function (entry) {
+        var record = entry.record;
+        var employee = record.employee_name || record.employee_upn || 'My submission';
+        var description = employee + ' · ' + actionLabel(record) + ' · ' + periodLabel(record);
+        return '<button type="button" class="timesheet-calendar-label submitted" data-history-index="' + entry.index + '" aria-current="' + String(entry.index === selectedHistory) + '" aria-label="' + safe(description) + '" title="' + safe(description) + '"><strong>' + safe(employee) + '</strong><small>' + safe(actionLabel(record)) + '</small></button>';
+      }).join('');
+      labels += (missing[key] || []).map(function (entry) {
+        return '<span class="timesheet-calendar-label missing" title="' + safe(entry.detail || entry.label) + '">' + safe(entry.label) + '</span>';
+      }).join('');
+      html += '<article class="calendar-day' + (key === today ? ' calendar-day-today' : '') + '"><time datetime="' + key + '">' + day + '</time>' + (labels || '<span class="timesheet-calendar-no-entry">No entry</span>') + '</article>';
+    }
+    list.innerHTML = html;
+    if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index'))); }); });
+  }
+
   function selectHistory(index) {
     selectedHistory = Number(index);
     if (list && typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.setAttribute('aria-current', String(Number(button.getAttribute('data-history-index')) === selectedHistory)); });
     var visible = filteredRecords();
-    renderTimesheetPreview(visible[selectedHistory]);
+    var record = visible[selectedHistory];
+    renderTimesheetPreview(record);
+    var token = ++previewRequest;
+    if (record && record.source === 'portal-d1' && record.source_record_id && window.GMTPortalApi && typeof window.GMTPortalApi.getRecord === 'function') {
+      window.GMTPortalApi.getRecord(record.source_record_id).then(function (body) {
+        if (token !== previewRequest || !body || !body.payload) return;
+        record.payload = body.payload;
+        renderTimesheetPreview(record);
+      }).catch(function () {});
+    }
   }
 
   function filteredRecords() {
     return (lastRecords || []).filter(function (record) {
+      if (currentFilter() === 'all' && ['timesheets', 'clock', 'calendar'].indexOf(actionKey(record)) === -1) return false;
       if (currentFilter() !== 'all' && actionKey(record) !== currentFilter()) return false;
       var selectedEmployee = currentEmployee().toLowerCase();
       if (!selectedEmployee) return true;
@@ -207,15 +327,13 @@
   function render(records) {
     lastRecords = Array.isArray(records) ? records : [];
     var visible = filteredRecords();
-    if (!visible.length) return showEmpty(lastRecords.length ? 'No submissions match this filter.' : 'No completed timesheets were found for this account.');
-    if (list) {
-      list.innerHTML = visible.map(function (record, index) {
-        var action = actionLabel(record);
-        var statusValue = String(record.status || 'Submitted');
-        var statusClass = statusValue.toLowerCase().replace(/\s+/g, '-');
-        return '<button type="button" class="estimate-history-item" data-history-index="' + index + '" aria-current="' + String(index === selectedHistory) + '"><strong>' + safe(record.employee_name || 'Timesheet') + '</strong><span>' + safe(action) + '</span><small>' + safe(periodLabel(record)) + ' · ' + safe(statusValue) + '</small></button>';
-      }).join('');
-      if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index'))); }); });
+    renderCalendar(visible);
+    if (!visible.length) {
+      if (list && calendarTitle && list.classList && typeof list.classList.contains === 'function' && list.classList.contains('timesheet-calendar-grid')) {
+        if (historyPreview) historyPreview.innerHTML = '<p class="small-text">' + safe(lastRecords.length ? 'No submissions match this filter.' : 'No completed timesheets were found for this account.') + '</p>';
+        return;
+      }
+      return showEmpty(lastRecords.length ? 'No submissions match this filter.' : 'No completed timesheets were found for this account.');
     }
     if (selectedHistory < 0 || selectedHistory >= visible.length) selectedHistory = 0;
     selectHistory(selectedHistory);
@@ -298,6 +416,8 @@
   });
   if (refreshButton) refreshButton.addEventListener("click", refresh);
   if (frame) frame.addEventListener("load", sendCurrentFilter);
+  if (calendarPrevious) calendarPrevious.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); renderCalendar(filteredRecords()); });
+  if (calendarNext) calendarNext.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); renderCalendar(filteredRecords()); });
   if (typeof window.addEventListener === "function") {
     window.addEventListener("message", function (event) {
       if (event.origin !== window.location.origin || !event.data || typeof event.data !== "object") return;

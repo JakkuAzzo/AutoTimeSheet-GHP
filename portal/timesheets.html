@@ -31,10 +31,7 @@
           <option value="all" selected>All submissions</option>
           <option value="timesheets">Weekly timesheets</option>
           <option value="clock">Clock in and breaks</option>
-          <option value="job-cards">Job cards</option>
-          <option value="estimates">Estimates</option>
           <option value="calendar">Calendar requests</option>
-          <option value="tasks">Tasks</option>
         </select>
       </label>
       <label id="portal-history-employee-filter" class="portal-history-filter" hidden>Employee
@@ -47,6 +44,7 @@
     <p id="timesheet-history-edit-policy" class="small-text">All timesheets made by this user may be viewed, but only timesheets made within the current pay month may be edited.</p>
     <p id="timesheet-history-scope" class="small-text" hidden></p>
     <p id="timesheet-history-link" class="small-text" hidden></p>
+    <p class="small-text timesheet-time-off-link">Need time away? <a class="button button-link secondary" href="../calendar/?request=time-off#calendar-form">Request time off</a></p>
     <section id="timesheet-completion" class="timesheet-completion" aria-labelledby="timesheet-completion-title" hidden>
       <div class="portal-section-heading"><div><p class="portal-card-kicker">Accounts completion</p><h3 id="timesheet-completion-title">Current pay-month status</h3></div></div>
       <p id="timesheet-completion-status" class="small-text" role="status"></p>
@@ -54,7 +52,12 @@
       <div class="table-scroll"><table id="timesheet-completion-table" class="portal-table"></table></div>
     </section>
     <div class="estimate-history-layout timesheet-history-layout">
-      <div id="timesheet-history-list" class="estimate-history-list" aria-live="polite"></div>
+      <div class="timesheet-calendar-panel">
+        <div class="timesheet-calendar-toolbar"><button type="button" id="timesheet-calendar-previous" class="icon-button" aria-label="Previous month">&lt;</button><h3 id="timesheet-calendar-title"></h3><button type="button" id="timesheet-calendar-next" class="icon-button" aria-label="Next month">&gt;</button></div>
+        <p class="small-text">Select a submitted label to open its spreadsheet preview. Accounts can see multiple employee labels and missing-week reasons on the same day.</p>
+        <div class="calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+        <div id="timesheet-history-list" class="calendar-month-grid timesheet-calendar-grid" aria-live="polite"></div>
+      </div>
       <article id="timesheet-history-preview" class="estimate-paper timesheet-history-preview" aria-live="polite"><p class="small-text">Select a timesheet to preview it.</p></article>
     </div>
     <iframe id="portal-history-frame" class="portal-history-frame" title="Protected GMT submission history" src="history-frame.html?filter=all&v=history-frame-20260914" loading="lazy" referrerpolicy="same-origin" hidden aria-hidden="true"></iframe>
