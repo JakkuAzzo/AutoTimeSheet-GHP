@@ -171,6 +171,54 @@
     setIndex(0);
   }
 
+  function initHeroCarousel() {
+    var root = document.querySelector('[data-hero-carousel]');
+    var track = root ? root.querySelector('[data-hero-track]') : null;
+    var slides = track ? Array.prototype.slice.call(track.querySelectorAll('.hero-media-slide')) : [];
+    if (!root || !track || slides.length < 2) return;
+
+    var index = 0;
+    var duration = 5500;
+    var paused = false;
+    var timer = null;
+    var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function setIndex(nextIndex) {
+      index = (nextIndex + slides.length) % slides.length;
+      track.style.transform = 'translate3d(0, -' + (index * 100) + '%, 0)';
+      slides.forEach(function (slide, slideIndex) {
+        slide.setAttribute('aria-hidden', slideIndex === index ? 'false' : 'true');
+      });
+    }
+
+    function setPaused(nextPaused) {
+      paused = nextPaused;
+      root.toggleAttribute('data-hero-paused', paused);
+    }
+
+    function advance() {
+      if (!paused) setIndex(index + 1);
+    }
+
+    root.addEventListener('pointerenter', function () { setPaused(true); });
+    root.addEventListener('pointerleave', function () { setPaused(false); });
+    root.addEventListener('focusin', function () { setPaused(true); });
+    root.addEventListener('focusout', function (event) {
+      if (!root.contains(event.relatedTarget)) setPaused(false);
+    });
+    document.addEventListener('visibilitychange', function () {
+      setPaused(document.hidden);
+    });
+
+    setIndex(0);
+    if (!reducedMotion) {
+      timer = window.setInterval(advance, duration);
+      window.addEventListener('beforeunload', function () {
+        if (timer) window.clearInterval(timer);
+      });
+    }
+  }
+
   function initContentCarousel() {
     var root = document.querySelector('[data-content-carousel]');
     if (!root) return;
@@ -527,6 +575,7 @@
   function initPublicHomepage() {
     initStickyNavigation();
     initWorkshopMap();
+    initHeroCarousel();
     initServiceCarousel();
     initContentCarousel();
     initTeamShowcase();

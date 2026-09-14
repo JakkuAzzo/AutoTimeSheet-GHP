@@ -127,11 +127,38 @@ footer {
 .hero {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
   padding: clamp(1.75rem, 4.5vw, 3.5rem) 1rem 1.5rem;
-  background:
-    linear-gradient(90deg, rgba(7, 31, 15, .78), rgba(7, 31, 15, .38)),
-    url("assets/website/workshop/workshop-signage.jpg") center 42% / cover no-repeat;
+  background: var(--green);
   color: #fff;
+}
+
+.hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  background: var(--green);
+}
+
+.hero-media-track {
+  width: 100%;
+  height: 100%;
+  transform: translate3d(0, 0, 0);
+  transition: transform 1.15s cubic-bezier(.22, .75, .26, 1);
+  will-change: transform;
+}
+
+.hero-media-slide {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.hero[data-hero-paused] .hero-media-track {
+  transition-duration: .2s;
 }
 
 .hero::after {
@@ -1467,6 +1494,7 @@ body.modal-open {
     scroll-behavior: auto;
   }
 
+  .hero-media-track,
   .service-grid {
     transition: none;
   }
