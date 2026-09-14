@@ -264,6 +264,7 @@
       realRecordCount = 0;
       records = withExamples([]);
       historyMeta = {};
+      renderAdminTimesheetSummary(historyMeta);
       if (status) status.textContent = "Protected submission history is not connected yet. Showing labelled examples so the document views remain discoverable.";
       render();
       if (refresh) refresh.disabled = false;
@@ -300,6 +301,7 @@
       realRecordCount = 0;
       records = withExamples([]);
       historyMeta = {};
+      renderAdminTimesheetSummary(historyMeta);
       if (status) status.textContent = error && error.message ? error.message : "Submitted documents could not be loaded. Please try again or contact Accounts.";
       render();
     } finally {
