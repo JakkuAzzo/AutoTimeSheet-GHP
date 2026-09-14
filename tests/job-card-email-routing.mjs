@@ -161,6 +161,8 @@ try {
   assert.equal(imageFields.get('gmt_type'), 'jobcard');
   assert.equal(imageFields.get('gmt_action'), 'new');
   assert.equal(imageFields.get('gmt_record_id'), 'GMT-ROUTE-001');
+  assert.match(imageFields.get('gmt_submission_id'), /^job-GMT-ROUTE-001-/);
+  assert.match(imageFields.get('gmt_portal_record_url'), /\/jobs\/\?record=job-GMT-ROUTE-001-/);
   assert.equal(imageFields.get('gmt_job_ref'), 'GMT-ROUTE-001');
   assert.equal(imageFields.get('gmt_client'), 'Image Client');
   assert.equal(imageFields.get('gmt_site'), 'Routing Site');

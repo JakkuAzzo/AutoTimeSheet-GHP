@@ -191,6 +191,7 @@
       add('gmt_xero_reference', fields.xero_reference || '');
       add('gmt_job_email_url', fields.job_email_url || '');
       add('gmt_job_email_message_id', fields.job_email_message_id || '');
+      add('gmt_portal_record_url', `${window.location.origin}/jobs/?record=${encodeURIComponent(fields.record_id || jobRef)}`);
       add('gmt_schema_version', '1');
       add('gmt_year', parts.year);
       add('gmt_month', parts.month);
