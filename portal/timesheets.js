@@ -4,6 +4,7 @@
   var config = window.GMT_APP_CONFIG || {};
   var status = document.getElementById("timesheet-history-status");
   var historyLink = document.getElementById("timesheet-history-link");
+  var scope = document.getElementById("timesheet-history-scope");
   var list = document.getElementById("timesheet-history-list");
   var filterControl = document.getElementById("portal-history-filter");
   var refreshButton = document.getElementById("timesheet-history-refresh");
@@ -42,60 +43,26 @@
     send("gmt:history-filter", { filter: currentFilter() });
   }
 
-  function projectedRecord(record) {
-    if (!record || typeof record !== "object" || Array.isArray(record)) return null;
-    return {
-      kind: record.kind || record.record_kind || "timesheets",
-      employee_name: record.employee_name || record.employeeName || "",
-      start_date: record.start_date || record.weekStart || "",
-      end_date: record.end_date || record.weekEnd || "",
-      record_date: record.record_date || record.recordDate || record.date || "",
-      action: record.action || record.category || record.record_type || record.kind || "Timesheet",
-      status: record.status || "Submitted",
-      submitted_at: record.submitted_at || record.submittedAt || "",
-      updated_at: record.updated_at || record.updatedAt || "",
-      issue: record.issue || "",
-      source_record_id: record.source_record_id || record.sourceRecordId || ""
-    };
-  }
-
-  function readRecords(body) {
-    if (!body || typeof body !== "object" || !Array.isArray(body.records)) return null;
-    return body.records.map(projectedRecord).filter(Boolean);
+  function updateMeta(meta) {
+    if (!scope) return;
+    var isAdmin = meta && meta.is_admin === true;
+    scope.hidden = false;
+    scope.textContent = isAdmin ? "Accounts admin view: all employee submissions are visible." : "Showing this account's authorised submissions only.";
   }
 
   function showEmpty(message) {
-    if (list) list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + "</p>";
-  }
-
-  function editHref(record) {
-    var sourceId = String(record && (record.source_record_id || record.sourceRecordId) || "").trim();
-    var recordStatus = String(record && record.status || "").toLowerCase();
-    var action = String(record && (record.action || record.category || "") || "").toLowerCase();
-    if (!sourceId || recordStatus === "recorded" || action.indexOf("clock") !== -1) return "";
-    return "../timesheets/create.html?edit=" + encodeURIComponent(sourceId);
+    if (list) list.innerHTML = '<p class="small-text portal-history-empty">' + safe(message) + '</p>';
   }
 
   function render(records) {
     if (!list) return;
-    if (!records.length) {
-      showEmpty("No completed timesheets were found for this account.");
-      return;
-    }
+    if (!records.length) return showEmpty('No completed timesheets were found for this account.');
     list.innerHTML = records.map(function (record) {
-      var statusClass = String(record.status || "Submitted").toLowerCase().replace(/\s+/g, "-");
-      var action = String(record.action || "Timesheet").replace(/_/g, " ").replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
-      var date = record.record_date || "";
-      var period = date ? "Date " + date : "Week " + (record.start_date || "not dated") + " to " + (record.end_date || "not dated");
-      var edit = editHref(record);
-      return '<article class="portal-item"><strong>' + safe(record.employee_name || "Timesheet") + '</strong>' +
-        '<span class="portal-status ' + safe(statusClass) + '">' + safe(record.status || "Submitted") + '</span>' +
-        '<p class="portal-item-meta">' + safe(action) + ' · ' + safe(period) + '</p>' +
-        '<p class="portal-item-meta">Last updated ' + safe(record.updated_at || record.submitted_at || "not recorded") + '</p>' +
-        (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') +
-        (edit ? '<div class="portal-item-actions"><a class="button button-link" href="' + safe(edit) + '">Edit submission</a></div>' : '') +
-        '</article>';
-    }).join("");
+      var action = String(record.action || 'Timesheet').replace(/_/g, ' ').replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
+      var date = record.record_date || '';
+      var period = date ? 'Date ' + date : 'Week ' + (record.start_date || 'not dated') + ' to ' + (record.end_date || 'not dated');
+      return '<article class="portal-item"><strong>' + safe(record.employee_name || 'Timesheet') + '</strong><span class="portal-status">' + safe(record.status || 'Submitted') + '</span><p class="portal-item-meta">' + safe(action) + ' · ' + safe(period) + '</p><p class="portal-item-meta">Last updated ' + safe(record.updated_at || record.submitted_at || 'not recorded') + '</p>' + (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') + '</article>';
+    }).join('');
   }
 
   function showSetupState() {
@@ -114,44 +81,39 @@
 
   async function loadDirect() {
     if (requestInFlight) return;
-    var endpoint = String(config.portalHistoryEndpoint || config.portalApiEndpoint || config.timesheetHistoryEndpoint || "").trim();
+    var endpoint = String(config.portalHistoryEndpoint || config.portalApiEndpoint || config.timesheetHistoryEndpoint || '').trim();
     if (!endpoint) {
       showSetupState();
       return;
     }
     requestInFlight = true;
     setBusy(true);
-    if (status) status.textContent = "Loading your completed timesheets…";
+    if (status) status.textContent = 'Loading your completed timesheets…';
     try {
-      var headers = { Accept: "application/json" };
+      var headers = { Accept: 'application/json' };
       var scopes = normaliseScopes(config.portalHistoryScopes || config.portalApiScopes || config.timesheetHistoryScopes);
       var auth = window.GMT_PORTAL_AUTH || {};
       if (scopes.length) {
-        if (typeof auth.acquireToken !== "function" && window.GMT_PORTAL_AUTH_READY) auth = await window.GMT_PORTAL_AUTH_READY;
-        if (!auth || typeof auth.acquireToken !== "function") throw new Error("Sign-in context unavailable");
-        var accessToken = await auth.acquireToken(scopes);
-        if (!accessToken) throw new Error("History access token unavailable");
-        headers.Authorization = "Bearer " + accessToken;
+        if (typeof auth.acquireToken !== 'function' && window.GMT_PORTAL_AUTH_READY) auth = await window.GMT_PORTAL_AUTH_READY;
+        if (!auth || typeof auth.acquireToken !== 'function') throw new Error('Sign-in context unavailable');
+        var token = await auth.acquireToken(scopes);
+        if (!token) throw new Error('History access token unavailable');
+        headers.Authorization = 'Bearer ' + token;
       }
-      var response = await fetch(endpoint, { credentials: "include", cache: "no-store", headers: headers });
-      if (response.status === 401) throw new Error("Your GMT sign-in has expired");
-      if (response.status === 403) throw new Error("Your GMT account is not authorised to view these records");
-      if (!response.ok) throw new Error("History request failed");
+      var response = await fetch(endpoint, { credentials: 'include', cache: 'no-store', headers: headers });
+      if (response.status === 401) throw new Error('Your GMT sign-in has expired');
+      if (response.status === 403) throw new Error('Your GMT account is not authorised to view these records');
+      if (!response.ok) throw new Error('History request failed');
       var body = await response.json();
-      var records = readRecords(body);
-      if (!records) throw new Error("History response was not valid");
+      var records = body && Array.isArray(body.records) ? body.records : null;
+      if (!records) throw new Error('History response was not valid');
       lastRecords = records;
+      updateMeta(body.meta || {});
       render(records);
-      if (status) status.textContent = records.length
-        ? "Showing " + records.length + " completed timesheet" + (records.length === 1 ? "" : "s") + " authorised for your signed-in GMT identity."
-        : "No completed timesheets were found for this account.";
+      status.textContent = records.length ? 'Showing ' + records.length + ' completed timesheet' + (records.length === 1 ? '' : 's') + ' authorised for your signed-in GMT identity.' : 'No completed timesheets were found for this account.';
     } catch (error) {
-      if (status) status.textContent = error && error.message === "Your GMT sign-in has expired"
-        ? "Your GMT sign-in has expired. Sign in again and refresh this page."
-        : error && error.message === "Your GMT account is not authorised to view these records"
-          ? "Your GMT account is not authorised to view these records. Contact Accounts if this is unexpected."
-          : "Your completed timesheets could not be loaded. Please try again or contact Accounts." + diagnosticSuffix(error);
-      if (!lastRecords.length) showEmpty("No records are displayed until the protected history service responds." + diagnosticSuffix(error));
+      status.textContent = error && error.message ? error.message : 'Your completed timesheets could not be loaded. Please try again or contact Accounts.' + diagnosticSuffix(error);
+      if (!lastRecords.length) showEmpty('No records are displayed until the protected history service responds.' + diagnosticSuffix(error));
     } finally {
       requestInFlight = false;
       setBusy(false);
@@ -164,8 +126,7 @@
       if (status) status.textContent = "Refreshing your submissions…";
       send("gmt:history-refresh");
       return;
-    }
-    return loadDirect();
+    } else return loadDirect();
   }
 
   if (filterControl) filterControl.addEventListener("change", sendCurrentFilter);
@@ -177,6 +138,8 @@
       if (event.data.type === "gmt:history-ready") {
         setBusy(false);
         sendCurrentFilter();
+      } else if (event.data.type === "gmt:history-meta") {
+        updateMeta(event.data.meta || {});
       } else if (event.data.type === "gmt:history-status") {
         setBusy(false);
         if (status && event.data.message) status.textContent = String(event.data.message);

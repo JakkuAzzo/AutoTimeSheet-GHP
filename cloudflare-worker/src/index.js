@@ -219,6 +219,32 @@ function localTimeParts(date, timeZone) {
   };
 }
 
+function monthKeyInTimeZone(date = new Date(), timeZone = 'Europe/London') {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit'
+  }).formatToParts(date);
+  const year = String(parts.find((part) => part.type === 'year')?.value || '');
+  const month = String(parts.find((part) => part.type === 'month')?.value || '');
+  return year && month ? `${year}-${month}` : '';
+}
+
+function recordMonthKey(value, timeZone = 'Europe/London') {
+  const candidate = text(value, '', 80);
+  if (!candidate) return '';
+  const prefix = candidate.match(/^(\d{4})-(\d{2})/);
+  if (prefix) return `${prefix[1]}-${prefix[2]}`;
+  const parsed = new Date(candidate);
+  return Number.isNaN(parsed.getTime()) ? '' : monthKeyInTimeZone(parsed, timeZone);
+}
+
+function isCurrentMonthRecord(row, timeZone = 'Europe/London') {
+  if (!row) return false;
+  const recordMonth = recordMonthKey(row.start_date || row.record_date || row.end_date, timeZone);
+  return Boolean(recordMonth && recordMonth === monthKeyInTimeZone(new Date(), timeZone));
+}
+
 function shouldDispatchNow(date = new Date(), env = {}) {
   const settings = dispatchSettings(env);
   if (!settings.enabled) return false;
@@ -268,7 +294,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
+  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -358,7 +384,28 @@ function jobProjection(row, payload) {
     site: text(payload.site || payload.siteAddress, '', 1000),
     engineer: text(payload.engineer || payload.assignedEngineer, '', 240),
     planned_date: text(payload.plannedDate || payload.date || row.record_date, '', 80),
-    description: text(payload.description, '', 3000)
+    description: text(payload.description, '', 3000),
+    card_type: text(payload.cardType, 'EC', 20).toUpperCase() === 'MTA' ? 'MTA' : 'EC'
+  };
+}
+
+function taskProjection(row, payload) {
+  return {
+    task_title: text(payload.title, '', 500),
+    job_reference: text(payload.jobReference, '', 180),
+    assignee: text(payload.assignee, '', 240),
+    due_date: text(payload.due, '', 80),
+    priority: text(payload.priority, 'Normal', 40)
+  };
+}
+
+function calendarProjection(row, payload) {
+  return {
+    event_title: text(payload.title, '', 500),
+    event_date: text(payload.date || row.record_date, '', 80),
+    event_type: text(payload.type, 'General', 80),
+    owner: text(payload.owner, '', 240),
+    notes: text(payload.notes, '', 3000)
   };
 }
 
@@ -376,7 +423,8 @@ function projectRow(row, includeDetails = true) {
     submitted_at: row.submitted_at,
     updated_at: row.updated_at,
     issue: row.issue || '',
-    source_record_id: row.record_id
+    source_record_id: row.record_id,
+    can_edit: row.kind === 'timesheets' && isCurrentMonthRecord(row)
   };
   if (row.dispatch_status) {
     result.dispatch = {
@@ -390,6 +438,8 @@ function projectRow(row, includeDetails = true) {
   if (!includeDetails) return result;
   if (row.kind === 'estimates') Object.assign(result, estimateProjection(row, payload));
   if (row.kind === 'job-cards') Object.assign(result, jobProjection(row, payload));
+  if (row.kind === 'tasks') Object.assign(result, taskProjection(row, payload));
+  if (row.kind === 'calendar') Object.assign(result, calendarProjection(row, payload));
   return result;
 }
 
@@ -694,7 +744,8 @@ async function listRecords(request, env, identity) {
             submitted_at: text(row.submitted_at || row.submittedAt, '', 100),
             updated_at: text(row.updated_at || row.updatedAt || row.submitted_at || row.submittedAt, '', 100),
             issue: text(row.issue, '', 1000),
-            source_record_id: text(row.source_record_id || row.sourceRecordId || row.gmt_record_id, '', MAX_RECORD_ID)
+            source_record_id: text(row.source_record_id || row.sourceRecordId || row.gmt_record_id, '', MAX_RECORD_ID),
+            can_edit: false
           })).filter((row) => !kind || canonicalKind(row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
           const localIds = new Set(records.map((row) => row.source_record_id));
           records = [...records, ...upstreamRecords.filter((row) => !localIds.has(row.source_record_id))];
@@ -708,7 +759,15 @@ async function listRecords(request, env, identity) {
     upstream = 'flow-permission-not-configured';
   }
   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
-  return { records, meta: { upstream } };
+  return {
+    records,
+    meta: {
+      upstream,
+      role: identity.isAdmin ? 'accounts-admin' : 'employee',
+      is_admin: identity.isAdmin,
+      visible_scope: identity.isAdmin ? 'all employee submissions' : 'this account submissions'
+    }
+  };
 }
 
 async function handle(request, env) {
@@ -732,6 +791,7 @@ async function handle(request, env) {
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
     if (existing && existing.owner_oid !== identity.oid && !identity.isAdmin) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
+    if (existing && existing.kind === 'timesheets' && !isCurrentMonthRecord(existing)) throw Object.assign(new Error('Only timesheets made within the current month may be edited.'), { status: 409 });
     const input = normaliseInput(body, existing && identity.isAdmin ? { ...identity, name: existing.employee_name } : identity, existing);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
@@ -767,6 +827,7 @@ async function handle(request, env) {
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (request.method === 'GET') return json({ record: projectRow(existing, true), payload: payloadObject(existing) }, 200, origin || '');
     if (request.method === 'PATCH') {
+      if (existing.kind === 'timesheets' && !isCurrentMonthRecord(existing)) return json({ error: 'Only timesheets made within the current month may be edited.' }, 409, origin || '');
       const body = await readJson(request);
       const input = normaliseInput({ ...body, recordId }, identity.isAdmin ? { ...identity, name: existing.employee_name } : identity, existing);
       const result = await saveRecord(env, input, identity, existing);
@@ -804,5 +865,9 @@ export {
   dispatchForm,
   dispatchQueued,
   parseQueuedAttachments,
-  shouldDispatchNow
+  shouldDispatchNow,
+  monthKeyInTimeZone,
+  recordMonthKey,
+  isCurrentMonthRecord,
+  projectRow
 };

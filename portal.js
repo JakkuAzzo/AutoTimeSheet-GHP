@@ -20,6 +20,8 @@
   const id = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   const GMT_JOB_CARD_CC = 'gmtelectricalservices+jobcards@outlook.com';
+  const taskIndex = new Map();
+  const calendarIndex = new Map();
 
   function portalProfileName() {
     return store.get('gmt.portal.profile.v1', {}).name || '';
@@ -260,14 +262,30 @@
         <strong>${safe(job.ref || 'Untitled job')}</strong>
         <span class="portal-status ${job.status.toLowerCase().replace(/\s+/g, '-')}">${safe(job.status)}</span>
         <p class="portal-item-meta">${safe(job.client)} · ${safe(job.site)}</p>
-        <p class="portal-item-meta">Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
+        <p class="portal-item-meta">${safe(job.cardType || 'EC')} format · Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
         <p>${safe(job.description || 'No description')}</p>
         <p class="small-text">Status changes are managed by Accounts in Microsoft 365.</p>
       </article>`).join('');
   }
 
-  function renderTasks() {
-    const tasks = store.get(keys.tasks, []);
+  function renderJobPreview() {
+    const preview = $('#job-card-preview');
+    if (!preview) return;
+    const type = $('#job-card-type')?.value || 'EC';
+    const ref = $('#job-ref')?.value.trim() || 'EC 00000';
+    const client = $('#job-client')?.value.trim() || 'Customer / client';
+    const site = $('#job-site')?.value.trim() || 'Job address';
+    const engineer = $('#job-engineer')?.value.trim() || 'Engineer';
+    const date = $('#job-date')?.value || 'Date';
+    const description = $('#job-description')?.value.trim() || 'Job description / report';
+    preview.innerHTML = `<div class="job-card-preview-header"><strong>GMT Electrical Services</strong><strong>${safe(type)} No. ${safe(ref)}</strong></div><div class="job-card-preview-grid"><p><b>Date:</b> ${safe(date)}</p><p><b>Customer:</b> ${safe(client)}</p><p><b>Job address:</b> ${safe(site)}</p><p><b>Engineer:</b> ${safe(engineer)}</p><p><b>Order / reference:</b> ${safe(ref)}</p><p><b>Card format:</b> ${safe(type)}</p></div><div class="job-card-preview-label">Job description / report</div><div class="job-card-preview-report">${safe(description)}</div><div class="job-card-preview-grid"><p><b>Date started:</b> ${safe(date)}</p><p><b>Date completed:</b> __________________</p></div>`;
+  }
+
+  function renderTasks(remoteTasks = []) {
+    const localTasks = store.get(keys.tasks, []);
+    const tasks = [...remoteTasks, ...localTasks.filter((local) => !remoteTasks.some((remote) => String(remote.id) === String(local.id)))];
+    taskIndex.clear();
+    tasks.forEach((task) => taskIndex.set(String(task.id || task.recordId), task));
     const board = $('#task-board');
     if (!board) return;
     const columns = ['Pending approval', 'To-Do', 'In-Progress', 'Completed'];
@@ -282,7 +300,8 @@
       <h4>${safe(task.title)}</h4>
       <p class="portal-item-meta">${safe(task.jobRef || 'No job ref')} · ${safe(task.assignee || 'Unassigned')}</p>
       <p class="portal-item-meta">Due: ${safe(task.due || 'No due date')} · Priority: <span class="portal-status ${task.priority.toLowerCase()}">${safe(task.priority)}</span></p>
-      <p class="small-text">${task.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Status is managed by Accounts in Microsoft 365.'}</p>
+      <p class="small-text">${task.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Move the task as work progresses.'}</p>
+      <div class="task-card-actions">${['To-Do', 'In-Progress', 'Completed'].map((next) => `<button type="button" class="secondary" data-task-status="${safe(next)}" data-task-id="${safe(task.id)}" ${task.status === next ? 'disabled' : ''}>${safe(next)}</button>`).join('')}</div>
     </article>`;
   }
 
@@ -327,6 +346,8 @@
       list.innerHTML = '<p class="small-text">No calendar events yet.</p>';
       return;
     }
+    calendarIndex.clear();
+    events.forEach((event) => calendarIndex.set(String(event.id || event.recordId), event));
     list.innerHTML = events.map((event) => `
       <article class="portal-item calendar-date-group">
         <strong>${safe(event.date)} · ${safe(event.title)}</strong>
@@ -335,6 +356,7 @@
         <p>${safe(event.notes || 'No notes')}</p>
         <div class="portal-item-actions">
           <span class="small-text">${event.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Published from the approved calendar feed.'}</span>
+          ${event.status !== 'Cancelled' ? `<button type="button" class="secondary" data-calendar-edit="${event.id}">Edit</button>` : ''}
           ${event.status === 'Pending approval' ? `<button type="button" class="secondary danger" data-calendar-delete="${event.id}">Cancel request</button>` : ''}
         </div>
       </article>`).join('');
@@ -358,6 +380,7 @@
         engineer: record.engineer || record.employee_name || '',
         date: record.planned_date || record.record_date || '',
         description: record.description || '',
+        cardType: record.card_type || 'EC',
         status: record.status || 'Submitted'
       }));
       renderJobs(remoteJobs);
@@ -366,13 +389,58 @@
     }
   }
 
+  async function loadProtectedTasks() {
+    if (!portalApiEnabled()) return;
+    try {
+      const body = await window.GMTPortalApi.history('tasks');
+      const remoteTasks = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
+        id: record.source_record_id,
+        title: record.task_title || 'Untitled task',
+        jobRef: record.job_reference || '',
+        assignee: record.assignee || '',
+        due: record.due_date || record.record_date || '',
+        priority: record.priority || 'Normal',
+        status: ['Submitted', 'Saved'].includes(record.status) ? 'Pending approval' : (record.status || 'Pending approval'),
+        recordId: record.source_record_id,
+        employeeName: record.employee_name || ''
+      }));
+      renderTasks(remoteTasks);
+    } catch (_) {
+      // Local requests remain visible if the protected service is unavailable.
+    }
+  }
+
+  async function loadProtectedCalendar() {
+    if (!portalApiEnabled()) return;
+    try {
+      const body = await window.GMTPortalApi.history('calendar');
+      const remoteEvents = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
+        id: record.source_record_id,
+        title: record.event_title || 'Untitled event',
+        date: record.event_date || record.record_date || '',
+        type: record.event_type || 'General',
+        owner: record.owner || record.employee_name || '',
+        notes: record.notes || '',
+        status: record.status || 'Pending approval',
+        requestedBy: record.employee_name || '',
+        recordId: record.source_record_id
+      }));
+      const localEvents = store.get(keys.calendar, []);
+      store.set(keys.calendar, [...remoteEvents, ...localEvents.filter((local) => !remoteEvents.some((remote) => String(remote.id) === String(local.id)))]);
+      renderCalendar();
+    } catch (_) {
+      // Local calendar requests remain visible if the protected service is unavailable.
+    }
+  }
+
   function bindJobs() {
+    ['#job-card-type', '#job-ref', '#job-client', '#job-site', '#job-engineer', '#job-date', '#job-description'].forEach((selector) => $(selector)?.addEventListener('input', renderJobPreview));
     $('#job-card-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const jobs = store.get(keys.jobs, []);
       const imageFile = $('#job-image')?.files?.[0] || null;
       const job = {
-        id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), status: 'Pending'
+        id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), cardType: $('#job-card-type').value, status: 'Pending'
       };
       jobs.unshift(job);
       store.set(keys.jobs, jobs);
@@ -392,6 +460,7 @@
           site: job.site,
           engineer: job.engineer,
           plannedDate: job.date,
+          cardType: job.cardType,
           description: job.description
         }
       };
@@ -408,6 +477,7 @@
         site_address: job.site,
         assigned_engineer: job.engineer,
         planned_date: job.date,
+        card_type: job.cardType,
         status: job.status,
         description: job.description,
         submitted_at: new Date().toISOString()
@@ -467,6 +537,35 @@
         : `Task request stored locally only. It still needs an approved submission route: ${task.title}.`);
       renderTasks();
     });
+    $('#task-board')?.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-task-status]');
+      if (!button) return;
+      const task = taskIndex.get(String(button.dataset.taskId));
+      if (!task) return;
+      const nextStatus = button.dataset.taskStatus;
+      const protectedRecord = {
+        recordId: task.recordId || task.id,
+        kind: 'tasks',
+        action: 'update_request',
+        employeeName: task.employeeName || portalProfileName(),
+        employeeEmail: portalProfile().username || '',
+        recordDate: task.due || '',
+        payload: { title: task.title, jobReference: task.jobRef, assignee: task.assignee, due: task.due, priority: task.priority }
+      };
+      button.disabled = true;
+      try {
+        await updateProtectedRecord(protectedRecord, nextStatus);
+        task.status = nextStatus;
+        const localTasks = store.get(keys.tasks, []);
+        const local = localTasks.find((item) => String(item.id) === String(task.id));
+        if (local) { local.status = nextStatus; store.set(keys.tasks, localTasks); }
+        renderTasks([...taskIndex.values()]);
+        logNotification('Task', 'Task ' + task.title + ' moved to ' + nextStatus + '.');
+      } catch (error) {
+        button.disabled = false;
+        logNotification('Task', 'Task status could not be updated: ' + (error.message || 'service unavailable') + '.');
+      }
+    });
   }
 
   function bindOrg() {
@@ -523,14 +622,19 @@
       event.preventDefault();
       const events = store.get(keys.calendar, []);
       const type = $('#calendar-type').value;
-      const entry = { id: id(), title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: portalProfileName() };
+      const editingId = $('#calendar-edit-id')?.value.trim() || '';
+      const previous = editingId ? events.find((item) => String(item.id || item.recordId) === editingId) : null;
+      const entryId = editingId || id();
+      const entry = { id: entryId, title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: previous?.requestedBy || portalProfileName(), recordId: previous?.recordId || `calendar-${entryId}` };
       if (!entry.title || !entry.date) return;
-      events.push(entry);
+      const existingIndex = events.findIndex((item) => String(item.id || item.recordId) === String(entry.id));
+      if (existingIndex >= 0) events[existingIndex] = entry;
+      else events.push(entry);
       store.set(keys.calendar, events);
       const protectedRecord = {
-        recordId: `calendar-${entry.id}`,
+        recordId: entry.recordId,
         kind: 'calendar',
-        action: 'create_request',
+        action: previous ? 'update_request' : 'create_request',
         status: entry.status,
         submittedAt: new Date().toISOString(),
         employeeName: entry.requestedBy,
@@ -545,7 +649,7 @@
       }
       event.target.reset();
       prefillPortalIdentity();
-      const sent = sendPortalFormSubmit('Calendar Request', {
+      const sent = sendPortalFormSubmit(previous ? 'Calendar Update' : 'Calendar Request', {
         event_id: entry.id,
         event_title: entry.title,
         event_date: entry.date,
@@ -559,20 +663,39 @@
       });
       try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
       logNotification('Calendar', sent
-        ? `Calendar request submitted for accounts approval: ${entry.title}.`
-        : `Calendar request stored locally only. It still needs an approved submission route: ${entry.title}.`);
+        ? `${previous ? 'Calendar update' : 'Calendar request'} submitted for accounts approval: ${entry.title}.`
+        : `${previous ? 'Calendar update' : 'Calendar request'} stored locally only. It still needs an approved submission route: ${entry.title}.`);
       renderCalendar();
+      $('#calendar-edit-id').value = '';
+      $('#calendar-submit-button').textContent = 'Submit calendar request';
+      $('#calendar-cancel-edit').hidden = true;
     });
     $('#calendar-list')?.addEventListener('click', async (event) => {
+      const edit = event.target.closest('[data-calendar-edit]');
       const del = event.target.closest('[data-calendar-delete]');
       const events = store.get(keys.calendar, []);
+      if (edit) {
+        const item = calendarIndex.get(String(edit.dataset.calendarEdit));
+        if (item) {
+          $('#calendar-edit-id').value = String(item.id || item.recordId);
+          $('#calendar-title').value = item.title || '';
+          $('#calendar-date').value = item.date || '';
+          $('#calendar-type').value = item.type || 'General';
+          $('#calendar-owner').value = item.owner || '';
+          $('#calendar-notes').value = item.notes || '';
+          $('#calendar-submit-button').textContent = 'Save calendar update';
+          $('#calendar-cancel-edit').hidden = false;
+          $('#calendar-title').focus();
+        }
+        return;
+      }
       if (del) {
-        const item = events.find((entry) => entry.id === del.dataset.calendarDelete);
+        const item = calendarIndex.get(String(del.dataset.calendarDelete)) || events.find((entry) => String(entry.id || entry.recordId) === String(del.dataset.calendarDelete));
         if (item) {
           sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
           try {
             await updateProtectedRecord({
-              recordId: `calendar-${item.id}`,
+              recordId: item.recordId || `calendar-${item.id}`,
               kind: 'calendar',
               action: 'update_request',
               employeeName: item.requestedBy || portalProfileName(),
@@ -586,6 +709,13 @@
         logNotification('Calendar', 'Calendar request cancelled.');
       }
       renderCalendar();
+    });
+    $('#calendar-cancel-edit')?.addEventListener('click', () => {
+      $('#calendar-form').reset();
+      $('#calendar-edit-id').value = '';
+      $('#calendar-submit-button').textContent = 'Submit calendar request';
+      $('#calendar-cancel-edit').hidden = true;
+      prefillPortalIdentity();
     });
     $('#export-ics-btn')?.addEventListener('click', exportCalendarIcs);
   }

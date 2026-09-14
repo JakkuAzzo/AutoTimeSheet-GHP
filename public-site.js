@@ -269,6 +269,16 @@
     if (!modal || !openButton || !form) return;
     prepareProtectedForm(form);
 
+    var requestType = form.querySelector('[name="request_type"]');
+    function syncBookingFields() {
+      var booking = requestType && /^(Call|Meeting)$/i.test(requestType.value);
+      ['preferred_date', 'preferred_time'].forEach(function (name) {
+        var input = form.querySelector('[name="' + name + '"]');
+        if (input) input.required = !!booking;
+      });
+    }
+    if (requestType) { requestType.addEventListener('change', syncBookingFields); syncBookingFields(); }
+
     var lastFocus = null;
 
     function close() {
@@ -310,6 +320,10 @@
       var submitButton = form.querySelector('button[type="submit"]');
       var formData = new FormData(form);
       formData.set('_replyto', formData.get('email') || '');
+      var requestTypeValue = formData.get('request_type') || 'General enquiry';
+      formData.set('_subject', '[GMT][' + requestTypeValue + '] Website request');
+      formData.set('gmt_type', /^(Call|Meeting)$/i.test(requestTypeValue) ? 'calendar' : 'enquiry');
+      formData.set('gmt_action', /^(Call|Meeting)$/i.test(requestTypeValue) ? 'booking_request' : 'website_enquiry');
       if (submitButton) submitButton.disabled = true;
       status.textContent = 'Sending your enquiry…';
 
@@ -321,6 +335,7 @@
         });
         if (!response.ok) throw new Error('Contact request failed');
         form.reset();
+        syncBookingFields();
         status.textContent = 'Thanks — your enquiry has been sent to GMT Electrical Services.';
       } catch (_error) {
         status.textContent = 'We could not send the form. Please call 0208 683 0464 instead.';
@@ -455,6 +470,19 @@
     if (!form || !status || !card || !toggle) return;
     prepareProtectedForm(form);
 
+    var requestType = form.querySelector('[name="request_type"]');
+    var bookingFields = form.querySelector('[data-booking-fields]');
+    function syncBookingFields() {
+      var booking = requestType && /^(Call|Meeting)$/i.test(requestType.value);
+      if (bookingFields) bookingFields.hidden = !booking;
+      ['preferred_date', 'preferred_time'].forEach(function (name) {
+        var input = form.querySelector('[name="' + name + '"]');
+        if (input) input.required = !!booking;
+      });
+      if (booking && form.querySelector('[name="message"]') && !form.querySelector('[name="message"]').value.trim()) form.querySelector('[name="message"]').placeholder = 'Tell us what you would like to discuss.';
+    }
+    if (requestType) { requestType.addEventListener('change', syncBookingFields); syncBookingFields(); }
+
     function setExpanded(expanded) {
       card.classList.toggle('is-expanded', expanded);
       toggle.setAttribute('aria-expanded', String(expanded));
@@ -496,6 +524,12 @@
       var submitButton = form.querySelector('button[type="submit"]');
       var formData = new FormData(form);
       formData.set('_replyto', formData.get('email') || '');
+      var requestTypeValue = formData.get('request_type') || 'General enquiry';
+      var isBooking = /^(Call|Meeting)$/i.test(requestTypeValue);
+      formData.set('_subject', isBooking ? '[GMT][' + requestTypeValue + '] Booking request' : 'New workshop enquiry — GMT Electrical Services');
+      formData.set('gmt_type', isBooking ? 'calendar' : 'enquiry');
+      formData.set('gmt_action', isBooking ? 'booking_request' : 'website_enquiry');
+      formData.set('gmt_calendar_name', 'GMT Operational Calendar');
       if (submitButton) submitButton.disabled = true;
       status.textContent = 'Sending your enquiry…';
 
@@ -507,6 +541,7 @@
         });
         if (!response.ok) throw new Error('Workshop enquiry failed');
         form.reset();
+        syncBookingFields();
         status.textContent = 'We’ve got your enquiry — please check your email for a reply from GMT.';
         status.classList.add('is-visible');
         form.classList.add('is-submitted');
