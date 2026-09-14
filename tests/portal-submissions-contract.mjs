@@ -32,6 +32,7 @@ assert.match(dashboard, /Submitted documents/);
 assert.doesNotMatch(dashboard, /href="\.\.\/jobs\/"/);
 assert.doesNotMatch(dashboard, />Job Cards<\/strong>/);
 assert.doesNotMatch(dashboard, />My completed timesheets</);
+assert.doesNotMatch(dashboard, /Need a hand\?|Start with training|Watch walkthroughs/);
 assert.match(dashboard, /data-portal-calendar-prev/);
 assert.match(dashboard, /data-portal-calendar-next/);
 assert.match(preview, /GMTPortalApi\.history\("calendar"\)/);
