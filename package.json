@@ -16,7 +16,8 @@
     "record:training": "node tools/record-staff-walkthrough.mjs all",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
-    "test:timesheets:daily-calculation": "node tests/timesheet-daily-calculation.mjs"
+    "test:timesheets:daily-calculation": "node tests/timesheet-daily-calculation.mjs",
+    "test:timesheets:pay-month": "node tests/timesheet-pay-month-policy.mjs"
   },
   "keywords": ["timesheet", "authentication"],
   "author": "",

@@ -9,7 +9,7 @@
   var editId = params.get("edit") || "";
   var records = [];
   var requestInFlight = false;
-  var notice = "All timesheets made by this user may be viewed, but only timesheets made within the current month may be edited.";
+  var notice = "All timesheets made by this user may be viewed, but only timesheets made within the current pay month may be edited.";
 
   function safe(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
@@ -74,16 +74,18 @@
       var action = String(record.action || "Timesheet").replace(/_/g, " ").replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
       var date = record.record_date || "";
       var period = date ? "Date " + date : "Week " + (record.start_date || "not dated") + " to " + (record.end_date || "not dated");
-      var edit = record.can_edit && key === "timesheets" && record.source_record_id
+      var edit = record.can_edit && recordPayMonth(record) === currentPayMonth() && key === "timesheets" && record.source_record_id
         ? "history-frame.html?edit=" + encodeURIComponent(record.source_record_id)
         : "";
-      var viewOnly = key === "timesheets" && !edit ? '<p class="small-text">This timesheet is view-only outside the current month.</p>' : "";
+      var editPolicy = key === "timesheets"
+        ? '<p class="small-text">' + (edit ? "Editable during the current pay month." : "Viewable at any time; editing is limited to the current pay month.") + "</p>"
+        : "";
       return '<article class="portal-item" data-history-kind="' + safe(key) + '"><strong>' + safe(record.employee_name || action) + '</strong>' +
         '<span class="portal-status ' + safe(statusClass) + '">' + safe(record.status || "Submitted") + '</span>' +
         '<p class="portal-item-meta">' + safe(action) + " · " + safe(period) + "</p>" +
         '<p class="portal-item-meta">Last updated ' + safe(record.updated_at || record.submitted_at || "not recorded") + "</p>" +
         (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + "</p>" : "") +
-        viewOnly +
+        editPolicy +
         (edit ? '<div class="portal-item-actions"><a class="button button-link" href="' + safe(edit) + '">Edit spreadsheet</a></div>' : "") +
         "</article>";
     }).join("");
@@ -98,11 +100,15 @@
     return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("en-GB", { weekday: "long" }).format(date);
   }
 
-  function currentMonth() {
+  function currentPayMonth() {
     var parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit" }).formatToParts(new Date());
     var year = parts.find(function (part) { return part.type === "year"; });
     var month = parts.find(function (part) { return part.type === "month"; });
     return (year && year.value ? year.value : "") + "-" + (month && month.value ? month.value : "");
+  }
+
+  function recordPayMonth(record) {
+    return String(record && (record.start_date || record.record_date || record.end_date) || "").slice(0, 7);
   }
 
   function minutes(value) {
@@ -175,7 +181,7 @@
     event.preventDefault();
     var form = event.currentTarget; var message = document.getElementById("timesheet-editor-message"); var button = document.getElementById("timesheet-editor-submit");
     var weekStart = form.elements.weekStart.value; var weekEnd = form.elements.weekEnd.value;
-    if (!weekStart || weekStart.slice(0, 7) !== currentMonth()) { message.textContent = "Only timesheets made within the current month may be edited."; message.classList.remove("hidden"); return; }
+    if (!weekStart || weekStart.slice(0, 7) !== currentPayMonth()) { message.textContent = "Only timesheets made within the current pay month may be edited."; message.classList.remove("hidden"); return; }
     var rows = originalRows.map(function (row, index) { return Object.assign({}, row, { date: form.elements["date-" + index].value, start: form.elements["start-" + index].value, finish: form.elements["finish-" + index].value, lunchMinutes: Number(form.elements["break-" + index].value || 0), lunchHad: Number(form.elements["break-" + index].value || 0) > 0, absenceStatus: form.elements["absence-" + index].value, description: form.elements["note-" + index].value }); });
     var calculation = calculateRows(rows);
     if (calculation.totals.errors.length) { message.textContent = calculation.totals.errors.join(" "); message.classList.remove("hidden"); return; }
@@ -204,8 +210,8 @@
     status.textContent = "Loading editable spreadsheet…"; notify(status.textContent);
     try {
       var result = await window.GMTPortalApi.getRecord(editId); var record = result && result.record; var payload = result && result.payload;
-      if (!record || !record.can_edit) throw new Error("Only timesheets made within the current month may be edited.");
-      renderEditor(record, payload || {}); status.textContent = "Editable current-month timesheet loaded."; notify(status.textContent);
+      if (!record || !record.can_edit) throw new Error("Only timesheets made within the current pay month may be edited.");
+      renderEditor(record, payload || {}); status.textContent = "Editable current-pay-month timesheet loaded."; notify(status.textContent);
     } catch (error) { status.textContent = error && error.message ? error.message : "The timesheet could not be loaded."; notify(status.textContent); showEmpty(status.textContent); }
   }
 

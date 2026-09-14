@@ -24,11 +24,13 @@
   "editing": {
     "mode": "mutable-record",
     "key": "gmt_record_id",
+    "window": "current-pay-month",
     "audit": "retain prior version metadata and reconciliation issues"
   },
   "visibility": {
     "allEmployeeAdministrators": ["Amanda", "Faith", "Lidia", "Michelle"],
     "ordinaryEmployees": "own records only",
+    "timesheetHistory": "all authorised timesheets remain viewable",
     "rawWorkbookLinks": false
   },
   "failureBehavior": "return an explicit error; never fall back to an unfiltered SharePoint URL"

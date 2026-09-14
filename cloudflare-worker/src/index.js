@@ -239,11 +239,16 @@ function recordMonthKey(value, timeZone = 'Europe/London') {
   return Number.isNaN(parsed.getTime()) ? '' : monthKeyInTimeZone(parsed, timeZone);
 }
 
-function isCurrentMonthRecord(row, timeZone = 'Europe/London') {
+// GMT filing uses one employee workbook per YYYY-MM pay month. Keep the
+// edit window tied to that workbook month, while history reads remain open
+// for every authorised record.
+function isCurrentPayMonthRecord(row, timeZone = 'Europe/London') {
   if (!row) return false;
   const recordMonth = recordMonthKey(row.start_date || row.record_date || row.end_date, timeZone);
   return Boolean(recordMonth && recordMonth === monthKeyInTimeZone(new Date(), timeZone));
 }
+
+const isCurrentMonthRecord = isCurrentPayMonthRecord;
 
 function shouldDispatchNow(date = new Date(), env = {}) {
   const settings = dispatchSettings(env);
@@ -424,7 +429,7 @@ function projectRow(row, includeDetails = true) {
     updated_at: row.updated_at,
     issue: row.issue || '',
     source_record_id: row.record_id,
-    can_edit: row.kind === 'timesheets' && isCurrentMonthRecord(row)
+    can_edit: row.kind === 'timesheets' && isCurrentPayMonthRecord(row)
   };
   if (row.dispatch_status) {
     result.dispatch = {
@@ -791,7 +796,7 @@ async function handle(request, env) {
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
     if (existing && existing.owner_oid !== identity.oid && !identity.isAdmin) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
-    if (existing && existing.kind === 'timesheets' && !isCurrentMonthRecord(existing)) throw Object.assign(new Error('Only timesheets made within the current month may be edited.'), { status: 409 });
+    if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) throw Object.assign(new Error('Only timesheets made within the current pay month may be edited.'), { status: 409 });
     const input = normaliseInput(body, existing && identity.isAdmin ? { ...identity, name: existing.employee_name } : identity, existing);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
@@ -827,7 +832,7 @@ async function handle(request, env) {
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (request.method === 'GET') return json({ record: projectRow(existing, true), payload: payloadObject(existing) }, 200, origin || '');
     if (request.method === 'PATCH') {
-      if (existing.kind === 'timesheets' && !isCurrentMonthRecord(existing)) return json({ error: 'Only timesheets made within the current month may be edited.' }, 409, origin || '');
+      if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) return json({ error: 'Only timesheets made within the current pay month may be edited.' }, 409, origin || '');
       const body = await readJson(request);
       const input = normaliseInput({ ...body, recordId }, identity.isAdmin ? { ...identity, name: existing.employee_name } : identity, existing);
       const result = await saveRecord(env, input, identity, existing);
@@ -868,6 +873,7 @@ export {
   shouldDispatchNow,
   monthKeyInTimeZone,
   recordMonthKey,
+  isCurrentPayMonthRecord,
   isCurrentMonthRecord,
   projectRow
 };
