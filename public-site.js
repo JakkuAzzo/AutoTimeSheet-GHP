@@ -380,7 +380,10 @@
       role.textContent = member.getAttribute('data-role');
       bio.textContent = member.getAttribute('data-bio');
       nextImage.src = memberImage(next);
-      nextImage.alt = 'Preview of ' + next.getAttribute('data-name') + ' working at the GMT workshop';
+      var nextImageSource = next.querySelector('img');
+      nextImage.alt = nextImageSource && nextImageSource.getAttribute('alt')
+        ? nextImageSource.getAttribute('alt')
+        : 'Preview of ' + next.getAttribute('data-name');
       nextName.textContent = next.getAttribute('data-name');
       nextRole.textContent = next.getAttribute('data-role');
       nextButton.setAttribute('aria-label', 'Show ' + next.getAttribute('data-name') + ', the next GMT team member');
