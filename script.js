@@ -1306,6 +1306,7 @@ saveDraftBtn.addEventListener('click', saveDraftManually);
 clearDraftBtn.addEventListener('click', clearDraft);
 form.addEventListener('submit', submitTimesheet);
 document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail, true));
+document.addEventListener('gmtportalprofile', (event) => applyPortalProfile(event.detail, true));
 
 loadPortalProfile();
 syncPortalProfileWhenReady();

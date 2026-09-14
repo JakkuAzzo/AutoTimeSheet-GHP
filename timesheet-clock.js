@@ -548,4 +548,7 @@
   document.addEventListener('gmtportalidentity', (event) => {
     document.querySelectorAll('[data-clock-form]').forEach((card) => prefillClockIdentity(card, event.detail, true));
   });
+  document.addEventListener('gmtportalprofile', (event) => {
+    document.querySelectorAll('[data-clock-form]').forEach((card) => prefillClockIdentity(card, event.detail, true));
+  });
 })();

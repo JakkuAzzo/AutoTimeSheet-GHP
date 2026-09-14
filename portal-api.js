@@ -97,6 +97,18 @@
     });
   }
 
+  function getProfile() {
+    return request("/api/profile", { method: "GET" });
+  }
+
+  function saveProfile(profile) {
+    var value = profile && typeof profile === "object" ? profile : {};
+    return request("/api/profile", {
+      method: "PUT",
+      body: { name: value.name || "", notificationEmail: value.notificationEmail || "" }
+    });
+  }
+
   function xeroConnect() {
     return request("/api/xero/connect", { method: "POST", body: {} });
   }
@@ -122,6 +134,8 @@
     getRecord: getRecord,
     deleteRecord: deleteRecord,
     history: history,
+    getProfile: getProfile,
+    saveProfile: saveProfile,
     xeroConnect: xeroConnect,
     xeroStatus: xeroStatus,
     xeroLookupInvoice: xeroLookupInvoice,

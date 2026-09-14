@@ -1119,4 +1119,5 @@
     loadProtectedJobs();
   });
   document.addEventListener('gmtportalidentity', prefillPortalIdentity);
+  document.addEventListener('gmtportalprofile', prefillPortalIdentity);
 })();

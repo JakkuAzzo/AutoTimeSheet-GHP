@@ -17,6 +17,7 @@
     "test:submissions-ui": "node tests/submissions-ui-smoke.mjs",
     "test:dashboard-updates": "node tests/dashboard-updates-smoke.mjs",
     "test:auth-signout": "node tests/auth-signout-smoke.mjs",
+    "test:profile-settings": "node tests/profile-settings.mjs",
     "test:xero:integration-contract": "node tests/xero-integration-contract.mjs",
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",

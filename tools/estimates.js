@@ -271,6 +271,10 @@
   $('estimate-date').value = today.toISOString().slice(0, 10);
   const profile = portalProfile();
   if (profile.name && !$('estimate-prepared-by').value) $('estimate-prepared-by').value = profile.name;
+  document.addEventListener('gmtportalprofile', (event) => {
+    const remoteProfile = event.detail || {};
+    if (remoteProfile.name && !$('estimate-prepared-by').value) $('estimate-prepared-by').value = remoteProfile.name;
+  });
   $('add-estimate-line').addEventListener('click', () => addLine());
   $('download-estimate-word').addEventListener('click', wordDownload);
   $('print-estimate').addEventListener('click', () => { render(); window.print(); });

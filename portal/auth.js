@@ -3,11 +3,16 @@
 
   var config = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.entraSpaAuth;
   var authReadyResolve;
+  var profileReadyResolve;
   window.GMT_PORTAL_AUTH_READY = new Promise(function (resolve) {
     authReadyResolve = resolve;
   });
+  window.GMT_PORTAL_PROFILE_READY = new Promise(function (resolve) {
+    profileReadyResolve = resolve;
+  });
   if (!config || !config.enabled) {
     authReadyResolve({});
+    profileReadyResolve({});
     var unavailableMain = document.querySelector("main");
     if (unavailableMain) unavailableMain.hidden = false;
     return;
@@ -118,11 +123,16 @@
       }
       var accountSubject = account.homeAccountId || "";
       var accountEmail = String(account.username || claims.preferred_username || claims.email || claims.upn || "").trim();
-      // Keep a manually entered name for the same account when Microsoft has
-      // only returned its email address as the display name.
-      if (accountName) {
+      // Keep a manually entered app name for the same account. The durable
+      // profile is loaded from the Worker immediately after authentication;
+      // retaining the cache here avoids a flash back to Microsoft's name.
+      var sameAccount = profile.subject && profile.subject === accountSubject;
+      var cachedName = String(profile.name || "").trim();
+      if (sameAccount && cachedName && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cachedName)) {
+        // The saved GMT app setting is authoritative for the display name.
+      } else if (accountName) {
         profile.name = accountName;
-      } else if (profile.subject !== accountSubject || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(profile.name || "").trim())) {
+      } else {
         profile.name = "";
       }
       profile.username = accountEmail;
@@ -142,6 +152,77 @@
       element.textContent = label;
       element.hidden = !label;
     });
+  }
+
+  function cachedProfile() {
+    try {
+      var profile = JSON.parse(localStorage.getItem(profileKey) || "{}");
+      return profile && typeof profile === "object" && !Array.isArray(profile) ? profile : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveCachedProfile(profile) {
+    try {
+      localStorage.setItem(profileKey, JSON.stringify(profile || {}));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function dispatchRemoteProfile(profile) {
+    renderIdentityLabels(profile);
+    document.dispatchEvent(new CustomEvent("gmtportalprofile", { detail: profile || {} }));
+  }
+
+  async function syncRemoteProfile() {
+    var profile = cachedProfile();
+    var endpoint = String(window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.portalApiEndpoint || "").trim().replace(/\/+$/, "");
+    if (!endpoint || !window.GMT_PORTAL_AUTH || typeof window.GMT_PORTAL_AUTH.acquireToken !== "function") {
+      profileReadyResolve(profile);
+      return profile;
+    }
+    try {
+      var configuredScopes = window.GMT_APP_CONFIG && (window.GMT_APP_CONFIG.portalApiScopes || window.GMT_APP_CONFIG.portalHistoryScopes || window.GMT_APP_CONFIG.timesheetHistoryScopes);
+      var requestedScopes = Array.isArray(configuredScopes)
+        ? configuredScopes.map(function (scope) { return String(scope || "").trim(); }).filter(Boolean)
+        : String(configuredScopes || "").split(/\s+/).map(function (scope) { return scope.trim(); }).filter(Boolean);
+      var token = requestedScopes.length
+        ? await window.GMT_PORTAL_AUTH.acquireToken(requestedScopes, { optional: true })
+        : "";
+      if (!token || typeof token !== "string") {
+        profileReadyResolve(profile);
+        return profile;
+      }
+      var response = await fetch(endpoint + "/api/profile", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: { Accept: "application/json", Authorization: "Bearer " + token }
+      });
+      if (!response.ok) throw new Error("Profile request failed");
+      var body = await response.json();
+      var remote = body && body.profile && typeof body.profile === "object" ? body.profile : null;
+      if (remote) {
+        if (Object.prototype.hasOwnProperty.call(remote, "name")) {
+          var remoteName = String(remote.name || "").trim();
+          profile.name = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(remoteName) ? "" : remoteName;
+        }
+        if (Object.prototype.hasOwnProperty.call(remote, "notificationEmail")) {
+          profile.notificationEmail = String(remote.notificationEmail || "").trim();
+        }
+        if (!profile.username && remote.username) profile.username = String(remote.username).trim();
+        saveCachedProfile(profile);
+        dispatchRemoteProfile(profile);
+      }
+    } catch (_) {
+      // A profile read is best effort. The cached identity remains usable and
+      // the account form reports save errors instead of claiming persistence.
+    }
+    profileReadyResolve(profile);
+    return profile;
   }
 
   // Paint a cached identity immediately while the current Entra account is
@@ -284,6 +365,12 @@
       }
     };
     authReadyResolve(window.GMT_PORTAL_AUTH);
+    // Hydrate the durable account setting after the protected auth context is
+    // ready. This keeps the app responsive while making the saved name and
+    // copy address follow the user to another browser or device.
+    syncRemoteProfile().catch(function () {
+      profileReadyResolve(cachedProfile());
+    });
 
     var returnTo = requestedPath();
     if (window.location.pathname === config.redirectPath && returnTo && returnTo !== window.location.pathname) {
@@ -325,6 +412,7 @@
       }, { once: true });
     }
   }).catch(function (error) {
+    profileReadyResolve(cachedProfile());
     showFailure(error && error.message ? error.message : "GMT Staff Portal sign-in could not be completed.");
   });
 }());

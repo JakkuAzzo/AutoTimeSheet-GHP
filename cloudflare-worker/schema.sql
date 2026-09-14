@@ -99,3 +99,16 @@ CREATE TABLE IF NOT EXISTS xero_connections (
 );
 
 CREATE INDEX IF NOT EXISTS idx_xero_connections_updated ON xero_connections(updated_at DESC);
+
+-- Per-account GMT app settings. The Entra object ID is the stable owner key;
+-- the sign-in address is retained only as the current displayable username.
+-- The browser cache is a convenience and is never the source of truth.
+CREATE TABLE IF NOT EXISTS profile_settings (
+  owner_oid TEXT PRIMARY KEY,
+  owner_upn TEXT NOT NULL,
+  display_name TEXT NOT NULL DEFAULT '',
+  notification_email TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_settings_upn ON profile_settings(owner_upn);

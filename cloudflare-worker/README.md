@@ -101,9 +101,15 @@ the job-card chain. This first integration does not create, edit, void, or pay
 Xero invoices; those financial writes require a separate approved scope and
 explicit workflow.
 
+Apply `migrations/0004_profile_settings.sql` to persist each user's GMT app
+display name and optional submission-copy address by their verified Entra
+object ID. The Pages bundle keeps only a browser cache for fast rendering; the
+Worker remains the source of truth.
+
 ## API behavior
 
-The protected API exposes `GET /api/history`, `POST /api/records`,
+The protected API exposes `GET /api/profile`, `PUT /api/profile`,
+`GET /api/history`, `POST /api/records`,
 `GET/PATCH/DELETE /api/records/:id`, `POST /api/records/:id/attachments`, and
 `GET /api/health`. Accounts also have `POST /api/xero/connect`,
 `GET /api/xero/status`, `POST /api/xero/invoices/lookup`, and

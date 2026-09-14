@@ -5,6 +5,8 @@ const MAX_TEXT = 6000;
 const MAX_ATTACHMENT_BYTES = 220_000;
 const MAX_ATTACHMENT_TOTAL_BYTES = 700_000;
 const MAX_QUEUE_BATCH = 25;
+const MAX_PROFILE_NAME = 240;
+const MAX_PROFILE_EMAIL = 320;
 const ATTACHMENT_FIELDS = new Set(['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
 const JWKS_CACHE = new Map();
 
@@ -32,7 +34,7 @@ function corsHeaders(origin) {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
     'access-control-allow-headers': 'Authorization, X-GMT-Upstream-Authorization, Content-Type, Accept',
-    'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'cache-control': 'no-store',
     vary: 'Origin'
   };
@@ -198,6 +200,69 @@ function httpUrl(value, max = 2000) {
   } catch (_) {
     return '';
   }
+}
+
+function profileDisplayName(value, fallback = '') {
+  const candidate = text(value, fallback, MAX_PROFILE_NAME);
+  // A missing Entra display name can be returned as the sign-in address. It
+  // is useful as an identity fallback, but it must not be saved as a full name.
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? '' : candidate;
+}
+
+function profileNotificationEmail(value) {
+  const candidate = text(value, '', MAX_PROFILE_EMAIL);
+  if (!candidate) return '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)) {
+    throw Object.assign(new Error('Enter a valid personal email address.'), { status: 400 });
+  }
+  return candidate;
+}
+
+function profileView(identity, row = null) {
+  return {
+    name: row ? text(row.display_name, '', MAX_PROFILE_NAME) : profileDisplayName(identity.name),
+    username: identity.upn,
+    notificationEmail: row ? text(row.notification_email, '', MAX_PROFILE_EMAIL) : '',
+    updatedAt: row ? text(row.updated_at, '', 80) : '',
+    source: row ? 'portal-d1' : 'identity-default'
+  };
+}
+
+async function getProfileSettings(env, identity) {
+  const row = await env.DB.prepare(`SELECT display_name, notification_email, updated_at
+    FROM profile_settings WHERE owner_oid = ?`).bind(identity.oid).first();
+  return profileView(identity, row || null);
+}
+
+async function saveProfileSettings(env, identity, body) {
+  const existing = await env.DB.prepare(`SELECT display_name, notification_email
+    FROM profile_settings WHERE owner_oid = ?`).bind(identity.oid).first();
+  const hasName = Object.prototype.hasOwnProperty.call(body || {}, 'name') || Object.prototype.hasOwnProperty.call(body || {}, 'displayName');
+  const hasNotificationEmail = Object.prototype.hasOwnProperty.call(body || {}, 'notificationEmail') || Object.prototype.hasOwnProperty.call(body || {}, 'notification_email');
+  const displayName = hasName
+    ? profileDisplayName(body.name ?? body.displayName, '')
+    : text(existing?.display_name, '', MAX_PROFILE_NAME);
+  const notificationEmail = hasNotificationEmail
+    ? profileNotificationEmail(body.notificationEmail ?? body.notification_email)
+    : text(existing?.notification_email, '', MAX_PROFILE_EMAIL);
+  const updatedAt = now();
+  await env.DB.prepare(`INSERT INTO profile_settings
+      (owner_oid, owner_upn, display_name, notification_email, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(owner_oid) DO UPDATE SET owner_upn = excluded.owner_upn,
+      display_name = excluded.display_name, notification_email = excluded.notification_email,
+      updated_at = excluded.updated_at`).bind(
+    identity.oid,
+    identity.upn,
+    displayName,
+    notificationEmail,
+    updatedAt
+  ).run();
+  return profileView(identity, {
+    display_name: displayName,
+    notification_email: notificationEmail,
+    updated_at: updatedAt
+  });
 }
 
 const XERO_DEFAULT_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
@@ -1509,6 +1574,14 @@ async function handle(request, env) {
   const xeroJobSyncMatch = url.pathname.match(/^\/api\/xero\/job-cards\/([^/]+)\/sync$/);
   if (xeroJobSyncMatch && request.method === 'POST') return syncXeroJobCard(request, env, identity, origin || '', decodeURIComponent(xeroJobSyncMatch[1]));
 
+  if (url.pathname === '/api/profile' && request.method === 'GET') {
+    return json({ profile: await getProfileSettings(env, identity) }, 200, origin || '');
+  }
+  if (url.pathname === '/api/profile' && (request.method === 'PUT' || request.method === 'POST')) {
+    const body = await readJson(request);
+    return json({ ok: true, profile: await saveProfileSettings(env, identity, body) }, 200, origin || '');
+  }
+
   if (url.pathname === '/api/history' && request.method === 'GET') {
     return json(await listRecords(request, env, identity), 200, origin || '');
   }
@@ -1606,6 +1679,9 @@ export {
   canViewAllRecords,
   canAccessRecord,
   tokenIdentity,
+  profileView,
+  getProfileSettings,
+  saveProfileSettings,
   xeroSettings,
   xeroInvoiceProjection,
   encryptXeroSecret,
