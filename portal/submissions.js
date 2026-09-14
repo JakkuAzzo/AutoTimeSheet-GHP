@@ -7,6 +7,7 @@
   var filter = document.getElementById("submissions-filter");
   var refresh = document.getElementById("submissions-refresh");
   var records = [];
+  var historyMeta = {};
   var selected = -1;
   var busy = false;
 
@@ -31,6 +32,10 @@
     return "Not dated";
   }
   function visibleRecords() { return records.filter(function (record) { return filter && filter.value !== "all" ? actionKey(record) === filter.value : true; }); }
+  function emptyMessage() {
+    if (filter && filter.value === "all" && historyMeta.is_operations_admin && !historyMeta.is_admin) return "No non-timesheet submissions are available yet. This account can see all job cards, estimates, tasks and calendar requests; employee timesheets remain owner-filtered.";
+    return "No submitted documents match this filter.";
+  }
   function destination(record) {
     var key = actionKey(record);
     return key === "job-cards" ? "../jobs/" : key === "estimates" ? "../tools/estimates.html" : key === "tasks" ? "../tasks/" : key === "calendar" ? "../calendar/" : "timesheets.html";
@@ -53,7 +58,7 @@
     var visible = visibleRecords();
     if (!list) return;
     if (!visible.length) {
-      list.innerHTML = '<p class="small-text portal-history-empty">No submitted documents match this filter.</p>';
+      list.innerHTML = '<p class="small-text portal-history-empty">' + safe(emptyMessage()) + '</p>';
       renderPreview(null);
       selected = -1;
       return;
@@ -71,6 +76,7 @@
     if (refresh) refresh.disabled = true;
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== "function" || !window.GMTPortalApi.enabled()) {
       records = [];
+      historyMeta = {};
       if (status) status.textContent = "Protected submission history is not connected yet.";
       render();
       if (refresh) refresh.disabled = false;
@@ -81,6 +87,7 @@
     try {
       var body = await window.GMTPortalApi.history("all");
       records = body && Array.isArray(body.records) ? body.records : [];
+      historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
       var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";
       if (status) status.textContent = records.length
         ? "Showing " + records.length + " submitted document" + (records.length === 1 ? "" : "s") + " authorised for your signed-in GMT identity." + scope
@@ -88,6 +95,7 @@
       render();
     } catch (error) {
       records = [];
+      historyMeta = {};
       if (status) status.textContent = error && error.message ? error.message : "Submitted documents could not be loaded. Please try again or contact Accounts.";
       render();
     } finally {
