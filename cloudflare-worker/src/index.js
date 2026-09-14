@@ -1623,7 +1623,14 @@ async function listRecords(request, env, identity) {
             upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
             const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
             upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
-            if (identity.isAdmin) console.log('history-projection', JSON.stringify({ sourceRows: upstreamSourceRowCount, normalized: upstreamNormalisedRecordCount, matched: upstreamEmployeeMatchedRecordCount, sampleFields: upstreamSampleFields }));
+            if (identity.isAdmin) {
+              const sampleKeys = ['employee_name', 'employee_email', 'start_date', 'end_date', 'status', 'submitted_at', 'updated_at', 'issue', 'source_record_id'];
+              const sampleShapes = sourceRows.slice(0, 5).map((row) => Object.fromEntries(sampleKeys.map((key) => {
+                const value = row && typeof row === 'object' ? row[key] : undefined;
+                return [key, { type: Array.isArray(value) ? 'array' : typeof value, length: value == null ? 0 : String(value).trim().length }];
+              })));
+              console.log('history-projection', JSON.stringify({ sourceRows: upstreamSourceRowCount, normalized: upstreamNormalisedRecordCount, matched: upstreamEmployeeMatchedRecordCount, sampleFields: upstreamSampleFields, sampleShapes }));
+            }
             const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
             const localIds = new Set(records.map((row) => row.source_record_id));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
