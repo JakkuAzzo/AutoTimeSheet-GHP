@@ -8,6 +8,7 @@ const dashboard = fs.readFileSync(new URL('../portal/index.html', import.meta.ur
 const timesheets = fs.readFileSync(new URL('../portal/timesheets.html', import.meta.url), 'utf8');
 const calendar = fs.readFileSync(new URL('../calendar/calendar-view.js', import.meta.url), 'utf8');
 const preview = fs.readFileSync(new URL('../portal/calendar-preview.js', import.meta.url), 'utf8');
+const portalCss = fs.readFileSync(new URL('../portal.css', import.meta.url), 'utf8');
 const tools = fs.readFileSync(new URL('../tools/index.html', import.meta.url), 'utf8');
 
 assert.match(page, /id="submissions-list"/);
@@ -35,6 +36,11 @@ assert.doesNotMatch(dashboard, />My completed timesheets</);
 assert.doesNotMatch(dashboard, /Need a hand\?|Start with training|Watch walkthroughs/);
 assert.match(dashboard, /data-portal-calendar-prev/);
 assert.match(dashboard, /data-portal-calendar-next/);
+assert.match(dashboard, /data-portal-calendar-picker/);
+assert.match(dashboard, /data-portal-calendar-input[^>]*type="month"/);
+assert.match(preview, /showPicker/);
+assert.match(preview, /data-portal-calendar-input/);
+assert.match(portalCss, /\.portal-calendar-toolbar \{ display: grid; grid-template-columns: 38px minmax\(0, 1fr\) 38px;/);
 assert.match(preview, /GMTPortalApi\.history\("calendar"\)/);
 assert.match(timesheets, /timesheet-calendar-grid/);
 assert.match(timesheets, /Request time off/);

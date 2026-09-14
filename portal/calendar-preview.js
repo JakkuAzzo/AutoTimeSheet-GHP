@@ -6,6 +6,8 @@
 
   var status = document.getElementById("portal-calendar-status");
   var title = document.querySelector("[data-portal-calendar-title]");
+  var monthPicker = document.querySelector("[data-portal-calendar-picker]");
+  var monthInput = document.querySelector("[data-portal-calendar-input]");
   var previous = document.querySelector("[data-portal-calendar-prev]");
   var next = document.querySelector("[data-portal-calendar-next]");
   var viewDate = new Date();
@@ -37,7 +39,10 @@
   function render() {
     var year = viewDate.getFullYear();
     var month = viewDate.getMonth();
-    if (title) title.textContent = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(viewDate);
+    var monthLabel = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(viewDate);
+    if (title) title.textContent = monthLabel;
+    if (monthPicker) monthPicker.setAttribute("aria-label", "Choose calendar month: " + monthLabel);
+    if (monthInput) monthInput.value = year + "-" + String(month + 1).padStart(2, "0");
     var first = new Date(year, month, 1);
     var offset = (first.getDay() + 6) % 7;
     var days = new Date(year, month + 1, 0).getDate();
@@ -90,6 +95,20 @@
 
   if (previous) previous.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); render(); });
   if (next) next.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); render(); });
+  if (monthPicker) monthPicker.addEventListener("click", function () {
+    if (!monthInput) return;
+    try { monthInput.focus({ preventScroll: true }); } catch (_) { monthInput.focus(); }
+    if (typeof monthInput.showPicker === "function") {
+      try { monthInput.showPicker(); return; } catch (_) {}
+    }
+    monthInput.click();
+  });
+  if (monthInput) monthInput.addEventListener("change", function () {
+    var match = String(monthInput.value || "").match(/^(\d{4})-(\d{2})$/);
+    if (!match) return;
+    viewDate = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+    render();
+  });
   render();
   load();
 }());

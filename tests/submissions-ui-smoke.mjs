@@ -49,6 +49,26 @@ try {
   await calendarPage.waitForFunction(() => document.querySelector('.portal-calendar-grid'));
   assert.equal(await calendarPage.locator('.portal-calendar-weekday').count(), 7);
   assert.ok((await calendarPage.locator('[data-submissions-calendar-title]').innerText()).length > 0);
+
+  const dashboardCalendarPage = await browser.newPage();
+  await dashboardCalendarPage.setContent('<p id="portal-calendar-status"></p><div class="portal-calendar-toolbar"><button data-portal-calendar-prev></button><button data-portal-calendar-picker><span data-portal-calendar-title></span></button><input id="portal-calendar-month-input" data-portal-calendar-input type="month"><button data-portal-calendar-next></button></div><div data-portal-calendar></div>');
+  await dashboardCalendarPage.evaluate(() => {
+    window.GMTPortalApi = { enabled: () => false };
+    window.fetch = async () => ({ ok: true, json: async () => ({ events: [] }) });
+    const input = document.querySelector('[data-portal-calendar-input]');
+    input.showPicker = () => { input.dataset.pickerOpened = 'true'; };
+  });
+  await dashboardCalendarPage.addScriptTag({ path: resolve(repoRoot, 'portal/calendar-preview.js') });
+  await dashboardCalendarPage.waitForFunction(() => document.querySelector('.portal-calendar-grid'));
+  const dashboardTitle = dashboardCalendarPage.locator('[data-portal-calendar-title]');
+  assert.ok((await dashboardTitle.innerText()).length > 0);
+  await dashboardCalendarPage.locator('[data-portal-calendar-picker]').click();
+  assert.equal(await dashboardCalendarPage.locator('[data-portal-calendar-input]').getAttribute('data-picker-opened'), 'true');
+  await dashboardCalendarPage.locator('[data-portal-calendar-input]').evaluate((input) => {
+    input.value = '2025-02';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  assert.equal(await dashboardTitle.innerText(), 'February 2025');
   console.log('Submitted documents examples and calendar UI: PASS');
 } finally {
   await browser.close();
