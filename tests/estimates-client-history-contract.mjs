@@ -11,7 +11,7 @@ assert.match(html, /id="estimate-client-email"[^>]*required/);
 assert.match(html, />Send to client</);
 assert.match(html, /id="estimate-history"/);
 assert.match(html, /id="estimate-history-preview"/);
-assert.match(index, />View Estimates</);
+assert.doesNotMatch(index, />View Estimates</);
 assert.match(page, /estimateSendEndpoint/);
 assert.match(page, /estimateAccountsBcc/);
 assert.match(page, /_bcc/);
