@@ -425,9 +425,29 @@ function attachmentType(fieldName, fileName, contentType) {
   return !supplied || supplied === expected || (extension === 'json' && supplied === 'text/json') ? expected : '';
 }
 
+function adminTestRecord(record, payload = null) {
+  const body = payload || payloadObject(record || {});
+  const candidates = [
+    record?.employee_upn,
+    record?.employee_email,
+    record?.employeeEmail,
+    body?.employee_upn,
+    body?.employeeEmail,
+    body?.employee_email,
+    body?.employeeName,
+    record?.employee_name,
+    record?.title,
+    record?.Title,
+    body?.title,
+    body?.Title
+  ].map((value) => text(value, '', 320).toLowerCase());
+  return candidates.some((value) => /\bacc\.gmtelect(?:@|$)/i.test(value) || /^(?:amanda|amanda\s+bb)$/i.test(value));
+}
+
 function syntheticRecord(record, payload = null) {
   const body = payload || payloadObject(record || {});
-  return body && body.testMode === true || /^TEST(?:[\s_-]|$)/i.test(text(record?.employee_name, '', 240)) || /^TEST(?:[\s_-]|$)/i.test(text(body?.employeeName, '', 240));
+  const title = text(record?.title || record?.Title || body?.title || body?.Title, '', 500);
+  return adminTestRecord(record, body) || (body && body.testMode === true) || /^TEST(?:[\s_-]|$)/i.test(text(record?.employee_name, '', 240)) || /^TEST(?:[\s_-]|$)/i.test(text(body?.employeeName, '', 240)) || /\b(?:flow\s+test|flow\s+validation|historical\s+backfill|archive\s+(?:backfill|real)|test\s+(?:route|external))\b/i.test(title);
 }
 
 function hours(value) {
@@ -763,6 +783,93 @@ function staffDirectory(env) {
   } catch (_) {
     return [];
   }
+}
+
+function upstreamValue(row, keys) {
+  for (const key of keys) {
+    if (row && row[key] !== undefined && row[key] !== null && String(row[key]).trim()) return row[key];
+  }
+  return '';
+}
+
+function datePlusDays(value, days) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + Number(days || 0), 12));
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+}
+
+function historyTitleDetails(value) {
+  let title = text(value, '', 600);
+  if (!title) return { name: '', weekStart: '' };
+  title = title.replace(/^\s*(?:fw|fwd|re):\s*/i, '');
+  title = title.replace(/^.*?\[GMT\]\[TIMESHEET\]\[SUBMISSION\]\s*/i, '');
+  const week = title.match(/\bWeek\s+(\d{4}-\d{2}-\d{2})\b/i);
+  const name = title
+    .split(/\s*\|\s*Week\b/i)[0]
+    .split(/\s*\|\s*/)[0]
+    .replace(/^\s*[:|-]\s*/, '')
+    .trim();
+  return { name: text(name, '', 240), weekStart: week ? week[1] : '' };
+}
+
+function directoryEntryFor(directory, name, upn) {
+  const candidateUpn = text(upn, '', 320).toLowerCase();
+  const candidateName = text(name, '', 240).trim().toLowerCase();
+  const compactName = candidateName.replace(/[^a-z0-9]+/g, '');
+  return directory.find((entry) => {
+    if (candidateUpn && entry.upn && candidateUpn === entry.upn) return true;
+    if (!candidateName || !entry.name) return false;
+    const directoryName = entry.name.trim().toLowerCase();
+    const compactDirectoryName = directoryName.replace(/[^a-z0-9]+/g, '');
+    return candidateName === directoryName || compactName === compactDirectoryName || compactName.startsWith(compactDirectoryName);
+  }) || null;
+}
+
+function normaliseUpstreamRecord(row, identity, env) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+  const title = upstreamValue(row, ['title', 'Title', 'subject', 'Subject']);
+  const titleDetails = historyTitleDetails(title);
+  const directory = staffDirectory(env);
+  const explicitName = upstreamValue(row, ['employee_name', 'employeeName', 'EmployeeName', 'Employee Name', 'employee', 'Employee', 'gmt_employee']);
+  const explicitEmail = upstreamValue(row, ['employee_upn', 'employeeUpn', 'employeeEmail', 'employee_email', 'EmployeeEmail', 'Employee Email', 'Employee_x0020_Email', 'email', 'Email', 'gmt_employee_upn']);
+  const initialName = text(explicitName || titleDetails.name, '', 240);
+  const initialEmail = text(explicitEmail, '', 320).toLowerCase();
+  const directoryEntry = directoryEntryFor(directory, initialName, initialEmail);
+  const employeeName = text(directoryEntry?.name || initialName || (identity.isAdmin ? '' : identity.name || identity.upn), '', 240);
+  const employeeUpn = text(directoryEntry?.upn || initialEmail || (identity.isAdmin ? '' : identity.upn), '', 320).toLowerCase();
+  if (!employeeName && !employeeUpn) return null;
+  const startDate = text(upstreamValue(row, ['start_date', 'startDate', 'weekStart', 'WeekStart', 'Week Start', 'Week_x0020_Start', 'gmt_week_start']) || titleDetails.weekStart, '', 80);
+  const endDate = text(upstreamValue(row, ['end_date', 'endDate', 'weekEnd', 'WeekEnd', 'Week End', 'Week_x0020_End', 'gmt_week_end']) || datePlusDays(startDate, 6), '', 80);
+  const recordDate = text(upstreamValue(row, ['record_date', 'recordDate', 'date', 'Date', 'gmt_record_date']) || startDate, '', 80);
+  const rawKind = text(upstreamValue(row, ['kind', 'category', 'record_type', 'recordType', 'action', 'gmt_type']) || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
+  const kind = rawKind === 'submission' || rawKind === 'weekly-submission' || rawKind === 'timesheet' ? 'timesheets' : canonicalKind(rawKind);
+  const submittedAt = text(upstreamValue(row, ['submitted_at', 'submittedAt', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at']) || upstreamValue(row, ['Created', 'created', 'Modified', 'modified']), '', 100);
+  const updatedAt = text(upstreamValue(row, ['updated_at', 'updatedAt', 'Modified', 'modified']) || submittedAt, '', 100);
+  const action = text(upstreamValue(row, ['action', 'Action', 'category', 'record_type', 'gmt_action']) || (kind === 'timesheets' ? 'submission' : 'Timesheet'), 'Timesheet', 100);
+  const status = text(upstreamValue(row, ['status', 'Status', 'Status Value', 'gmt_status']) || 'Submitted', 'Submitted', 100);
+  const sourceRecordId = text(upstreamValue(row, ['source_record_id', 'sourceRecordId', 'gmt_record_id', 'Source Record ID', 'Source_x0020_Record_x0020_ID']) || (row.Id || row.ID || row.GUID ? `sharepoint-timesheet-${row.Id || row.ID || row.GUID}` : ''), '', MAX_RECORD_ID);
+  const issue = text(upstreamValue(row, ['issue', 'Issue', 'gmt_issue']), '', 1000);
+  const mapped = {
+    kind,
+    employee_name: employeeName,
+    employee_upn: employeeUpn,
+    start_date: startDate,
+    end_date: endDate,
+    record_date: recordDate,
+    action,
+    status,
+    submitted_at: submittedAt,
+    updated_at: updatedAt,
+    issue,
+    source_record_id: sourceRecordId,
+    title,
+    can_edit: false,
+    source: 'microsoft-365',
+    synthetic: false
+  };
+  mapped.synthetic = syntheticRecord(mapped, row) || /^TEST(?:[\s_-]|$)/i.test(employeeName) || /\b(?:flow\s+test|flow\s+validation|historical\s+backfill|archive\s+(?:backfill|real)|test\s+(?:route|external))\b/i.test(title);
+  return mapped;
 }
 
 function dateKeyInTimeZone(date = new Date(), timeZone = 'Europe/London') {
@@ -1506,28 +1613,7 @@ async function listRecords(request, env, identity) {
                 ? body.data
                 : null;
           if (sourceRows) {
-            const upstreamRecords = sourceRows.filter((row) => row && typeof row === 'object' && (identity.isAdmin || String(row.employee_upn || row.employeeEmail || row.employee_email || row['Employee Email'] || '').toLowerCase() === identity.upn)).map((row) => {
-              const employeeUpn = text(row.employee_upn || row.employeeEmail || row.employee_email || row['Employee Email'], identity.upn, 320).toLowerCase();
-              const employeeName = text(row.employee_name || row.employeeName || row['Employee Name'], employeeUpn || identity.name || identity.upn, 240);
-              const rawKind = text(row.kind || row.category || row.record_type || row.action || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
-              return {
-                kind: rawKind === 'submission' || rawKind === 'weekly-submission' ? 'timesheets' : canonicalKind(rawKind),
-                employee_name: employeeName,
-                employee_upn: employeeUpn,
-                start_date: text(row.start_date || row.weekStart || row['Week Start'], '', 80),
-                end_date: text(row.end_date || row.weekEnd || row['Week End'], '', 80),
-                record_date: text(row.record_date || row.recordDate || row.date || row.Date, '', 80),
-                action: text(row.action || row.category || row.record_type || row.kind || 'Timesheet', 'Timesheet', 100),
-                status: text(row.status || row.Status, 'Submitted', 100),
-                submitted_at: text(row.submitted_at || row.submittedAt || row['Submitted At'], '', 100),
-                updated_at: text(row.updated_at || row.updatedAt || row['Modified'] || row.submitted_at || row.submittedAt || row['Submitted At'], '', 100),
-                issue: text(row.issue || row.Issue, '', 1000),
-                source_record_id: text(row.source_record_id || row.sourceRecordId || row.gmt_record_id || row['Source Record ID'], '', MAX_RECORD_ID),
-                can_edit: false,
-                source: 'microsoft-365',
-                synthetic: /^TEST(?:[\s_-]|$)/i.test(employeeName) || /^TEST(?:[\s_-]|$)/i.test(text(row.employeeName, '', 240))
-              };
-            }).filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+            const upstreamRecords = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env)).filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase()))).filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
             const localIds = new Set(records.map((row) => row.source_record_id));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
             upstreamRecordCount = visibleUpstreamRecords.length;
@@ -1685,6 +1771,8 @@ export {
   completionWeeks,
   completionSummary,
   staffDirectory,
+  historyTitleDetails,
+  normaliseUpstreamRecord,
   listRecords,
   projectRow,
   canViewAllRecords,
