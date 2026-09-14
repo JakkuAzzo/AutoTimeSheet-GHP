@@ -13,6 +13,7 @@
     "test:weekly-correction-dispatch": "node tests/weekly-correction-dispatch.mjs",
     "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
     "test:jobs:access-policy": "node tests/job-card-access-policy.mjs",
+    "test:xero:integration-contract": "node tests/xero-integration-contract.mjs",
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",

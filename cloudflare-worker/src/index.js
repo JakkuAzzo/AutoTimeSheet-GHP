@@ -12,7 +12,7 @@ function now() {
   return new Date().toISOString();
 }
 
-function json(data, status = 200, origin = '') {
+function json(data, status = 200, origin = '', extraHeaders = {}) {
   const headers = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -23,6 +23,7 @@ function json(data, status = 200, origin = '') {
     headers['access-control-allow-origin'] = origin;
     headers['access-control-allow-credentials'] = 'true';
   }
+  Object.entries(extraHeaders || {}).forEach(([name, value]) => { headers[name] = value; });
   return new Response(JSON.stringify(data), { status, headers });
 }
 
@@ -42,6 +43,24 @@ function base64UrlDecode(value) {
   const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
   const binary = atob(padded);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function base64UrlEncode(value) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+  let binary = '';
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function randomBase64Url(byteLength = 32) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes);
+}
+
+async function sha256Base64Url(value) {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+  return base64UrlEncode(new Uint8Array(bytes));
 }
 
 function decodeJsonPart(value) {
@@ -174,6 +193,134 @@ function httpUrl(value, max = 2000) {
   } catch (_) {
     return '';
   }
+}
+
+const XERO_DEFAULT_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
+const XERO_DEFAULT_TOKEN_URL = 'https://identity.xero.com/connect/token';
+const XERO_DEFAULT_API_URL = 'https://api.xero.com';
+const XERO_DEFAULT_RETURN_URL = 'https://gmt-services.co.uk/jobs/?xero=connected';
+const XERO_DEFAULT_SCOPES = 'openid profile email offline_access accounting.invoices.read';
+
+function xeroSettings(env) {
+  const clientId = text(env.XERO_CLIENT_ID, '', 240);
+  const clientSecret = text(env.XERO_CLIENT_SECRET, '', 500);
+  const redirectUri = text(env.XERO_REDIRECT_URI, '', 2000);
+  const encryptionKey = text(env.XERO_TOKEN_ENCRYPTION_KEY, '', 1000);
+  return {
+    clientId,
+    clientSecret,
+    redirectUri,
+    encryptionKey,
+    authUrl: text(env.XERO_AUTH_URL, XERO_DEFAULT_AUTH_URL, 2000),
+    tokenUrl: text(env.XERO_TOKEN_URL, XERO_DEFAULT_TOKEN_URL, 2000),
+    apiUrl: text(env.XERO_API_URL, XERO_DEFAULT_API_URL, 2000).replace(/\/+$/, ''),
+    scopes: text(env.XERO_SCOPES, XERO_DEFAULT_SCOPES, 1000),
+    returnUrl: safeXeroReturnUrl(env.XERO_POST_CONNECT_REDIRECT, env),
+    configured: Boolean(clientId && clientSecret && redirectUri && encryptionKey)
+  };
+}
+
+function safeXeroReturnUrl(value, env) {
+  const fallback = XERO_DEFAULT_RETURN_URL;
+  const candidate = text(value, fallback, 2000);
+  try {
+    const parsed = new URL(candidate);
+    const allowed = csvSet(env?.ALLOWED_ORIGINS);
+    return allowed.has(parsed.origin.toLowerCase()) ? parsed.href : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function decodeXeroKey(value) {
+  const candidate = text(value, '', 1000);
+  if (!candidate) return null;
+  try {
+    if (/^[0-9a-f]{64}$/i.test(candidate)) return Uint8Array.from(candidate.match(/.{2}/g).map((pair) => parseInt(pair, 16)));
+    const decoded = base64UrlDecode(candidate);
+    return decoded.length === 32 ? decoded : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function xeroCryptoKey(settings, usages) {
+  const bytes = decodeXeroKey(settings.encryptionKey);
+  if (!bytes || bytes.length !== 32) throw Object.assign(new Error('Xero token encryption is not configured'), { status: 503 });
+  return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, usages);
+}
+
+async function encryptXeroSecret(value, settings) {
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const key = await xeroCryptoKey(settings, ['encrypt']);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(String(value || '')));
+  return { iv: base64UrlEncode(iv), ciphertext: base64UrlEncode(new Uint8Array(ciphertext)) };
+}
+
+async function decryptXeroSecret(ciphertext, iv, settings) {
+  try {
+    const key = await xeroCryptoKey(settings, ['decrypt']);
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: base64UrlDecode(iv) }, key, base64UrlDecode(ciphertext));
+    return new TextDecoder().decode(plaintext);
+  } catch (_) {
+    throw Object.assign(new Error('Stored Xero token cannot be decrypted'), { status: 503 });
+  }
+}
+
+function xeroCookieState(request) {
+  const cookie = request.headers.get('Cookie') || '';
+  const match = cookie.match(/(?:^|;\s*)gmt_xero_oauth_state=([^;]+)/);
+  if (!match) return '';
+  try { return decodeURIComponent(match[1]); } catch (_) { return ''; }
+}
+
+function xeroStateCookie(value, maxAge = 600) {
+  return `gmt_xero_oauth_state=${encodeURIComponent(value || '')}; Max-Age=${maxAge}; Path=/api/xero; HttpOnly; Secure; SameSite=None`;
+}
+
+function xeroBasicAuth(settings) {
+  return `Basic ${btoa(`${settings.clientId}:${settings.clientSecret}`)}`;
+}
+
+function xeroApiHeaders(accessToken, tenantId = '') {
+  const headers = {
+    Accept: 'application/json',
+    Authorization: `Bearer ${accessToken}`
+  };
+  if (tenantId) headers['xero-tenant-id'] = tenantId;
+  return headers;
+}
+
+function xeroErrorMessage(body, fallback) {
+  if (!body) return fallback;
+  if (typeof body === 'string') return text(body, fallback, 500);
+  const message = body.Message || body.message || body.error_description || body.error;
+  return text(message, fallback, 500);
+}
+
+function xeroInvoiceProjection(invoice) {
+  const contact = invoice && invoice.Contact && typeof invoice.Contact === 'object' ? invoice.Contact : {};
+  const total = Number(invoice?.Total);
+  const amountDue = Number(invoice?.AmountDue);
+  return {
+    invoice_id: text(invoice?.InvoiceID, '', 100),
+    invoice_number: text(invoice?.InvoiceNumber, '', 255),
+    status: text(invoice?.Status, '', 80),
+    type: text(invoice?.Type, '', 40),
+    contact_name: text(contact?.Name, '', 500),
+    date: text(invoice?.DateString || invoice?.Date, '', 80),
+    due_date: text(invoice?.DueDateString || invoice?.DueDate, '', 80),
+    total: Number.isFinite(total) ? total : null,
+    amount_due: Number.isFinite(amountDue) ? amountDue : null,
+    currency: text(invoice?.CurrencyCode, '', 20),
+    url: httpUrl(invoice?.Url, 2000)
+  };
+}
+
+function xeroTokenExpiry(expiresIn) {
+  const seconds = Math.max(60, Number(expiresIn) || 1800);
+  return new Date(Date.now() + seconds * 1000).toISOString();
 }
 
 function base64ByteLength(value) {
@@ -321,7 +468,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
+  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -419,6 +566,13 @@ function jobProjection(row, payload) {
     previous_record_id: text(payload.previousRecordId, '', MAX_RECORD_ID),
     invoice_number: text(payload.invoiceNumber, '', 180),
     xero_reference: text(payload.xeroReference, '', 240),
+    xero_invoice_id: text(payload.xeroInvoiceId, '', 100),
+    xero_invoice_status: text(payload.xeroInvoiceStatus, '', 80),
+    xero_invoice_url: httpUrl(payload.xeroInvoiceUrl),
+    xero_invoice_total: Number.isFinite(Number(payload.xeroInvoiceTotal)) ? Number(payload.xeroInvoiceTotal) : null,
+    xero_invoice_amount_due: Number.isFinite(Number(payload.xeroInvoiceAmountDue)) ? Number(payload.xeroInvoiceAmountDue) : null,
+    xero_invoice_currency: text(payload.xeroInvoiceCurrency, '', 20),
+    xero_last_synced_at: text(payload.xeroLastSyncedAt, '', 80),
     job_email_url: httpUrl(payload.jobEmailUrl),
     job_email_message_id: text(payload.jobEmailMessageId, '', 500),
     update_reason: text(payload.updateReason, '', 1000),
@@ -744,6 +898,259 @@ async function dispatchQueued(env, options = {}) {
   return summary;
 }
 
+function requireXeroAdmin(identity) {
+  if (!identity?.isAdmin) throw Object.assign(new Error('Xero access is restricted to the Accounts administrator'), { status: 403 });
+}
+
+function xeroRedirectResponse(returnUrl, result, reason = '', tenantName = '') {
+  const target = new URL(returnUrl || XERO_DEFAULT_RETURN_URL);
+  target.searchParams.set('xero', result);
+  if (reason) target.searchParams.set('xero_reason', reason);
+  if (tenantName) target.searchParams.set('xero_tenant', tenantName);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: target.href,
+      'Set-Cookie': xeroStateCookie('', 0),
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer'
+    }
+  });
+}
+
+async function startXeroConnection(request, env, identity, origin) {
+  requireXeroAdmin(identity);
+  const settings = xeroSettings(env);
+  if (!settings.configured) return json({ error: 'Xero is not configured on the portal service' }, 503, origin || '');
+  const state = randomBase64Url(32);
+  const createdAt = now();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  await env.DB.prepare('DELETE FROM xero_oauth_states WHERE expires_at <= ? OR consumed_at IS NOT NULL').bind(createdAt).run();
+  await env.DB.prepare(`INSERT INTO xero_oauth_states (state_hash, owner_oid, owner_upn, return_url, created_at, expires_at, consumed_at)
+    VALUES (?, ?, ?, ?, ?, ?, NULL)`).bind(await sha256Base64Url(state), identity.oid, identity.upn, settings.returnUrl, createdAt, expiresAt).run();
+  const authorization = new URL(settings.authUrl);
+  authorization.searchParams.set('response_type', 'code');
+  authorization.searchParams.set('client_id', settings.clientId);
+  authorization.searchParams.set('redirect_uri', settings.redirectUri);
+  authorization.searchParams.set('scope', settings.scopes);
+  authorization.searchParams.set('state', state);
+  return json({ ok: true, authorization_url: authorization.href, expires_at: expiresAt }, 200, origin || '', { 'Set-Cookie': xeroStateCookie(state) });
+}
+
+async function completeXeroConnection(request, env) {
+  const settings = xeroSettings(env);
+  const url = new URL(request.url);
+  const state = text(url.searchParams.get('state'), '', 500);
+  const cookieState = xeroCookieState(request);
+  const configuredReturn = settings.returnUrl;
+  if (!settings.configured) return xeroRedirectResponse(configuredReturn, 'error', 'not-configured');
+  if (url.searchParams.get('error')) return xeroRedirectResponse(configuredReturn, 'error', 'authorisation-denied');
+  if (!state || !cookieState || !constantTimeEqual(state, cookieState)) return xeroRedirectResponse(configuredReturn, 'error', 'invalid-state');
+  const stateHash = await sha256Base64Url(state);
+  const stateRow = await env.DB.prepare(`SELECT state_hash, owner_oid, owner_upn, return_url
+    FROM xero_oauth_states WHERE state_hash = ? AND consumed_at IS NULL AND expires_at > ?`).bind(stateHash, now()).first();
+  if (!stateRow) return xeroRedirectResponse(configuredReturn, 'error', 'expired-state');
+  await env.DB.prepare('UPDATE xero_oauth_states SET consumed_at = ? WHERE state_hash = ? AND consumed_at IS NULL').bind(now(), stateHash).run();
+  const code = text(url.searchParams.get('code'), '', 4000);
+  if (!code) return xeroRedirectResponse(stateRow.return_url || configuredReturn, 'error', 'missing-code');
+
+  const tokenResponse = await fetch(settings.tokenUrl, {
+    method: 'POST',
+    headers: { Authorization: xeroBasicAuth(settings), 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: settings.redirectUri })
+  });
+  const tokenText = await tokenResponse.text();
+  let tokenBody = null;
+  try { tokenBody = tokenText ? JSON.parse(tokenText) : null; } catch (_) {}
+  if (!tokenResponse.ok || !tokenBody?.access_token || !tokenBody?.refresh_token) return xeroRedirectResponse(stateRow.return_url || configuredReturn, 'error', 'token-exchange');
+
+  const connectionsResponse = await fetch(`${settings.apiUrl}/connections`, { headers: xeroApiHeaders(tokenBody.access_token) });
+  const connectionsText = await connectionsResponse.text();
+  let connections = null;
+  try { connections = connectionsText ? JSON.parse(connectionsText) : null; } catch (_) {}
+  if (!connectionsResponse.ok || !Array.isArray(connections) || !connections.length) return xeroRedirectResponse(stateRow.return_url || configuredReturn, 'error', 'no-tenant');
+
+  const timestamp = now();
+  let storedConnections = 0;
+  for (const connection of connections.slice(0, 25)) {
+    const tenantId = text(connection?.tenantId, '', 160);
+    const connectionId = text(connection?.id || connection?.connectionId, '', 160);
+    if (!tenantId || !connectionId) continue;
+    const encrypted = await encryptXeroSecret(tokenBody.refresh_token, settings);
+    await env.DB.prepare(`INSERT INTO xero_connections
+      (tenant_id, connection_id, tenant_name, tenant_type, scopes, refresh_token_ciphertext, refresh_token_iv,
+       connected_by_oid, connected_by_upn, connected_at, updated_at, last_error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(tenant_id) DO UPDATE SET connection_id = excluded.connection_id,
+       tenant_name = excluded.tenant_name, tenant_type = excluded.tenant_type, scopes = excluded.scopes,
+       refresh_token_ciphertext = excluded.refresh_token_ciphertext, refresh_token_iv = excluded.refresh_token_iv,
+       connected_by_oid = excluded.connected_by_oid, connected_by_upn = excluded.connected_by_upn,
+       connected_at = excluded.connected_at, updated_at = excluded.updated_at, last_error = NULL`).bind(
+      tenantId,
+      connectionId,
+      text(connection?.tenantName, 'Xero organisation', 500),
+      text(connection?.tenantType, 'ORGANISATION', 80),
+      text(tokenBody.scope || settings.scopes, settings.scopes, 1000),
+      encrypted.ciphertext,
+      encrypted.iv,
+      stateRow.owner_oid,
+      stateRow.owner_upn,
+      timestamp,
+      timestamp
+    ).run();
+    storedConnections += 1;
+  }
+  if (!storedConnections) return xeroRedirectResponse(stateRow.return_url || configuredReturn, 'error', 'no-tenant');
+  const first = connections.find((connection) => text(connection?.tenantId, '', 160));
+  return xeroRedirectResponse(stateRow.return_url || configuredReturn, 'connected', '', text(first?.tenantName, '', 500));
+}
+
+async function xeroConnectionRows(env) {
+  const result = await env.DB.prepare(`SELECT tenant_id, connection_id, tenant_name, tenant_type, scopes,
+    connected_by_upn, connected_at, updated_at, last_error FROM xero_connections ORDER BY tenant_name`).all();
+  return result.results || [];
+}
+
+async function xeroStatus(env, identity, origin) {
+  requireXeroAdmin(identity);
+  const settings = xeroSettings(env);
+  const connections = await xeroConnectionRows(env);
+  return json({
+    configured: settings.configured,
+    scopes: settings.scopes.split(/\s+/).filter(Boolean),
+    redirect_uri: settings.redirectUri || '',
+    connections: connections.map((connection) => ({
+      tenant_id: connection.tenant_id,
+      connection_id: connection.connection_id,
+      tenant_name: connection.tenant_name,
+      tenant_type: connection.tenant_type,
+      scopes: String(connection.scopes || '').split(/\s+/).filter(Boolean),
+      connected_by_upn: connection.connected_by_upn,
+      connected_at: connection.connected_at,
+      updated_at: connection.updated_at,
+      last_error: connection.last_error || ''
+    }))
+  }, 200, origin || '');
+}
+
+async function refreshXeroAccessToken(env, connection) {
+  const settings = xeroSettings(env);
+  if (!settings.configured) throw Object.assign(new Error('Xero is not configured on the portal service'), { status: 503 });
+  const refreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
+  const response = await fetch(settings.tokenUrl, {
+    method: 'POST',
+    headers: { Authorization: xeroBasicAuth(settings), 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+  });
+  const responseText = await response.text();
+  let body = null;
+  try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+  if (!response.ok || !body?.access_token) {
+    const message = xeroErrorMessage(body, `Xero token refresh failed (${response.status})`);
+    await env.DB.prepare('UPDATE xero_connections SET last_error = ?, updated_at = ? WHERE tenant_id = ?').bind(message, now(), connection.tenant_id).run();
+    throw Object.assign(new Error(message), { status: 502 });
+  }
+  const nextRefreshToken = text(body.refresh_token, refreshToken, 5000);
+  const encrypted = await encryptXeroSecret(nextRefreshToken, settings);
+  await env.DB.prepare(`UPDATE xero_connections SET refresh_token_ciphertext = ?, refresh_token_iv = ?, scopes = ?,
+    updated_at = ?, last_error = NULL WHERE tenant_id = ?`).bind(
+    encrypted.ciphertext,
+    encrypted.iv,
+    text(body.scope || connection.scopes, connection.scopes || settings.scopes, 1000),
+    now(),
+    connection.tenant_id
+  ).run();
+  return { accessToken: body.access_token, expiresAt: xeroTokenExpiry(body.expires_in) };
+}
+
+async function selectXeroConnection(env, tenantId = '') {
+  const requested = text(tenantId, '', 160);
+  const result = requested
+    ? await env.DB.prepare('SELECT * FROM xero_connections WHERE tenant_id = ?').bind(requested).first()
+    : await env.DB.prepare('SELECT * FROM xero_connections ORDER BY updated_at DESC LIMIT 2').all();
+  if (requested) {
+    if (!result) throw Object.assign(new Error('The requested Xero organisation is not connected'), { status: 404 });
+    return result;
+  }
+  const rows = result.results || [];
+  if (!rows.length) throw Object.assign(new Error('No Xero organisation is connected'), { status: 404 });
+  if (rows.length > 1) throw Object.assign(new Error('Choose a Xero organisation before looking up an invoice'), { status: 409 });
+  return rows[0];
+}
+
+async function lookupXeroInvoice(env, tenantId, invoiceNumber) {
+  const settings = xeroSettings(env);
+  const connection = await selectXeroConnection(env, tenantId);
+  const token = await refreshXeroAccessToken(env, connection);
+  const escaped = String(invoiceNumber || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const where = `InvoiceNumber="${escaped}"`;
+  const endpoint = `${settings.apiUrl}/api.xro/2.0/Invoices?where=${encodeURIComponent(where)}`;
+  const response = await fetch(endpoint, { headers: xeroApiHeaders(token.accessToken, connection.tenant_id) });
+  const responseText = await response.text();
+  let body = null;
+  try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+  if (!response.ok) throw Object.assign(new Error(xeroErrorMessage(body, `Xero invoice lookup failed (${response.status})`)), { status: 502 });
+  const invoices = Array.isArray(body?.Invoices) ? body.Invoices : [];
+  return {
+    tenant: { tenant_id: connection.tenant_id, tenant_name: connection.tenant_name },
+    invoice: invoices[0] ? xeroInvoiceProjection(invoices[0]) : null,
+    invoices: invoices.slice(0, 20).map(xeroInvoiceProjection),
+    refreshed_at: now()
+  };
+}
+
+async function lookupXeroInvoiceEndpoint(request, env, identity, origin) {
+  requireXeroAdmin(identity);
+  const body = await readJson(request);
+  const invoiceNumber = text(body.invoiceNumber || body.invoice_number, '', 255);
+  if (!invoiceNumber) return json({ error: 'Invoice number is required' }, 400, origin || '');
+  return json(await lookupXeroInvoice(env, body.tenantId || body.tenant_id, invoiceNumber), 200, origin || '');
+}
+
+async function syncXeroJobCard(request, env, identity, origin, recordId) {
+  requireXeroAdmin(identity);
+  const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
+  if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
+  if (existing.kind !== 'job-cards') return json({ error: 'Only job cards can be linked to Xero invoices' }, 400, origin || '');
+  if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
+  const body = await readJson(request);
+  const payload = payloadObject(existing);
+  const invoiceNumber = text(body.invoiceNumber || body.invoice_number || payload.invoiceNumber, '', 255);
+  if (!invoiceNumber) return json({ error: 'Invoice number is required before linking a job card to Xero' }, 400, origin || '');
+  const result = await lookupXeroInvoice(env, body.tenantId || body.tenant_id, invoiceNumber);
+  if (!result.invoice) return json({ error: `No Xero invoice matched ${invoiceNumber}`, tenant: result.tenant }, 404, origin || '');
+  const invoice = result.invoice;
+  const mergedPayload = {
+    ...payload,
+    invoiceNumber,
+    xeroReference: invoice.invoice_number || invoice.invoice_id || payload.xeroReference || '',
+    xeroInvoiceId: invoice.invoice_id,
+    xeroInvoiceStatus: invoice.status,
+    xeroInvoiceUrl: invoice.url,
+    xeroInvoiceTotal: invoice.total,
+    xeroInvoiceAmountDue: invoice.amount_due,
+    xeroInvoiceCurrency: invoice.currency,
+    xeroLastSyncedAt: result.refreshed_at
+  };
+  const input = normaliseInput({
+    recordId,
+    kind: 'job-cards',
+    action: existing.action,
+    status: existing.status,
+    employeeName: existing.employee_name,
+    employeeEmail: existing.owner_upn,
+    recordDate: existing.record_date,
+    submittedAt: existing.submitted_at,
+    payload: mergedPayload
+  }, { ...identity, name: existing.employee_name }, existing);
+  await saveRecord(env, input, identity, existing);
+  const updated = await env.DB.prepare(`SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
+      q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
+      q.last_error AS dispatch_last_error FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id
+      WHERE r.record_id = ?`).bind(recordId).first();
+  return json({ ok: true, record: projectRow(updated), invoice }, 200, origin || '');
+}
+
 async function listRecords(request, env, identity) {
   const url = new URL(request.url);
   const requestedKind = url.searchParams.get('kind') || 'all';
@@ -828,8 +1235,18 @@ async function handle(request, env) {
   }
   const url = new URL(request.url);
   if (url.pathname === '/api/health' && request.method === 'GET') return json({ ok: true, service: 'gmt-portal-api', version: 1 }, 200, origin || '');
+  if (url.pathname === '/api/xero/callback' && request.method === 'GET') {
+    if (!env.DB) return xeroRedirectResponse(xeroSettings(env).returnUrl, 'error', 'storage-not-configured');
+    return completeXeroConnection(request, env);
+  }
   const identity = await authenticate(request, env);
   if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
+
+  if (url.pathname === '/api/xero/connect' && request.method === 'POST') return startXeroConnection(request, env, identity, origin || '');
+  if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
+  if (url.pathname === '/api/xero/invoices/lookup' && request.method === 'POST') return lookupXeroInvoiceEndpoint(request, env, identity, origin || '');
+  const xeroJobSyncMatch = url.pathname.match(/^\/api\/xero\/job-cards\/([^/]+)\/sync$/);
+  if (xeroJobSyncMatch && request.method === 'POST') return syncXeroJobCard(request, env, identity, origin || '', decodeURIComponent(xeroJobSyncMatch[1]));
 
   if (url.pathname === '/api/history' && request.method === 'GET') {
     return json(await listRecords(request, env, identity), 200, origin || '');
@@ -923,5 +1340,9 @@ export {
   projectRow,
   canViewAllRecords,
   canAccessRecord,
-  tokenIdentity
+  tokenIdentity,
+  xeroSettings,
+  xeroInvoiceProjection,
+  encryptXeroSecret,
+  decryptXeroSecret
 };

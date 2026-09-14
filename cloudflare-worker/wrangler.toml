@@ -14,6 +14,7 @@ crons = ["0 * * * *"]
 binding = "DB"
 database_name = "gmt-portal"
 database_id = "911701fb-bad4-4615-a715-98f92b41144c"
+migrations_dir = "migrations"
 
 [vars]
 ENTRA_TENANT_ID = "8b182d6b-6f34-4ca2-84ad-50ca712b5488"
@@ -28,3 +29,9 @@ DISPATCH_ENABLED = "true"
 DISPATCH_WEEKDAY = "Friday"
 DISPATCH_HOUR = "18"
 DISPATCH_TIMEZONE = "Europe/London"
+XERO_SCOPES = "openid profile email offline_access accounting.invoices.read"
+XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize"
+XERO_TOKEN_URL = "https://identity.xero.com/connect/token"
+XERO_API_URL = "https://api.xero.com"
+XERO_REDIRECT_URI = "https://gmt-portal-api.raspy-breeze-e230.workers.dev/api/xero/callback"
+XERO_POST_CONNECT_REDIRECT = "https://gmt-services.co.uk/jobs/?xero=connected"

@@ -87,6 +87,22 @@
     return request("/api/history?kind=" + encodeURIComponent(value), { method: "GET" });
   }
 
+  function xeroConnect() {
+    return request("/api/xero/connect", { method: "POST", body: {} });
+  }
+
+  function xeroStatus() {
+    return request("/api/xero/status", { method: "GET" });
+  }
+
+  function xeroLookupInvoice(invoiceNumber, tenantId) {
+    return request("/api/xero/invoices/lookup", { method: "POST", body: { invoiceNumber: invoiceNumber, tenantId: tenantId || "" } });
+  }
+
+  function xeroSyncJobCard(recordId, invoiceNumber, tenantId) {
+    return request("/api/xero/job-cards/" + encodeURIComponent(recordId) + "/sync", { method: "POST", body: { invoiceNumber: invoiceNumber || "", tenantId: tenantId || "" } });
+  }
+
   window.GMTPortalApi = {
     enabled: enabled,
     request: request,
@@ -95,6 +111,10 @@
     queueAttachments: queueAttachments,
     getRecord: getRecord,
     deleteRecord: deleteRecord,
-    history: history
+    history: history,
+    xeroConnect: xeroConnect,
+    xeroStatus: xeroStatus,
+    xeroLookupInvoice: xeroLookupInvoice,
+    xeroSyncJobCard: xeroSyncJobCard
   };
 }());

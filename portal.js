@@ -34,6 +34,8 @@
   const calendarIndex = new Map();
   const jobCardIndex = new Map();
   let jobCardRevisionSource = null;
+  let jobHistoryMeta = {};
+  let xeroStatusSnapshot = null;
 
   function portalProfileName() {
     return store.get('gmt.portal.profile.v1', {}).name || '';
@@ -271,7 +273,9 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function renderJobs(remoteJobs = [], meta = {}) {
+  function renderJobs(remoteJobs = [], meta = null) {
+    if (meta && Object.keys(meta).length) jobHistoryMeta = meta;
+    const effectiveMeta = jobHistoryMeta || {};
     const localJobs = store.get(keys.jobs, []);
     const remoteIds = new Set(remoteJobs.map((remote) => String(remote.id || '')).filter(Boolean));
     const jobs = [...remoteJobs, ...localJobs.filter((local) => !remoteIds.has(String(local.id || '')))];
@@ -283,7 +287,8 @@
       list.innerHTML = '<p class="small-text">No job cards created yet.</p>';
       return;
     }
-    const canManage = Boolean(meta.is_admin || meta.is_job_card_admin);
+    const canManage = Boolean(effectiveMeta.is_admin || effectiveMeta.is_job_card_admin);
+    const canUseXero = Boolean(effectiveMeta.is_admin);
     const lifecycleOptions = ['Received', 'Assigned', 'In progress', 'Awaiting parts', 'Completed', 'Cancelled'];
     list.innerHTML = jobs.map((job) => `
       <article class="portal-item">
@@ -292,7 +297,7 @@
         <p class="portal-item-meta">${safe(job.client)} · ${safe(job.site)}</p>
         <p class="portal-item-meta">${safe(job.cardType || 'EC')} format · Revision ${safe(job.revision || 1)}${job.previousRecordId ? ` · Follows ${safe(job.previousRecordId)}` : ''} · Engineer: ${safe(job.engineer || 'Unassigned')} · Date: ${safe(job.date || 'No date')}</p>
         <p>${safe(job.description || 'No description')}</p>
-        <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${safeJobEmailUrl(job.emailUrl) ? ` · <a href="${safe(safeJobEmailUrl(job.emailUrl))}" target="_blank" rel="noopener">Job email</a>` : ''}</p>
+        <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${job.xeroInvoiceStatus ? ` · Xero status ${safe(job.xeroInvoiceStatus)}` : ''}${job.xeroLastSyncedAt ? ` · Synced ${safe(job.xeroLastSyncedAt)}` : ''}${safeJobEmailUrl(job.emailUrl) ? ` · <a href="${safe(safeJobEmailUrl(job.emailUrl))}" target="_blank" rel="noopener">Job email</a>` : ''}</p>
         <div class="portal-item-actions"><button type="button" class="secondary" data-job-revise="${safe(job.id)}">Create revision</button></div>
         ${canManage && job.remote ? `<div class="job-card-account-fields" data-job-account-fields="${safe(job.id)}">
           <strong>Accounts tracking</strong>
@@ -301,6 +306,7 @@
           <label>Job status<select data-job-status>${[...new Set([job.jobStatus || job.status || 'Received', ...lifecycleOptions])].map((status) => `<option value="${safe(status)}" ${status === (job.jobStatus || job.status || 'Received') ? 'selected' : ''}>${safe(status)}</option>`).join('')}</select></label>
           <label>Job email link<input data-job-email-url type="url" value="${safe(safeJobEmailUrl(job.emailUrl))}" placeholder="Outlook message link"></label>
           <button type="button" class="secondary" data-job-account-save="${safe(job.id)}">Save Accounts fields</button>
+          ${canUseXero ? `<button type="button" class="secondary" data-job-xero-sync="${safe(job.id)}">Find invoice in Xero</button><span class="small-text" data-job-xero-feedback></span>` : ''}
           <span class="small-text" data-job-account-feedback></span>
         </div>` : '<p class="small-text">Status changes are managed by Accounts in Microsoft 365. Invoice and Xero tracking are managed there too.</p>'}
       </article>`).join('');
@@ -474,6 +480,13 @@
         jobStatus: record.job_status || record.status || 'Received',
         invoiceNumber: record.invoice_number || '',
         xeroReference: record.xero_reference || '',
+        xeroInvoiceId: record.xero_invoice_id || '',
+        xeroInvoiceStatus: record.xero_invoice_status || '',
+        xeroInvoiceUrl: record.xero_invoice_url || '',
+        xeroInvoiceTotal: record.xero_invoice_total,
+        xeroInvoiceAmountDue: record.xero_invoice_amount_due,
+        xeroInvoiceCurrency: record.xero_invoice_currency || '',
+        xeroLastSyncedAt: record.xero_last_synced_at || '',
         emailUrl: record.job_email_url || '',
         emailMessageId: record.job_email_message_id || '',
         revision: record.job_revision || 1,
@@ -488,8 +501,58 @@
         remote: true
       }));
       renderJobs(remoteJobs, body?.meta || {});
+      loadProtectedXero(body?.meta || {});
     } catch (_) {
       // The local draft list remains visible when the protected service is unavailable.
+    }
+  }
+
+  function renderXeroPanel(body = {}) {
+    const panel = $('#xero-account-panel');
+    if (!panel || !jobHistoryMeta.is_admin) return;
+    xeroStatusSnapshot = body;
+    panel.hidden = false;
+    const status = $('#xero-account-status');
+    const feedback = $('#xero-account-feedback');
+    const connect = $('#xero-connect-button');
+    const tenantLabel = $('#xero-tenant-label');
+    const tenantSelect = $('#xero-tenant-select');
+    const connections = Array.isArray(body.connections) ? body.connections : [];
+    if (!body.configured) {
+      if (status) status.textContent = 'Xero is not configured on the protected Worker yet. Accounts must add the Xero app credentials and encryption key before connecting.';
+      if (connect) connect.disabled = true;
+      if (tenantLabel) tenantLabel.hidden = true;
+      return;
+    }
+    if (connect) connect.disabled = false;
+    if (connections.length) {
+      if (status) status.textContent = `Connected to ${connections.map((connection) => connection.tenant_name).join(', ')}. Invoice lookup is read-only and does not create or edit Xero transactions.`;
+      if (tenantLabel && tenantSelect) {
+        tenantLabel.hidden = connections.length < 2;
+        tenantSelect.innerHTML = connections.map((connection) => `<option value="${safe(connection.tenant_id)}">${safe(connection.tenant_name)}</option>`).join('');
+      }
+      if (connect) connect.textContent = 'Reconnect GMT Xero';
+    } else {
+      if (status) status.textContent = 'Xero app is configured. Connect GMT’s Xero organisation to enable invoice lookup.';
+      if (tenantLabel) tenantLabel.hidden = true;
+      if (connect) connect.textContent = 'Connect GMT Xero';
+    }
+    if (feedback && new URLSearchParams(window.location.search).get('xero') === 'connected') {
+      feedback.textContent = 'Xero connected. The Accounts invoice controls are ready.';
+      const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+      window.history.replaceState({}, '', cleanUrl);
+    }
+  }
+
+  async function loadProtectedXero(meta = {}) {
+    if (!portalApiEnabled() || !meta.is_admin) return;
+    const panel = $('#xero-account-panel');
+    if (panel) panel.hidden = false;
+    try {
+      renderXeroPanel(await window.GMTPortalApi.xeroStatus());
+    } catch (error) {
+      const status = $('#xero-account-status');
+      if (status) status.textContent = error.message || 'The protected Xero status could not be read.';
     }
   }
 
@@ -547,6 +610,20 @@
       renderJobPreview(type);
     }));
     renderJobPreview();
+    $('#xero-connect-button')?.addEventListener('click', async () => {
+      const button = $('#xero-connect-button');
+      const feedback = $('#xero-account-feedback');
+      if (button) button.disabled = true;
+      if (feedback) feedback.textContent = 'Opening Xero authorisation…';
+      try {
+        const result = await window.GMTPortalApi.xeroConnect();
+        if (!result?.authorization_url) throw new Error('Xero authorisation URL was not returned.');
+        window.location.assign(result.authorization_url);
+      } catch (error) {
+        if (button) button.disabled = false;
+        if (feedback) feedback.textContent = error.message || 'Xero could not be started.';
+      }
+    });
     $('#job-card-list')?.addEventListener('click', async (event) => {
       const reviseButton = event.target.closest('[data-job-revise]');
       if (reviseButton) {
@@ -569,6 +646,41 @@
         if (notice) notice.textContent = `Creating revision ${Number(source.revision || 1) + 1} of ${source.ref || 'this job'}. Submit to create a new card and invoice trail.`;
         renderJobPreview(source.cardType || 'EC');
         $('#job-card-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      const xeroButton = event.target.closest('[data-job-xero-sync]');
+      if (xeroButton && portalApiEnabled()) {
+        const job = jobCardIndex.get(String(xeroButton.dataset.jobXeroSync || ''));
+        const card = xeroButton.closest('[data-job-account-fields]');
+        const feedback = card?.querySelector('[data-job-xero-feedback]');
+        const invoiceNumber = card?.querySelector('[data-job-invoice]')?.value.trim() || job?.invoiceNumber || '';
+        const tenantId = $('#xero-tenant-select')?.value || '';
+        if (!job?.remote) return;
+        if (!invoiceNumber) {
+          if (feedback) feedback.textContent = 'Enter the Xero invoice number first.';
+          return;
+        }
+        xeroButton.disabled = true;
+        if (feedback) feedback.textContent = 'Looking up invoice…';
+        try {
+          const result = await window.GMTPortalApi.xeroSyncJobCard(job.id, invoiceNumber, tenantId);
+          const invoice = result?.invoice || {};
+          job.invoiceNumber = invoice.invoice_number || invoiceNumber;
+          job.xeroReference = invoice.invoice_number || invoice.invoice_id || job.xeroReference || '';
+          job.xeroInvoiceId = invoice.invoice_id || '';
+          job.xeroInvoiceStatus = invoice.status || '';
+          job.xeroInvoiceUrl = invoice.url || '';
+          job.xeroInvoiceTotal = invoice.total;
+          job.xeroInvoiceAmountDue = invoice.amount_due;
+          job.xeroInvoiceCurrency = invoice.currency || '';
+          job.xeroLastSyncedAt = result?.record?.xero_last_synced_at || new Date().toISOString();
+          if (feedback) feedback.textContent = `Linked ${job.xeroReference || invoiceNumber}${invoice.status ? ` (${invoice.status})` : ''}.`;
+          logNotification('Xero', `${job.ref || job.id} linked to Xero invoice ${job.xeroReference || invoiceNumber}.`);
+          renderJobs([...jobCardIndex.values()].filter((item) => item.remote), jobHistoryMeta);
+        } catch (error) {
+          if (feedback) feedback.textContent = error.message || 'Xero invoice lookup failed.';
+          xeroButton.disabled = false;
+        }
         return;
       }
       const button = event.target.closest('[data-job-account-save]');
@@ -594,6 +706,13 @@
         previousRecordId: job.previousRecordId || '',
         invoiceNumber,
         xeroReference,
+        xeroInvoiceId: job.xeroInvoiceId || '',
+        xeroInvoiceStatus: job.xeroInvoiceStatus || '',
+        xeroInvoiceUrl: job.xeroInvoiceUrl || '',
+        xeroInvoiceTotal: job.xeroInvoiceTotal,
+        xeroInvoiceAmountDue: job.xeroInvoiceAmountDue,
+        xeroInvoiceCurrency: job.xeroInvoiceCurrency || '',
+        xeroLastSyncedAt: job.xeroLastSyncedAt || '',
         jobEmailUrl: emailUrl,
         jobEmailMessageId: job.emailMessageId || '',
         updateReason: job.updateReason || '',
@@ -618,7 +737,7 @@
         job.emailUrl = emailUrl;
         if (feedback) feedback.textContent = 'Saved to protected job history.';
         logNotification('Job card', `${job.ref || job.id} Accounts fields updated.`);
-        renderJobs([...jobCardIndex.values()].filter((item) => item.remote), { is_job_card_admin: true });
+        renderJobs([...jobCardIndex.values()].filter((item) => item.remote), jobHistoryMeta);
       } catch (error) {
         if (feedback) feedback.textContent = error.message || 'Could not save Accounts fields.';
         button.disabled = false;

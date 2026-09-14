@@ -47,15 +47,45 @@ Job-card payloads preserve the card reference, revision, lifecycle status,
 invoice number, Xero reference, previous-card ID, and optional Outlook message
 link. Each submitted revision receives a new protected record ID, so an update
 can be assigned a new invoice while the earlier card remains in the chain.
-Those fields are ready for a future Xero or Microsoft Graph connector; this
-Worker does not claim that either provider is synchronised until its OAuth
-permissions and live API responses are configured and verified.
+
+## Xero connection
+
+The Worker contains a protected, Accounts-only Xero OAuth connection and
+read-only invoice-linking flow. It uses Xero's server-side authorisation-code
+flow, requests `offline_access` plus the granular
+`accounting.invoices.read` scope, discovers the connected tenant through the
+Connections endpoint, and encrypts rotating refresh tokens before storing them
+in D1. No Xero secret or token is sent to the Pages bundle.
+
+Create a Xero OAuth 2.0 app with the **Auth Code** grant type and register this
+exact redirect URI:
+
+`https://gmt-portal-api.raspy-breeze-e230.workers.dev/api/xero/callback`
+
+Set the following Worker secrets before using the Accounts connection button:
+
+```sh
+wrangler secret put XERO_CLIENT_ID
+wrangler secret put XERO_CLIENT_SECRET
+wrangler secret put XERO_TOKEN_ENCRYPTION_KEY # 32 bytes, base64 or 64-char hex
+```
+
+The public Xero variables and redirect URI are in `wrangler.toml`. Apply the
+`migrations/0002_xero.sql` D1 migration before deploying the Worker. Accounts
+can then connect from the job-card page, see the connected organisation, look
+up an assigned invoice number, and save the returned Xero invoice ID/status on
+the job-card chain. This first integration does not create, edit, void, or pay
+Xero invoices; those financial writes require a separate approved scope and
+explicit workflow.
 
 ## API behavior
 
 The protected API exposes `GET /api/history`, `POST /api/records`,
 `GET/PATCH/DELETE /api/records/:id`, `POST /api/records/:id/attachments`, and
-`GET /api/health`. Record history is filtered by the verified Entra owner.
+`GET /api/health`. Accounts also have `POST /api/xero/connect`,
+`GET /api/xero/status`, `POST /api/xero/invoices/lookup`, and
+`POST /api/xero/job-cards/:id/sync`; the OAuth callback is
+`GET /api/xero/callback`. Record history is filtered by the verified Entra owner.
 DELETE is a soft delete: submitted records remain in `record_versions` and
 are removed from ordinary history responses. The attachment route replaces the
 queued files for the same stable record ID, so a correction edited again before
