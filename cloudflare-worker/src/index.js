@@ -1506,23 +1506,23 @@ async function listRecords(request, env, identity) {
                 ? body.data
                 : null;
           if (sourceRows) {
-            const upstreamRecords = sourceRows.filter((row) => row && typeof row === 'object' && (identity.isAdmin || String(row.employee_upn || row.employeeEmail || row.employee_email || '').toLowerCase() === identity.upn)).map((row) => {
-              const employeeUpn = text(row.employee_upn || row.employeeEmail || row.employee_email, identity.upn, 320).toLowerCase();
-              const employeeName = text(row.employee_name || row.employeeName, employeeUpn || identity.name || identity.upn, 240);
+            const upstreamRecords = sourceRows.filter((row) => row && typeof row === 'object' && (identity.isAdmin || String(row.employee_upn || row.employeeEmail || row.employee_email || row['Employee Email'] || '').toLowerCase() === identity.upn)).map((row) => {
+              const employeeUpn = text(row.employee_upn || row.employeeEmail || row.employee_email || row['Employee Email'], identity.upn, 320).toLowerCase();
+              const employeeName = text(row.employee_name || row.employeeName || row['Employee Name'], employeeUpn || identity.name || identity.upn, 240);
               const rawKind = text(row.kind || row.category || row.record_type || row.action || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
               return {
                 kind: rawKind === 'submission' || rawKind === 'weekly-submission' ? 'timesheets' : canonicalKind(rawKind),
                 employee_name: employeeName,
                 employee_upn: employeeUpn,
-                start_date: text(row.start_date || row.weekStart, '', 80),
-                end_date: text(row.end_date || row.weekEnd, '', 80),
-                record_date: text(row.record_date || row.recordDate || row.date, '', 80),
+                start_date: text(row.start_date || row.weekStart || row['Week Start'], '', 80),
+                end_date: text(row.end_date || row.weekEnd || row['Week End'], '', 80),
+                record_date: text(row.record_date || row.recordDate || row.date || row.Date, '', 80),
                 action: text(row.action || row.category || row.record_type || row.kind || 'Timesheet', 'Timesheet', 100),
-                status: text(row.status, 'Submitted', 100),
-                submitted_at: text(row.submitted_at || row.submittedAt, '', 100),
-                updated_at: text(row.updated_at || row.updatedAt || row.submitted_at || row.submittedAt, '', 100),
-                issue: text(row.issue, '', 1000),
-                source_record_id: text(row.source_record_id || row.sourceRecordId || row.gmt_record_id, '', MAX_RECORD_ID),
+                status: text(row.status || row.Status, 'Submitted', 100),
+                submitted_at: text(row.submitted_at || row.submittedAt || row['Submitted At'], '', 100),
+                updated_at: text(row.updated_at || row.updatedAt || row['Modified'] || row.submitted_at || row.submittedAt || row['Submitted At'], '', 100),
+                issue: text(row.issue || row.Issue, '', 1000),
+                source_record_id: text(row.source_record_id || row.sourceRecordId || row.gmt_record_id || row['Source Record ID'], '', MAX_RECORD_ID),
                 can_edit: false,
                 source: 'microsoft-365',
                 synthetic: /^TEST(?:[\s_-]|$)/i.test(employeeName) || /^TEST(?:[\s_-]|$)/i.test(text(row.employeeName, '', 240))
