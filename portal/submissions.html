@@ -19,14 +19,21 @@
   <nav class="header-actions" aria-label="Submitted documents navigation"><a href="index.html">Dashboard</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main estimate-main" hidden>
-  <section class="estimate-intro card"><div><p class="portal-card-kicker">Identity-filtered history</p><h2>Submitted documents</h2><p>Review the job cards, estimates, tasks, calendar requests and timesheets that your signed-in GMT account is authorised to see.</p></div><span class="estimate-status-chip">Protected history</span></section>
+  <section class="estimate-intro card"><div><p class="portal-card-kicker">Identity-filtered history</p><h2>Submitted documents</h2><p>Review the customer enquiries, job cards, estimates, tasks, calendar requests and timesheets that your signed-in GMT account is authorised to see.</p></div><span class="estimate-status-chip">Protected history</span></section>
+  <section class="card submissions-calendar-panel" aria-labelledby="submissions-calendar-title">
+    <div class="portal-calendar-preview-heading"><div><span class="portal-card-kicker">Shared information</span><h2 id="submissions-calendar-title">Shared calendar</h2></div><a class="portal-text-link" href="../calendar/">Open calendar tools <span aria-hidden="true">→</span></a></div>
+    <p id="submissions-calendar-status" class="small-text" role="status">Loading shared calendar…</p>
+    <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-submissions-calendar-prev aria-label="Previous month">&lt;</button><h3 data-submissions-calendar-title></h3><button type="button" class="icon-button" data-submissions-calendar-next aria-label="Next month">&gt;</button></div>
+    <div class="portal-calendar-month" data-submissions-calendar aria-label="Shared calendar"></div>
+  </section>
   <section class="card estimate-history-panel" aria-labelledby="submissions-title">
     <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">All authorised submissions</p><h2 id="submissions-title">Document history</h2></div><button type="button" id="submissions-refresh" class="secondary">Refresh</button></div>
-    <div class="portal-history-toolbar"><p id="submissions-status" class="small-text" role="status">Loading submitted documents…</p><label class="portal-history-filter">Show <select id="submissions-filter" aria-label="Filter submitted documents"><option value="all" selected>All documents</option><option value="job-cards">Job cards</option><option value="estimates">Estimates</option><option value="tasks">Tasks</option><option value="calendar">Calendar requests</option><option value="timesheets">Timesheets</option><option value="clock">Clock and breaks</option></select></label></div>
+    <div class="portal-history-toolbar"><p id="submissions-status" class="small-text" role="status">Loading submitted documents…</p><label class="portal-history-filter">Show <select id="submissions-filter" aria-label="Filter submitted documents"><option value="all" selected>All documents</option><option value="enquiries">Customer enquiries</option><option value="job-cards">Job cards</option><option value="estimates">Estimates</option><option value="tasks">Tasks</option><option value="calendar">Calendar requests</option><option value="timesheets">Timesheets</option><option value="clock">Clock and breaks</option></select></label></div>
     <div class="estimate-history-layout"><div id="submissions-list" class="estimate-history-list" aria-live="polite"></div><article id="submissions-preview" class="estimate-paper estimate-history-preview" aria-live="polite"><p class="small-text">Select a document to preview it.</p></article></div>
   </section>
 </main>
 <script defer src="../portal-api.js?v=portal-api-xero-20260914"></script>
 <script defer src="submissions.js?v=submitted-documents-20260914"></script>
+<script defer src="submissions-calendar.js?v=submitted-documents-calendar-20260914"></script>
 </body>
 </html>

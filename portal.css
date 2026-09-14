@@ -112,6 +112,19 @@
 .portal-calendar-no-entry { color: #8c968a; font-size: .7rem; }
 .portal-calendar-empty { margin: .65rem 0 0; color: var(--muted); font-size: .9rem; }
 .portal-dashboard-help { grid-column: 1 / -1; margin: 0; }
+.submissions-calendar-panel { margin-bottom: 1rem; }
+.submission-demo-item { border-style: dashed; background: #fffdf3; }
+.submission-demo-item strong { color: #7a5a00; }
+.portal-history-demo { margin: .6rem 0; padding: .55rem .7rem; color: #5a4100; background: #fff1b8; border: 1px solid #d5b64a; border-radius: .45rem; font-weight: 800; }
+
+.enquiry-thread { margin: 1rem 0; }
+.enquiry-thread h3 { margin: 0 0 .65rem; }
+.enquiry-thread-message { max-width: 92%; margin: .55rem 0; padding: .7rem .8rem; border: 1px solid rgba(24, 72, 52, .2); border-radius: .65rem; background: #f3f8f0; }
+.enquiry-thread-message.is-outbound { margin-left: auto; background: #e2f2e6; border-color: rgba(24, 72, 52, .32); }
+.enquiry-thread-message-meta { display: flex; gap: .6rem; justify-content: space-between; color: #315443; font-size: .78rem; }
+.enquiry-thread-message p { margin: .4rem 0 0; white-space: pre-wrap; }
+.enquiry-reply-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(24, 72, 52, .16); }
+.enquiry-reply-form textarea { min-height: 6rem; width: 100%; }
 .portal-profile-card.account-settings-page { margin-top: 1.5rem; }
 .clock-location-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; align-items: end; }
 .clock-location-control button { width: auto; white-space: nowrap; }

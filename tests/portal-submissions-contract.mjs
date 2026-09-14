@@ -3,6 +3,7 @@ import fs from 'node:fs';
 
 const page = fs.readFileSync(new URL('../portal/submissions.html', import.meta.url), 'utf8');
 const script = fs.readFileSync(new URL('../portal/submissions.js', import.meta.url), 'utf8');
+const calendarScript = fs.readFileSync(new URL('../portal/submissions-calendar.js', import.meta.url), 'utf8');
 const dashboard = fs.readFileSync(new URL('../portal/index.html', import.meta.url), 'utf8');
 const timesheets = fs.readFileSync(new URL('../portal/timesheets.html', import.meta.url), 'utf8');
 const calendar = fs.readFileSync(new URL('../calendar/calendar-view.js', import.meta.url), 'utf8');
@@ -11,9 +12,19 @@ const tools = fs.readFileSync(new URL('../tools/index.html', import.meta.url), '
 
 assert.match(page, /id="submissions-list"/);
 assert.match(page, /id="submissions-preview"/);
-for (const value of ['job-cards', 'estimates', 'tasks', 'calendar', 'timesheets']) assert.match(page, new RegExp(`value="${value}"`));
+assert.match(page, /submissions-calendar-panel/);
+assert.match(page, /data-submissions-calendar/);
+assert.match(page, /submissions-calendar\.js/);
+for (const value of ['enquiries', 'job-cards', 'estimates', 'tasks', 'calendar', 'timesheets']) assert.match(page, new RegExp(`value="${value}"`));
 assert.match(script, /GMTPortalApi\.history\("all"\)/);
 assert.match(script, /signed-in GMT identity/);
+assert.match(script, /withExamples/);
+for (const value of ['demo-job-card', 'demo-estimate', 'demo-task', 'Example only', 'enquiry-thread', 'Open inbox thread']) assert.match(script, new RegExp(value));
+assert.match(calendarScript, /data-submissions-calendar/);
+assert.match(calendarScript, /GMTPortalApi\.history\("calendar"\)/);
+assert.match(calendarScript, /portal-calendar-grid/);
+assert.match(calendarScript, /Shared calendar connected/);
+assert.match(fs.readFileSync(new URL('../public-site.js', import.meta.url), 'utf8'), /gmt_enquiry_id/);
 assert.match(dashboard, /href="submissions\.html"/);
 assert.match(dashboard, /Submitted documents/);
 assert.doesNotMatch(dashboard, />My completed timesheets</);

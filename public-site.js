@@ -45,6 +45,34 @@
     return '';
   }
 
+  function enquiryRecordId(form) {
+    if (form && form.dataset.enquiryRecordId) return form.dataset.enquiryRecordId;
+    var suffix = (window.crypto && typeof window.crypto.randomUUID === 'function')
+      ? window.crypto.randomUUID()
+      : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    var value = 'enquiry-' + suffix;
+    if (form) form.dataset.enquiryRecordId = value;
+    return value;
+  }
+
+  function addEnquiryMetadata(formData, form, requestType, isBooking) {
+    var recordId = enquiryRecordId(form);
+    formData.set('gmt_record_id', recordId);
+    formData.set('gmt_enquiry_id', recordId);
+    formData.set('gmt_type', isBooking ? 'calendar' : 'enquiry');
+    formData.set('gmt_action', isBooking ? 'booking_request' : 'website_enquiry');
+    formData.set('gmt_schema_version', '1');
+    formData.set('gmt_customer_name', formData.get('name') || '');
+    formData.set('gmt_customer_email', formData.get('email') || '');
+    formData.set('gmt_customer_phone', formData.get('phone') || '');
+    formData.set('gmt_request_type', requestType || 'General enquiry');
+    formData.set('gmt_message', formData.get('message') || '');
+    formData.set('gmt_mailbox', 'info@gmt-services.co.uk');
+    formData.set('gmt_inbox_status', 'New — awaiting Microsoft 365 inbox link');
+    formData.set('gmt_portal_record_url', window.location.origin + '/portal/submissions.html?record=' + encodeURIComponent(recordId));
+    return recordId;
+  }
+
   function refreshMapSize() {
     if (!window.gmtMap) return;
     setTimeout(function () {
@@ -322,8 +350,7 @@
       formData.set('_replyto', formData.get('email') || '');
       var requestTypeValue = formData.get('request_type') || 'General enquiry';
       formData.set('_subject', '[GMT][' + requestTypeValue + '] Website request');
-      formData.set('gmt_type', /^(Call|Meeting)$/i.test(requestTypeValue) ? 'calendar' : 'enquiry');
-      formData.set('gmt_action', /^(Call|Meeting)$/i.test(requestTypeValue) ? 'booking_request' : 'website_enquiry');
+      addEnquiryMetadata(formData, form, requestTypeValue, /^(Call|Meeting)$/i.test(requestTypeValue));
       if (submitButton) submitButton.disabled = true;
       status.textContent = 'Sending your enquiry…';
 
@@ -527,8 +554,7 @@
       var requestTypeValue = formData.get('request_type') || 'General enquiry';
       var isBooking = /^(Call|Meeting)$/i.test(requestTypeValue);
       formData.set('_subject', isBooking ? '[GMT][' + requestTypeValue + '] Booking request' : 'New workshop enquiry — GMT Electrical Services');
-      formData.set('gmt_type', isBooking ? 'calendar' : 'enquiry');
-      formData.set('gmt_action', isBooking ? 'booking_request' : 'website_enquiry');
+      addEnquiryMetadata(formData, form, requestTypeValue, isBooking);
       formData.set('gmt_calendar_name', 'GMT Operational Calendar');
       if (submitButton) submitButton.disabled = true;
       status.textContent = 'Sending your enquiry…';

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS records (
   owner_oid TEXT NOT NULL,
   owner_upn TEXT NOT NULL,
   employee_name TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit')),
+  kind TEXT NOT NULL CHECK (kind IN ('timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries')),
   action TEXT NOT NULL,
   status TEXT NOT NULL,
   start_date TEXT,

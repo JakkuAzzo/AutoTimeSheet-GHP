@@ -1,4 +1,4 @@
-const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit']);
+const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
 const MAX_RECORD_ID = 180;
 const MAX_TEXT = 6000;
@@ -438,6 +438,7 @@ function canonicalKind(value) {
   if (normalized === 'estimate' || normalized === 'quote') return 'estimates';
   if (normalized === 'calendar-request' || normalized === 'calendar-event') return 'calendar';
   if (normalized === 'task' || normalized === 'task-request') return 'tasks';
+  if (normalized === 'enquiry' || normalized === 'inquiry' || normalized === 'customer-enquiry' || normalized === 'customer-inquiry' || normalized === 'contact') return 'enquiries';
   if (normalized === 'audit-submission') return 'audit';
   if (normalized === 'clock') return 'clock';
   if (normalized === 'timesheet' || normalized === 'timesheets' || !normalized) return 'timesheets';
@@ -473,7 +474,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync'];
+  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -605,6 +606,39 @@ function calendarProjection(row, payload) {
   };
 }
 
+function enquiryMessages(payload) {
+  const raw = Array.isArray(payload.messages) ? payload.messages : [];
+  return raw.slice(-100).map((message) => {
+    const item = message && typeof message === 'object' ? message : { body: message };
+    return {
+      id: text(item.id || item.messageId, '', 180),
+      direction: text(item.direction, 'inbound', 40).toLowerCase() === 'outbound' ? 'outbound' : 'inbound',
+      author: text(item.author || item.from || item.sender, '', 240),
+      body: text(item.body || item.message || item.text, '', 3000),
+      at: text(item.at || item.sentAt || item.receivedAt || item.timestamp, '', 100),
+      subject: text(item.subject, '', 500)
+    };
+  }).filter((message) => message.body || message.subject);
+}
+
+function enquiryProjection(row, payload) {
+  return {
+    enquiry_id: text(payload.enquiryId || payload.enquiry_id || row.record_id, '', MAX_RECORD_ID),
+    customer_name: text(payload.customerName || payload.name, '', 500),
+    customer_email: text(payload.customerEmail || payload.email, '', 500),
+    customer_phone: text(payload.customerPhone || payload.phone, '', 120),
+    request_type: text(payload.requestType || payload.request_type, 'General enquiry', 120),
+    message: text(payload.message, '', 3000),
+    conversation_url: httpUrl(payload.conversationUrl || payload.emailThreadUrl || payload.jobEmailUrl),
+    conversation_id: text(payload.conversationId || payload.threadId || payload.emailMessageId, '', 500),
+    thread_id: text(payload.threadId || payload.conversationId, '', 500),
+    inbox_status: text(payload.inboxStatus || payload.mailboxStatus, 'Awaiting inbox synchronisation', 120),
+    mailbox: text(payload.mailbox, 'GMT enquiries inbox', 240),
+    reply_to: text(payload.replyTo || payload.customerEmail || payload.email, '', 500),
+    messages: enquiryMessages(payload)
+  };
+}
+
 function projectRow(row, includeDetails = true) {
   const payload = payloadObject(row);
   const result = {
@@ -638,6 +672,7 @@ function projectRow(row, includeDetails = true) {
   if (row.kind === 'job-cards') Object.assign(result, jobProjection(row, payload));
   if (row.kind === 'tasks') Object.assign(result, taskProjection(row, payload));
   if (row.kind === 'calendar') Object.assign(result, calendarProjection(row, payload));
+  if (row.kind === 'enquiries') Object.assign(result, enquiryProjection(row, payload));
   return result;
 }
 

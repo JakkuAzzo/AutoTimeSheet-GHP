@@ -5,6 +5,8 @@ exposes projection-only history. Microsoft Entra access tokens are verified
 against the GMT tenant signing keys before any record is read or written.
 Corrections can be queued with their generated XLSX/CSV attachments and sent
 through the existing FormSubmit intake during the configured weekly window.
+Customer enquiries can also be stored as protected records with their customer
+details, Outlook conversation ID/link, and an append-only message projection.
 
 ## Provision and deploy
 
@@ -49,7 +51,15 @@ as unconfigured rows. Synthetic test records are retained in D1 for audit but
 are excluded from the default history and completion view; an Accounts request
 with `includeSynthetic=1` can include them for diagnostics.
 
-The Worker does not fabricate SharePoint or Excel records. Existing intake
+The Worker does not fabricate SharePoint, Excel, or mailbox records. The public
+enquiry form includes a stable `gmt_record_id` and customer metadata so the
+approved Microsoft 365 intake flow can create the protected enquiry record and
+link its Outlook conversation. Until that flow is connected, the portal shows
+the enquiry as awaiting inbox synchronisation. Replies entered in the portal
+are saved to the protected thread with `Reply queued` status; actual mailbox
+delivery remains owned by the Microsoft 365 flow.
+
+Existing intake
 flows remain responsible for filing generated attachments; D1 is the durable
 protected portal history and edit source. The scheduled dispatcher records
 `Queued for Accounts`, `Sent to Accounts`, or `Delivery failed`; `Sent to
