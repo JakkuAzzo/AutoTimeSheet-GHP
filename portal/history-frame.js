@@ -6,6 +6,7 @@
   var list = document.getElementById("history-frame-list");
   var params = new URLSearchParams(window.location.search);
   var filter = params.get("filter") || "all";
+  var employeeFilter = params.get("employee") || "";
   var editId = params.get("edit") || "";
   var records = [];
   var requestInFlight = false;
@@ -25,6 +26,10 @@
     if (window.parent && window.parent !== window) window.parent.postMessage({ type: "gmt:history-meta", meta: meta || {} }, window.location.origin);
   }
 
+  function notifyRecords(nextRecords, meta) {
+    if (window.parent && window.parent !== window) window.parent.postMessage({ type: "gmt:history-records", records: nextRecords || [], meta: meta || {} }, window.location.origin);
+  }
+
   function actionKey(record) {
     var value = String(record.kind || record.action || record.category || record.record_type || "timesheet").toLowerCase();
     if (value.indexOf("clock") !== -1 || value.indexOf("break") !== -1 || value.indexOf("absence") !== -1) return "clock";
@@ -40,6 +45,7 @@
     return {
       kind: record.kind || record.record_kind || "timesheets",
       employee_name: record.employee_name || record.employeeName || "",
+      employee_upn: record.employee_upn || record.employeeEmail || record.employee_email || "",
       start_date: record.start_date || record.weekStart || "",
       end_date: record.end_date || record.weekEnd || "",
       record_date: record.record_date || record.recordDate || record.date || "",
@@ -49,6 +55,8 @@
       updated_at: record.updated_at || record.updatedAt || "",
       issue: record.issue || "",
       source_record_id: record.source_record_id || record.sourceRecordId || "",
+      source: record.source || "",
+      synthetic: record.synthetic === true,
       can_edit: record.can_edit === true
     };
   }
@@ -63,7 +71,14 @@
   }
 
   function render() {
-    var visible = filter === "all" ? records : records.filter(function (record) { return actionKey(record) === filter; });
+    var visible = records.filter(function (record) {
+      var matchesKind = filter === "all" || actionKey(record) === filter;
+      if (!matchesKind) return false;
+      if (!employeeFilter) return true;
+      var upn = String(record.employee_upn || "").toLowerCase();
+      var name = String(record.employee_name || "").toLowerCase();
+      return upn === employeeFilter.toLowerCase() || name === employeeFilter.toLowerCase();
+    });
     if (!visible.length) {
       showEmpty(records.length ? "No submissions match this filter." : "No records are displayed until the protected history service responds.");
       return;
@@ -85,6 +100,7 @@
         '<p class="portal-item-meta">' + safe(action) + " · " + safe(period) + "</p>" +
         '<p class="portal-item-meta">Last updated ' + safe(record.updated_at || record.submitted_at || "not recorded") + "</p>" +
         (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + "</p>" : "") +
+        (record.synthetic ? '<p class="small-text portal-history-warning">Synthetic test record</p>' : "") +
         editPolicy +
         (edit ? '<div class="portal-item-actions"><a class="button button-link" href="' + safe(edit) + '">Edit spreadsheet</a></div>' : "") +
         "</article>";
@@ -221,14 +237,18 @@
     requestInFlight = true; status.textContent = "Loading your records…"; notify(status.textContent);
     try {
       var body = await window.GMTPortalApi.history("all"); records = readRecords(body); if (!records) throw new Error("History response was not valid");
-      notifyMeta(body.meta || {}); render(); status.textContent = records.length ? "Showing authorised submissions for your signed-in GMT identity." : "No submissions were found for this account."; notify(status.textContent);
+      notifyMeta(body.meta || {}); notifyRecords(records, body.meta || {}); render(); status.textContent = records.length ? "Showing authorised submissions for your signed-in GMT identity." : "No submissions were found for this account."; notify(status.textContent);
     } catch (error) { status.textContent = error && error.message ? error.message : "Your submissions could not be loaded."; notify(status.textContent); showEmpty("No records are displayed until the protected history service responds."); }
     finally { requestInFlight = false; }
   }
 
   window.addEventListener("message", function (event) {
     if (event.origin !== window.location.origin || !event.data || typeof event.data !== "object") return;
-    if (event.data.type === "gmt:history-filter") { filter = String(event.data.filter || "all"); render(); }
+    if (event.data.type === "gmt:history-filter") {
+      filter = String(event.data.filter || "all");
+      employeeFilter = String(event.data.employee || "");
+      render();
+    }
     if (event.data.type === "gmt:history-refresh") load();
   });
 

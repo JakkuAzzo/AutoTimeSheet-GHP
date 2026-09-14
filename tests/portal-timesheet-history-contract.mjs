@@ -8,6 +8,8 @@ const html = fs.readFileSync(new URL('../portal/timesheets.html', import.meta.ur
 const page = fs.readFileSync(new URL('../portal/timesheets.js', import.meta.url), 'utf8');
 const auth = fs.readFileSync(new URL('../portal/auth.js', import.meta.url), 'utf8');
 const timesheet = fs.readFileSync(new URL('../script.js', import.meta.url), 'utf8');
+const portalApi = fs.readFileSync(new URL('../portal-api.js', import.meta.url), 'utf8');
+const worker = fs.readFileSync(new URL('../cloudflare-worker/src/index.js', import.meta.url), 'utf8');
 
 assert.equal(contract.securityModel, 'server-enforced Entra identity mapping');
 assert.equal(contract.visibility.ordinaryEmployees, 'own records only');
@@ -16,16 +18,20 @@ assert.match(html, /My completed timesheets/);
 assert.match(html, /timesheet-history-refresh/);
 assert.match(html, /portal-history-frame/);
 assert.match(html, /All submissions/);
+assert.match(html, /portal-history-employee/);
+assert.match(html, /timesheet-completion/);
 assert.match(page, /cache:\s*["']no-store["']/);
 assert.match(page, /credentials:\s*["']include["']/);
 assert.match(page, /Authorization/);
 assert.match(page, /gmt:history-filter/);
 assert.match(page, /gmt:history-refresh/);
+assert.match(page, /gmt:history-records/);
 assert.match(page, /No records are displayed until the protected history service responds/);
 assert.match(auth, /window\.GMT_PORTAL_AUTH/);
 assert.match(auth, /window\.GMT_PORTAL_AUTH_READY/);
 assert.match(auth, /acquireTokenSilent/);
 assert.match(auth, /acquireTokenRedirect/);
+assert.match(auth, /optional/);
 assert.doesNotMatch(auth, /acquireTokenPopup/);
 assert.match(auth, /tokenResult\.idToken/);
 assert.match(config, /portalApiScopes:\s*\["openid",\s*"profile",\s*"email"\]/);
@@ -34,6 +40,10 @@ assert.doesNotMatch(auth, /oauth2\/v2\.0\/logout/i, 'portal sign out must not si
 assert.match(timesheet, /const submissionId = editSourceId \|\| buildTimesheetSubmissionId\(calendarSync\)/);
 assert.match(config, /timesheetHistoryEndpoint:\s*["']?["']/);
 assert.doesNotMatch(page, /sharepoint\.com/i, 'the browser must not call SharePoint directly');
+assert.match(portalApi, /X-GMT-Upstream-Authorization/);
+assert.match(portalApi, /timesheetHistoryScopes/);
+assert.match(worker, /completionSummary/);
+assert.match(worker, /X-GMT-Upstream-Authorization/);
 
 function makeElement() {
   return {

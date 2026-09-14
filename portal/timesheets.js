@@ -7,6 +7,13 @@
   var scope = document.getElementById("timesheet-history-scope");
   var list = document.getElementById("timesheet-history-list");
   var filterControl = document.getElementById("portal-history-filter");
+  var employeeFilterWrap = document.getElementById("portal-history-employee-filter");
+  var employeeControl = document.getElementById("portal-history-employee");
+  var completionSection = document.getElementById("timesheet-completion");
+  var completionStatus = document.getElementById("timesheet-completion-status");
+  var completionTable = document.getElementById("timesheet-completion-table");
+  var completionNote = document.getElementById("timesheet-completion-note");
+  var editPolicy = document.getElementById("timesheet-history-edit-policy");
   var refreshButton = document.getElementById("timesheet-history-refresh");
   var frame = document.getElementById("portal-history-frame");
   var lastRecords = [];
@@ -28,6 +35,10 @@
     return filterControl && filterControl.value ? filterControl.value : "all";
   }
 
+  function currentEmployee() {
+    return employeeControl && employeeControl.value ? employeeControl.value : "";
+  }
+
   function setBusy(isBusy) {
     if (!refreshButton) return;
     refreshButton.disabled = isBusy;
@@ -40,14 +51,71 @@
   }
 
   function sendCurrentFilter() {
-    send("gmt:history-filter", { filter: currentFilter() });
+    send("gmt:history-filter", { filter: currentFilter(), employee: currentEmployee() });
   }
 
   function updateMeta(meta) {
-    if (!scope) return;
     var isAdmin = meta && meta.is_admin === true;
-    scope.hidden = false;
-    scope.textContent = isAdmin ? "Accounts admin view: all employee submissions are visible." : "Showing this account's authorised submissions only.";
+    if (scope) {
+      scope.hidden = false;
+      scope.textContent = isAdmin ? "Accounts admin view: all employee submissions are visible." : "Showing this account's authorised submissions only.";
+    }
+    if (editPolicy) editPolicy.textContent = isAdmin
+      ? "All employee timesheets are viewable; editing is limited to records made within the current pay month."
+      : "All timesheets made by this user may be viewed, but only timesheets made within the current pay month may be edited.";
+    if (employeeFilterWrap) employeeFilterWrap.hidden = !isAdmin;
+    if (employeeControl && isAdmin) {
+      populateEmployees(meta.completion && meta.completion.employees || []);
+    }
+    if (completionSection) completionSection.hidden = !isAdmin;
+    if (isAdmin) {
+      renderCompletion(meta.completion || null, meta);
+    }
+  }
+
+  function populateEmployees(employees) {
+    if (!employeeControl) return;
+    var selected = currentEmployee();
+    var options = ['<option value="">All employees</option>'];
+    (employees || []).forEach(function (employee) {
+      var value = String(employee.employee_upn || employee.employee_name || "");
+      var label = String(employee.employee_name || employee.employee_upn || "Unnamed employee");
+      if (!value) return;
+      options.push('<option value="' + safe(value) + '">' + safe(label) + '</option>');
+    });
+    employeeControl.innerHTML = options.join("");
+    employeeControl.value = selected;
+  }
+
+  function renderCompletion(completion, meta) {
+    if (!completionSection || !completionTable || !completionStatus) return;
+    if (!completion) {
+      completionStatus.textContent = "Completion status is unavailable until the protected history service returns the Accounts view.";
+      completionTable.innerHTML = "";
+      if (completionNote) completionNote.textContent = "";
+      return;
+    }
+    var counts = completion.counts || {};
+    completionStatus.textContent = "Pay month " + safe(completion.pay_month || "current") + " · " + Number(counts.completed || 0) + " completed · " + Number(counts.incomplete || 0) + " incomplete · " + Number(counts.missing || 0) + " missing.";
+    var upstream = String(meta && meta.upstream || "not-configured");
+    var sourceMessage = upstream === "ok"
+      ? "Microsoft 365 history is included in this Accounts view."
+      : upstream === "flow-permission-not-configured"
+        ? "Portal history is loaded, but the Microsoft 365 history source is not connected for this signed-in session. Grant the protected Flow Service permission to include older filed submissions."
+        : "Portal history is loaded; Microsoft 365 history source status: " + upstream + ".";
+    var syntheticMessage = Number(meta && meta.synthetic_record_count || 0) ? " Synthetic test rows are excluded from completion counts and the default Accounts list." : "";
+    if (completionNote) completionNote.textContent = sourceMessage + (completion.directory_configured ? " The employee roster is configured." : " The employee roster is not configured, so missing rows are limited to employees present in the returned history.") + syntheticMessage;
+    if (!completion.employees || !completion.employees.length) {
+      completionTable.innerHTML = '<tbody><tr><td colspan="4">No employee rows were returned.</td></tr></tbody>';
+      return;
+    }
+    completionTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Completed weeks</th><th>Missing / needs attention</th></tr></thead><tbody>' + completion.employees.map(function (employee) {
+      var statusValue = String(employee.status || "missing");
+      var statusLabel = statusValue === "completed" ? "Completed" : statusValue === "incomplete" ? "Incomplete" : "Missing";
+      var completed = (employee.completed_weeks || []).join(", ") || "None";
+      var missing = (employee.missing || []).join("; ") || "None";
+      return '<tr><td><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td>' + safe(completed) + '</td><td>' + safe(missing) + '</td></tr>';
+    }).join("") + '</tbody>';
   }
 
   function showEmpty(message) {
@@ -100,6 +168,11 @@
         if (!token) throw new Error('History access token unavailable');
         headers.Authorization = 'Bearer ' + token;
       }
+      var upstreamScopes = normaliseScopes(config.timesheetHistoryScopes);
+      if (upstreamScopes.length && auth && typeof auth.acquireToken === 'function') {
+        var upstreamToken = await auth.acquireToken(upstreamScopes, { optional: true });
+        if (upstreamToken) headers['X-GMT-Upstream-Authorization'] = 'Bearer ' + upstreamToken;
+      }
       var response = await fetch(endpoint, { credentials: 'include', cache: 'no-store', headers: headers });
       if (response.status === 401) throw new Error('Your GMT sign-in has expired');
       if (response.status === 403) throw new Error('Your GMT account is not authorised to view these records');
@@ -109,6 +182,7 @@
       if (!records) throw new Error('History response was not valid');
       lastRecords = records;
       updateMeta(body.meta || {});
+      renderCompletion(body.meta && body.meta.completion || null, body.meta || {});
       render(records);
       status.textContent = records.length ? 'Showing ' + records.length + ' completed timesheet' + (records.length === 1 ? '' : 's') + ' authorised for your signed-in GMT identity.' : 'No completed timesheets were found for this account.';
     } catch (error) {
@@ -130,6 +204,7 @@
   }
 
   if (filterControl) filterControl.addEventListener("change", sendCurrentFilter);
+  if (employeeControl) employeeControl.addEventListener("change", sendCurrentFilter);
   if (refreshButton) refreshButton.addEventListener("click", refresh);
   if (frame) frame.addEventListener("load", sendCurrentFilter);
   if (typeof window.addEventListener === "function") {
@@ -139,6 +214,9 @@
         setBusy(false);
         sendCurrentFilter();
       } else if (event.data.type === "gmt:history-meta") {
+        updateMeta(event.data.meta || {});
+      } else if (event.data.type === "gmt:history-records") {
+        lastRecords = Array.isArray(event.data.records) ? event.data.records : [];
         updateMeta(event.data.meta || {});
       } else if (event.data.type === "gmt:history-status") {
         setBusy(false);

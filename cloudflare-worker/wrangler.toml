@@ -25,6 +25,9 @@ JOB_CARD_ADMIN_UPNS = "acc.gmtelect@outlook.com,acc.gmtelect@gmt-services.co.uk,
 ADMIN_OIDS = ""
 ADMIN_GROUP_IDS = ""
 HISTORY_UPSTREAM_URL = "https://b7db48c95976ef8e943878dfe20987.42.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/15/workflows/e25c8f033575417ea40c1ef91d2c852b/triggers/manual/paths/invoke?api-version=1"
+# The Accounts completion view uses this approved portal roster to distinguish
+# a missing submission from an employee who has never submitted a record.
+STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"name":"Matthew","upn":"matthew@gmt-services.co.uk"},{"name":"Ainsley","upn":"ainsley@gmt-services.co.uk"},{"name":"Simon","upn":"simon@gmt-services.co.uk"},{"name":"Faith","upn":"faith.b@gmt-services.co.uk"},{"name":"Michelle","upn":"michelle@gmt-services.co.uk"}]'
 DISPATCH_ENABLED = "true"
 DISPATCH_WEEKDAY = "Friday"
 DISPATCH_HOUR = "18"

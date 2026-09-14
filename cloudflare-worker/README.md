@@ -32,9 +32,21 @@ The Pages `config.js` should point `portalApiEndpoint` and
 `portalHistoryEndpoint` at the deployed Worker origin. The portal can use the
 OIDC scopes `openid profile email`; the Worker validates the signed SPA ID token
 against the SPA audience so portal CRUD does not depend on Power Automate
-permissions. When the delegated Power Automate Flow Service permission is
-configured, a Flow-scoped access token is also accepted and enables the
-optional upstream history merge.
+permissions. The history request optionally acquires the delegated Power
+Automate Flow Service token and sends it in a separate Worker-only header; the
+Worker verifies that token belongs to the same Entra identity before calling
+`HISTORY_UPSTREAM_URL`. When that permission is unavailable, the response
+retains the D1 records and reports `flow-permission-not-configured` in
+`meta.upstream` rather than presenting the D1 test record as the complete
+Microsoft 365 history.
+
+`STAFF_DIRECTORY_JSON` is an optional Worker variable containing the approved
+employee roster. Accounts uses it to show current pay-month submissions,
+missing weeks and rows that need review. Employees not present in the roster
+but returned by the protected history source are added to the completion view
+as unconfigured rows. Synthetic test records are retained in D1 for audit but
+are excluded from the default history and completion view; an Accounts request
+with `includeSynthetic=1` can include them for diagnostics.
 
 The Worker does not fabricate SharePoint or Excel records. Existing intake
 flows remain responsible for filing generated attachments; D1 is the durable

@@ -19,7 +19,9 @@
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
     "test:timesheets:daily-calculation": "node tests/timesheet-daily-calculation.mjs",
-    "test:timesheets:pay-month": "node tests/timesheet-pay-month-policy.mjs"
+    "test:timesheets:pay-month": "node tests/timesheet-pay-month-policy.mjs",
+    "test:timesheets:admin-completion": "node tests/timesheet-admin-completion.mjs",
+    "test:timesheets:admin-ui": "node tests/timesheet-admin-ui.mjs"
   },
   "keywords": ["timesheet", "authentication"],
   "author": "",

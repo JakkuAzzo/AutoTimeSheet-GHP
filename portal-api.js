@@ -33,6 +33,13 @@
       if (!token) throw new Error("Protected portal access token unavailable");
       headers.Authorization = "Bearer " + token;
     }
+    if (Array.isArray(settings.upstreamScopes) && settings.upstreamScopes.length) {
+      var upstreamAuth = await authContext();
+      if (upstreamAuth && typeof upstreamAuth.acquireToken === "function") {
+        var upstreamToken = await upstreamAuth.acquireToken(settings.upstreamScopes, { optional: true });
+        if (upstreamToken) headers["X-GMT-Upstream-Authorization"] = "Bearer " + upstreamToken;
+      }
+    }
     var fetchOptions = {
       method: settings.method || "GET",
       headers: headers,
@@ -82,9 +89,12 @@
     return request("/api/records/" + encodeURIComponent(recordId), { method: "DELETE" });
   }
 
-  function history(kind) {
+  function history(kind, options) {
     var value = String(kind || "all").trim() || "all";
-    return request("/api/history?kind=" + encodeURIComponent(value), { method: "GET" });
+    return request("/api/history?kind=" + encodeURIComponent(value), {
+      method: "GET",
+      upstreamScopes: Array.isArray(config.timesheetHistoryScopes) ? config.timesheetHistoryScopes : []
+    });
   }
 
   function xeroConnect() {

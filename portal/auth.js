@@ -198,6 +198,8 @@
     window.GMT_PORTAL_AUTH = {
       acquireToken: function (scopes) {
         var requestedScopes = Array.isArray(scopes) ? scopes.filter(Boolean) : [];
+        var options = arguments.length > 1 && arguments[1] && typeof arguments[1] === "object" ? arguments[1] : {};
+        var optional = options.optional === true;
         if (!requestedScopes.length) return Promise.resolve(initialIdToken);
         var oidcOnly = requestedScopes.every(function (scope) {
           return /^(openid|profile|email|offline_access)$/i.test(String(scope || "").trim());
@@ -205,6 +207,7 @@
         var request = { account: account, scopes: requestedScopes };
         return msalApp.acquireTokenSilent(request)
           .catch(function (error) {
+            if (optional) return { __gmtOptionalTokenFailure: true };
             // Use a redirect so Safari does not depend on a popup being
             // allowed by the browser when an interactive token request is needed.
             var code = String(error && error.errorCode || "").toLowerCase();
@@ -218,6 +221,7 @@
             }));
           })
           .then(function (tokenResult) {
+            if (!tokenResult || tokenResult.__gmtOptionalTokenFailure) return "";
             // AuthenticationResult includes an ID token even when no API
             // access token is issued for the requested OIDC-only scopes. Use
             // that signed identity token for the first-party Worker; resource

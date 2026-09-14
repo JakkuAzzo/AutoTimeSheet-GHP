@@ -31,7 +31,7 @@ function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
-    'access-control-allow-headers': 'Authorization, Content-Type, Accept',
+    'access-control-allow-headers': 'Authorization, X-GMT-Upstream-Authorization, Content-Type, Accept',
     'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'cache-control': 'no-store',
     vary: 'Origin'
@@ -91,8 +91,8 @@ function allowedOrigin(request, env) {
   return allowed.has(origin.toLowerCase()) ? origin : null;
 }
 
-function bearerToken(request) {
-  const value = request.headers.get('Authorization') || '';
+function bearerToken(request, headerName = 'Authorization') {
+  const value = request.headers.get(headerName) || '';
   const match = value.match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : '';
 }
@@ -155,8 +155,7 @@ function canAccessRecord(identity, row) {
   return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
 }
 
-async function authenticate(request, env) {
-  const token = bearerToken(request);
+async function authenticateToken(token, env) {
   if (!token) throw Object.assign(new Error('Authentication required'), { status: 401 });
   const pieces = token.split('.');
   if (pieces.length !== 3) throw Object.assign(new Error('Invalid authentication token'), { status: 401 });
@@ -177,6 +176,10 @@ async function authenticate(request, env) {
   } catch (error) {
     throw Object.assign(new Error(error.message || 'Unauthorised'), { status: 401 });
   }
+}
+
+async function authenticate(request, env) {
+  return authenticateToken(bearerToken(request), env);
 }
 
 function text(value, fallback = '', max = MAX_TEXT) {
@@ -615,7 +618,9 @@ function projectRow(row, includeDetails = true) {
     updated_at: row.updated_at,
     issue: row.issue || '',
     source_record_id: row.record_id,
-    can_edit: row.kind === 'timesheets' && isCurrentPayMonthRecord(row)
+    can_edit: row.kind === 'timesheets' && isCurrentPayMonthRecord(row),
+    source: 'portal-d1',
+    synthetic: syntheticRecord(row, payload)
   };
   if (row.dispatch_status) {
     result.dispatch = {
@@ -632,6 +637,185 @@ function projectRow(row, includeDetails = true) {
   if (row.kind === 'tasks') Object.assign(result, taskProjection(row, payload));
   if (row.kind === 'calendar') Object.assign(result, calendarProjection(row, payload));
   return result;
+}
+
+function staffDirectory(env) {
+  const raw = text(env.STAFF_DIRECTORY_JSON, '', 30000);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set();
+    return parsed.map((entry) => {
+      if (typeof entry === 'string') return { name: text(entry, '', 240), upn: '' };
+      return {
+        name: text(entry?.name || entry?.displayName || entry?.employee_name, '', 240),
+        upn: text(entry?.upn || entry?.email || entry?.employee_upn, '', 320).toLowerCase()
+      };
+    }).filter((entry) => {
+      const key = entry.upn || entry.name.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  } catch (_) {
+    return [];
+  }
+}
+
+function dateKeyInTimeZone(date = new Date(), timeZone = 'Europe/London') {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const year = String(parts.find((part) => part.type === 'year')?.value || '');
+  const month = String(parts.find((part) => part.type === 'month')?.value || '');
+  const day = String(parts.find((part) => part.type === 'day')?.value || '');
+  return year && month && day ? `${year}-${month}-${day}` : '';
+}
+
+function completionWeeks(monthKey, timeZone = 'Europe/London', nowDate = new Date()) {
+  const match = String(monthKey || '').match(/^(\d{4})-(\d{2})$/);
+  if (!match) return [];
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!year || month < 1 || month > 12) return [];
+  const monthStart = new Date(Date.UTC(year, month - 1, 1, 12));
+  const monthEnd = new Date(Date.UTC(year, month, 0, 12));
+  const [todayYear, todayMonth, todayDay] = dateKeyInTimeZone(nowDate, timeZone).split('-').map(Number);
+  const currentKey = todayYear && todayMonth ? `${todayYear}-${String(todayMonth).padStart(2, '0')}` : '';
+  const cutoff = currentKey === monthKey
+    ? new Date(Date.UTC(todayYear, todayMonth - 1, todayDay, 12))
+    : monthEnd;
+  if (currentKey && monthKey > currentKey) return [];
+  const mondayOffset = (monthStart.getUTCDay() + 6) % 7;
+  const firstMonday = new Date(monthStart.getTime() - mondayOffset * 86400000);
+  const result = [];
+  for (let cursor = firstMonday; cursor <= monthEnd; cursor = new Date(cursor.getTime() + 7 * 86400000)) {
+    const weekEnd = new Date(cursor.getTime() + 6 * 86400000);
+    if (weekEnd < monthStart || weekEnd > cutoff) continue;
+    result.push({
+      start: cursor.toISOString().slice(0, 10),
+      end: weekEnd.toISOString().slice(0, 10)
+    });
+  }
+  return result;
+}
+
+function timesheetRecord(row) {
+  const rawKind = text(row?.kind || row?.action, '', 120).toLowerCase().replace(/[_\s]+/g, '-');
+  const kind = canonicalKind(row?.kind || row?.action || '');
+  return (kind === 'timesheets' || rawKind === 'submission' || rawKind === 'weekly-submission') && !syntheticRecord(row);
+}
+
+function recordWeekStart(row) {
+  const candidate = text(row?.start_date || row?.record_date || row?.end_date, '', 80).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return '';
+  const date = new Date(`${candidate}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return '';
+  const offset = (date.getUTCDay() + 6) % 7;
+  return new Date(date.getTime() - offset * 86400000).toISOString().slice(0, 10);
+}
+
+function recordStatusIssue(row) {
+  const status = text(row?.status, 'Submitted', 120).toLowerCase();
+  const issue = text(row?.issue, '', 1000);
+  if (issue) return issue;
+  if (/^(draft|pending|delivery failed|failed|rejected|cancelled|test - not sent|needs review)/i.test(status)) return `Status is ${text(row?.status, 'not submitted', 120)}.`;
+  return '';
+}
+
+function completionSummary(records, env, timeZone = 'Europe/London', nowDate = new Date()) {
+  const month = monthKeyInTimeZone(nowDate, timeZone);
+  const weeks = completionWeeks(month, timeZone, nowDate);
+  const directory = staffDirectory(env);
+  const identities = new Map();
+  directory.forEach((entry) => {
+    identities.set(entry.upn || entry.name.toLowerCase(), { ...entry, configured: true });
+  });
+  records.filter(timesheetRecord).forEach((record) => {
+    const upn = text(record.employee_upn || record.employeeEmail || record.employee_email, '', 320).toLowerCase();
+    const name = text(record.employee_name || record.employeeName, '', 240);
+    const key = upn || name.toLowerCase();
+    if (!key || identities.has(key)) return;
+    identities.set(key, { name, upn, configured: false });
+  });
+  const employees = [...identities.values()].map((employee) => {
+    const employeeRecords = records.filter((record) => {
+      if (!timesheetRecord(record)) return false;
+      const recordMonth = recordMonthKey(record.start_date || record.record_date || record.end_date, timeZone);
+      if (recordMonth !== month) return false;
+      const upn = text(record.employee_upn || record.employeeEmail || record.employee_email, '', 320).toLowerCase();
+      const name = text(record.employee_name || record.employeeName, '', 240).toLowerCase();
+      return employee.upn ? upn === employee.upn : name === employee.name.toLowerCase();
+    });
+    const byWeek = new Map();
+    employeeRecords.forEach((record) => {
+      const week = recordWeekStart(record);
+      if (week && !byWeek.has(week)) byWeek.set(week, record);
+    });
+    const completedWeeks = weeks.filter((week) => byWeek.has(week.start)).map((week) => week.start);
+    const missingWeeks = weeks.filter((week) => !byWeek.has(week.start)).map((week) => `${week.start} to ${week.end}`);
+    const missing = missingWeeks.map((week) => `Timesheet week ${week}`);
+    employeeRecords.forEach((record) => {
+      const issue = recordStatusIssue(record);
+      if (issue && !missing.includes(issue)) missing.push(issue);
+    });
+    const status = !employeeRecords.length ? 'missing' : (missing.length ? 'incomplete' : 'completed');
+    return {
+      employee_name: employee.name || employee.upn || 'Unnamed employee',
+      employee_upn: employee.upn,
+      configured: employee.configured,
+      status,
+      completed_weeks: completedWeeks,
+      missing_weeks: missingWeeks,
+      missing,
+      submitted_records: employeeRecords.length
+    };
+  }).sort((left, right) => left.employee_name.localeCompare(right.employee_name));
+  return {
+    pay_month: month,
+    due_weeks: weeks,
+    directory_configured: directory.length > 0,
+    employees,
+    counts: {
+      completed: employees.filter((employee) => employee.status === 'completed').length,
+      incomplete: employees.filter((employee) => employee.status === 'incomplete').length,
+      missing: employees.filter((employee) => employee.status === 'missing').length
+    }
+  };
+}
+
+async function verifiedUpstreamToken(request, env, identity) {
+  const flowAudience = audienceValue('https://service.flow.microsoft.com/');
+  const supplied = bearerToken(request, 'X-GMT-Upstream-Authorization');
+  const primary = identity.aud === flowAudience ? bearerToken(request) : '';
+  const token = supplied || primary;
+  if (!token) return { token: '', status: 'flow-permission-not-configured' };
+  try {
+    const upstreamIdentity = await authenticateToken(token, env);
+    if (upstreamIdentity.aud !== flowAudience) throw new Error('Flow token audience is not permitted');
+    if (upstreamIdentity.tid !== identity.tid || upstreamIdentity.oid !== identity.oid || upstreamIdentity.upn !== identity.upn) throw new Error('Flow token identity does not match the signed-in account');
+    return { token, status: 'ready' };
+  } catch (_) {
+    return { token: '', status: 'upstream-token-invalid' };
+  }
+}
+
+async function fetchUpstreamHistory(upstreamUrl, token, kind, identity) {
+  const headers = { accept: 'application/json', authorization: `Bearer ${token}` };
+  let response = await fetch(upstreamUrl, { headers, cf: { cacheTtl: 0, cacheEverything: false } });
+  if (response.status === 405) {
+    response = await fetch(upstreamUrl, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: kind || 'all', scope: identity.isAdmin ? 'all' : 'own' }),
+      cf: { cacheTtl: 0, cacheEverything: false }
+    });
+  }
+  return response;
 }
 
 function sameRecord(a, b) {
@@ -1178,51 +1362,85 @@ async function listRecords(request, env, identity) {
         ? [identity.oid, limit]
         : (kind ? [identity.oid, kind, limit] : [identity.oid, limit]);
   const result = await env.DB.prepare(sql).bind(...bindings).all();
-  let records = (result.results || []).map((row) => projectRow(row));
+  const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
+  const projectedLocalRecords = (result.results || []).map((row) => projectRow(row));
+  const syntheticRecordCount = projectedLocalRecords.filter((row) => row.synthetic).length;
+  let records = includeSynthetic ? projectedLocalRecords : projectedLocalRecords.filter((row) => !row.synthetic);
+  const localRecordCount = records.length;
   let upstream = 'not-configured';
+  let upstreamRecordCount = 0;
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
-  const token = bearerToken(request);
-  const flowAudience = audienceValue('https://service.flow.microsoft.com/');
-  if (upstreamUrl && token && identity.aud === flowAudience && (!kind || kind === 'timesheets' || kind === 'clock')) {
-    try {
-      const upstreamResponse = await fetch(upstreamUrl, { headers: { accept: 'application/json', authorization: `Bearer ${token}` }, cf: { cacheTtl: 0, cacheEverything: false } });
-      if (upstreamResponse.ok) {
-        const body = await upstreamResponse.json();
-        if (body && Array.isArray(body.records)) {
-          const upstreamRecords = body.records.filter((row) => row && typeof row === 'object' && (identity.isAdmin || String(row.employee_upn || row.employeeEmail || row.employee_email || '').toLowerCase() === identity.upn)).map((row) => ({
-            employee_name: text(row.employee_name || row.employeeName, identity.name || identity.upn, 240),
-            employee_upn: identity.upn,
-            start_date: text(row.start_date || row.weekStart, '', 80),
-            end_date: text(row.end_date || row.weekEnd, '', 80),
-            record_date: text(row.record_date || row.recordDate || row.date, '', 80),
-            action: text(row.action || row.category || row.record_type || row.kind || 'Timesheet', 'Timesheet', 100),
-            status: text(row.status, 'Submitted', 100),
-            submitted_at: text(row.submitted_at || row.submittedAt, '', 100),
-            updated_at: text(row.updated_at || row.updatedAt || row.submitted_at || row.submittedAt, '', 100),
-            issue: text(row.issue, '', 1000),
-            source_record_id: text(row.source_record_id || row.sourceRecordId || row.gmt_record_id, '', MAX_RECORD_ID),
-            can_edit: false
-          })).filter((row) => !kind || canonicalKind(row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
-          const localIds = new Set(records.map((row) => row.source_record_id));
-          records = [...records, ...upstreamRecords.filter((row) => !localIds.has(row.source_record_id))];
-          upstream = 'ok';
-        } else upstream = 'invalid-response';
-      } else upstream = `http-${upstreamResponse.status}`;
-    } catch (_) {
-      upstream = 'unavailable';
+  const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
+  if (upstreamUrl && upstreamEnabledForKind) {
+    const upstreamAuth = await verifiedUpstreamToken(request, env, identity);
+    if (!upstreamAuth.token) {
+      upstream = upstreamAuth.status;
+    } else {
+      try {
+        const upstreamResponse = await fetchUpstreamHistory(upstreamUrl, upstreamAuth.token, kind, identity);
+        if (upstreamResponse.ok) {
+          const body = await upstreamResponse.json();
+          const sourceRows = body && Array.isArray(body.records)
+            ? body.records
+            : body && Array.isArray(body.value)
+              ? body.value
+              : body && Array.isArray(body.data)
+                ? body.data
+                : null;
+          if (sourceRows) {
+            const upstreamRecords = sourceRows.filter((row) => row && typeof row === 'object' && (identity.isAdmin || String(row.employee_upn || row.employeeEmail || row.employee_email || '').toLowerCase() === identity.upn)).map((row) => {
+              const employeeUpn = text(row.employee_upn || row.employeeEmail || row.employee_email, identity.upn, 320).toLowerCase();
+              const employeeName = text(row.employee_name || row.employeeName, employeeUpn || identity.name || identity.upn, 240);
+              const rawKind = text(row.kind || row.category || row.record_type || row.action || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
+              return {
+                kind: rawKind === 'submission' || rawKind === 'weekly-submission' ? 'timesheets' : canonicalKind(rawKind),
+                employee_name: employeeName,
+                employee_upn: employeeUpn,
+                start_date: text(row.start_date || row.weekStart, '', 80),
+                end_date: text(row.end_date || row.weekEnd, '', 80),
+                record_date: text(row.record_date || row.recordDate || row.date, '', 80),
+                action: text(row.action || row.category || row.record_type || row.kind || 'Timesheet', 'Timesheet', 100),
+                status: text(row.status, 'Submitted', 100),
+                submitted_at: text(row.submitted_at || row.submittedAt, '', 100),
+                updated_at: text(row.updated_at || row.updatedAt || row.submitted_at || row.submittedAt, '', 100),
+                issue: text(row.issue, '', 1000),
+                source_record_id: text(row.source_record_id || row.sourceRecordId || row.gmt_record_id, '', MAX_RECORD_ID),
+                can_edit: false,
+                source: 'microsoft-365',
+                synthetic: /^TEST(?:[\s_-]|$)/i.test(employeeName) || /^TEST(?:[\s_-]|$)/i.test(text(row.employeeName, '', 240))
+              };
+            }).filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+            const localIds = new Set(records.map((row) => row.source_record_id));
+            const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
+            upstreamRecordCount = visibleUpstreamRecords.length;
+            records = [...records, ...visibleUpstreamRecords.filter((row) => !localIds.has(row.source_record_id))];
+            upstream = 'ok';
+          } else upstream = 'invalid-response';
+        } else upstream = `http-${upstreamResponse.status}`;
+      } catch (_) {
+        upstream = 'unavailable';
+      }
     }
-  } else if (upstreamUrl && token && (!kind || kind === 'timesheets' || kind === 'clock')) {
-    upstream = 'flow-permission-not-configured';
+  } else if (upstreamUrl && !upstreamEnabledForKind) {
+    upstream = 'not-requested-for-category';
   }
+  const completion = identity.isAdmin && (!kind || kind === 'timesheets')
+    ? completionSummary(records, env)
+    : null;
   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
   return {
     records,
     meta: {
       upstream,
+      local_record_count: localRecordCount,
+      upstream_record_count: upstreamRecordCount,
+      synthetic_record_count: syntheticRecordCount,
+      synthetic_included: includeSynthetic,
       role: identity.isAdmin ? 'accounts-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee'),
       is_admin: identity.isAdmin,
       is_job_card_admin: identity.isJobCardAdmin,
-      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions')
+      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions'),
+      completion
     }
   };
 }
@@ -1337,6 +1555,10 @@ export {
   recordMonthKey,
   isCurrentPayMonthRecord,
   isCurrentMonthRecord,
+  completionWeeks,
+  completionSummary,
+  staffDirectory,
+  listRecords,
   projectRow,
   canViewAllRecords,
   canAccessRecord,

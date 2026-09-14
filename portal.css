@@ -424,6 +424,14 @@
 .portal-primary-link { background: var(--green); color: #fff; border-radius: 999px; font-weight: 900; }
 .portal-history-empty { margin: 0; padding: 1rem; background: #f5f8f3; border: 1px dashed var(--line); border-radius: .75rem; }
 .portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; }
+.timesheet-completion { margin-top: 1rem; padding: .85rem; border: 1px solid var(--line); border-radius: .85rem; background: #f8fbf6; }
+.timesheet-completion h3 { margin: 0; color: var(--green); }
+.timesheet-completion .portal-section-heading { margin: 0; }
+.portal-table { width: 100%; min-width: 640px; border-collapse: collapse; background: #fff; }
+.portal-table th, .portal-table td { padding: .55rem; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+.portal-table th { background: #edf5e9; color: var(--green); font-size: .78rem; }
+.portal-status.missing { background: #ffe0d8; color: #80200d; }
+.portal-status.incomplete { background: #fff1b8; color: #5a4100; }
 .portal-status {
   display: inline-flex;
   align-items: center;

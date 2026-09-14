@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>My completed timesheets | GMT Staff Portal</title>
-<link rel="stylesheet" href="../styles.css?v=timesheet-history-20260909">
-<link rel="stylesheet" href="../portal.css?v=timesheet-history-20260909">
+<link rel="stylesheet" href="../styles.css?v=timesheet-history-20260914">
+<link rel="stylesheet" href="../portal.css?v=timesheet-history-admin-completion-20260914">
 <script src="../config.js?v=entra-oidc-fallback-20260912"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="auth.js?v=entra-auth-20260912-oidc-worker"></script>
@@ -36,15 +36,26 @@
           <option value="tasks">Tasks</option>
         </select>
       </label>
+      <label id="portal-history-employee-filter" class="portal-history-filter" hidden>Employee
+        <select id="portal-history-employee" aria-label="Filter submissions by employee">
+          <option value="">All employees</option>
+        </select>
+      </label>
       <button type="button" id="timesheet-history-refresh" class="secondary">Refresh</button>
     </div>
     <p id="timesheet-history-edit-policy" class="small-text">All timesheets made by this user may be viewed, but only timesheets made within the current pay month may be edited.</p>
     <p id="timesheet-history-scope" class="small-text" hidden></p>
     <p id="timesheet-history-link" class="small-text" hidden></p>
+    <section id="timesheet-completion" class="timesheet-completion" aria-labelledby="timesheet-completion-title" hidden>
+      <div class="portal-section-heading"><div><p class="portal-card-kicker">Accounts completion</p><h3 id="timesheet-completion-title">Current pay-month status</h3></div></div>
+      <p id="timesheet-completion-status" class="small-text" role="status"></p>
+      <p id="timesheet-completion-note" class="small-text"></p>
+      <div class="table-scroll"><table id="timesheet-completion-table" class="portal-table"></table></div>
+    </section>
     <iframe id="portal-history-frame" class="portal-history-frame" title="Protected GMT submission history" src="history-frame.html?filter=all" loading="lazy" referrerpolicy="same-origin"></iframe>
     <div class="portal-history-actions"><a class="button button-link portal-primary-link" href="../timesheets/">Create or edit</a></div>
   </section>
 </main>
-<script defer src="timesheets.js?v=history-frame-20260910"></script>
+<script defer src="timesheets.js?v=admin-completion-20260914"></script>
 </body>
 </html>

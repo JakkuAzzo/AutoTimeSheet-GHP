@@ -4,9 +4,16 @@
   "securityModel": "server-enforced Entra identity mapping",
   "readRoute": {
     "method": "GET",
-    "response": { "records": "array" },
+    "response": { "records": "array", "meta.completion": "Accounts-only current-pay-month summary" },
     "requiredClaims": ["tid", "oid", "preferred_username"],
-    "scope": "signed-in employee only unless member of GMT timesheet administrators"
+    "scope": "signed-in employee only unless member of GMT timesheet administrators",
+    "adminFilters": ["employee", "category"],
+    "adminCompletion": {
+      "payMonth": "current Europe/London pay month",
+      "statuses": ["completed", "incomplete", "missing"],
+      "missingDetails": "due weekly periods and review issues",
+      "syntheticRows": "excluded from completion counts"
+    }
   },
   "recordProjection": [
     "employee_name",
