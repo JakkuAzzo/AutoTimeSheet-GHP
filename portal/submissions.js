@@ -96,8 +96,9 @@
       record.messages = messages;
       record.status = "Reply queued";
       if (input) input.value = "";
-      if (feedback) feedback.textContent = "Saved. Accounts can send or continue this thread from the linked inbox conversation.";
       renderEnquiryPreview(record);
+      var nextFeedback = preview.querySelector("[data-enquiry-reply-status]");
+      if (nextFeedback) nextFeedback.textContent = "Saved. Accounts can send or continue this thread from the linked inbox conversation.";
     } catch (error) {
       if (feedback) feedback.textContent = error && error.message ? error.message : "The reply could not be saved.";
       form.querySelector("button[type=submit]").disabled = false;
