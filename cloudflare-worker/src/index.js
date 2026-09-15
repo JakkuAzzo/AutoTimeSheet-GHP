@@ -795,6 +795,170 @@ function upstreamValue(row, keys) {
   return '';
 }
 
+// The history flow has returned a few different shapes over its lifetime:
+// some runs expose a JSON object, some expose the record attachment as a
+// string in Issue, and older runs expose the daily object itself. Keep the
+// normalisation at this boundary so the portal can render the same useful
+// day-level view for every source shape.
+function parseUpstreamJson(value) {
+  if (value && typeof value === 'object') return value;
+  const raw = text(value, '', 120000).trim();
+  if (!raw) return null;
+  if (/^[\[{]/.test(raw)) {
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      // Fall through to the base64 decoder. A malformed JSON attachment must
+      // never be treated as a human-readable issue value.
+    }
+  }
+  // Power Automate can expose file content as base64 when an attachment is
+  // passed through a legacy SharePoint action. Decode only plausible base64
+  // text and accept it when the decoded value is JSON.
+  const compact = raw.replace(/\s+/g, '');
+  if (compact.length < 8 || compact.length % 4 === 1 || !/^[A-Za-z0-9+/_=-]+$/.test(compact)) return null;
+  try {
+    const decoded = atob(compact.replace(/-/g, '+').replace(/_/g, '/'));
+    const trimmed = decoded.trim();
+    if (!/^[\[{]/.test(trimmed)) return null;
+    return JSON.parse(trimmed);
+  } catch (_) {
+    return null;
+  }
+}
+
+function upstreamObjectValue(value, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const actualKeys = Object.keys(value);
+  for (const wanted of keys.map((key) => String(key).toLowerCase())) {
+    const actual = actualKeys.find((key) => key.toLowerCase() === wanted);
+    if (actual) return value[actual];
+  }
+  return undefined;
+}
+
+function upstreamDailyRows(value) {
+  const parsed = parseUpstreamJson(value);
+  if (Array.isArray(parsed)) return parsed.filter((item) => item && typeof item === 'object').slice(0, 80);
+  if (!parsed || typeof parsed !== 'object') return [];
+  const nested = upstreamObjectValue(parsed, ['rows', 'daily_rows', 'dailyRows', 'records', 'values', 'data']);
+  if (Array.isArray(nested)) return nested.filter((item) => item && typeof item === 'object').slice(0, 80);
+  const hasDailyFields = Boolean(upstreamObjectValue(parsed, [
+    'date', 'record_date', 'startTime', 'start', 'clockIn', 'clock_in', 'finishTime', 'finish', 'clockOut', 'clock_out',
+    'absenceReason', 'absenceStatus', 'workedHours', 'worked_hours', 'basicHours', 'basic_hours'
+  ]));
+  return hasDailyFields ? [parsed] : [];
+}
+
+function upstreamPayloadAndRows(row) {
+  const candidates = [
+    'payload', 'payload_json', 'payloadJson', 'record_json', 'recordJson', 'Record JSON',
+    'attachment_record', 'attachmentRecord', 'daily_rows', 'dailyRows', 'rows', 'Rows',
+    'record', 'Record', 'issue', 'Issue', 'gmt_payload'
+  ];
+  for (const key of candidates) {
+    const value = upstreamObjectValue(row, [key]);
+    if (value === '' || value === null || value === undefined) continue;
+    const parsed = parseUpstreamJson(value);
+    const rows = upstreamDailyRows(parsed);
+    if (rows.length) return { payload: parsed, rows };
+  }
+  const directRows = upstreamDailyRows(row);
+  return directRows.length ? { payload: row, rows: directRows } : { payload: null, rows: [] };
+}
+
+function numericUpstreamValue(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function upstreamBreakMinutes(value) {
+  const number = numericUpstreamValue(value);
+  if (number !== null) return number;
+  const raw = text(value, '', 80).trim().toLowerCase();
+  if (!raw) return null;
+  if (/^(?:no\s*break|none|not[- ]?taken|no)$/.test(raw)) return 0;
+  const hours = raw.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/);
+  const minutes = raw.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m)\b/);
+  if (!hours && !minutes) return null;
+  return (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
+}
+
+function breakMinutesFromNote(value) {
+  const raw = text(value, '', 3000);
+  const match = raw.match(/\bbreak\s*:\s*(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return null;
+  return /hours?|hrs?|h/i.test(match[2]) ? amount * 60 : amount;
+}
+
+function booleanUpstreamValue(value) {
+  if (typeof value === 'boolean') return value;
+  if (value === null || value === undefined || value === '') return null;
+  if (/^(true|yes|y|1|taken|added)$/i.test(String(value).trim())) return true;
+  if (/^(false|no|no\s*break|n|0|none|not[- ]?taken|na)$/i.test(String(value).trim())) return false;
+  return null;
+}
+
+function normaliseUpstreamDailyRow(row, defaults = {}) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+  const date = text(upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate', 'day']), defaults.date || '', 80);
+  const start = text(upstreamObjectValue(row, ['start', 'startTime', 'start_time', 'clockIn', 'clock_in', 'dayStart', 'day_start', 'Start']), '', 40);
+  const finish = text(upstreamObjectValue(row, ['finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out', 'dayFinish', 'day_finish', 'Finish']), '', 40);
+  const lunchStart = text(upstreamObjectValue(row, ['lunchStart', 'lunch_start', 'breakStart', 'break_start', 'Lunch start']), '', 40);
+  const lunchEnd = text(upstreamObjectValue(row, ['lunchEnd', 'lunch_end', 'breakEnd', 'break_end', 'Lunch end']), '', 40);
+  const note = text(upstreamObjectValue(row, ['description', 'note', 'notes', 'Note']), '', 3000);
+  const rawLunch = upstreamObjectValue(row, ['lunchMinutes', 'lunch_minutes', 'breakMinutes', 'break_minutes', 'break', 'Break']);
+  const lunchMinutes = upstreamBreakMinutes(rawLunch) ?? breakMinutesFromNote(note);
+  const lunchHad = booleanUpstreamValue(upstreamObjectValue(row, ['lunchHad', 'lunch_had', 'breakTaken', 'break_taken', 'hadBreak']));
+  const absenceStatus = text(upstreamObjectValue(row, ['absenceStatus', 'absence_status', 'absenceReason', 'absence_reason', 'absence', 'Absence reason']), 'NA', 160);
+  const status = text(upstreamObjectValue(row, ['status', 'Status']), defaults.status || 'Recorded', 120);
+  const rowSubmittedAt = text(upstreamObjectValue(row, ['submittedAt', 'submitted_at', 'Submitted At']), defaults.submittedAt || '', 100);
+  const sourceRecordId = text(upstreamObjectValue(row, ['recordId', 'record_id', 'sourceRecordId', 'source_record_id']), '', MAX_RECORD_ID);
+  let breakStatus = text(upstreamObjectValue(row, ['breakStatus', 'break_status', 'Break']), '', 80);
+  if (/^(?:no\s*break|none|not[- ]?taken|no|0)$/i.test(breakStatus)) breakStatus = 'not-taken';
+  else if (/^(?:yes|taken|added)$/i.test(breakStatus) || /\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m)\b/i.test(breakStatus)) breakStatus = 'added';
+  breakStatus = breakStatus
+    || (lunchHad === false ? 'not-taken' : '')
+    || (lunchHad === true ? 'added' : '')
+    || (lunchMinutes !== null && lunchMinutes > 0 ? 'added' : '')
+    || (/break:\s*(?:no break|none|not taken)/i.test(note) ? 'not-taken' : '');
+  const workedHours = numericUpstreamValue(upstreamObjectValue(row, ['workedHours', 'worked_hours', 'hours', 'totalHours', 'Worked hours']));
+  const basicHours = numericUpstreamValue(upstreamObjectValue(row, ['basicHours', 'basic_hours', 'Basic hours']));
+  const ot15Hours = numericUpstreamValue(upstreamObjectValue(row, ['ot15Hours', 'ot15_hours', 'overtime15Hours', 'OT x1.5 hours']));
+  const ot20Hours = numericUpstreamValue(upstreamObjectValue(row, ['ot20Hours', 'ot20_hours', 'overtime20Hours', 'OT x2.0 hours']));
+  const workedMinutes = numericUpstreamValue(upstreamObjectValue(row, ['workedMinutes', 'worked_minutes', 'Worked minutes']))
+    ?? (workedHours !== null ? workedHours * 60 : (basicHours !== null || ot15Hours !== null || ot20Hours !== null ? ((basicHours || 0) + (ot15Hours || 0) + (ot20Hours || 0)) * 60 : null));
+  const result = {
+    recordId: sourceRecordId || (defaults.sourceRecordId && date ? `${defaults.sourceRecordId}|${date}` : defaults.sourceRecordId || ''),
+    submissionId: text(upstreamObjectValue(row, ['submissionId', 'submission_id']), defaults.sourceRecordId || '', MAX_RECORD_ID),
+    date,
+    action: text(upstreamObjectValue(row, ['action', 'Action']), defaults.action || 'submission', 100),
+    status,
+    absenceStatus,
+    start,
+    finish,
+    lunchStart,
+    lunchEnd,
+    lunchMinutes,
+    lunchHad,
+    breakStatus,
+    workedMinutes,
+    workedHours: workedHours !== null ? workedHours : (workedMinutes !== null ? workedMinutes / 60 : null),
+    basicHours,
+    ot15Hours,
+    ot20Hours,
+    weightedHours: numericUpstreamValue(upstreamObjectValue(row, ['weightedHours', 'weighted_hours'])),
+    location: text(upstreamObjectValue(row, ['location', 'site', 'Location / site']), '', 500),
+    note,
+    submittedAt: rowSubmittedAt,
+    source: 'microsoft-365'
+  };
+  return safePayloadValue(result);
+}
+
 function datePlusDays(value, days) {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return '';
@@ -842,17 +1006,44 @@ function normaliseUpstreamRecord(row, identity, env) {
   const employeeName = text(directoryEntry?.name || initialName || (identity.isAdmin ? '' : identity.name || identity.upn), '', 240);
   const employeeUpn = text(directoryEntry?.upn || initialEmail || (identity.isAdmin ? '' : identity.upn), '', 320).toLowerCase();
   if (!employeeName && !employeeUpn) return null;
-  const startDate = text(upstreamValue(row, ['start_date', 'startDate', 'weekStart', 'WeekStart', 'Week Start', 'Week_x0020_Start', 'gmt_week_start']) || titleDetails.weekStart, '', 80);
-  const endDate = text(upstreamValue(row, ['end_date', 'endDate', 'weekEnd', 'WeekEnd', 'Week End', 'Week_x0020_End', 'gmt_week_end']) || datePlusDays(startDate, 6), '', 80);
-  const recordDate = text(upstreamValue(row, ['record_date', 'recordDate', 'date', 'Date', 'gmt_record_date']) || startDate, '', 80);
-  const rawKind = text(upstreamValue(row, ['kind', 'category', 'record_type', 'recordType', 'action', 'gmt_type']) || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
+  const titleKind = /\[(?:CLOCK|DAY)\]/i.test(String(title || '')) ? 'clock' : '';
+  const rawKind = text(upstreamValue(row, ['kind', 'category', 'record_type', 'recordType', 'action', 'gmt_type']) || titleKind || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
   const kind = rawKind === 'submission' || rawKind === 'weekly-submission' || rawKind === 'timesheet' ? 'timesheets' : canonicalKind(rawKind);
+  const sourceData = kind === 'timesheets' || kind === 'clock' ? upstreamPayloadAndRows(row) : { payload: null, rows: [] };
+  const firstDailyRow = sourceData.rows[0] || null;
+  const embeddedSourceRecordId = text(
+    upstreamObjectValue(sourceData.payload, ['submissionId', 'submission_id', 'sourceRecordId', 'source_record_id', 'recordId', 'record_id'])
+      || upstreamObjectValue(firstDailyRow, ['submissionId', 'submission_id', 'sourceRecordId', 'source_record_id', 'recordId', 'record_id']),
+    '',
+    MAX_RECORD_ID
+  );
+  const firstDailyDate = text(upstreamObjectValue(firstDailyRow, ['date', 'record_date', 'recordDate', 'Date', 'workDate', 'day']), '', 80);
+  const startDate = text(upstreamValue(row, ['start_date', 'startDate', 'weekStart', 'WeekStart', 'Week Start', 'Week_x0020_Start', 'gmt_week_start']) || titleDetails.weekStart || firstDailyDate, '', 80);
+  const endDate = text(upstreamValue(row, ['end_date', 'endDate', 'weekEnd', 'WeekEnd', 'Week End', 'Week_x0020_End', 'gmt_week_end']) || (kind === 'clock' ? startDate : datePlusDays(startDate, 6)), '', 80);
+  const recordDate = text(upstreamValue(row, ['record_date', 'recordDate', 'date', 'Date', 'gmt_record_date']) || firstDailyDate || startDate, '', 80);
   const submittedAt = text(upstreamValue(row, ['submitted_at', 'submittedAt', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at']) || upstreamValue(row, ['Created', 'created', 'Modified', 'modified']), '', 100);
   const updatedAt = text(upstreamValue(row, ['updated_at', 'updatedAt', 'Modified', 'modified']) || submittedAt, '', 100);
-  const action = text(upstreamValue(row, ['action', 'Action', 'category', 'record_type', 'gmt_action']) || (kind === 'timesheets' ? 'submission' : 'Timesheet'), 'Timesheet', 100);
+  const action = text(upstreamValue(row, ['action', 'Action', 'category', 'record_type', 'gmt_action']) || (kind === 'timesheets' ? 'submission' : kind === 'clock' ? 'clock' : 'Timesheet'), 'Timesheet', 100);
   const status = text(upstreamValue(row, ['status', 'Status', 'Status Value', 'gmt_status']) || 'Submitted', 'Submitted', 100);
-  const sourceRecordId = text(upstreamValue(row, ['source_record_id', 'sourceRecordId', 'gmt_record_id', 'Source Record ID', 'Source_x0020_Record_x0020_ID']) || (row.Id || row.ID || row.GUID ? `sharepoint-timesheet-${row.Id || row.ID || row.GUID}` : ''), '', MAX_RECORD_ID);
-  const issue = text(upstreamValue(row, ['issue', 'Issue', 'gmt_issue']), '', 1000);
+  const sourceRecordId = text(upstreamValue(row, ['source_record_id', 'sourceRecordId', 'gmt_record_id', 'Source Record ID', 'Source_x0020_Record_x0020_ID']) || embeddedSourceRecordId || (row.Id || row.ID || row.GUID ? `sharepoint-timesheet-${row.Id || row.ID || row.GUID}` : ''), '', MAX_RECORD_ID);
+  const rows = sourceData.rows.map((item) => normaliseUpstreamDailyRow(item, {
+    date: recordDate || startDate,
+    status: kind === 'clock' ? 'Recorded' : status,
+    action,
+    submittedAt,
+    sourceRecordId
+  })).filter(Boolean);
+  const payloadObject = sourceData.payload && typeof sourceData.payload === 'object' && !Array.isArray(sourceData.payload)
+    ? { ...sourceData.payload }
+    : {};
+  if (rows.length) payloadObject.rows = rows;
+  const payload = Object.keys(payloadObject).length ? safePayloadValue(payloadObject) : null;
+  const rawIssue = upstreamValue(row, ['issue', 'Issue', 'gmt_issue']);
+  const parsedIssue = parseUpstreamJson(rawIssue);
+  const issueValue = parsedIssue
+    ? (typeof parsedIssue === 'object' && !Array.isArray(parsedIssue) ? upstreamObjectValue(parsedIssue, ['issue', 'Issue', 'message']) : '')
+    : rawIssue;
+  const issue = text(issueValue, '', 1000);
   const mapped = {
     kind,
     employee_name: employeeName,
@@ -871,6 +1062,11 @@ function normaliseUpstreamRecord(row, identity, env) {
     source: 'microsoft-365',
     synthetic: false
   };
+  if (payload) {
+    mapped.payload = payload;
+    mapped.daily_rows_count = rows.length;
+    mapped.daily_dates = rows.map((item) => item.date).filter(Boolean).filter((value, index, values) => values.indexOf(value) === index);
+  }
   // The protected history list also contains old validation/backfill rows. Once
   // the employee roster is configured, an unmatched identity cannot be a
   // current employee submission, so keep it out of the default Accounts view
@@ -950,11 +1146,25 @@ function recordStatusIssue(row) {
 function historyRecordKey(record) {
   if (!record || typeof record !== 'object') return '';
   const source = text(record.source_record_id || record.sourceRecordId, '', MAX_RECORD_ID).toLowerCase();
-  if (source) return `source:${source}`;
   const kind = canonicalKind(record.kind || record.action || 'timesheets');
   const employee = text(record.employee_upn || record.employee_email || record.employee_name, '', 320).toLowerCase();
   const week = recordWeekStart(record) || text(record.start_date || record.record_date || record.end_date, '', 80).slice(0, 10);
-  return `${kind}|${employee}|${week}|${text(record.status, 'Submitted', 120).toLowerCase()}`;
+  const status = text(record.status, 'Submitted', 120).toLowerCase();
+  // A single weekly timesheet can produce several SharePoint rows when the
+  // message is forwarded or re-submitted. Group those rows by employee/week
+  // so an older sparse row cannot hide a richer daily payload from the portal.
+  if (kind === 'timesheets' && employee && week) return `timesheet|${employee}|${week}|${status}`;
+  if (source) return `source:${source}`;
+  return `${kind}|${employee}|${week}|${status}`;
+}
+
+function historyRecordRichness(record) {
+  if (!record || typeof record !== 'object') return 0;
+  const daily = Math.max(0, Number(record.daily_rows_count || 0) || 0);
+  const payload = record.payload && typeof record.payload === 'object' ? 1 : 0;
+  const metadata = ['employee_upn', 'start_date', 'end_date', 'record_date', 'submitted_at', 'updated_at', 'status']
+    .reduce((score, key) => score + (text(record[key], '', 320) ? 1 : 0), 0);
+  return daily * 100 + payload * 10 + metadata;
 }
 
 function completionSummary(records, env, timeZone = 'Europe/London', nowDate = new Date()) {
@@ -1650,12 +1860,25 @@ async function listRecords(request, env, identity) {
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
             upstreamRecordCount = visibleUpstreamRecords.length;
             const seenHistoryKeys = new Set(records.map(historyRecordKey).filter(Boolean));
-            const uniqueUpstreamRecords = visibleUpstreamRecords.filter((row) => {
-              if (row.source_record_id && localIds.has(row.source_record_id)) return false;
+            const upstreamKeyIndexes = new Map();
+            const uniqueUpstreamRecords = [];
+            visibleUpstreamRecords.forEach((row) => {
+              if (row.source_record_id && localIds.has(row.source_record_id)) return;
               const key = historyRecordKey(row);
-              if (!key || seenHistoryKeys.has(key)) return false;
+              if (!key) return;
+              const existingIndex = upstreamKeyIndexes.get(key);
+              if (seenHistoryKeys.has(key)) {
+                // Keep the richer source row when a forwarded/resubmitted
+                // message has a full daily attachment and its sibling row is
+                // only a header. Local portal records remain authoritative.
+                if (existingIndex !== undefined && historyRecordRichness(row) > historyRecordRichness(uniqueUpstreamRecords[existingIndex])) {
+                  uniqueUpstreamRecords[existingIndex] = row;
+                }
+                return;
+              }
               seenHistoryKeys.add(key);
-              return true;
+              upstreamKeyIndexes.set(key, uniqueUpstreamRecords.length);
+              uniqueUpstreamRecords.push(row);
             });
             records = [...records, ...uniqueUpstreamRecords];
             upstream = 'ok';
