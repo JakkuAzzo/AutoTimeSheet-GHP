@@ -727,7 +727,7 @@ function enquiryProjection(row, payload) {
   };
 }
 
-function projectRow(row, includeDetails = true) {
+function projectRow(row, includeDetails = true, env = null) {
   const payload = payloadObject(row);
   const result = {
     kind: row.kind,
@@ -746,6 +746,14 @@ function projectRow(row, includeDetails = true) {
     source: 'portal-d1',
     synthetic: syntheticRecord(row, payload)
   };
+  const directoryEntry = env ? directoryEntryFor(staffDirectory(env), row.employee_name, row.owner_upn) : null;
+  const scheduleWeekdays = Array.isArray(payload.scheduleWeekdays)
+    ? payload.scheduleWeekdays.map((day) => Number(day)).filter((day) => day >= 1 && day <= 7)
+    : (directoryEntry?.workdays || []);
+  if (scheduleWeekdays.length) {
+    result.schedule_weekdays = scheduleWeekdays;
+    result.schedule_label = scheduleWeekdays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7]).join(', ');
+  }
   if (row.dispatch_status) {
     result.dispatch = {
       status: row.dispatch_status,
@@ -772,10 +780,19 @@ function staffDirectory(env) {
     if (!Array.isArray(parsed)) return [];
     const seen = new Set();
     return parsed.map((entry) => {
-      if (typeof entry === 'string') return { name: text(entry, '', 240), upn: '' };
+      if (typeof entry === 'string') return { name: text(entry, '', 240), upn: '', workdays: [] };
+      const rawWorkdays = entry?.workdays || entry?.scheduledWeekdays || entry?.scheduled_weekdays || [];
+      const workdays = Array.isArray(rawWorkdays)
+        ? rawWorkdays.map((day) => {
+          if (typeof day === 'number' || /^\d+$/.test(String(day))) return Number(day);
+          const names = { sun: 7, sunday: 7, mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thurs: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
+          return names[String(day || '').trim().toLowerCase()] || 0;
+        }).filter((day, index, values) => day >= 1 && day <= 7 && values.indexOf(day) === index)
+        : [];
       return {
         name: text(entry?.name || entry?.displayName || entry?.employee_name, '', 240),
-        upn: text(entry?.upn || entry?.email || entry?.employee_upn, '', 320).toLowerCase()
+        upn: text(entry?.upn || entry?.email || entry?.employee_upn, '', 320).toLowerCase(),
+        workdays
       };
     }).filter((entry) => {
       const key = entry.upn || entry.name.toLowerCase();
@@ -790,9 +807,21 @@ function staffDirectory(env) {
 
 function upstreamValue(row, keys) {
   for (const key of keys) {
-    if (row && row[key] !== undefined && row[key] !== null && String(row[key]).trim()) return row[key];
+    if (row && row[key] !== undefined && row[key] !== null && String(row[key]).trim()) return upstreamScalar(row[key]);
   }
   return '';
+}
+
+// SharePoint choice/person/date fields can arrive as `{Value: ...}`, while
+// the same flow may return a plain scalar on another run. Unwrap the common
+// envelopes at the Worker boundary so an employee is still matched to the
+// configured roster and a date is still usable by the calendar.
+function upstreamScalar(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  for (const key of ['value', 'Value', 'displayValue', 'DisplayValue', 'displayName', 'DisplayName', 'email', 'Email', 'name', 'Name']) {
+    if (value[key] !== undefined && value[key] !== null && String(value[key]).trim()) return value[key];
+  }
+  return value;
 }
 
 // The history flow has returned a few different shapes over its lifetime:
@@ -832,7 +861,7 @@ function upstreamObjectValue(value, keys) {
   const actualKeys = Object.keys(value);
   for (const wanted of keys.map((key) => String(key).toLowerCase())) {
     const actual = actualKeys.find((key) => key.toLowerCase() === wanted);
-    if (actual) return value[actual];
+    if (actual) return upstreamScalar(value[actual]);
   }
   return undefined;
 }
@@ -871,6 +900,15 @@ function numericUpstreamValue(value) {
   if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function upstreamWeekday(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return 0;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  if (Number.isNaN(date.getTime())) return 0;
+  const day = date.getUTCDay();
+  return day === 0 ? 7 : day;
 }
 
 function upstreamBreakMinutes(value) {
@@ -956,6 +994,14 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     submittedAt: rowSubmittedAt,
     source: 'microsoft-365'
   };
+  const scheduledWeekdays = Array.isArray(defaults.scheduleWeekdays)
+    ? defaults.scheduleWeekdays.map((day) => Number(day)).filter((day) => day >= 1 && day <= 7)
+    : [];
+  if (scheduledWeekdays.length && date) {
+    const weekday = upstreamWeekday(date);
+    result.scheduled = scheduledWeekdays.includes(weekday);
+    if (!result.scheduled) result.scheduleIssue = 'Outside configured work schedule';
+  }
   return safePayloadValue(result);
 }
 
@@ -995,6 +1041,15 @@ function directoryEntryFor(directory, name, upn) {
 
 function normaliseUpstreamRecord(row, identity, env) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+  // SharePoint Get items sometimes wraps the actual columns in `fields` (and
+  // a few older flow versions used `item`/`properties`). Flatten those
+  // envelopes before looking for the canonical column names. Keep top-level
+  // values authoritative when both shapes are present.
+  const nested = ['fields', 'Fields', 'item', 'Item', 'properties', 'Properties']
+    .map((key) => row[key])
+    .filter((value) => value && typeof value === 'object' && !Array.isArray(value))
+    .reduce((merged, value) => Object.assign(merged, value), {});
+  row = Object.keys(nested).length ? { ...nested, ...row } : row;
   const title = upstreamValue(row, ['title', 'Title', 'subject', 'Subject']);
   const titleDetails = historyTitleDetails(title);
   const directory = staffDirectory(env);
@@ -1033,7 +1088,8 @@ function normaliseUpstreamRecord(row, identity, env) {
     status: kind === 'clock' ? 'Recorded' : status,
     action,
     submittedAt,
-    sourceRecordId
+    sourceRecordId,
+    scheduleWeekdays: directoryEntry?.workdays || []
   })).filter(Boolean);
   const payloadObject = sourceData.payload && typeof sourceData.payload === 'object' && !Array.isArray(sourceData.payload)
     ? { ...sourceData.payload }
@@ -1068,6 +1124,10 @@ function normaliseUpstreamRecord(row, identity, env) {
     mapped.payload = payload;
     mapped.daily_rows_count = rows.length;
     mapped.daily_dates = rows.map((item) => item.date).filter(Boolean).filter((value, index, values) => values.indexOf(value) === index);
+  }
+  if (directoryEntry?.workdays?.length) {
+    mapped.schedule_weekdays = directoryEntry.workdays;
+    mapped.schedule_label = directoryEntry.workdays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7]).join(', ');
   }
   // The protected history list also contains old validation/backfill rows. Once
   // the employee roster is configured, an unmatched identity cannot be a
@@ -1160,6 +1220,32 @@ function historyRecordKey(record) {
   return `${kind}|${employee}|${week}|${status}`;
 }
 
+function historyRecordFingerprint(record) {
+  if (!record || typeof record !== 'object') return '';
+  const payload = record.payload && typeof record.payload === 'object' ? record.payload : {};
+  const rows = Array.isArray(payload.rows)
+    ? payload.rows.map((row) => ({
+      date: row?.date || row?.record_date || row?.recordDate || '',
+      start: row?.start || row?.startTime || row?.clockIn || '',
+      finish: row?.finish || row?.finishTime || row?.clockOut || '',
+      break: row?.lunchMinutes ?? row?.breakMinutes ?? row?.break ?? '',
+      absence: row?.absenceStatus || row?.absenceReason || row?.absence || '',
+      worked: row?.workedMinutes ?? row?.workedHours ?? row?.hours ?? '',
+      basic: row?.basicHours ?? '',
+      ot15: row?.ot15Hours ?? '',
+      ot20: row?.ot20Hours ?? '',
+      note: row?.note || row?.notes || ''
+    }))
+    : [];
+  const kind = canonicalKind(record.kind || record.action || 'timesheets');
+  const employee = text(record.employee_upn || record.employee_email || record.employee_name, '', 320).toLowerCase();
+  const week = recordWeekStart(record) || text(record.start_date || record.record_date || record.end_date, '', 80).slice(0, 10);
+  // Exclude the outer SharePoint row ID: forwarded copies of the same message
+  // often have different list IDs, while materially different submissions keep
+  // a different payload or header and therefore remain visible as versions.
+  return [kind, employee, week, text(record.status, 'Submitted', 120).toLowerCase(), text(record.record_date, '', 80), text(record.title, '', 600), JSON.stringify(rows.length ? rows : payload)].join('|');
+}
+
 function historyRecordRichness(record) {
   if (!record || typeof record !== 'object') return 0;
   const daily = Math.max(0, Number(record.daily_rows_count || 0) || 0);
@@ -1199,7 +1285,7 @@ function completionSummary(records, env, timeZone = 'Europe/London', nowDate = n
     const byWeek = new Map();
     employeeRecords.forEach((record) => {
       const week = recordWeekStart(record);
-      if (week && !byWeek.has(week)) byWeek.set(week, record);
+      if (week && (!byWeek.has(week) || historyRecordRichness(record) > historyRecordRichness(byWeek.get(week)))) byWeek.set(week, record);
     });
     const completedWeeks = weeks.filter((week) => byWeek.has(week.start)).map((week) => week.start);
     const missingWeeks = weeks.filter((week) => !byWeek.has(week.start)).map((week) => `${week.start} to ${week.end}`);
@@ -1208,7 +1294,14 @@ function completionSummary(records, env, timeZone = 'Europe/London', nowDate = n
       const issue = recordStatusIssue(record);
       if (issue && !missing.includes(issue)) missing.push(issue);
     });
-    const status = !employeeRecords.length ? 'missing' : (missing.length ? 'incomplete' : 'completed');
+    const scheduleWeekdays = Array.isArray(employee.workdays) ? employee.workdays : [];
+    const reviewFlags = employeeRecords.reduce((count, record) => {
+      const payload = record.payload && typeof record.payload === 'object' ? record.payload : {};
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      return count + rows.filter((row) => row && (row.scheduleIssue || row.scheduled === false)).length;
+    }, 0);
+    const status = !employeeRecords.length ? 'missing' : (missing.length || reviewFlags ? 'incomplete' : 'completed');
+    const fingerprints = new Set(employeeRecords.map(historyRecordFingerprint).filter(Boolean));
     return {
       employee_name: employee.name || employee.upn || 'Unnamed employee',
       employee_upn: employee.upn,
@@ -1217,7 +1310,11 @@ function completionSummary(records, env, timeZone = 'Europe/London', nowDate = n
       completed_weeks: completedWeeks,
       missing_weeks: missingWeeks,
       missing,
-      submitted_records: employeeRecords.length
+      submitted_records: fingerprints.size || employeeRecords.length,
+      source_variants: employeeRecords.length,
+      review_flags: reviewFlags,
+      schedule_weekdays: scheduleWeekdays,
+      schedule_label: scheduleWeekdays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7]).join(', ')
     };
   }).sort((left, right) => left.employee_name.localeCompare(right.employee_name));
   return {
@@ -1745,6 +1842,41 @@ async function lookupXeroInvoiceEndpoint(request, env, identity, origin) {
   return json(await lookupXeroInvoice(env, body.tenantId || body.tenant_id, invoiceNumber), 200, origin || '');
 }
 
+async function listXeroInvoices(env, tenantId = '', options = {}) {
+  const settings = xeroSettings(env);
+  const connection = await selectXeroConnection(env, tenantId);
+  const token = await refreshXeroAccessToken(env, connection);
+  const limit = Math.min(Math.max(Number(options.limit || 50), 1), 100);
+  const page = Math.min(Math.max(Number(options.page || 1), 1), 1000);
+  const status = text(options.status, '', 40);
+  const params = new URLSearchParams({ page: String(page), pageSize: String(limit) });
+  if (status) params.set('where', `Status=="${status.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+  const endpoint = `${settings.apiUrl}/api.xro/2.0/Invoices?${params.toString()}`;
+  const response = await fetch(endpoint, { headers: xeroApiHeaders(token.accessToken, connection.tenant_id) });
+  const responseText = await response.text();
+  let body = null;
+  try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+  if (!response.ok) throw Object.assign(new Error(xeroErrorMessage(body, `Xero invoice list failed (${response.status})`)), { status: 502 });
+  const invoices = Array.isArray(body?.Invoices) ? body.Invoices : [];
+  return {
+    tenant: { tenant_id: connection.tenant_id, tenant_name: connection.tenant_name },
+    invoices: invoices.slice(0, limit).map(xeroInvoiceProjection),
+    page,
+    page_size: limit,
+    refreshed_at: now()
+  };
+}
+
+async function listXeroInvoicesEndpoint(request, env, identity, origin) {
+  requireXeroAdmin(identity);
+  const url = new URL(request.url);
+  return json(await listXeroInvoices(env, url.searchParams.get('tenantId') || url.searchParams.get('tenant_id') || '', {
+    limit: url.searchParams.get('limit') || 50,
+    page: url.searchParams.get('page') || 1,
+    status: url.searchParams.get('status') || ''
+  }), 200, origin || '');
+}
+
 async function syncXeroJobCard(request, env, identity, origin, recordId) {
   requireXeroAdmin(identity);
   const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
@@ -1786,7 +1918,7 @@ async function syncXeroJobCard(request, env, identity, origin, recordId) {
       q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
       q.last_error AS dispatch_last_error FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id
       WHERE r.record_id = ?`).bind(recordId).first();
-  return json({ ok: true, record: projectRow(updated), invoice }, 200, origin || '');
+  return json({ ok: true, record: projectRow(updated, true, env), invoice }, 200, origin || '');
 }
 
 async function listRecords(request, env, identity) {
@@ -1822,7 +1954,7 @@ async function listRecords(request, env, identity) {
         : (kind ? [identity.oid, kind, limit] : [identity.oid, limit]);
   const result = await env.DB.prepare(sql).bind(...bindings).all();
   const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
-  const projectedLocalRecords = (result.results || []).map((row) => projectRow(row));
+  const projectedLocalRecords = (result.results || []).map((row) => projectRow(row, true, env));
   const syntheticRecordCount = projectedLocalRecords.filter((row) => row.synthetic).length;
   let records = includeSynthetic ? projectedLocalRecords : projectedLocalRecords.filter((row) => !row.synthetic);
   const localRecordCount = records.length;
@@ -1861,25 +1993,13 @@ async function listRecords(request, env, identity) {
             const localIds = new Set(records.map((row) => row.source_record_id));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
             upstreamRecordCount = visibleUpstreamRecords.length;
-            const seenHistoryKeys = new Set(records.map(historyRecordKey).filter(Boolean));
-            const upstreamKeyIndexes = new Map();
+            const seenHistoryFingerprints = new Set(records.map(historyRecordFingerprint).filter(Boolean));
             const uniqueUpstreamRecords = [];
             visibleUpstreamRecords.forEach((row) => {
               if (row.source_record_id && localIds.has(row.source_record_id)) return;
-              const key = historyRecordKey(row);
-              if (!key) return;
-              const existingIndex = upstreamKeyIndexes.get(key);
-              if (seenHistoryKeys.has(key)) {
-                // Keep the richer source row when a forwarded/resubmitted
-                // message has a full daily attachment and its sibling row is
-                // only a header. Local portal records remain authoritative.
-                if (existingIndex !== undefined && historyRecordRichness(row) > historyRecordRichness(uniqueUpstreamRecords[existingIndex])) {
-                  uniqueUpstreamRecords[existingIndex] = row;
-                }
-                return;
-              }
-              seenHistoryKeys.add(key);
-              upstreamKeyIndexes.set(key, uniqueUpstreamRecords.length);
+              const fingerprint = historyRecordFingerprint(row);
+              if (!fingerprint || seenHistoryFingerprints.has(fingerprint)) return;
+              seenHistoryFingerprints.add(fingerprint);
               uniqueUpstreamRecords.push(row);
             });
             records = [...records, ...uniqueUpstreamRecords];
@@ -1935,6 +2055,7 @@ async function handle(request, env) {
 
   if (url.pathname === '/api/xero/connect' && request.method === 'POST') return startXeroConnection(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
+  if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices/lookup' && request.method === 'POST') return lookupXeroInvoiceEndpoint(request, env, identity, origin || '');
   const xeroJobSyncMatch = url.pathname.match(/^\/api\/xero\/job-cards\/([^/]+)\/sync$/);
   if (xeroJobSyncMatch && request.method === 'POST') return syncXeroJobCard(request, env, identity, origin || '', decodeURIComponent(xeroJobSyncMatch[1]));
@@ -1991,7 +2112,7 @@ async function handle(request, env) {
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
     if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
-    if (request.method === 'GET') return json({ record: projectRow(existing, true), payload: payloadObject(existing) }, 200, origin || '');
+    if (request.method === 'GET') return json({ record: projectRow(existing, true, env), payload: payloadObject(existing) }, 200, origin || '');
     if (request.method === 'PATCH') {
       if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) return json({ error: 'Only timesheets made within the current pay month may be edited.' }, 409, origin || '');
       const body = await readJson(request);
@@ -2041,6 +2162,7 @@ export {
   staffDirectory,
   historyTitleDetails,
   normaliseUpstreamRecord,
+  historyRecordFingerprint,
   listRecords,
   projectRow,
   canViewAllRecords,
@@ -2051,6 +2173,7 @@ export {
   saveProfileSettings,
   xeroSettings,
   xeroInvoiceProjection,
+  listXeroInvoices,
   encryptXeroSecret,
   decryptXeroSecret
 };

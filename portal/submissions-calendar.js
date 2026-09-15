@@ -7,32 +7,33 @@
   var title = document.querySelector("[data-submissions-calendar-title]");
   var previous = document.querySelector("[data-submissions-calendar-prev]");
   var next = document.querySelector("[data-submissions-calendar-next]");
+  var picker = document.querySelector("[data-submissions-calendar-picker]");
+  var input = document.querySelector("[data-submissions-calendar-input]");
   var viewDate = new Date();
   var events = [];
+  var helper = window.GMTCalendarData || {};
 
   function safe(value) {
-    return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character];
-    });
+    return typeof helper.safe === "function" ? helper.safe(value) : String(value == null ? "" : value).replace(/[&<>"']/g, function (character) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]; });
   }
   function dateKey(value) {
+    if (typeof helper.key === "function") return helper.key(value);
     var match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
     return match ? match[1] + "-" + match[2] + "-" + match[3] : "";
   }
   function eventDate(event) { return dateKey(event && (event.date || event.startDate || event.event_date || event.record_date)); }
-  function dedupe(items) {
-    var seen = {};
-    return (items || []).filter(function (event) {
-      var id = String(event && (event.id || event.source_record_id) || [eventDate(event), event && event.title, event && event.type, event && event.owner].join("|"));
-      if (!eventDate(event) || seen[id]) return false;
-      seen[id] = true;
-      return true;
-    });
+  function eventType(event) { return String(event && event.type || "general").toLowerCase().replace(/[^a-z]+/g, "-"); }
+  function choose(event) {
+    if (!event || !event.recordId) return;
+    document.dispatchEvent(new CustomEvent("gmt:calendar-select", { detail: { recordId: event.recordId, date: event.date } }));
   }
   function render() {
     var year = viewDate.getFullYear();
     var month = viewDate.getMonth();
-    if (title) title.textContent = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(viewDate);
+    var monthLabel = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(viewDate);
+    if (title) title.textContent = monthLabel;
+    if (input) input.value = year + "-" + String(month + 1).padStart(2, "0");
+    if (picker) picker.setAttribute("aria-label", "Choose calendar month: " + monthLabel);
     var first = new Date(year, month, 1);
     var offset = (first.getDay() + 6) % 7;
     var days = new Date(year, month + 1, 0).getDate();
@@ -45,14 +46,19 @@
     for (var day = 1; day <= days; day += 1) {
       var key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
       var dayEvents = byDay[key] || [];
-      var labels = dayEvents.slice(0, 2).map(function (event) {
-        var type = String(event.type || "general").toLowerCase().replace(/[^a-z]+/g, "-");
-        return '<span class="calendar-event calendar-event-' + safe(type) + '" title="' + safe(event.title || "Event") + '">' + safe(event.title || event.type || "Event") + '</span>';
+      var labels = dayEvents.slice(0, 4).map(function (event) {
+        var label = (event.title || event.type || "Event") + (event.detail ? " · " + event.detail : "");
+        var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (event.detail ? "<small>" + safe(event.detail) + "</small>" : "");
+        if (event.recordId) return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(event.recordId) + '" data-calendar-date="' + safe(event.date) + '" title="' + safe(label) + '">' + content + "</button>";
+        return '<span class="calendar-event calendar-event-' + safe(eventType(event)) + '" title="' + safe(label) + '">' + content + "</span>";
       }).join("");
-      if (dayEvents.length > 2) labels += '<span class="calendar-more">+' + (dayEvents.length - 2) + " more</span>";
-      html += '<span class="portal-calendar-day' + (key === today ? ' is-today' : '') + '"><time datetime="' + key + '">' + day + '</time>' + (labels || '<span class="portal-calendar-no-entry">—</span>') + '</span>';
+      if (dayEvents.length > 4) labels += '<span class="calendar-more">+' + (dayEvents.length - 4) + " more</span>";
+      html += '<span class="portal-calendar-day' + (key === today ? " is-today" : "") + '"><time datetime="' + key + '">' + day + "</time>" + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";
     }
     root.innerHTML = html + "</div>";
+    root.querySelectorAll("[data-calendar-record-id]").forEach(function (button) {
+      button.addEventListener("click", function () { choose({ recordId: button.getAttribute("data-calendar-record-id"), date: button.getAttribute("data-calendar-date") }); });
+    });
   }
   async function load() {
     var local = [];
@@ -63,22 +69,41 @@
         local = Array.isArray(body) ? body : (Array.isArray(body.events) ? body.events : []);
       }
     } catch (_) {}
-    events = local;
+    var protectedRecords = [];
     if (window.GMTPortalApi && typeof window.GMTPortalApi.enabled === "function" && window.GMTPortalApi.enabled()) {
       try {
-        var history = await window.GMTPortalApi.history("calendar");
-        var protectedEvents = (history && Array.isArray(history.records) ? history.records : []).map(function (record) {
-          return { id: record.source_record_id, title: record.event_title || record.title || "Calendar request", date: record.event_date || record.record_date || record.start_date, type: record.event_type || record.type || "General", owner: record.owner || record.employee_name || "" };
-        });
-        events = events.concat(protectedEvents);
+        // Ask for all authorised records. The Worker still applies the signed
+        // in account policy, while this lets timesheet daily rows populate the
+        // same shared calendar as calendar requests.
+        var history = await window.GMTPortalApi.history("all");
+        protectedRecords = history && Array.isArray(history.records) ? history.records : [];
       } catch (_) {}
     }
-    events = dedupe(events);
-    if (status) status.textContent = events.length ? "Shared calendar: " + events.length + " event" + (events.length === 1 ? "" : "s") + "." : "Shared calendar connected. No events published yet.";
+    var derived = typeof helper.recordsToEvents === "function" ? helper.recordsToEvents(protectedRecords) : [];
+    events = local.concat(derived);
+    var seen = {};
+    events = events.filter(function (event) {
+      var id = String(event && (event.id || event.recordId || event.source_record_id) || [eventDate(event), event && event.title, event && event.type, event && event.owner, event && event.detail].join("|"));
+      if (!eventDate(event) || seen[id]) return false;
+      seen[id] = true;
+      return true;
+    });
+    if (status) status.textContent = events.length ? "Shared calendar: " + events.length + " entr" + (events.length === 1 ? "y" : "ies") + ". Select an entry to open its record." : "Shared calendar connected. No events or dated submissions have been filed yet.";
     render();
   }
   if (previous) previous.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); render(); });
   if (next) next.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); render(); });
+  if (picker && input) picker.addEventListener("click", function () {
+    try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
+    if (typeof input.showPicker === "function") { try { input.showPicker(); return; } catch (_) {} }
+    input.click();
+  });
+  if (input) input.addEventListener("change", function () {
+    var match = String(input.value || "").match(/^(\d{4})-(\d{2})$/);
+    if (!match) return;
+    viewDate = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+    render();
+  });
   render();
   load();
 }());

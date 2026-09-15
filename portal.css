@@ -125,6 +125,7 @@
 .portal-notification-empty strong, .portal-notification-empty small { display: block; color: #fff; }
 .portal-notification-empty small { margin-top: .15rem; color: #e7f2e5; }
 .portal-dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin: 1rem 0; }
+.app-main.portal-dashboard-main { max-width: 1520px; }
 .portal-calendar-preview { grid-column: 1 / -1; padding: 1rem 1.1rem; background: rgba(255, 255, 255, .82); border: 1px solid var(--line); border-radius: 1rem; }
 .portal-calendar-preview-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
 .portal-calendar-preview h2 { margin: .25rem 0 0; color: var(--green); }
@@ -143,6 +144,17 @@
 .portal-calendar-day.is-today { color: #fff; background: var(--green); font-weight: 900; }
 .portal-calendar-day.is-today .calendar-event { color: #0d4c16; }
 .portal-calendar-no-entry { color: #8c968a; font-size: .7rem; }
+.portal-calendar-day .calendar-event { display: block; width: 100%; min-width: 0; margin-top: .22rem; padding: .22rem .28rem; overflow-wrap: anywhere; border: 0; border-radius: .3rem; color: #0d4c16; background: #e4f2e0; text-align: left; font: inherit; font-size: .68rem; line-height: 1.15; white-space: normal; }
+.portal-calendar-day button.calendar-event { cursor: pointer; }
+.portal-calendar-day button.calendar-event:hover, .portal-calendar-day button.calendar-event:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.portal-calendar-day .calendar-event strong, .portal-calendar-day .calendar-event small { display: block; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.portal-calendar-day .calendar-event strong { font-size: .68rem; }
+.portal-calendar-day .calendar-event small { margin-top: .08rem; color: #315443; font-size: .61rem; }
+.portal-calendar-day .calendar-event-calendar { color: #4b3b00; background: #fff1b8; }
+.portal-calendar-day .calendar-event-clock { color: #184834; background: #d9eee1; }
+.portal-calendar-day .calendar-event-job-cards, .portal-calendar-day .calendar-event-estimates { color: #17406a; background: #e4eef7; }
+.portal-calendar-day .calendar-event-tasks { color: #5a4100; background: #fff1b8; }
+.calendar-more { display: block; margin-top: .2rem; color: var(--muted); font-size: .65rem; font-weight: 800; }
 .portal-calendar-empty { margin: .65rem 0 0; color: var(--muted); font-size: .9rem; }
 .portal-dashboard-help { grid-column: 1 / -1; margin: 0; }
 .submissions-calendar-panel { margin-bottom: 1rem; }
@@ -470,8 +482,8 @@
 .job-card-account-fields select { width: 100%; min-width: 0; margin-top: .2rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: .45rem; background: #fff; color: var(--ink); font: inherit; }
 .job-card-account-fields button { justify-self: start; }
 .job-card-account-fields [data-job-account-feedback] { align-self: center; }
-.portal-history-card { max-width: 1200px; min-width: 0; margin-inline: auto; container-type: inline-size; }
-.app-main.timesheet-main { max-width: 1280px; }
+.portal-history-card { max-width: 1440px; min-width: 0; margin-inline: auto; container-type: inline-size; }
+.app-main.timesheet-main { max-width: 1520px; }
 .portal-identity-name { display: inline-flex; align-items: center; max-width: 15rem; padding: .55rem .85rem; color: #fff; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .portal-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; min-width: 0; }
 .portal-history-toolbar > *, .portal-history-warning, .timesheet-completion, .table-scroll { min-width: 0; }
@@ -518,6 +530,17 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .timesheet-completion { margin-top: 1rem; padding: .85rem; border: 1px solid var(--line); border-radius: .85rem; background: #f8fbf6; }
 .timesheet-completion h3 { margin: 0; color: var(--green); }
 .timesheet-completion .portal-section-heading { margin: 0; }
+.xero-invoice-panel { display: grid; gap: .8rem; margin-top: 1rem; }
+.xero-connections { min-width: 0; }
+.xero-connections p { margin: 0; }
+.xero-connections label, .xero-invoice-actions label { display: grid; gap: .2rem; color: var(--muted); font-size: .82rem; font-weight: 800; }
+.xero-connections select, .xero-invoice-actions select, .xero-invoice-lookup input { min-height: 40px; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: .55rem; background: #fff; color: var(--ink); font: inherit; }
+.xero-invoice-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .55rem; }
+.xero-invoice-lookup { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem; }
+.xero-invoice-lookup label { display: grid; flex: 1 1 16rem; gap: .25rem; color: var(--muted); font-weight: 800; }
+.xero-invoice-lookup input { width: 100%; }
+.xero-invoice-result { padding: .8rem; border: 1px solid var(--line); border-radius: .7rem; background: #f8fbf6; }
+.xero-invoice-result .timesheet-paper-meta { margin: 0; }
 .portal-table { width: 100%; min-width: 640px; border-collapse: collapse; background: #fff; }
 .portal-table th, .portal-table td { padding: .55rem; border: 1px solid var(--line); vertical-align: top; text-align: left; }
 .portal-table th { background: #edf5e9; color: var(--green); font-size: .78rem; }
@@ -700,6 +723,13 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .back-button {
   margin: .5rem 0;
 }
+@media (min-width: 1101px) {
+  .app-main.estimate-main { max-width: 1520px; }
+  .portal-history-card .timesheet-history-layout { grid-template-columns: minmax(430px, .85fr) minmax(0, 1.65fr); }
+  .portal-calendar-preview, .submissions-calendar-panel { width: 100%; }
+  .portal-calendar-grid { gap: .35rem; }
+  .portal-calendar-day { min-height: 6rem; }
+}
 @media (max-width: 850px) {
   .portal-two-column,
   .kanban-board,
@@ -757,10 +787,15 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-history-toolbar .small-text { width: 100%; min-width: 0; }
   .portal-history-filter { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; width: 100%; min-width: 0; }
   .portal-history-filter select { width: 100%; min-width: 0; }
+  .xero-invoice-actions, .xero-invoice-lookup { align-items: stretch; flex-direction: column; }
+  .xero-invoice-actions label, .xero-invoice-actions button, .xero-invoice-lookup label, .xero-invoice-lookup button { width: 100%; }
   .portal-notification-empty { width: 100%; }
   .portal-dashboard-grid { grid-template-columns: 1fr; }
   .portal-calendar-preview { grid-column: auto; }
   .portal-calendar-preview-heading { align-items: flex-start; flex-direction: column; }
+  .portal-calendar-day .calendar-event { margin-top: .14rem; padding: .16rem .2rem; font-size: .61rem; line-height: 1.1; }
+  .portal-calendar-day .calendar-event strong { font-size: .6rem; }
+  .portal-calendar-day .calendar-event small { font-size: .55rem; }
   .clock-location-control { grid-template-columns: 1fr; }
   .clock-location-control button { width: 100%; }
   .portal-tabs {

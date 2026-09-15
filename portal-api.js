@@ -117,6 +117,15 @@
     return request("/api/xero/status", { method: "GET" });
   }
 
+  function xeroInvoices(tenantId, limit, page, status) {
+    var params = new URLSearchParams();
+    if (tenantId) params.set("tenantId", tenantId);
+    if (limit) params.set("limit", String(limit));
+    if (page) params.set("page", String(page));
+    if (status) params.set("status", status);
+    return request("/api/xero/invoices" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
+  }
+
   function xeroLookupInvoice(invoiceNumber, tenantId) {
     return request("/api/xero/invoices/lookup", { method: "POST", body: { invoiceNumber: invoiceNumber, tenantId: tenantId || "" } });
   }
@@ -138,6 +147,7 @@
     saveProfile: saveProfile,
     xeroConnect: xeroConnect,
     xeroStatus: xeroStatus,
+    xeroInvoices: xeroInvoices,
     xeroLookupInvoice: xeroLookupInvoice,
     xeroSyncJobCard: xeroSyncJobCard
   };
