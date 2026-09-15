@@ -303,7 +303,7 @@
         passthrough.push(record);
         return;
       }
-      var identity = employee(record).toLowerCase();
+      var identity = text(record && (record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || record.employeeName || employee(record))).toLowerCase();
       var week = recordWeekStart(record);
       if (!identity || !week) {
         passthrough.push(record);
@@ -313,6 +313,38 @@
       if (!grouped[groupKey] || preferTimesheet(record, grouped[groupKey])) grouped[groupKey] = record;
     });
     return passthrough.concat(Object.keys(grouped).map(function (groupKey) { return grouped[groupKey]; }));
+  }
+  function eventEmployeeKey(event) {
+    var record = event && event.record || {};
+    return text(record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || record.employeeName || event && (event.owner || event.title)).toLowerCase();
+  }
+  function eventValidity(event) {
+    var issue = text(event && event.issue);
+    if (/same time|earlier than clock|clock in missing|clock out missing/i.test(issue)) return 0;
+    return issue ? 1 : 2;
+  }
+  function eventDetailScore(event) {
+    var row = event && event.row || {};
+    var score = 0;
+    if (objectValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in"])) score += 2;
+    if (objectValue(row, ["finish", "finishTime", "finish_time", "clockOut", "clock_out"])) score += 2;
+    if (objectValue(row, ["workedMinutes", "worked_minutes", "workedHours", "worked_hours", "hours", "totalHours"])) score += 2;
+    if (objectValue(row, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break"]) !== "") score += 1;
+    if (event && event.type === "timesheets") score += 1;
+    return score;
+  }
+  function preferEvent(candidate, existing) {
+    if (!existing) return true;
+    var leftValidity = eventValidity(candidate);
+    var rightValidity = eventValidity(existing);
+    if (leftValidity !== rightValidity) return leftValidity > rightValidity;
+    var leftUpdated = recordUpdatedAt(candidate && candidate.record);
+    var rightUpdated = recordUpdatedAt(existing && existing.record);
+    if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
+    var leftDetail = eventDetailScore(candidate);
+    var rightDetail = eventDetailScore(existing);
+    if (leftDetail !== rightDetail) return leftDetail > rightDetail;
+    return String(candidate && candidate.recordId || candidate && candidate.id || '').localeCompare(String(existing && existing.recordId || existing && existing.id || '')) > 0;
   }
   function recordsToEvents(records, options) {
     var events = [];
@@ -334,8 +366,29 @@
         }
       } else events = events.concat(dateFallback(record, options));
     });
+    // A single employee can have overlapping weekly submissions (for example
+    // a correction covering 7–13 September followed by a second submission
+    // covering 14–21 September). Collapse those source variants at the
+    // employee/day boundary so the shared calendar shows one authoritative,
+    // valid label per day while history still retains every source record.
+    var byEmployeeDate = {};
+    var nonTimesheetEvents = [];
+    events.forEach(function (event) {
+      if (!event || !event.date || ["timesheets", "clock"].indexOf(event.type) === -1) {
+        nonTimesheetEvents.push(event);
+        return;
+      }
+      var identity = eventEmployeeKey(event);
+      if (!identity) {
+        nonTimesheetEvents.push(event);
+        return;
+      }
+      var groupKey = identity + "|" + event.date;
+      if (!byEmployeeDate[groupKey] || preferEvent(event, byEmployeeDate[groupKey])) byEmployeeDate[groupKey] = event;
+    });
+    var collapsedEvents = nonTimesheetEvents.concat(Object.keys(byEmployeeDate).map(function (groupKey) { return byEmployeeDate[groupKey]; }));
     var seen = {};
-    return events.filter(function (event) {
+    return collapsedEvents.filter(function (event) {
       if (!event || !event.date) return false;
       var id = event.id || [event.date, event.title, event.type, event.detail].join("|");
       if (seen[id]) return false;

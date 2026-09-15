@@ -737,7 +737,7 @@
         passthrough.push({ record: record, index: index });
         return;
       }
-      var employee = String(record && (record.employee_upn || record.employee_name || '') || '').toLowerCase();
+      var employee = String(record && (record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || '') || '').toLowerCase();
       var week = recordWeekStart(record);
       if (!employee || !week) {
         passthrough.push({ record: record, index: index });
@@ -747,6 +747,31 @@
       if (!grouped[groupKey] || preferTimesheetRecord(record, grouped[groupKey].record)) grouped[groupKey] = { record: record, index: index };
     });
     return passthrough.concat(Object.keys(grouped).map(function (groupKey) { return grouped[groupKey]; }));
+  }
+
+  function calendarEmployeeKey(record) {
+    return String(record && (record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || '') || '').trim().toLowerCase();
+  }
+
+  function calendarEntryQuality(entry, date) {
+    var rows = recordRows(entry && entry.record);
+    var row = rows.find(function (candidate) { return dateKey(candidate && candidate.date) === date; });
+    if (!row) return { valid: false, completeness: 0, validity: 0 };
+    var issue = row.issues.some(function (value) { return /same time|earlier than clock|clock in missing|clock out missing/i.test(value); });
+    return { valid: !issue, completeness: rowCompleteness(row), validity: rowValidity(row) };
+  }
+
+  function preferCalendarEntry(candidate, existing, date) {
+    if (!existing) return true;
+    var left = calendarEntryQuality(candidate, date);
+    var right = calendarEntryQuality(existing, date);
+    if (left.valid !== right.valid) return left.valid;
+    var leftUpdated = recordUpdatedAt(candidate && candidate.record);
+    var rightUpdated = recordUpdatedAt(existing && existing.record);
+    if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
+    if (left.validity !== right.validity) return left.validity > right.validity;
+    if (left.completeness !== right.completeness) return left.completeness > right.completeness;
+    return preferTimesheetRecord(candidate && candidate.record, existing && existing.record);
   }
 
   function requestStatusLabel(value) {
@@ -1013,10 +1038,17 @@
       var index = entry.index;
       calendarDateKeys(record, viewDate).forEach(function (key) {
         if (!byDate[key]) byDate[key] = [];
-        var groupKey = calendarGroupKey(record, index, key);
-        var existing = byDate[key].find(function (entry) { return entry.groupKey === groupKey; });
-        if (existing) existing.count += 1;
-        else byDate[key].push({ record: record, index: index, groupKey: groupKey, count: 1 });
+        var action = actionKey(record);
+        var identity = calendarEmployeeKey(record);
+        var groupKey = ['timesheets', 'clock'].indexOf(action) !== -1 && identity
+          ? 'time|' + identity
+          : calendarGroupKey(record, index, key);
+        var existing = byDate[key].find(function (candidate) { return candidate.groupKey === groupKey; });
+        var candidate = { record: record, index: index, groupKey: groupKey, count: 1 };
+        if (!existing) byDate[key].push(candidate);
+        else if (['timesheets', 'clock'].indexOf(action) !== -1 && preferCalendarEntry(candidate, existing, key)) {
+          byDate[key][byDate[key].indexOf(existing)] = candidate;
+        }
       });
     });
     var missing = completionMissingLabels(viewDate);

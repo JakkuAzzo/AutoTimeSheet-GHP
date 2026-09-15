@@ -104,6 +104,25 @@ try {
   assert.match(duplicateVersionEvents[0].detail, /09:00–17:00/);
   assert.doesNotMatch(duplicateVersionEvents[0].detail, /05:00/);
 
+  const overlappingWeekEvents = await calendarPage.evaluate(() => window.GMTCalendarData.recordsToEvents([
+    {
+      kind: 'timesheets', employee_name: 'Michelle Reid', employee_upn: 'michelle@gmt-services.co.uk',
+      start_date: '2026-09-01', end_date: '2026-09-21', updated_at: '2026-09-15T09:00:00Z',
+      source_record_id: 'michelle-overlap-older', payload: { rows: [
+        { date: '2026-09-15', startTime: '09:00', finishTime: '17:00', lunchMinutes: 30, workedHours: 7.5 }
+      ] }
+    },
+    {
+      kind: 'timesheets', employee_name: 'Michelle Reid', employee_upn: 'michelle@gmt-services.co.uk',
+      start_date: '2026-09-14', end_date: '2026-09-21', updated_at: '2026-09-16T09:00:00Z',
+      source_record_id: 'michelle-overlap-latest', payload: { rows: [
+        { date: '2026-09-15', startTime: '09:05', finishTime: '17:30', lunchMinutes: 35, workedHours: 7.83 }
+      ] }
+    }
+  ]));
+  assert.equal(overlappingWeekEvents.filter((event) => event.date === '2026-09-15').length, 1, 'overlapping weekly versions should render one employee/day label');
+  assert.match(overlappingWeekEvents.find((event) => event.date === '2026-09-15').detail, /09:05–17:30/);
+
   const dashboardCalendarPage = await browser.newPage();
   await dashboardCalendarPage.setContent('<p id="portal-calendar-status"></p><div class="portal-calendar-toolbar"><button data-portal-calendar-prev></button><button data-portal-calendar-picker><span data-portal-calendar-title></span></button><input id="portal-calendar-month-input" data-portal-calendar-input type="month"><button data-portal-calendar-next></button></div><div data-portal-calendar></div>');
   await dashboardCalendarPage.evaluate(() => {
