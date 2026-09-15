@@ -73,6 +73,9 @@
   function payloadFor(record) {
     return record && record.payload && typeof record.payload === "object" ? record.payload : {};
   }
+  function sparseTimesheet(record) {
+    return actionKey(record) === "timesheets" && !!(record && (record.daily_detail_issue || /daily rows were not returned/i.test(String(record.issue || ""))));
+  }
 
   function jobPreviewData(record) {
     var payload = payloadFor(record);
@@ -236,7 +239,10 @@
     var employee = displayName(record);
     var statusValue = record.is_demo ? "Example only" : (record.status || "Submitted");
     var demoDescription = record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '';
-    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions"><a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
+    var sparseDetail = sparseTimesheet(record)
+      ? '<p class="portal-history-warning"><strong>Daily detail unavailable:</strong> ' + safe(record.daily_detail_issue || "The Microsoft 365 history response returned the submission header without its daily rows.") + '</p><p class="small-text">Only the submitted header is available here. Clock-in, clock-out, break and total-hour values will appear after the intake/history flow returns the attached daily rows.</p>'
+      : '';
+    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + sparseDetail + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions"><a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
   }
   function select(index) {
     selected = Number(index);
@@ -254,7 +260,8 @@
       return;
     }
     list.innerHTML = visible.map(function (record, index) {
-      return '<button type="button" class="estimate-history-item' + (record.is_demo ? ' submission-demo-item' : '') + '" data-submission-index="' + index + '" aria-current="' + String(index === selected) + '"><strong>' + safe(displayName(record)) + '</strong><span>' + safe(actionLabel(record)) + '</span><small>' + safe(period(record)) + ' · ' + safe(record.is_demo ? "Example only · not submitted" : (record.status || "Submitted")) + '</small></button>';
+      var reviewLabel = sparseTimesheet(record) ? " · Review: daily detail unavailable" : "";
+      return '<button type="button" class="estimate-history-item' + (record.is_demo ? ' submission-demo-item' : '') + '" data-submission-index="' + index + '" aria-current="' + String(index === selected) + '"><strong>' + safe(displayName(record)) + '</strong><span>' + safe(actionLabel(record)) + '</span><small>' + safe(period(record)) + ' · ' + safe(record.is_demo ? "Example only · not submitted" : (record.status || "Submitted") + reviewLabel) + '</small></button>';
     }).join("");
     if (typeof list.querySelectorAll === "function") list.querySelectorAll("[data-submission-index]").forEach(function (button) { button.addEventListener("click", function () { select(Number(button.getAttribute("data-submission-index"))); }); });
     if (selected < 0 || selected >= visible.length) {

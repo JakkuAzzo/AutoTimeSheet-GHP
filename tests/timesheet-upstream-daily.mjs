@@ -45,11 +45,11 @@ assert.match(mismatchedWindow.period_issue, /differs from daily rows 2026-08-31 
 assert.match(mismatchedWindow.issue, /reporting uses the daily dates/);
 
 const sparseSubmission = normaliseUpstreamRecord({
-  Id: 19,
   Title: 'FW: [GMT][TIMESHEET][SUBMISSION] Matthew | Week 2026-09-07',
   EmployeeName: 'Matthew',
   Modified: '2026-09-09T07:00:00Z'
 }, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, directory);
+assert.match(sparseSubmission.source_record_id, /^history-timesheets-matthew-gmt-services-co-uk-2026-09-07-/);
 assert.match(sparseSubmission.daily_detail_issue, /Daily rows were not returned/);
 assert.match(sparseSubmission.issue, /times, breaks and totals are unavailable/);
 console.log('Upstream daily attachment: base64 decoding, stable submission IDs, breaks and metadata: PASS');

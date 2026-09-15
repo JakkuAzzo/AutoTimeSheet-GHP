@@ -1118,7 +1118,19 @@ function normaliseUpstreamRecord(row, identity, env) {
   const updatedAt = text(upstreamValue(row, ['updated_at', 'updatedAt', 'Modified', 'modified']) || submittedAt, '', 100);
   const action = text(upstreamValue(row, ['action', 'Action', 'category', 'record_type', 'gmt_action']) || (kind === 'timesheets' ? 'submission' : kind === 'clock' ? 'clock' : 'Timesheet'), 'Timesheet', 100);
   const status = text(upstreamValue(row, ['status', 'Status', 'Status Value', 'gmt_status']) || 'Submitted', 'Submitted', 100);
-  const sourceRecordId = text(upstreamValue(row, ['source_record_id', 'sourceRecordId', 'gmt_record_id', 'Source Record ID', 'Source_x0020_Record_x0020_ID']) || embeddedSourceRecordId || (row.Id || row.ID || row.GUID ? `sharepoint-timesheet-${row.Id || row.ID || row.GUID}` : ''), '', MAX_RECORD_ID);
+  // A few of the legacy history rows do not carry the SharePoint item ID or
+  // the stable GMT record ID. Keep those rows addressable in the portal by
+  // deriving a deterministic fallback from the employee, period and source
+  // title. This is a portal identifier only; it does not overwrite the source
+  // email/list ID when one is present.
+  const sourceRecordValue = upstreamValue(row, ['source_record_id', 'sourceRecordId', 'gmt_record_id', 'Source Record ID', 'Source_x0020_Record_x0020_ID'])
+    || embeddedSourceRecordId
+    || (row.Id || row.ID || row.GUID ? `sharepoint-timesheet-${row.Id || row.ID || row.GUID}` : '');
+  const fallbackRecordSeed = [kind, employeeUpn || employeeName, recordDate || startDate || title, endDate, title, updatedAt].filter(Boolean).join('|');
+  const fallbackRecordId = fallbackRecordSeed
+    ? `history-${fallbackRecordSeed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_RECORD_ID - 8)}`
+    : '';
+  const sourceRecordId = text(sourceRecordValue || fallbackRecordId, '', MAX_RECORD_ID);
   const rows = sourceData.rows.map((item) => normaliseUpstreamDailyRow(item, {
     date: recordDate || startDate,
     status: kind === 'clock' ? 'Recorded' : status,

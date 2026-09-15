@@ -47,9 +47,13 @@
       var key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
       var dayEvents = byDay[key] || [];
       var labels = dayEvents.slice(0, 4).map(function (event) {
-        var issueLabel = event.issue ? " · review" : "";
-        var label = (event.title || event.type || "Event") + (event.detail ? " · " + event.detail : "") + issueLabel;
-        var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (event.detail ? "<small>" + safe(event.detail + issueLabel) + "</small>" : "");
+        // Row-level detail already includes the review marker when one of the
+        // clock, break or schedule checks failed. Do not append it a second
+        // time when the source record also carries an issue summary.
+        var issueLabel = event.issue && !/\breview\b/i.test(String(event.detail || "")) ? " · review" : "";
+        var detail = (event.detail || "") + issueLabel;
+        var label = (event.title || event.type || "Event") + (detail ? " · " + detail : "");
+        var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (detail ? "<small>" + safe(detail) + "</small>" : "");
         if (event.recordId) return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(event.recordId) + '" data-calendar-date="' + safe(event.date) + '" title="' + safe(label) + '">' + content + "</button>";
         return '<span class="calendar-event calendar-event-' + safe(eventType(event)) + '" title="' + safe(label) + '">' + content + "</span>";
       }).join("");
