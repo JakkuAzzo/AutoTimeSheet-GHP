@@ -1,4 +1,4 @@
-const GMT_SITE_BASE_PATH = /(^|\.)gmt-services\.co\.uk$/i.test(window.location.hostname)
+const GMT_SITE_BASE_PATH = /(^|\.)gmt-services\.co\.uk$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname)
   ? ""
   : "/AutoTimeSheet-GHP";
 
@@ -25,12 +25,12 @@ window.GMT_APP_CONFIG = {
   estimateAccountsBcc: "",
   // Cloudflare Worker protected portal API. Set this to the deployed Worker
   // origin in the Pages bundle; leave blank in local development.
-  portalApiEndpoint: "",
+  portalApiEndpoint: "https://gmt-portal-api.raspy-breeze-e230.workers.dev",
   // The protected Worker accepts the signed-in SPA's Entra ID token. This
   // keeps portal CRUD available without requesting the Power Automate Flow
   // Service resource, whose delegated permission may not be present yet.
   portalApiScopes: ["openid", "profile", "email"],
-  portalHistoryEndpoint: "",
+  portalHistoryEndpoint: "https://gmt-portal-api.raspy-breeze-e230.workers.dev",
   portalHistoryScopes: ["openid", "profile", "email"],
   fallbackFormSubmitEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",
   legacyPersonalAccountsEmail: "acc.gmtelect@outlook.com",
@@ -64,9 +64,7 @@ window.GMT_APP_CONFIG = {
     // GitHub Pages uses the project subpath; the production custom domain does not.
     // Keeping this host-aware prevents Entra from returning staff to a non-existent
     // /AutoTimeSheet-GHP/portal/ route when they use https://gmt-services.co.uk/.
-    redirectPath: /(^|\.)gmt-services\.co\.uk$/i.test(window.location.hostname)
-      ? "/portal/"
-      : "/AutoTimeSheet-GHP/portal/",
+    redirectPath: GMT_SITE_BASE_PATH + "/portal/",
     allowedGroupIds: []
   }
 };
