@@ -51,6 +51,14 @@ try {
   await calendarPage.waitForFunction(() => document.querySelector('.portal-calendar-grid'));
   assert.equal(await calendarPage.locator('.portal-calendar-weekday').count(), 7);
   assert.ok((await calendarPage.locator('[data-submissions-calendar-title]').innerText()).length > 0);
+  await calendarPage.addScriptTag({ path: resolve(repoRoot, 'portal/calendar-data.js') });
+  const sparseCalendarEvent = await calendarPage.evaluate(() => window.GMTCalendarData.recordsToEvents([{
+    kind: 'timesheets', employee_name: 'Jason', record_date: '2026-09-01',
+    source_record_id: 'history-timesheets-jason-2026-09-01',
+    daily_detail_issue: 'Daily rows were not returned by the Microsoft 365 history source; times, breaks and totals are unavailable.'
+  }])[0]);
+  assert.equal(sparseCalendarEvent.recordId, 'history-timesheets-jason-2026-09-01');
+  assert.match(sparseCalendarEvent.detail, /Daily detail unavailable/);
 
   const dashboardCalendarPage = await browser.newPage();
   await dashboardCalendarPage.setContent('<p id="portal-calendar-status"></p><div class="portal-calendar-toolbar"><button data-portal-calendar-prev></button><button data-portal-calendar-picker><span data-portal-calendar-title></span></button><input id="portal-calendar-month-input" data-portal-calendar-input type="month"><button data-portal-calendar-next></button></div><div data-portal-calendar></div>');

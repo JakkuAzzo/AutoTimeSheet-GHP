@@ -54,8 +54,8 @@
         var detail = (event.detail || "") + issueLabel;
         var label = (event.title || event.type || "Event") + (detail ? " · " + detail : "");
         var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (detail ? "<small>" + safe(detail) + "</small>" : "");
-        if (event.recordId) return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(event.recordId) + '" data-calendar-date="' + safe(event.date) + '" title="' + safe(label) + '">' + content + "</button>";
-        return '<span class="calendar-event calendar-event-' + safe(eventType(event)) + '" title="' + safe(label) + '">' + content + "</span>";
+        if (event.recordId) return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(event.recordId) + '" data-calendar-date="' + safe(event.date) + '" aria-label="' + safe(label) + '">' + content + "</button>";
+        return '<span class="calendar-event calendar-event-' + safe(eventType(event)) + '" aria-label="' + safe(label) + '">' + content + "</span>";
       }).join("");
       if (dayEvents.length > 4) labels += '<span class="calendar-more">+' + (dayEvents.length - 4) + " more</span>";
       html += '<span class="portal-calendar-day' + (key === today ? " is-today" : "") + '"><time datetime="' + key + '">' + day + "</time>" + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";

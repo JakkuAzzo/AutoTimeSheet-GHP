@@ -42,9 +42,14 @@
       var candidate = parsed(candidates[index]);
       if (Array.isArray(candidate)) return candidate.filter(function (row) { return row && typeof row === "object"; }).slice(0, 80);
     }
-    var directDate = objectValue(record, ["date", "record_date", "recordDate", "workDate"]);
+    // A weekly header normally has `record_date` but no daily fields. Treat it
+    // as a sparse submission so dateFallback can keep the record visible. Only
+    // promote a direct object to a day row when it also carries a daily time,
+    // hour, break or absence value.
+    var directDate = objectValue(record, ["date", "workDate", "day"]);
     var directTime = objectValue(record, ["start", "startTime", "start_time", "clockIn", "clock_in", "finish", "finishTime", "finish_time", "clockOut", "clock_out"]);
-    return directDate || directTime ? [record] : [];
+    var directDailyValue = objectValue(record, ["workedMinutes", "worked_minutes", "workedHours", "worked_hours", "hours", "totalHours", "basicHours", "basic_hours", "lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"]);
+    return directDate && (directTime || directDailyValue) ? [record] : [];
   }
   function number(value) {
     if (value === null || value === undefined || value === "") return null;
@@ -177,10 +182,12 @@
     if (!start) return [];
     var recordKind = kind(record);
     var issue = text(record && record.issue);
-    var detail = text(record && (record.event_title || record.title || record.job_ref || record.estimate_number || record.action || "Record"));
+    var detail = text(record && (record.event_title || record.job_ref || record.estimate_number || record.action || "Record"));
     if (recordKind === "timesheets" && (record && (record.daily_detail_issue || record.issue))) {
       issue = issue || "Daily rows unavailable";
-      detail = detail || "Submission";
+      detail = "Daily detail unavailable";
+    } else if (!detail) {
+      detail = text(record && record.title) || "Record";
     }
     return [{ id: recordId(record) + "|" + start, recordId: recordId(record), date: start, title: employee(record), type: recordKind, owner: employee(record), status: text(record && record.status) || "Submitted", detail: detail, issue: issue, record: record, row: null, scheduled: true }];
   }
