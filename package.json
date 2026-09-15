@@ -9,6 +9,7 @@
     "test:audit:jason-zip": "node tests/audit-jason-zip-regression.mjs",
     "test:audit:fixtures": "node tests/audit-fixture-matrix.mjs",
     "test:calendar:protected-boundary": "node tests/calendar-protected-boundary.mjs",
+    "test:calendar:day-actions": "node tests/calendar-day-actions.mjs",
     "test:pages:public-root": "node tests/cloudflare-pages-public-root.mjs",
     "test:weekly-correction-dispatch": "node tests/weekly-correction-dispatch.mjs",
     "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
@@ -28,7 +29,8 @@
     "test:timesheets:pay-month": "node tests/timesheet-pay-month-policy.mjs",
     "test:timesheets:admin-completion": "node tests/timesheet-admin-completion.mjs",
     "test:timesheets:upstream-daily": "node tests/timesheet-upstream-daily.mjs",
-    "test:timesheets:admin-ui": "node tests/timesheet-admin-ui.mjs"
+    "test:timesheets:admin-ui": "node tests/timesheet-admin-ui.mjs",
+    "test:timesheets:monthly-contract": "node tests/timesheet-monthly-contract.mjs"
   },
   "keywords": ["timesheet", "authentication"],
   "author": "",

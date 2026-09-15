@@ -220,6 +220,12 @@
     return (year && year.value ? year.value : '') + '-' + (month && month.value ? month.value : '');
   }
 
+  function calendarDayDateMarkup(day, key) {
+    return String(key).slice(0, 7) === currentPayMonth()
+      ? '<button type="button" class="calendar-day-date" data-calendar-day="' + safe(key) + '" aria-label="Actions for ' + safe(key) + '">' + day + '</button>'
+      : '<time datetime="' + safe(key) + '">' + day + '</time>';
+  }
+
   function recordPayMonth(record) {
     // Pay months follow the week-ending date so a Monday week that starts in
     // the previous calendar month (for example 31 Aug–6 Sep) is included in
@@ -355,6 +361,69 @@
     return /hours?|hrs?|h/i.test(match[2]) ? amount * 60 : amount;
   }
 
+  function rowDateValue(row) {
+    return String(objectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate']) || '').slice(0, 10);
+  }
+
+  function datePlusDays(value, offset) {
+    var date = dateOnly(value);
+    if (!date) return '';
+    date.setUTCDate(date.getUTCDate() + Number(offset || 0));
+    return dateKey(date);
+  }
+
+  function rowDayIndex(row, fallbackIndex) {
+    var value = objectValue(row, ['dayIndex', 'day_number', 'dayNumber', 'entryIndex', 'entry_number', 'day', 'label', 'dayLabel', 'day_label', 'entry', 'entryLabel']);
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      if (value >= 1 && value <= 7) return value - 1;
+      if (value >= 0 && value <= 6) return value;
+    }
+    var match = String(value || '').match(/\b(?:day|entry)\s*#?\s*(\d+)\b/i);
+    if (match) {
+      var index = Number(match[1]) - 1;
+      if (Number.isInteger(index) && index >= 0 && index <= 6) return index;
+    }
+    return fallbackIndex;
+  }
+
+  function alignTimesheetRows(rows, record) {
+    var sourceRows = Array.isArray(rows) ? rows : [];
+    var start = String(record && (record.start_date || record.startDate || record.week_start || record.weekStart) || '').slice(0, 10);
+    var end = String(record && (record.end_date || record.endDate || record.week_end || record.weekEnd) || '').slice(0, 10);
+    if (!end && start) end = datePlusDays(start, 6);
+    if (!sourceRows.length || !dateOnly(start) || !dateOnly(end)) return sourceRows;
+    var indexes = sourceRows.map(function (row, index) { return rowDayIndex(row, index); });
+    var expected = indexes.map(function (index) { return datePlusDays(start, index); });
+    if (expected.some(function (date) { return !date || date > end; })) return sourceRows;
+    var original = sourceRows.map(rowDateValue);
+    var labelsSequential = sourceRows.length > 1 && indexes.every(function (index, position) { return index === position; }) && new Set(indexes).size === indexes.length;
+    var weekdayNames = sourceRows.map(function (row) { return String(objectValue(row, ['weekday', 'Weekday', 'dayName', 'day_name']) || '').trim().toLowerCase(); });
+    var weekdayValuesPresent = weekdayNames.some(Boolean);
+    var weekdayNamesMatch = weekdayNames.every(function (value, index) {
+      if (!value) return true;
+      var date = dateOnly(expected[index]);
+      if (!date) return false;
+      var weekday = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(date).toLowerCase();
+      return value === weekday;
+    });
+    var allOriginalDates = original.every(Boolean);
+    var allInsideWeek = allOriginalDates && original.every(function (date) { return date >= start && date <= end; });
+    var shouldAlign = labelsSequential && weekdayNamesMatch && original.some(function (date, index) { return date !== expected[index]; });
+    if (!shouldAlign && allOriginalDates && !allInsideWeek) {
+      var shift = dateOnly(original[0]) && dateOnly(expected[0]) ? Math.round((dateOnly(expected[0]).getTime() - dateOnly(original[0]).getTime()) / 86400000) : null;
+      var shifted = Number.isFinite(shift) && original.every(function (date, index) { return datePlusDays(date, shift) === expected[index]; });
+      shouldAlign = (shifted && weekdayNamesMatch) || (!weekdayValuesPresent && sourceRows.length <= 7);
+    }
+    if (!shouldAlign) return sourceRows;
+    return sourceRows.map(function (row, index) {
+      var sourceDate = original[index];
+      if (sourceDate === expected[index]) return row;
+      var aligned = Object.assign({}, row, { date: expected[index] });
+      if (sourceDate) aligned.sourceDate = sourceDate;
+      return aligned;
+    });
+  }
+
   function timeMinutes(value) {
     if (value === null || value === undefined || value === '') return null;
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -404,7 +473,7 @@
 
   function normaliseTimesheetRow(row, record) {
     row = row || {};
-    var date = String(objectValue(row, ['date', 'record_date', 'recordDate', 'workDate', 'day']) || '').slice(0, 10);
+    var date = rowDateValue(row);
     var sourceDate = String(objectValue(row, ['sourceDate', 'source_date', 'originalDate', 'original_date']) || '').slice(0, 10);
     var start = String(objectValue(row, ['start', 'startTime', 'start_time', 'clockIn', 'clock_in', 'dayStart', 'day_start', 'Start']) || '');
     var finish = String(objectValue(row, ['finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out', 'dayFinish', 'day_finish', 'Finish']) || '');
@@ -482,7 +551,7 @@
     (lastRecords || []).forEach(function (record) {
       if (actionKey(record) !== 'clock') return;
       var payload = payloadForRecord(record);
-      var rows = rawTimesheetRows(record);
+      var rows = alignTimesheetRows(rawTimesheetRows(record), record);
       if (!rows.length) rows = [record];
       rows.forEach(function (row) {
         var item = row || {};
@@ -512,7 +581,7 @@
   }
 
   function enrichTimesheetRows(record) {
-    var rows = rawTimesheetRows(record).map(function (row) { return normaliseTimesheetRow(row, record); });
+    var rows = alignTimesheetRows(rawTimesheetRows(record), record).map(function (row) { return normaliseTimesheetRow(row, record); });
     var employee = record && (record.employee_upn || record.employee_name || '');
     var events = clockEvents().filter(function (event) { return employeeMatches(event.record, employee) || employeeMatches({ employee_upn: event.row.employeeUpn || event.row.employee_upn, employee_name: event.row.employeeName || event.row.employee_name }, employee); });
     var byDate = {};
@@ -1103,7 +1172,7 @@
       labels += (missing[key] || []).map(function (entry) {
         return '<span class="timesheet-calendar-label missing" title="' + safe(entry.detail || entry.label) + '">' + safe(entry.label) + '</span>';
       }).join('');
-      html += '<article class="calendar-day' + (key === today ? ' calendar-day-today' : '') + '"><time datetime="' + key + '">' + day + '</time>' + (labels || '<span class="timesheet-calendar-no-entry">No entry</span>') + '</article>';
+      html += '<article class="calendar-day' + (key === today ? ' calendar-day-today' : '') + '">' + calendarDayDateMarkup(day, key) + (labels || '<span class="timesheet-calendar-no-entry">No entry</span>') + '</article>';
     }
     list.innerHTML = html;
     if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index')), button.getAttribute('data-calendar-date') || ''); }); });

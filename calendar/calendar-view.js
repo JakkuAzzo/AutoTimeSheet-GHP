@@ -15,6 +15,12 @@
     return String(value || '').slice(0, 10);
   }
 
+  function isCurrentPayMonth(key) {
+    return typeof window.GMTCalendarActions?.currentPayMonth === 'function'
+      ? String(key).slice(0, 7) === window.GMTCalendarActions.currentPayMonth()
+      : String(key).slice(0, 7) === new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).formatToParts(new Date()).reduce((value, part) => value + (part.type === 'year' || part.type === 'month' ? part.value + (part.type === 'year' ? '-' : '') : ''), '');
+  }
+
   function allEvents() {
     const events = publishedEvents.filter((event) => event && dateKey(event.date || event.startDate));
     const seen = new Set();
@@ -51,7 +57,10 @@
       const events = eventsByDay[key] || [];
       const eventMarkup = events.slice(0, 3).map((event) => `<span class="calendar-event calendar-event-${escapeHtml(String(event.type || 'general').toLowerCase().replace(/[^a-z]+/g, '-'))}" title="${escapeHtml(event.title || 'Untitled event')}">${escapeHtml(event.title || event.type || 'Event')}</span>`).join('');
       const more = events.length > 3 ? `<span class="calendar-more">+${events.length - 3} more</span>` : '';
-      cells.push(`<article class="calendar-day${key === today ? ' calendar-day-today' : ''}"><time datetime="${key}">${day}</time>${eventMarkup}${more}</article>`);
+      const dateMarkup = isCurrentPayMonth(key)
+        ? `<button type="button" class="calendar-day-date" data-calendar-day="${key}" aria-label="Actions for ${key}">${day}</button>`
+        : `<time datetime="${key}">${day}</time>`;
+      cells.push(`<article class="calendar-day${key === today ? ' calendar-day-today' : ''}">${dateMarkup}${eventMarkup}${more}</article>`);
     }
     grid.innerHTML = cells.join('');
   }
@@ -103,7 +112,13 @@
       if (title && !title.value) title.value = 'Time off request';
       if (type) type.value = 'Holiday';
       const date = $('#calendar-date');
+      const requestedDate = params.get('date');
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate || '')) date.value = requestedDate;
       if (date && typeof date.focus === 'function') setTimeout(() => date.focus(), 0);
+    } else {
+      const date = $('#calendar-date');
+      const requestedDate = params.get('date');
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate || '')) date.value = requestedDate;
     }
     $('#calendar-previous')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); renderMonth(); });
     $('#calendar-next')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); renderMonth(); });

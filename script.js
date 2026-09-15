@@ -34,6 +34,12 @@ const timesheetEntryTitle = document.getElementById('timesheet-entry-title');
 const timesheetEntryCopy = document.getElementById('timesheet-entry-copy');
 const timesheetEditStatus = document.getElementById('timesheet-edit-status');
 const editSourceId = new URLSearchParams(window.location.search).get('edit') || '';
+const requestedDay = (() => {
+  const value = new URLSearchParams(window.location.search).get('day') || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value ? '' : value;
+})();
 
 let dayCount = 0;
 let absenceRanges = [];
@@ -236,6 +242,30 @@ function initialiseWeekDates() {
   updatePeriodSummary();
 }
 
+function applyRequestedDayPeriod() {
+  if (!requestedDay) return;
+  const selected = dateObj(requestedDay);
+  if (!selected || Number.isNaN(selected.getTime())) return;
+  const mondayOffset = (selected.getDay() + 6) % 7;
+  const monday = new Date(selected);
+  monday.setDate(monday.getDate() - mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(sunday.getDate() + 6);
+  weekStart.value = isoDate(monday);
+  weekEnd.value = isoDate(sunday);
+  updatePeriodSummary();
+}
+
+function focusRequestedDay() {
+  if (!requestedDay || !daysContainer) return;
+  const card = daysContainer.querySelector(`[data-day-date="${requestedDay}"]`) || daysContainer.querySelector(`#day-${requestedDay}`);
+  if (!card) return;
+  card.classList.add('is-requested-day');
+  const dateInput = card.querySelector('[data-field="date"]');
+  try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { card.scrollIntoView(); }
+  if (dateInput && typeof dateInput.focus === 'function') dateInput.focus({ preventScroll: true });
+}
+
 function renderAbsenceRanges() {
   if (!absenceRanges.length) {
     absenceRangesEl.innerHTML = '<p class="small-text">No absence periods marked.</p>';
@@ -267,6 +297,10 @@ function addDay(data = {}) {
   const card = document.createElement('article');
   card.className = data.collapsed ? 'day-card is-collapsed' : 'day-card';
   card.dataset.dayIndex = String(index);
+  if (dateValue) {
+    card.dataset.dayDate = String(dateValue);
+    card.id = `day-${String(dateValue)}`;
+  }
   card.innerHTML = `
     <div class="day-card-header">
       <button type="button" class="collapse-day" aria-expanded="${data.collapsed ? 'false' : 'true'}" aria-controls="day_body_${index}">
@@ -1144,8 +1178,10 @@ function createEmailForm() {
     <input type="hidden" name="gmt_submitted_at" data-clean-field="gmtSubmittedAt">
     <input type="hidden" name="summary" data-clean-field="summary">
     <input type="hidden" name="message" data-clean-field="message">
+    <input type="file" name="attachment_record" data-clean-field="recordJson">
     <input type="file" name="attachment" data-clean-field="xlsx">
     <input type="file" name="attachment_csv" data-clean-field="csv">
+    <input type="file" name="attachment_calendar_sync" data-clean-field="calendarSyncJson">
   `;
   document.body.appendChild(emailForm);
   return emailForm;
@@ -1173,8 +1209,11 @@ async function submitTimesheet(event) {
     const submissionId = editSourceId || buildTimesheetSubmissionId(calendarSync);
     const workbookKey = buildTimesheetWorkbookKey(calendarSync);
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
-    const calendarSyncFile = deferCorrection ? buildCalendarSyncFile(calendarSyncWithIds) : null;
-    const recordFile = deferCorrection ? buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId) : null;
+    // Send machine-readable envelopes with every submission. The intake flow
+    // archives the human XLSX/CSV pair and uses these files to populate daily
+    // rows and calendar events without parsing binary spreadsheets.
+    const calendarSyncFile = buildCalendarSyncFile(calendarSyncWithIds);
+    const recordFile = buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId);
     saveSubmittedDraft(submissionId);
     if (portalApiEnabled()) {
       protectedRecord = portalTimesheetRecord(calendarSyncWithIds, calculated, totals, weighted, submissionId, 'Pending delivery');
@@ -1182,8 +1221,10 @@ async function submitTimesheet(event) {
     }
     if (deferCorrection) {
       const queued = await queueCorrectionAttachments(submissionId, [
+        { fieldName: 'attachment_record', file: recordFile },
         { fieldName: 'attachment', file: xlsxFile },
-        { fieldName: 'attachment_csv', file: csvFile }
+        { fieldName: 'attachment_csv', file: csvFile },
+        { fieldName: 'attachment_calendar_sync', file: calendarSyncFile }
       ]);
       if (queued && queued.skipped) {
         showSuccess('Synthetic correction retained for testing and was not sent to Accounts.');
@@ -1248,13 +1289,15 @@ async function submitTimesheet(event) {
       note: [row.note || '', row.description || ''].filter(Boolean).join(' ')
     })));
     field('gmtCalendarSyncPayload').value = JSON.stringify(calendarSyncWithIds);
-    field('gmtAttachmentManifest').value = 'xlsx,csv';
+    field('gmtAttachmentManifest').value = 'record-json,xlsx,csv,calendar-sync-json';
     field('gmtSubmittedAt').value = calendarSync.submittedAt;
     field('summary').value = calculatedSummaryInput.value;
-    field('message').value = `Timesheet spreadsheets are attached. Calendar sync requested for ${calendarSyncWithIds.calendarName}: ${calendarSyncWithIds.events.length} event(s), including ${calendarSyncWithIds.events.filter((event) => event.type === 'absence').length} absence event(s).`;
+    field('message').value = `Structured daily record, calendar-sync JSON, XLSX and CSV attachments are included. Calendar sync requested for ${calendarSyncWithIds.calendarName}: ${calendarSyncWithIds.events.length} event(s), including ${calendarSyncWithIds.events.filter((event) => event.type === 'absence').length} absence event(s).`;
     emailForm.querySelectorAll('[data-daily-record]').forEach((input) => input.remove());
+    setFileInputFiles(field('recordJson'), [recordFile]);
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
+    setFileInputFiles(field('calendarSyncJson'), [calendarSyncFile]);
     await submitMultipartForm(emailForm);
     if (portalApiEnabled() && protectedRecord) {
       protectedRecord = { ...protectedRecord, status: 'Submitted', updatedAt: new Date().toISOString(), issue: '' };
@@ -1262,7 +1305,7 @@ async function submitTimesheet(event) {
     }
     emailForm.remove();
     showSuccess(portalApiEnabled()
-      ? 'Timesheet submitted successfully. Your record and XLSX/CSV attachments were saved for Accounts.'
+      ? 'Timesheet submitted successfully. Your daily record, calendar sync and XLSX/CSV attachments were saved for Accounts.'
       : 'Timesheet submitted successfully. Your XLSX and CSV attachments were sent to Accounts.');
   } catch (error) {
     if (portalApiEnabled() && protectedRecord) {
@@ -1413,13 +1456,17 @@ if (!loadSubmittedDraft() && !loadSavedDraft()) {
   renderAbsenceRanges();
   // Start with the current Monday-to-Sunday period so employees do not need
   // to choose a week before they can record a day.
+  applyRequestedDayPeriod();
   generateDaysFromRange();
+  window.setTimeout(focusRequestedDay, 0);
 }
 
 // A protected record can be edited from a different browser. The local copy
 // above remains the fast path; this route fills the form when only the durable
 // portal record is available.
 loadProtectedSubmittedDraft();
+
+if (requestedDay) window.setTimeout(focusRequestedDay, 100);
 
 window.addEventListener('pageshow', () => {
   window.setTimeout(() => {

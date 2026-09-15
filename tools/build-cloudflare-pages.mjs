@@ -77,6 +77,7 @@ copy('portal/timesheets.js', 'timesheets.js');
 copy('portal/history-frame.js', 'history-frame.js');
 copy('portal/calendar-preview.js', 'calendar-preview.js');
 copy('portal/calendar-data.js', 'calendar-data.js');
+copy('portal/calendar-actions.js', 'calendar-actions.js');
 copy('portal/auth.js', 'auth.js');
 
 // Feature pages live one directory below the flat root. Their auth script is

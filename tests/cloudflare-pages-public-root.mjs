@@ -25,6 +25,9 @@ try {
 
   assert.match(portalRoot, /<title>GMT Dashboard/);
   assert.match(portalRoot, /auth\.js\?v=/);
+  assert.ok(fs.existsSync(path.join(output, 'calendar-actions.js')));
+  const flatTimesheets = fs.readFileSync(path.join(output, 'timesheets.html'), 'utf8');
+  assert.match(flatTimesheets, /calendar-actions\.js\?v=calendar-day-actions-/);
   assert.ok(fs.existsSync(path.join(output, 'public-site.js')));
   assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));
 } finally {

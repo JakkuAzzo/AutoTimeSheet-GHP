@@ -1,7 +1,7 @@
 # GMT Operational Build Status
 
-Updated 19 July 2026. This records what has been created, what is deliberately
-not enabled, and the exact next implementation work.
+Updated 15 September 2026. This records the live intake reconciliation and the
+remaining source-data boundary.
 
 ## Completed in the GMT tenant
 
@@ -11,7 +11,7 @@ not enabled, and the exact next implementation work.
 | `GMT Operational Calendar` | Created in Amanda Brown-Bennett's mailbox and shared read-only with staff |
 | SharePoint roots | `Timesheets`, `Audit`, `Job Cards`, `Tasks` created in `GMT Web-App` |
 | Microsoft Lists | Timesheet Submissions, Audit Submissions, Job Cards, Tasks created |
-| Timesheet Intake flow | Active; shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments, creates the existing index row, and stores only non-inline `.xlsx`, `.csv`, and controlled `GMT Calendar Sync - *.json` attachments in `GMT Web-App/Timesheets/Incoming`. A replay succeeded after the filter change. |
+| Timesheet Intake flow | Active; the shared-mailbox trigger uses `[GMT][TIMESHEET]`, requires attachments, creates the index row, stores non-inline XLSX, CSV, `GMT Timesheet Record - *.json` and `GMT Calendar Sync - *.json` files in `GMT Web-App/Timesheets/Incoming`, and sends only the controlled record JSON to the Excel Online upsert branch. A controlled replay succeeded on 15 September 2026 after the final filter was saved. |
 | Timesheet calendar sync | `GMT Portal - Timesheet Calendar Sync` is active and targets Amanda Brown-Bennett's `GMT Operational Calendar`. It processes only JSON files in `Timesheets/Incoming`, creates an all-day event on the first sync key, and updates the stored Outlook event on subsequent files with the same key. |
 | Timesheet business-mail copy | Paused. `accounts@gmt-services.co.uk` is not currently a mail-enabled Exchange recipient. Keep the approved legacy Timesheet FormSubmit route active until the Microsoft 365 mail cutover and shared mailbox are complete. |
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
@@ -22,10 +22,11 @@ not enabled, and the exact next implementation work.
 1. Job Card and Task calendar flows. The existing proof schema does not yet
    carry planned/due dates, job/client details, Outlook event IDs or sync
    errors. Enabling a create-only flow now would make duplicates on updates.
-2. Metadata-based Timesheet filing. The live filter accepts the controlled
-   calendar JSON and synchronises it to the shared calendar, while submitted
-   files remain in the safe `Timesheets/Incoming` landing folder until
-   structured employee, year and month metadata is parsed and validated.
+2. Legacy source-row repair. New portal submissions carry structured daily
+   record JSON and are parsed by the upsert branch. Older Microsoft 365 list
+   rows that contain only a weekly header remain visible and are explicitly
+   marked as missing daily detail; the portal does not invent clock, break or
+   hour values for those rows.
 3. Outlook routing rules. The folder/rule contract is approved, but rules must
    be created and tested against a benign submission without moving existing
    Accounts mail. This prevents the current Accounts inbox from being hidden
@@ -51,15 +52,30 @@ configuration; no Microsoft credential or endpoint belongs in GitHub Pages.
    `Amanda.BB@gmt-services.co.uk` / `GMT Operational Calendar`.
 4. Save the flows disabled, add two GMT co-owners, and run the non-sensitive
    lifecycle tests from the contract.
-5. Parse and validate structured Timesheet metadata, then create and use the
-   employee/year/month hierarchy for accepted files rather than the `Incoming`
-   landing folder.
+5. Reconcile legacy rows by supplying their original structured record JSON (or
+   an equivalent source-preserving daily export), then run the same idempotent
+   upsert. Do not manufacture payroll values from a header-only email.
 6. Create the folders and narrowly scoped subject rules, then test one benign
    submission in each category.
 7. Extend the active Timesheet Calendar Sync flow only after the portal emits
    the approved production envelope. It must continue to use `submissionId`
    and `syncEventId` to avoid duplicates and target only Amanda's
    `GMT Operational Calendar`.
+
+## 15 September 2026 reconciliation
+
+The active `GMT Portal - Timesheet Intake` flow is **On**, owned by the GMT
+tenant connection, and its latest controlled resubmission completed with
+**Succeeded** status at 22:48 Europe/London. The storage filter accepts the four
+controlled attachment classes and the second filter selects only
+`GMT Timesheet Record - *.json` for the Excel Online script. The protected portal
+now reports source-row, recognised-row and matched-row counts and shows daily
+clock, finish, break and worked-hour values whenever that source payload exists.
+
+The remaining “daily detail unavailable” flags are source gaps in older
+Microsoft 365 rows, not a calendar rendering shortcut. They stay addressable in
+history and are deliberately excluded from fabricated completion totals until
+the original daily attachment data is reintroduced.
 
 ## Controlled calendar-sync validation
 

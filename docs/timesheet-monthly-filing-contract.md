@@ -4,13 +4,13 @@
 
 Signed-in corrections retain the original `gmt_record_id` and are saved in the
 protected Worker before filing. New submissions and corrections send the
-generated XLSX and CSV pair plus the machine-readable `gmt_daily_rows` and
-`gmt_calendar_sync_payload` fields. The Worker stores the queued payload in D1,
-then sends the latest correction through the existing FormSubmit route during
-the configured weekly Europe/London window. Legacy record/calendar JSON files
-may still be present on older messages, but they are optional and must not be
-created for ordinary submissions. A retry replaces the queued files for that
-record ID and never creates a second dispatch row.
+generated XLSX and CSV pair plus controlled `GMT Timesheet Record - *.json` and
+`GMT Calendar Sync - *.json` attachments. They also carry the bounded
+machine-readable `gmt_daily_rows` and `gmt_calendar_sync_payload` fields. The
+Worker stores the queued payload in D1, then sends the latest correction through
+the existing FormSubmit route during the configured weekly Europe/London window.
+A retry replaces the queued files for that record ID and never creates a second
+dispatch row.
 
 The Worker reports `Queued for Accounts`, `Sent to Accounts`, or `Delivery
 failed`. `Sent to Accounts` confirms FormSubmit acceptance only; the mailbox
@@ -56,17 +56,18 @@ The flow must:
    messages. The current legacy personal Outlook destination does not reach the
    GMT shared-mailbox flow.
 2. Validate `gmt_type=timesheet` or `timesheet_clock`,
-   `gmt_filing_mode=monthly-upsert`, the employee/month fields, the XLSX/CSV
-   attachment pair and (for weekly submissions) the `gmt_daily_rows` and
-   `gmt_calendar_sync_payload` fields.
+   `gmt_filing_mode=monthly-upsert`, the employee/month fields, the XLSX/CSV pair,
+   controlled record JSON and calendar-sync JSON attachments, and (for weekly
+   submissions) the `gmt_daily_rows` and `gmt_calendar_sync_payload` fields.
 3. Look up `gmt_record_id` in the `Timesheet Submissions` List or an equivalent
    protected index. On an existing ID, replace the matching files/list metadata
    and update the matching workbook row; never append a second row.
 4. Create the employee/month folder and copy the approved GMT monthly workbook
    template if the `gmt_workbook_key` does not exist.
-5. Store the raw XLSX and CSV under `Raw Events/{gmt_record_id}/` for audit,
-   not as the primary employee-facing workbook. Ignore empty helper files and
-   unexpected inline assets; record the ignored names in the audit note.
+5. Store the controlled record JSON, raw XLSX and CSV, and calendar-sync JSON
+   under `Raw Events/{gmt_record_id}/` for audit, not as the primary
+   employee-facing workbook. Ignore empty helper files and unexpected inline
+   assets; record the ignored names in the audit note.
 6. Run `office-scripts/upsert-monthly-timesheet-row.ts` against the monthly
    workbook. It creates the controlled Excel table on first use and upserts by
    `Source record ID`.

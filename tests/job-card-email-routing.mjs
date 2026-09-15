@@ -32,7 +32,11 @@ const server = createServer((req, res) => {
 
   if (rawPath === '/config.js') {
     res.writeHead(200, { 'content-type': 'text/javascript' });
-    res.end(readFileSync(filePath, 'utf8').replace(/(entraSpaAuth:\s*\{\s*enabled:\s*)true/, '$1false'));
+    const config = readFileSync(filePath, 'utf8')
+      .replace(/(entraSpaAuth:\s*\{\s*enabled:\s*)true/, '$1false')
+      .replace(/(portalApiEndpoint:\s*)["'][^"']*["']/, '$1""')
+      .replace(/(portalHistoryEndpoint:\s*)["'][^"']*["']/, '$1""');
+    res.end(config);
     return;
   }
 

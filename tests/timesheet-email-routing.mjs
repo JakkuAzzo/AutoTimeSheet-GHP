@@ -80,7 +80,12 @@ try {
       const filesByName = {};
       for (const [name, value] of options.body.entries()) {
         if (value instanceof File) {
-          (filesByName[name] ||= []).push({ name: value.name, type: value.type, size: value.size });
+          (filesByName[name] ||= []).push({
+            name: value.name,
+            type: value.type,
+            size: value.size,
+            content: value.type === 'application/json' ? await value.text() : ''
+          });
         } else {
           fields[name] = value;
         }
@@ -142,11 +147,22 @@ try {
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'routing.tester@example.com');
   assert.equal(result.replyTo, 'routing.tester@example.com');
-  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment', 'attachment_csv']);
-  assert.ok(result.files[0].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
-  assert.ok(result.files[0].files[0].size > 1000);
-  assert.ok(result.files[1].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.csv'));
-  assert.ok(result.files[1].files[0].size > 100);
+  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
+  assert.ok(result.files[0].files[0].name.includes('GMT Timesheet Record - Routing Tester - 2026-06-22.json'));
+  assert.ok(result.files[0].files[0].size > 100);
+  const recordEnvelope = JSON.parse(result.files[0].files[0].content);
+  assert.equal(recordEnvelope.recordId, 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22|2026-06-22');
+  assert.equal(recordEnvelope.date, '2026-06-22');
+  assert.equal(recordEnvelope.startTime, '08:00');
+  assert.equal(recordEnvelope.finishTime, '16:00');
+  assert.ok(result.files[1].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
+  assert.ok(result.files[1].files[0].size > 1000);
+  assert.ok(result.files[2].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.csv'));
+  assert.ok(result.files[2].files[0].size > 100);
+  assert.ok(result.files[3].files[0].name.includes('GMT Calendar Sync - Routing Tester - 2026-06-22.json'));
+  assert.ok(result.files[3].files[0].size > 100);
+  const calendarEnvelope = JSON.parse(result.files[3].files[0].content);
+  assert.equal(calendarEnvelope.events[0].startDate, '2026-06-22');
   assert.equal(result.fields.gmt_type, 'timesheet');
   assert.equal(result.fields.gmt_action, 'submission');
   assert.equal(result.fields.gmt_schema_version, '1');
@@ -168,7 +184,7 @@ try {
   assert.equal(result.fields.gmt_calendar_sync, 'requested');
   assert.equal(result.fields.gmt_calendar_name, 'GMT Operational Calendar');
   assert.equal(result.fields.gmt_calendar_event_count, '1');
-  assert.equal(result.fields.gmt_attachment_manifest, 'xlsx,csv');
+  assert.equal(result.fields.gmt_attachment_manifest, 'record-json,xlsx,csv,calendar-sync-json');
   const dailyRows = JSON.parse(result.fields.gmt_daily_rows);
   assert.equal(dailyRows.length, 1);
   assert.deepEqual(dailyRows[0], {

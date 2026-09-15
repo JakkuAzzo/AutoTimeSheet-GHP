@@ -36,7 +36,7 @@
       "gmt_attachment_manifest"
     ],
     "monthFormat": "MM",
-    "acceptedAttachments": [".xlsx", ".csv"],
+    "acceptedAttachments": [".xlsx", ".csv", "GMT Timesheet Record - *.json", "GMT Calendar Sync - *.json"],
     "rejectedAttachmentPolicy": "quarantine"
   },
   "testIsolation": {
@@ -63,7 +63,7 @@
     "validate-envelope-and-attachments",
     "get-or-create-monthly-folder",
     "get-or-create-workbook-from-approved-template",
-    "save-raw-xlsx-and-csv-if-absent",
+    "save-controlled-record-json-xlsx-csv-and-calendar-sync-if-absent",
     "run-office-script-upsert-monthly-timesheet-row",
     "create-or-update-timesheet-submissions-list-item",
     "move-email-to-Processed-after-success"

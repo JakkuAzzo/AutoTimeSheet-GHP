@@ -32,9 +32,10 @@
     "acceptedAttachments": [
       ".xlsx",
       ".csv",
+      "GMT Timesheet Record - *.json",
       "GMT Calendar Sync - *.json"
     ],
-    "attachmentRule": "Reject inline attachments and all JSON files other than the controlled calendar-sync filename.",
+    "attachmentRule": "Accept only non-inline XLSX, CSV, GMT Timesheet Record JSON and GMT Calendar Sync JSON files. Filter array stores the four controlled file classes; Filter array 2 selects the record JSON for the Excel upsert. Reject every other JSON or inline attachment.",
     "filingMode": "monthly-upsert",
     "dedupeKey": "gmt_record_id",
     "workbookKey": "gmt_workbook_key"

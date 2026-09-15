@@ -85,14 +85,13 @@ Use an all-day event on the due date. A completed/cancelled task should follow t
 
 ## Flow C: Timesheet attachment storage extension
 
-The first storage implementation is complete: `GMT Portal - Timesheet Intake`
-uses an attachment loop and SharePoint `Create file` to store attachments in
-`GMT Web-App/Timesheets/Incoming`. A replayed harmless three-attachment sample
-completed successfully after filtering: the loop received `2` items, the XLSX
-and CSV, while `image.png` was excluded. Update the filter before enabling
-calendar synchronisation to additionally accept only a non-inline file named
-`GMT Calendar Sync - *.json`; never accept arbitrary JSON attachments. Keep
-this landing folder until the source email has validated structured metadata.
+The storage implementation is complete: `GMT Portal - Timesheet Intake` uses
+an attachment loop and SharePoint `Create file` to store the four controlled
+attachment classes in `GMT Web-App/Timesheets/Incoming`: XLSX, CSV,
+`GMT Timesheet Record - *.json`, and `GMT Calendar Sync - *.json`. Inline files
+and every other JSON filename are rejected. The structured record JSON is then
+selected by `Filter array 2` and passed to the Excel Online `Run script` action;
+the XLSX/CSV and calendar payload remain available as audit evidence.
 
 Use this **Filter array** advanced-mode expression against the trigger's
 attachments before the existing `Apply to each` action:
@@ -106,24 +105,34 @@ attachments before the existing `Apply to each` action:
     and(
       startsWith(toLower(item()?['name']), 'gmt calendar sync - '),
       endsWith(toLower(item()?['name']), '.json')
+    ),
+    and(
+      startsWith(toLower(item()?['name']), 'gmt timesheet record - '),
+      endsWith(toLower(item()?['name']), '.json')
     )
   )
 )
 ```
 
-**Completed 19 July 2026:** the live `GMT Portal - Timesheet Intake` filter
-now accepts the controlled calendar-sync JSON attachment in addition to XLSX
-and CSV. The saved query is:
+**Completed 15 September 2026:** the live `GMT Portal - Timesheet Intake`
+storage filter accepts all four controlled attachments. The saved query is:
 
 ```text
-@and(equals(item()?['isInline'], false),or(endsWith(toLower(item()?['name']), '.xlsx'),endsWith(toLower(item()?['name']), '.csv'),and(startsWith(toLower(item()?['name']), 'gmt calendar sync - '),endsWith(toLower(item()?['name']), '.json'))))
+@and(equals(item()?['isInline'], false),or(endsWith(toLower(item()?['name']), '.xlsx'),endsWith(toLower(item()?['name']), '.csv'),and(startsWith(toLower(item()?['name']), 'gmt calendar sync - '),endsWith(toLower(item()?['name']), '.json')),and(startsWith(toLower(item()?['name']), 'gmt timesheet record - '),endsWith(toLower(item()?['name']), '.json'))))
 ```
 
-An automated replay of a prior Timesheet submission succeeded through the
-Outlook trigger, SharePoint list item, filter, and attachment loop. A separate
-benign email containing XLSX, CSV, the controlled JSON, and an unrelated image
-is still required to prove that the loop receives exactly three permitted files
-and excludes the image.
+The live `Filter array 2` query is:
+
+```text
+@and(equals(item()?['isInline'], false),and(startsWith(toLower(item()?['name']), 'gmt timesheet record - '),endsWith(toLower(item()?['name']), '.json')))
+```
+
+It feeds `Apply to each 2` and the Excel Online `Run script` action, whose
+`recordJson` parameter is decoded from the selected attachment. A controlled
+replay of the saved flow completed with status **Succeeded** on 15 September
+2026 at 22:48 Europe/London after these filters were saved. This proves the
+post-correction trigger, SharePoint index, attachment filtering and structured
+upsert path at flow-run level.
 
 1. Retain the existing Accounts trigger, structured subject filter and attachment requirement.
 2. Parse the approved metadata fields from the email body.
@@ -169,7 +178,10 @@ Do not make a rule that hides failed or malformed submissions.
 1. Create a sample Job Card with a planned date. Confirm one all-day event, one stored event ID and no duplicate after a subsequent update.
 2. Create a sample Task with a due date. Confirm the equivalent lifecycle.
 3. Cancel each sample source and confirm the agreed event outcome.
-4. Submit a sample Timesheet email with harmless XLSX/CSV test files. Confirm folder creation, attachment storage, list metadata and retry handling.
+4. Submit a sample Timesheet email with harmless XLSX, CSV, record JSON and
+   calendar JSON files. Confirm folder creation, attachment storage, list
+   metadata, Excel upsert and retry handling; confirm unrelated inline files
+   are excluded.
 5. Verify the public app, FormSubmit routes and existing Timesheet Intake flow remain unchanged.
 
 ## Manual release gates

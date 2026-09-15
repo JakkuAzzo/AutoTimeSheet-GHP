@@ -51,6 +51,78 @@
       return actual !== "" && actual !== null && actual !== undefined;
     });
   }
+
+  function dateOnly(value) {
+    var match = text(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return null;
+    var date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function datePlusDays(value, offset) {
+    var date = dateOnly(value);
+    if (!date) return "";
+    date.setUTCDate(date.getUTCDate() + Number(offset || 0));
+    return key(date);
+  }
+
+  function rowDateValue(row) {
+    return key(objectValue(row, ["date", "record_date", "recordDate", "Date", "workDate"]));
+  }
+
+  function rowDayIndex(row, fallbackIndex) {
+    var value = objectValue(row, ["dayIndex", "day_number", "dayNumber", "entryIndex", "entry_number", "day", "label", "dayLabel", "day_label", "entry", "entryLabel"]);
+    if (typeof value === "number" && Number.isInteger(value)) {
+      if (value >= 1 && value <= 7) return value - 1;
+      if (value >= 0 && value <= 6) return value;
+    }
+    var match = text(value).match(/\b(?:day|entry)\s*#?\s*(\d+)\b/i);
+    if (match) {
+      var index = Number(match[1]) - 1;
+      if (Number.isInteger(index) && index >= 0 && index <= 6) return index;
+    }
+    return fallbackIndex;
+  }
+
+  function alignDailyRows(rows, record) {
+    var sourceRows = Array.isArray(rows) ? rows : [];
+    var start = key(record && (record.start_date || record.startDate || record.week_start || record.weekStart));
+    var end = key(record && (record.end_date || record.endDate || record.week_end || record.weekEnd));
+    if (!end && start) end = datePlusDays(start, 6);
+    if (!sourceRows.length || !dateOnly(start) || !dateOnly(end)) return sourceRows;
+    var indexes = sourceRows.map(function (row, index) { return rowDayIndex(row, index); });
+    var expected = indexes.map(function (index) { return datePlusDays(start, index); });
+    if (expected.some(function (date) { return !date || date > end; })) return sourceRows;
+    var original = sourceRows.map(rowDateValue);
+    var labelsSequential = sourceRows.length > 1 && indexes.every(function (index, position) { return index === position; }) && new Set(indexes).size === indexes.length;
+    var weekdayNames = sourceRows.map(function (row) { return text(objectValue(row, ["weekday", "Weekday", "dayName", "day_name"])).toLowerCase(); });
+    var weekdayValuesPresent = weekdayNames.some(Boolean);
+    var weekdayNamesMatch = weekdayNames.every(function (value, index) {
+      if (!value) return true;
+      var date = dateOnly(expected[index]);
+      if (!date) return false;
+      var weekday = new Intl.DateTimeFormat("en-GB", { weekday: "long", timeZone: "UTC" }).format(date).toLowerCase();
+      return value === weekday;
+    });
+    var allOriginalDates = original.every(Boolean);
+    var allInsideWeek = allOriginalDates && original.every(function (date) { return date >= start && date <= end; });
+    var shouldAlign = labelsSequential && weekdayNamesMatch && original.some(function (date, index) { return date !== expected[index]; });
+    if (!shouldAlign && allOriginalDates && !allInsideWeek) {
+      var firstOriginal = dateOnly(original[0]);
+      var firstExpected = dateOnly(expected[0]);
+      var shift = firstOriginal && firstExpected ? Math.round((firstExpected.getTime() - firstOriginal.getTime()) / 86400000) : null;
+      var shifted = Number.isFinite(shift) && original.every(function (date, index) { return datePlusDays(date, shift) === expected[index]; });
+      shouldAlign = (shifted && weekdayNamesMatch) || (!weekdayValuesPresent && sourceRows.length <= 7);
+    }
+    if (!shouldAlign) return sourceRows;
+    return sourceRows.map(function (row, index) {
+      var sourceDate = original[index];
+      if (sourceDate === expected[index]) return row;
+      var aligned = Object.assign({}, row, { date: expected[index] });
+      if (sourceDate) aligned.sourceDate = sourceDate;
+      return aligned;
+    });
+  }
   function collectRows(value, depth, seen) {
     if (depth > 8) return [];
     var candidate = parsed(value);
@@ -89,9 +161,9 @@
   function rowsFor(record) {
     var payload = parsed(record && record.payload) || parsed(record && record.payload_json) || {};
     var payloadRows = collectRows(payload, 0, []);
-    if (payloadRows.length) return payloadRows;
+    if (payloadRows.length) return alignDailyRows(payloadRows, record);
     var recordRows = collectRows(record && (record.rows || record.daily_rows || record.dailyRows || record.records || record.values || record.data), 0, []);
-    if (recordRows.length) return recordRows;
+    if (recordRows.length) return alignDailyRows(recordRows, record);
     // A weekly header normally has `record_date` but no daily fields. Keep the
     // source record addressable for history and detail views, but do not place
     // a synthetic marker on the shared calendar. Only promote a direct object
@@ -100,7 +172,7 @@
     var directDate = objectValue(record, ["date", "record_date", "recordDate", "workDate", "day"]);
     var directTime = objectValue(record, ["start", "startTime", "start_time", "clockIn", "clock_in", "finish", "finishTime", "finish_time", "clockOut", "clock_out"]);
     var directDailyValue = objectValue(record, ["workedMinutes", "worked_minutes", "workedHours", "worked_hours", "hours", "totalHours", "basicHours", "basic_hours", "lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"]);
-    return directDate && (directTime || directDailyValue) ? [record] : [];
+    return directDate && (directTime || directDailyValue) ? alignDailyRows([record], record) : [];
   }
   function number(value) {
     if (value === null || value === undefined || value === "") return null;
@@ -181,7 +253,8 @@
   }
   function recordId(record) { return text(record && (record.source_record_id || record.record_id || record.id)); }
   function rowEvent(record, row, index, options) {
-    var date = key(objectValue(row, ["date", "record_date", "recordDate", "workDate", "day"]) || record && (record.record_date || record.start_date));
+    var aligned = alignDailyRows([row], record)[0] || row;
+    var date = rowDateValue(aligned) || key(record && (record.record_date || record.start_date));
     if (!date) return null;
     var start = text(objectValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in", "dayStart", "day_start", "Start"]));
     var finish = text(objectValue(row, ["finish", "finishTime", "finish_time", "clockOut", "clock_out", "dayFinish", "day_finish", "Finish"]));

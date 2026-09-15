@@ -23,6 +23,11 @@
   }
   function eventDate(event) { return dateKey(event && (event.date || event.startDate || event.event_date || event.record_date)); }
   function eventType(event) { return String(event && event.type || "general").toLowerCase().replace(/[^a-z]+/g, "-"); }
+  function isCurrentPayMonth(key) {
+    return typeof window.GMTCalendarActions?.currentPayMonth === "function"
+      ? String(key).slice(0, 7) === window.GMTCalendarActions.currentPayMonth()
+      : String(key).slice(0, 7) === new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit" }).formatToParts(new Date()).reduce(function (value, part) { return value + (part.type === "year" || part.type === "month" ? part.value + (part.type === "year" ? "-" : "") : ""); }, "");
+  }
   function choose(event) {
     if (!event || !event.recordId) return;
     document.dispatchEvent(new CustomEvent("gmt:calendar-select", { detail: { recordId: event.recordId, date: event.date } }));
@@ -58,7 +63,10 @@
         return '<span class="calendar-event calendar-event-' + safe(eventType(event)) + '" aria-label="' + safe(label) + '">' + content + "</span>";
       }).join("");
       if (dayEvents.length > 4) labels += '<span class="calendar-more">+' + (dayEvents.length - 4) + " more</span>";
-      html += '<span class="portal-calendar-day' + (key === today ? " is-today" : "") + '"><time datetime="' + key + '">' + day + "</time>" + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";
+      var dateMarkup = isCurrentPayMonth(key)
+        ? '<button type="button" class="portal-calendar-day-date" data-calendar-day="' + key + '" aria-label="Actions for ' + key + '">' + day + '</button>'
+        : '<time datetime="' + key + '">' + day + '</time>';
+      html += '<span class="portal-calendar-day' + (key === today ? " is-today" : "") + '">' + dateMarkup + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";
     }
     root.innerHTML = html + "</div>";
     root.querySelectorAll("[data-calendar-record-id]").forEach(function (button) {

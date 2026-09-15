@@ -76,6 +76,16 @@
     });
   }
 
+  function prefillTaskDate() {
+    const input = $('#task-due');
+    if (!input || input.value) return;
+    const value = new URLSearchParams(window.location.search || '').get('date') || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+    const parsed = new Date(`${value}T00:00:00Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return;
+    input.value = value;
+  }
+
   function logNotification(type, message) {
     const log = store.get(keys.log, []);
     log.unshift({ id: id(), type, message, at: new Date().toISOString() });
@@ -886,6 +896,7 @@
   }
 
   function bindTasks() {
+    prefillTaskDate();
     $('#task-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const tasks = store.get(keys.tasks, []);
