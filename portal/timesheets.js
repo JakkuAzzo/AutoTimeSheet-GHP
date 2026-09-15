@@ -1160,7 +1160,9 @@
   async function loadDirect() {
     if (requestInFlight) return;
     var endpoint = String(config.portalHistoryEndpoint || config.portalApiEndpoint || config.timesheetHistoryEndpoint || '').trim();
-    if (!endpoint) {
+    var portalApi = window.GMTPortalApi;
+    var usePortalApi = portalApi && typeof portalApi.history === 'function' && (!portalApi.enabled || portalApi.enabled());
+    if (!endpoint && !usePortalApi) {
       showSetupState();
       return;
     }
@@ -1168,26 +1170,34 @@
     setBusy(true);
     if (status) status.textContent = 'Loading your completed timesheets…';
     try {
-      var headers = { Accept: 'application/json' };
-      var scopes = normaliseScopes(config.portalHistoryScopes || config.portalApiScopes || config.timesheetHistoryScopes);
-      var auth = window.GMT_PORTAL_AUTH || {};
-      if (scopes.length) {
-        if (typeof auth.acquireToken !== 'function' && window.GMT_PORTAL_AUTH_READY) auth = await window.GMT_PORTAL_AUTH_READY;
-        if (!auth || typeof auth.acquireToken !== 'function') throw new Error('Sign-in context unavailable');
-        var token = await auth.acquireToken(scopes);
-        if (!token) throw new Error('History access token unavailable');
-        headers.Authorization = 'Bearer ' + token;
+      var body;
+      if (usePortalApi) {
+        // The protected Worker is the canonical history route. Keeping this
+        // call behind the shared API client ensures the /api/history path and
+        // both portal and optional upstream tokens are applied consistently.
+        body = await portalApi.history('timesheets');
+      } else {
+        var headers = { Accept: 'application/json' };
+        var scopes = normaliseScopes(config.portalHistoryScopes || config.portalApiScopes || config.timesheetHistoryScopes);
+        var auth = window.GMT_PORTAL_AUTH || {};
+        if (scopes.length) {
+          if (typeof auth.acquireToken !== 'function' && window.GMT_PORTAL_AUTH_READY) auth = await window.GMT_PORTAL_AUTH_READY;
+          if (!auth || typeof auth.acquireToken !== 'function') throw new Error('Sign-in context unavailable');
+          var token = await auth.acquireToken(scopes);
+          if (!token) throw new Error('History access token unavailable');
+          headers.Authorization = 'Bearer ' + token;
+        }
+        var upstreamScopes = normaliseScopes(config.timesheetHistoryScopes);
+        if (upstreamScopes.length && auth && typeof auth.acquireToken === 'function') {
+          var upstreamToken = await auth.acquireToken(upstreamScopes, { optional: true });
+          if (upstreamToken) headers['X-GMT-Upstream-Authorization'] = 'Bearer ' + upstreamToken;
+        }
+        var response = await fetch(endpoint, { credentials: 'include', cache: 'no-store', headers: headers });
+        if (response.status === 401) throw new Error('Your GMT sign-in has expired');
+        if (response.status === 403) throw new Error('Your GMT account is not authorised to view these records');
+        if (!response.ok) throw new Error('History request failed');
+        body = await response.json();
       }
-      var upstreamScopes = normaliseScopes(config.timesheetHistoryScopes);
-      if (upstreamScopes.length && auth && typeof auth.acquireToken === 'function') {
-        var upstreamToken = await auth.acquireToken(upstreamScopes, { optional: true });
-        if (upstreamToken) headers['X-GMT-Upstream-Authorization'] = 'Bearer ' + upstreamToken;
-      }
-      var response = await fetch(endpoint, { credentials: 'include', cache: 'no-store', headers: headers });
-      if (response.status === 401) throw new Error('Your GMT sign-in has expired');
-      if (response.status === 403) throw new Error('Your GMT account is not authorised to view these records');
-      if (!response.ok) throw new Error('History request failed');
-      var body = await response.json();
       var records = body && Array.isArray(body.records) ? body.records : null;
       if (!records) throw new Error('History response was not valid');
       lastRecords = records;
