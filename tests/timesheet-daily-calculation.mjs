@@ -90,6 +90,10 @@ try {
   assert.equal(periodUi.legacyPointerEvents, 'none');
   assert.equal(periodUi.absencePlannerOpen, false);
 
+  await page.evaluate(() => localStorage.setItem('gmt_guest_timesheet_manual_draft_v1', JSON.stringify({ rows: [] })));
+  await page.locator('#clear-draft-btn').click();
+  assert.equal(await page.evaluate(() => localStorage.getItem('gmt_guest_timesheet_manual_draft_v1')), null);
+
   const initialDefaults = await page.evaluate(() => ({
     start: document.querySelector('[data-field="start"]')?.value,
     finish: document.querySelector('[data-field="finish"]')?.value

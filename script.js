@@ -1326,7 +1326,11 @@ function loadSavedDraft() {
 }
 
 function clearDraft() {
+  // Remove both the profile-scoped draft and the pre-profile legacy key. The
+  // latter is still present on devices that saved a draft before sign-in and
+  // would otherwise be restored again on the next load.
   localStorage.removeItem(draftStorageKey());
+  localStorage.removeItem(legacyDraftStorageKey());
   showSuccess('Saved draft cleared on this device.');
 }
 
