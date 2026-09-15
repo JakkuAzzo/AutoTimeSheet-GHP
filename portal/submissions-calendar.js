@@ -47,8 +47,9 @@
       var key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
       var dayEvents = byDay[key] || [];
       var labels = dayEvents.slice(0, 4).map(function (event) {
-        var label = (event.title || event.type || "Event") + (event.detail ? " · " + event.detail : "");
-        var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (event.detail ? "<small>" + safe(event.detail) + "</small>" : "");
+        var issueLabel = event.issue ? " · review" : "";
+        var label = (event.title || event.type || "Event") + (event.detail ? " · " + event.detail : "") + issueLabel;
+        var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (event.detail ? "<small>" + safe(event.detail + issueLabel) + "</small>" : "");
         if (event.recordId) return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(event.recordId) + '" data-calendar-date="' + safe(event.date) + '" title="' + safe(label) + '">' + content + "</button>";
         return '<span class="calendar-event calendar-event-' + safe(eventType(event)) + '" title="' + safe(label) + '">' + content + "</span>";
       }).join("");

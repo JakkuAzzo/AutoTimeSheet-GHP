@@ -828,9 +828,9 @@
         var dailyDetail = daily
           ? (daily.absenceIsNone ? (daily.workedMinutes === null ? 'Clock issue' : formatMinutes(daily.workedMinutes)) : daily.absenceStatus) + (dailyInterval ? ' · ' + dailyInterval : '')
           : actionLabel(record);
-        var issueLabel = daily && daily.issues.length ? ' · Review' : '';
+        var issueLabel = daily && daily.issues.length ? ' · Review' : (!daily && record.issue ? ' · Review' : '');
         var description = employee + ' · ' + (daily ? key + ' · ' + dailyDetail : actionLabel(record)) + countLabel + issueLabel + ' · ' + periodLabel(record);
-        return '<button type="button" class="timesheet-calendar-label submitted' + (daily && daily.issues.length ? ' has-timesheet-issue' : '') + '" data-history-index="' + entry.index + '" aria-current="' + String(entry.index === selectedHistory) + '" aria-label="' + safe(description) + '" title="' + safe(description) + '"><strong>' + safe(employee) + '</strong><small>' + safe(daily ? dailyDetail + (entry.count > 1 ? ' ×' + entry.count : '') : actionLabel(record) + (entry.count > 1 ? ' ×' + entry.count : '')) + '</small></button>';
+        return '<button type="button" class="timesheet-calendar-label submitted' + ((daily && daily.issues.length) || (!daily && record.issue) ? ' has-timesheet-issue' : '') + '" data-history-index="' + entry.index + '" aria-current="' + String(entry.index === selectedHistory) + '" aria-label="' + safe(description) + '" title="' + safe(description) + '"><strong>' + safe(employee) + '</strong><small>' + safe(daily ? dailyDetail + (entry.count > 1 ? ' ×' + entry.count : '') : actionLabel(record) + (entry.count > 1 ? ' ×' + entry.count : '') + issueLabel) + '</small></button>';
       }).join('');
       labels += (missing[key] || []).map(function (entry) {
         return '<span class="timesheet-calendar-label missing" title="' + safe(entry.detail || entry.label) + '">' + safe(entry.label) + '</span>';

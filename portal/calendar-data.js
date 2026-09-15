@@ -175,7 +175,14 @@
   function dateFallback(record) {
     var start = key(record && (record.record_date || record.start_date || record.event_date || record.planned_date || record.due_date));
     if (!start) return [];
-    return [{ id: recordId(record) + "|" + start, recordId: recordId(record), date: start, title: employee(record), type: kind(record), owner: employee(record), status: text(record && record.status) || "Submitted", detail: text(record && (record.event_title || record.title || record.job_ref || record.estimate_number || record.action || "Record")), issue: "", record: record, row: null, scheduled: true }];
+    var recordKind = kind(record);
+    var issue = text(record && record.issue);
+    var detail = text(record && (record.event_title || record.title || record.job_ref || record.estimate_number || record.action || "Record"));
+    if (recordKind === "timesheets" && (record && (record.daily_detail_issue || record.issue))) {
+      issue = issue || "Daily rows unavailable";
+      detail = detail || "Submission";
+    }
+    return [{ id: recordId(record) + "|" + start, recordId: recordId(record), date: start, title: employee(record), type: recordKind, owner: employee(record), status: text(record && record.status) || "Submitted", detail: detail, issue: issue, record: record, row: null, scheduled: true }];
   }
   function recordsToEvents(records) {
     var events = [];

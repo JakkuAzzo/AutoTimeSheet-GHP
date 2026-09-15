@@ -1131,6 +1131,9 @@ function normaliseUpstreamRecord(row, identity, env) {
   const periodIssue = dailyWindow
     ? `Source week ${declaredStartDate || 'not dated'} to ${declaredEndDate || 'not dated'} differs from daily rows ${dailyWindow.first} to ${dailyWindow.last}; reporting uses the daily dates.`
     : '';
+  const dailyDetailIssue = kind === 'timesheets' && !rows.length
+    ? 'Daily rows were not returned by the Microsoft 365 history source; times, breaks and totals are unavailable.'
+    : '';
   if (dailyWindow) {
     startDate = dailyWindow.start;
     endDate = dailyWindow.end;
@@ -1146,7 +1149,7 @@ function normaliseUpstreamRecord(row, identity, env) {
   const issueValue = parsedIssue
     ? (typeof parsedIssue === 'object' && !Array.isArray(parsedIssue) ? upstreamObjectValue(parsedIssue, ['issue', 'Issue', 'message']) : '')
     : rawIssue;
-  const issue = [text(issueValue, '', 1000), periodIssue].filter(Boolean).join(' · ');
+  const issue = [text(issueValue, '', 1000), periodIssue, dailyDetailIssue].filter(Boolean).join(' · ');
   const mapped = {
     kind,
     employee_name: employeeName,
@@ -1176,6 +1179,7 @@ function normaliseUpstreamRecord(row, identity, env) {
     mapped.declared_end_date = declaredEndDate;
     mapped.declared_record_date = declaredRecordDate;
   }
+  if (dailyDetailIssue) mapped.daily_detail_issue = dailyDetailIssue;
   if (directoryEntry?.workdays?.length) {
     mapped.schedule_weekdays = directoryEntry.workdays;
     mapped.schedule_label = directoryEntry.workdays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7]).join(', ');
