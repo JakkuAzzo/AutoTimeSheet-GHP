@@ -5,6 +5,8 @@
   var list = document.getElementById("submissions-list");
   var preview = document.getElementById("submissions-preview");
   var filter = document.getElementById("submissions-filter");
+  var employeeFilterWrap = document.getElementById("submissions-employee-filter");
+  var employeeFilter = document.getElementById("submissions-employee");
   var refresh = document.getElementById("submissions-refresh");
   var adminTimesheetSummary = document.getElementById("submissions-admin-timesheet-summary");
   var adminTimesheetStatus = document.getElementById("submissions-admin-timesheet-status");
@@ -34,11 +36,17 @@
     if (value.indexOf("enquir") !== -1 || value.indexOf("inquir") !== -1 || value.indexOf("contact") !== -1) return "enquiries";
     if (value.indexOf("job") !== -1) return "job-cards";
     if (value.indexOf("estimate") !== -1 || value.indexOf("quote") !== -1) return "estimates";
+    if (value.indexOf("invoice") !== -1) return "invoices";
     if (value.indexOf("calendar") !== -1 || value.indexOf("event") !== -1 || value.indexOf("leave") !== -1) return "calendar";
     if (value.indexOf("task") !== -1) return "tasks";
     return "timesheets";
   }
-  function actionLabel(record) { return String(record && (record.demo_label || record.action || record.kind || "Timesheet")).replace(/[_-]/g, " ").replace(/\b\w/g, function (letter) { return letter.toUpperCase(); }); }
+  function typeLabel(record) {
+    var key = actionKey(record);
+    var labels = { timesheets: "Timesheet", clock: "Clock / breaks", enquiries: "Enquiry", "job-cards": "Job card", estimates: "Estimate", invoices: "Invoice", tasks: "Task", calendar: "Calendar request" };
+    if (labels[key]) return labels[key];
+    return String(record && (record.demo_label || record.action || record.kind || "Document")).replace(/[_-]/g, " ").replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
+  }
   function displayName(record) {
     if (record && record.is_demo) return record.demo_name || "Example record";
     if (record && actionKey(record) === "enquiries") return record.customer_name || record.employee_name || record.employee_upn || "Customer enquiry";
@@ -49,14 +57,70 @@
     if (record && (record.start_date || record.end_date)) return "Week " + (record.start_date || "not dated") + " to " + (record.end_date || "not dated");
     return "Not dated";
   }
-  function visibleRecords() { return records.filter(function (record) { return filter && filter.value !== "all" ? actionKey(record) === filter.value : true; }); }
+  function currentEmployee() { return employeeFilter && employeeFilter.value ? String(employeeFilter.value).toLowerCase() : ""; }
+  function employeeKey(record) {
+    if (!record || record.is_demo || actionKey(record) === "enquiries") return "";
+    return String(record.employee_upn || record.employee_name || "").trim().toLowerCase();
+  }
+  function compactDate(record) {
+    if (record && record.record_date) return String(record.record_date);
+    var start = String(record && (record.start_date || record.startDate) || "");
+    var end = String(record && (record.end_date || record.endDate) || "");
+    if (start && end && start !== end) return start + " – " + end;
+    return start || end || "Not dated";
+  }
+  function visibleRecords() {
+    var selectedType = filter && filter.value && filter.value !== "all" ? filter.value : "";
+    var selectedEmployee = currentEmployee();
+    return records.filter(function (record) {
+      if (selectedType && actionKey(record) !== selectedType) return false;
+      if (selectedEmployee && employeeKey(record) !== selectedEmployee) return false;
+      return true;
+    });
+  }
+  function populateEmployees(realRecords) {
+    if (!employeeFilter) return 0;
+    var selected = currentEmployee();
+    var entries = new Map();
+    function add(value, label) {
+      value = String(value || "").trim();
+      label = String(label || value || "").trim();
+      if (!value || !label) return;
+      var key = value.toLowerCase();
+      if (!entries.has(key)) entries.set(key, { value: value, label: label });
+    }
+    var completionEmployees = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
+    completionEmployees.forEach(function (employee) { add(employee.employee_upn || employee.employee_name, employee.employee_name || employee.employee_upn); });
+    (realRecords || []).forEach(function (record) {
+      if (record && !record.is_demo && actionKey(record) !== "enquiries") add(record.employee_upn || record.employee_name, record.employee_name || record.employee_upn);
+    });
+    var sorted = Array.from(entries.values()).sort(function (left, right) { return left.label.localeCompare(right.label); });
+    employeeFilter.innerHTML = '<option value="">All employees</option>' + sorted.map(function (entry) { return '<option value="' + safe(entry.value) + '">' + safe(entry.label) + '</option>'; }).join("");
+    employeeFilter.value = selected;
+    // Keep the control visible on every authorised document view. Accounts
+    // receives the full roster; other identities simply see the employees
+    // present in their authorised history (often just themselves).
+    if (employeeFilterWrap) employeeFilterWrap.hidden = false;
+    return sorted.length;
+  }
   function emptyMessage() {
     if (filter && filter.value === "all" && historyMeta.is_operations_admin && !historyMeta.is_admin) return "No non-timesheet submissions are available yet. This account can see all job cards, estimates, tasks and calendar requests; employee timesheets remain owner-filtered.";
     return "No submitted documents match this filter.";
   }
   function destination(record) {
     var key = actionKey(record);
-    return key === "job-cards" ? "../jobs/" : key === "estimates" ? "../tools/estimates.html" : key === "tasks" ? "../tasks/" : key === "calendar" ? "../calendar/" : key === "enquiries" ? "../#workshop-enquiry" : "timesheets.html";
+    return key === "job-cards" ? "../jobs/" : key === "estimates" ? "../tools/estimates.html" : key === "invoices" ? "../tools/invoices.html" : key === "tasks" ? "../tasks/" : key === "calendar" ? "../calendar/" : key === "enquiries" ? "../#workshop-enquiry" : "timesheets.html";
+  }
+  function timesheetHref(record, day) {
+    var params = [];
+    var recordId = record && (record.source_record_id || record.record_id || record.id);
+    var employee = record && (record.employee_upn || record.employee_name);
+    var month = String(record && (record.end_date || record.endDate || record.start_date || record.startDate || record.record_date || record.recordDate) || '').slice(0, 7);
+    if (recordId && !record.is_demo) params.push('record=' + encodeURIComponent(recordId));
+    if (employee && !record.is_demo) params.push('employee=' + encodeURIComponent(employee));
+    if (/^\d{4}-\d{2}$/.test(month) && !record.is_demo) params.push('month=' + month);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) && !record.is_demo) params.push('day=' + encodeURIComponent(day));
+    return 'timesheets.html' + (params.length ? '?' + params.join('&') : '');
   }
   function withExamples(realRecords) {
     var result = Array.isArray(realRecords) ? realRecords.slice() : [];
@@ -181,9 +245,9 @@
       var statusLabel = statusValue === "completed" ? "Completed" : statusValue === "incomplete" ? "Incomplete" : "Missing";
       var missingItems = Array.isArray(employee.missing) ? employee.missing.slice() : [];
       if (employee.review_flags) missingItems.push(employee.review_flags + ' daily review flag' + (employee.review_flags === 1 ? '' : 's'));
-      if (employee.schedule_label) missingItems.push('Schedule: ' + employee.schedule_label);
       var missing = missingItems.length ? missingItems.join("; ") : "None";
-      return '<tr><td data-label="Employee"><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td data-label="Status"><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td data-label="Submitted records">' + safe(employee.submitted_records || 0) + '</td><td data-label="Source variants">' + safe(employee.source_variants || employee.submitted_records || 0) + '</td><td data-label="Missing / needs attention">' + safe(missing) + '</td></tr>';
+      var schedule = employee.schedule_label ? '<br><span class="small-text">Works: ' + safe(employee.schedule_label) + '</span>' : '';
+      return '<tr><td data-label="Employee"><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span>' + schedule + '</td><td data-label="Status"><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td data-label="Submitted records">' + safe(employee.submitted_records || 0) + '</td><td data-label="Source variants">' + safe(employee.source_variants || employee.submitted_records || 0) + '</td><td data-label="Missing / needs attention">' + safe(missing) + '</td></tr>';
     }).join("") + '</tbody>';
   }
   function renderEnquiryPreview(record) {
@@ -228,27 +292,30 @@
       form.querySelector("button[type=submit]").disabled = false;
     }
   }
-  function renderPreview(record) {
+  function renderPreview(record, day) {
     if (!preview) return;
     if (!record) { preview.innerHTML = '<p class="small-text">Select a document to preview it.</p>'; return; }
     if (actionKey(record) === "enquiries") { renderEnquiryPreview(record); return; }
     if (actionKey(record) === "job-cards") { renderJobCardPreview(record); return; }
     if (actionKey(record) === "estimates") { renderEstimatePreview(record); return; }
     if (actionKey(record) === "tasks") { renderTaskPreview(record); return; }
-    var label = actionLabel(record);
+    var label = typeLabel(record);
     var employee = displayName(record);
     var statusValue = record.is_demo ? "Example only" : (record.status || "Submitted");
     var demoDescription = record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '';
     var sparseDetail = sparseTimesheet(record)
       ? '<p class="portal-history-warning"><strong>Daily detail unavailable:</strong> ' + safe(record.daily_detail_issue || "The Microsoft 365 history response returned the submission header without its daily rows.") + '</p><p class="small-text">Only the submitted header is available here. Clock-in, clock-out, break and total-hour values will appear after the intake/history flow returns the attached daily rows.</p>'
       : '';
-    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + sparseDetail + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions"><a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
+    var timesheetAction = actionKey(record) === "timesheets"
+      ? '<a class="button button-link" href="' + safe(timesheetHref(record, day)) + '">Open pay-month spreadsheet</a>'
+      : '';
+    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + sparseDetail + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions">' + timesheetAction + '<a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
   }
-  function select(index) {
+  function select(index, day) {
     selected = Number(index);
     var visible = visibleRecords();
     if (list && typeof list.querySelectorAll === "function") list.querySelectorAll("[data-submission-index]").forEach(function (button) { button.setAttribute("aria-current", String(Number(button.getAttribute("data-submission-index")) === selected)); });
-    renderPreview(visible[selected]);
+    renderPreview(visible[selected], day);
   }
   function render() {
     var visible = visibleRecords();
@@ -259,9 +326,13 @@
       selected = -1;
       return;
     }
-    list.innerHTML = visible.map(function (record, index) {
+    list.innerHTML = '<div class="submission-record-header" role="row"><span role="columnheader">Username</span><span role="columnheader">Type</span><span role="columnheader">Date</span><span role="columnheader">Status</span></div>' + visible.map(function (record, index) {
       var reviewLabel = sparseTimesheet(record) ? " · Review: daily detail unavailable" : "";
-      return '<button type="button" class="estimate-history-item' + (record.is_demo ? ' submission-demo-item' : '') + '" data-submission-index="' + index + '" aria-current="' + String(index === selected) + '"><strong>' + safe(displayName(record)) + '</strong><span>' + safe(actionLabel(record)) + '</span><small>' + safe(period(record)) + ' · ' + safe(record.is_demo ? "Example only · not submitted" : (record.status || "Submitted") + reviewLabel) + '</small></button>';
+      var statusLabel = record.is_demo ? "Example only" : ((record.status || "Submitted") + reviewLabel);
+      var name = displayName(record);
+      var email = record && (record.employee_upn || record.customer_email) || "";
+      var type = typeLabel(record);
+      return '<button type="button" role="listitem" class="estimate-history-item submission-record-row' + (record.is_demo ? ' submission-demo-item' : '') + '" data-submission-index="' + index + '" data-record-kind="' + safe(actionKey(record)) + '" aria-current="' + String(index === selected) + '" title="Open ' + safe(name) + ' ' + safe(type) + '"><span class="submission-record-cell submission-record-user"><strong>' + safe(name) + '</strong>' + (email ? '<small>' + safe(email) + '</small>' : '') + '</span><span class="submission-record-cell submission-record-type">' + safe(type) + '</span><span class="submission-record-cell submission-record-date">' + safe(compactDate(record)) + '</span><span class="submission-record-cell submission-record-status">' + safe(statusLabel) + '</span></button>';
     }).join("");
     if (typeof list.querySelectorAll === "function") list.querySelectorAll("[data-submission-index]").forEach(function (button) { button.addEventListener("click", function () { select(Number(button.getAttribute("data-submission-index"))); }); });
     if (selected < 0 || selected >= visible.length) {
@@ -279,6 +350,7 @@
       realRecordCount = 0;
       records = withExamples([]);
       historyMeta = {};
+      populateEmployees([]);
       renderAdminTimesheetSummary(historyMeta);
       if (status) status.textContent = "Protected submission history is not connected yet. Showing labelled examples so the document views remain discoverable.";
       render();
@@ -293,6 +365,7 @@
       realRecordCount = realRecords.length;
       records = withExamples(realRecords);
       historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
+      populateEmployees(realRecords);
       renderAdminTimesheetSummary(historyMeta);
       var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";
       if (status) status.textContent = realRecordCount
@@ -318,6 +391,7 @@
       realRecordCount = 0;
       records = withExamples([]);
       historyMeta = {};
+      populateEmployees([]);
       renderAdminTimesheetSummary(historyMeta);
       if (status) status.textContent = error && error.message ? error.message : "Submitted documents could not be loaded. Please try again or contact Accounts.";
       render();
@@ -327,6 +401,7 @@
     }
   }
   if (filter) filter.addEventListener("change", function () { selected = -1; render(); });
+  if (employeeFilter) employeeFilter.addEventListener("change", function () { selected = -1; render(); });
   if (refresh) refresh.addEventListener("click", load);
   // Shared calendar labels carry the protected source record ID. Selecting a
   // day therefore opens the same document preview as selecting its history
@@ -340,7 +415,7 @@
       return String(record && (record.source_record_id || record.record_id || record.id) || "") === recordId;
     });
     if (index < 0) return;
-    select(index);
+    select(index, detail.date);
     var item = list && list.querySelector('[data-submission-index="' + index + '"]');
     if (item && typeof item.scrollIntoView === "function") item.scrollIntoView({ block: "nearest" });
   });

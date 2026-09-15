@@ -562,7 +562,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox'];
+  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -728,7 +728,8 @@ function enquiryProjection(row, payload) {
 }
 
 function projectRow(row, includeDetails = true, env = null) {
-  const payload = payloadObject(row);
+  const rawPayload = payloadObject(row);
+  const payload = rawPayload && typeof rawPayload === 'object' ? { ...rawPayload } : {};
   const result = {
     kind: row.kind,
     employee_name: row.employee_name,
@@ -764,6 +765,32 @@ function projectRow(row, includeDetails = true, env = null) {
     };
   }
   if (!includeDetails) return result;
+  // Timesheet rows are needed by the calendar and spreadsheet preview. The
+  // original D1 projection only exposed the header, which made Accounts
+  // completion counts disagree with the day-level view. Keep the bounded
+  // payload on the protected projection and apply the same declared-week
+  // correction used for Microsoft 365 history rows so legacy app submissions
+  // remain readable without rewriting their source record.
+  if (row.kind === 'timesheets' || row.kind === 'clock') {
+    const rawRows = Array.isArray(payload.rows)
+      ? payload.rows
+      : Array.isArray(payload.dailyRows)
+        ? payload.dailyRows
+        : Array.isArray(payload.daily_rows)
+          ? payload.daily_rows
+          : [];
+    const aligned = rawRows.length ? alignUpstreamDailyRows(rawRows, row.start_date, row.end_date) : { rows: rawRows, issue: '' };
+    if (rawRows.length) {
+      payload.rows = safePayloadValue(aligned.rows);
+      result.payload = payload;
+      result.daily_rows_count = aligned.rows.length;
+      result.daily_dates = aligned.rows.map((item) => upstreamDateKey(item?.date)).filter(Boolean).filter((date, index, values) => values.indexOf(date) === index);
+    }
+    if (aligned.issue) {
+      result.date_correction_issue = aligned.issue;
+      result.issue = [result.issue, aligned.issue].filter(Boolean).join(' · ');
+    }
+  }
   if (row.kind === 'estimates') Object.assign(result, estimateProjection(row, payload));
   if (row.kind === 'job-cards') Object.assign(result, jobProjection(row, payload));
   if (row.kind === 'tasks') Object.assign(result, taskProjection(row, payload));
@@ -866,24 +893,168 @@ function upstreamObjectValue(value, keys) {
   return undefined;
 }
 
-function upstreamDailyRows(value) {
+const UPSTREAM_DAILY_ROW_KEYS = [
+  'rows', 'daily_rows', 'dailyRows', 'records', 'values', 'data', 'items', 'entries', 'dayRows', 'daily',
+  'timesheet', 'timesheets', 'attachments', 'files', 'file', 'attachment'
+];
+const UPSTREAM_DAILY_ENVELOPE_KEYS = [
+  'payload', 'body', 'result', 'response', 'content', 'value', 'item', 'fields', 'properties',
+  'contentBytes', 'contentBase64', 'base64', 'attachmentContent'
+];
+const UPSTREAM_DAILY_VALUE_KEYS = [
+  'date', 'record_date', 'recordDate', 'workDate', 'day', 'startTime', 'start', 'clockIn', 'clock_in',
+  'finishTime', 'finish', 'clockOut', 'clock_out', 'absenceReason', 'absenceStatus', 'workedMinutes',
+  'worked_minutes', 'workedHours', 'worked_hours', 'hours', 'totalHours', 'basicHours', 'basic_hours',
+  'ot15Hours', 'ot15_hours', 'ot20Hours', 'ot20_hours', 'lunchMinutes', 'lunch_minutes', 'breakMinutes',
+  'break_minutes', 'break', 'action', 'clockAction', 'clock_action', 'time', 'timestamp'
+];
+
+function upstreamLooksLikeDailyRow(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return UPSTREAM_DAILY_VALUE_KEYS.some((key) => {
+    const item = upstreamObjectValue(value, [key]);
+    return item !== '' && item !== null && item !== undefined;
+  });
+}
+
+function collectUpstreamDailyRows(value, depth = 0, seen = new Set()) {
+  if (depth > 8) return [];
   const parsed = parseUpstreamJson(value);
-  if (Array.isArray(parsed)) return parsed.filter((item) => item && typeof item === 'object').slice(0, 80);
-  if (!parsed || typeof parsed !== 'object') return [];
-  const nested = upstreamObjectValue(parsed, ['rows', 'daily_rows', 'dailyRows', 'records', 'values', 'data']);
-  if (Array.isArray(nested)) return nested.filter((item) => item && typeof item === 'object').slice(0, 80);
-  const hasDailyFields = Boolean(upstreamObjectValue(parsed, [
-    'date', 'record_date', 'startTime', 'start', 'clockIn', 'clock_in', 'finishTime', 'finish', 'clockOut', 'clock_out',
-    'absenceReason', 'absenceStatus', 'workedHours', 'worked_hours', 'basicHours', 'basic_hours'
-  ]));
-  return hasDailyFields ? [parsed] : [];
+  if (!parsed) return [];
+  if (Array.isArray(parsed)) {
+    const rows = [];
+    parsed.forEach((item) => {
+      const nested = collectUpstreamDailyRows(item, depth + 1, seen);
+      if (nested.length) rows.push(...nested);
+      else if (upstreamLooksLikeDailyRow(item)) rows.push(item);
+    });
+    return rows.slice(0, 80);
+  }
+  if (typeof parsed !== 'object') return [];
+  if (seen.has(parsed)) return [];
+  seen.add(parsed);
+  // Prefer known row containers before treating a wrapper with a summary
+  // date as the row itself. This keeps every day from nested flow responses.
+  for (const key of UPSTREAM_DAILY_ROW_KEYS) {
+    const nestedValue = upstreamObjectValue(parsed, [key]);
+    if (nestedValue === '' || nestedValue === null || nestedValue === undefined) continue;
+    const rows = collectUpstreamDailyRows(nestedValue, depth + 1, seen);
+    if (rows.length) return rows.slice(0, 80);
+  }
+  if (upstreamLooksLikeDailyRow(parsed)) return [parsed];
+  for (const key of UPSTREAM_DAILY_ENVELOPE_KEYS) {
+    const nestedValue = upstreamObjectValue(parsed, [key]);
+    if (nestedValue === '' || nestedValue === null || nestedValue === undefined) continue;
+    const rows = collectUpstreamDailyRows(nestedValue, depth + 1, seen);
+    if (rows.length) return rows.slice(0, 80);
+  }
+  return [];
+}
+
+function upstreamDailyRows(value) {
+  const rows = collectUpstreamDailyRows(value);
+  const seen = new Set();
+  return rows.filter((row) => {
+    // Weekly submissions commonly carry the same day rows in both the XLSX
+    // and CSV attachments. Collapse those byte-for-byte logical duplicates,
+    // while retaining separate source records when an ID, note or timestamp
+    // distinguishes them.
+    const signature = [
+      upstreamObjectValue(row, ['recordId', 'record_id', 'sourceRecordId', 'source_record_id']),
+      upstreamObjectValue(row, ['submissionId', 'submission_id']),
+      upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate']),
+      upstreamObjectValue(row, ['start', 'startTime', 'start_time', 'clockIn', 'clock_in']),
+      upstreamObjectValue(row, ['finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out']),
+      upstreamObjectValue(row, ['lunchMinutes', 'lunch_minutes', 'breakMinutes', 'break_minutes', 'break']),
+      upstreamObjectValue(row, ['absenceStatus', 'absence_status', 'absenceReason', 'absence_reason', 'absence']),
+      upstreamObjectValue(row, ['workedMinutes', 'worked_minutes', 'workedHours', 'worked_hours', 'hours', 'totalHours']),
+      upstreamObjectValue(row, ['note', 'notes', 'description', 'Note']),
+      upstreamObjectValue(row, ['submittedAt', 'submitted_at', 'Submitted At'])
+    ].map((item) => text(item, '', 500)).join('|');
+    if (!signature || seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+}
+
+function upstreamDayIndex(row, fallbackIndex) {
+  const label = text(upstreamObjectValue(row, ['label', 'dayLabel', 'day_label', 'Day', 'entry', 'entryLabel']), '', 80);
+  const match = label.match(/\b(?:day|entry)\s*#?\s*(\d+)\b/i);
+  if (!match) return fallbackIndex;
+  const index = Number(match[1]) - 1;
+  return Number.isInteger(index) && index >= 0 && index <= 6 ? index : fallbackIndex;
+}
+
+function upstreamDateDiffDays(from, to) {
+  const start = upstreamDateKey(from);
+  const end = upstreamDateKey(to);
+  if (!start || !end) return null;
+  const first = new Date(`${start}T12:00:00Z`);
+  const second = new Date(`${end}T12:00:00Z`);
+  const difference = Math.round((second.getTime() - first.getTime()) / 86400000);
+  return Number.isFinite(difference) ? difference : null;
+}
+
+function upstreamWeekdayName(value) {
+  const day = upstreamWeekday(value);
+  return day ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7] : '';
+}
+
+function alignUpstreamDailyRows(rows, declaredStart, declaredEnd) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const start = upstreamDateKey(declaredStart);
+  const end = upstreamDateKey(declaredEnd);
+  if (!sourceRows.length || !start || !end) return { rows: sourceRows, issue: '' };
+  const expected = sourceRows.map((row, index) => datePlusDays(start, upstreamDayIndex(row, index)));
+  if (expected.some((date) => !date || date > end)) return { rows: sourceRows, issue: '' };
+  const original = sourceRows.map((row) => upstreamDateKey(upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate'])) || '');
+  const labels = sourceRows.map((row, index) => upstreamDayIndex(row, index));
+  const hasSequentialLabels = sourceRows.length > 1
+    && labels.every((index, position) => index === position)
+    && new Set(labels).size === labels.length;
+  const rawWeekdaysMatch = sourceRows.every((row, index) => {
+    const weekday = text(upstreamObjectValue(row, ['weekday', 'Weekday', 'dayName', 'day_name']), '', 40).toLowerCase();
+    return !weekday || weekday === upstreamWeekdayName(expected[index]).toLowerCase();
+  });
+  const hasWeekdayValues = sourceRows.some((row) => text(upstreamObjectValue(row, ['weekday', 'Weekday', 'dayName', 'day_name']), '', 40));
+  const allOriginalDates = original.every(Boolean);
+  const allInsideDeclaredWeek = allOriginalDates && original.every((date) => date >= start && date <= end);
+  let shouldAlign = hasSequentialLabels && rawWeekdaysMatch && original.some((date, index) => date !== expected[index]);
+  if (!shouldAlign && allOriginalDates && !allInsideDeclaredWeek) {
+    const shift = upstreamDateDiffDays(original[0], expected[0]);
+    const shifted = shift !== null && original.every((date, index) => datePlusDays(date, shift) === expected[index]);
+    shouldAlign = shifted && rawWeekdaysMatch;
+    // Legacy XLSX/CSV parsers often omit the weekday and label columns while
+    // preserving the workbook row order. If at least one row falls outside
+    // the declared week, that ordered five/seven-day block is still enough to
+    // map rows to the declared Day 1..7 positions. Keep any supplied weekday
+    // values as a guard when they exist.
+    if (!shouldAlign && !hasWeekdayValues && sourceRows.length <= 7) {
+      shouldAlign = true;
+    }
+  }
+  if (!shouldAlign) return { rows: sourceRows, issue: '' };
+  let changed = false;
+  const aligned = sourceRows.map((row, index) => {
+    const sourceDate = original[index];
+    if (sourceDate === expected[index]) return row;
+    changed = true;
+    return { ...row, date: expected[index], sourceDate: sourceDate || undefined };
+  });
+  return {
+    rows: aligned,
+    issue: changed
+      ? `Daily attachment dates were aligned to the declared week ${start} to ${end}; original dates are retained on each row for audit.`
+      : ''
+  };
 }
 
 function upstreamPayloadAndRows(row) {
   const candidates = [
     'payload', 'payload_json', 'payloadJson', 'record_json', 'recordJson', 'Record JSON',
     'attachment_record', 'attachmentRecord', 'daily_rows', 'dailyRows', 'rows', 'Rows',
-    'record', 'Record', 'issue', 'Issue', 'gmt_payload'
+    'record', 'Record', 'issue', 'Issue', 'gmt_payload', 'gmt_daily_rows', 'daily_rows_json',
+    'dailyRowsJson', 'gmt_calendar_sync_payload'
   ];
   for (const key of candidates) {
     const value = upstreamObjectValue(row, [key]);
@@ -976,6 +1147,7 @@ function booleanUpstreamValue(value) {
 function normaliseUpstreamDailyRow(row, defaults = {}) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
   const date = text(upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate', 'day']), defaults.date || '', 80);
+  const sourceDate = text(upstreamObjectValue(row, ['sourceDate', 'source_date', 'originalDate', 'original_date']), '', 80);
   const start = text(upstreamObjectValue(row, ['start', 'startTime', 'start_time', 'clockIn', 'clock_in', 'dayStart', 'day_start', 'Start']), '', 40);
   const finish = text(upstreamObjectValue(row, ['finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out', 'dayFinish', 'day_finish', 'Finish']), '', 40);
   const lunchStart = text(upstreamObjectValue(row, ['lunchStart', 'lunch_start', 'breakStart', 'break_start', 'Lunch start']), '', 40);
@@ -1006,6 +1178,7 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     recordId: sourceRecordId || (defaults.sourceRecordId && date ? `${defaults.sourceRecordId}|${date}` : defaults.sourceRecordId || ''),
     submissionId: text(upstreamObjectValue(row, ['submissionId', 'submission_id']), defaults.sourceRecordId || '', MAX_RECORD_ID),
     date,
+    sourceDate: sourceDate && sourceDate !== date ? sourceDate : '',
     action: text(upstreamObjectValue(row, ['action', 'Action']), defaults.action || 'submission', 100),
     status,
     absenceStatus,
@@ -1131,7 +1304,12 @@ function normaliseUpstreamRecord(row, identity, env) {
     ? `history-${fallbackRecordSeed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_RECORD_ID - 8)}`
     : '';
   const sourceRecordId = text(sourceRecordValue || fallbackRecordId, '', MAX_RECORD_ID);
-  const rows = sourceData.rows.map((item) => normaliseUpstreamDailyRow(item, {
+  const alignedSource = alignUpstreamDailyRows(sourceData.rows, startDate, endDate);
+  if (alignedSource.issue) {
+    const alignedFirstDate = upstreamDateKey(alignedSource.rows[0]?.date);
+    if (alignedFirstDate) recordDate = alignedFirstDate;
+  }
+  const rows = alignedSource.rows.map((item) => normaliseUpstreamDailyRow(item, {
     date: recordDate || startDate,
     status: kind === 'clock' ? 'Recorded' : status,
     action,
@@ -1161,7 +1339,7 @@ function normaliseUpstreamRecord(row, identity, env) {
   const issueValue = parsedIssue
     ? (typeof parsedIssue === 'object' && !Array.isArray(parsedIssue) ? upstreamObjectValue(parsedIssue, ['issue', 'Issue', 'message']) : '')
     : rawIssue;
-  const issue = [text(issueValue, '', 1000), periodIssue, dailyDetailIssue].filter(Boolean).join(' · ');
+  const issue = [text(issueValue, '', 1000), alignedSource.issue, periodIssue, dailyDetailIssue].filter(Boolean).join(' · ');
   const mapped = {
     kind,
     employee_name: employeeName,
@@ -1192,6 +1370,7 @@ function normaliseUpstreamRecord(row, identity, env) {
     mapped.declared_record_date = declaredRecordDate;
   }
   if (dailyDetailIssue) mapped.daily_detail_issue = dailyDetailIssue;
+  if (alignedSource.issue) mapped.date_correction_issue = alignedSource.issue;
   if (directoryEntry?.workdays?.length) {
     mapped.schedule_weekdays = directoryEntry.workdays;
     mapped.schedule_label = directoryEntry.workdays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7]).join(', ');
@@ -1365,7 +1544,11 @@ function completionSummary(records, env, timeZone = 'Europe/London', nowDate = n
     const reviewFlags = employeeRecords.reduce((count, record) => {
       const payload = record.payload && typeof record.payload === 'object' ? record.payload : {};
       const rows = Array.isArray(payload.rows) ? payload.rows : [];
-      return count + rows.filter((row) => row && (row.scheduleIssue || row.scheduled === false)).length;
+      // The roster schedule is authoritative. A row on a non-working day is
+      // retained in the source payload for audit, but it must not make an
+      // otherwise complete employee look incomplete (Michelle works Tuesday
+      // and Wednesday only).
+      return count + rows.filter((row) => row && row.scheduled !== false && row.scheduleIssue).length;
     }, 0);
     const status = !employeeRecords.length ? 'missing' : (missing.length || reviewFlags ? 'incomplete' : 'completed');
     const fingerprints = new Set(employeeRecords.map(historyRecordFingerprint).filter(Boolean));
@@ -1620,7 +1803,18 @@ function dispatchForm(record, attachments) {
   set('gmt_calendar_sync', 'requested');
   set('gmt_calendar_name', text(calendarSync.calendarName, 'GMT Operational Calendar', 240));
   set('gmt_calendar_event_count', events.length);
-  set('gmt_attachment_manifest', 'record-json,xlsx,csv,calendar-sync-json');
+  // The human-facing dispatch only needs the XLSX/CSV pair. Keep the
+  // machine-readable daily rows and calendar payload in bounded form fields so
+  // the filing flow can parse them without producing two opaque JSON files.
+  set('gmt_daily_rows', JSON.stringify(Array.isArray(payload.rows) ? payload.rows : []));
+  set('gmt_calendar_sync_payload', JSON.stringify(calendarSync));
+  const attachmentManifest = attachments.map((attachment) => attachment.field_name || attachment.fieldName).map((fieldName) => ({
+    attachment: 'xlsx',
+    attachment_csv: 'csv',
+    attachment_record: 'record-json',
+    attachment_calendar_sync: 'calendar-sync-json'
+  }[fieldName] || fieldName)).filter(Boolean);
+  set('gmt_attachment_manifest', attachmentManifest.join(','));
   set('gmt_submitted_at', text(calendarSync.submittedAt || record.submitted_at, record.submitted_at, 100));
   set('summary', `Worked ${(Number(totals.workedActual) / 60 || 0).toFixed(2)}h | Basic ${(Number(totals.basic) / 60 || 0).toFixed(2)}h | OT x1.5 ${(Number(totals.ot15) / 60 || 0).toFixed(2)}h | OT x2.0 ${(Number(totals.ot20) / 60 || 0).toFixed(2)}h`);
   set('message', `Corrected timesheet attachments for ${employeeName}, week ${weekStart || 'unspecified'}. The existing Record ID is retained for idempotent filing.`);

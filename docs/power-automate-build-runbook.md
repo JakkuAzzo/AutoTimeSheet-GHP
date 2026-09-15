@@ -149,15 +149,21 @@ allowed to create an event in `GMT Operational Calendar`.
    message to `GMT Portal/Failed - Needs Review` and stop.
 4. Derive `{year}`, `{month}` and a safe employee folder name.
 5. Create `GMT Web-App/Timesheets/{year}/{month}/{employee}/` if required.
-6. For each attachment, save the XLSX and CSV files plus only the controlled
-   `GMT Calendar Sync - *.json` attachment into the folder. Reject inline
-   assets and all other JSON files.
-7. Create one `Timesheet Submissions` List item with metadata and file links.
-8. Find the `GMT Calendar Sync - {employee} - {week-start}.json` attachment.
-9. Read and parse the JSON attachment. It contains one all-day `timesheet`
-   event plus one all-day event for each grouped `Sick`, `Holiday`, or
-   `Time Off` period.
-10. For each event, use Outlook **Create event (V4)** with the calendar set to
+6. Save the controlled XLSX and CSV files into the employee/month folder. New
+   portal submissions use exactly those two human-facing attachments and set
+   `gmt_attachment_manifest=xlsx,csv`; inline assets, empty helper files and
+   unexpected attachment types are not filed.
+7. Read `gmt_daily_rows` and `gmt_calendar_sync_payload` from the email fields.
+   They are the machine-readable daily rows and calendar events for the List,
+   workbook and shared-calendar actions. JSON attachments are accepted only for
+   legacy messages and corrections that still carry them.
+8. Create one `Timesheet Submissions` List item with metadata, daily-row
+   counts, attachment links and the stable `gmt_record_id`.
+9. When a legacy attachment has a declared week but its daily rows are stamped
+   with another week, align the ordered Day 1..7 rows to the declared week and
+   retain each original date in the audit payload. Do not manufacture a day
+   event when no daily row or clock record exists.
+10. For each event in `gmt_calendar_sync_payload`, use Outlook **Create event (V4)** with the calendar set to
    `GMT Operational Calendar`. Use `startDate` as the all-day start and
    `endDateExclusive` as the all-day end; do not subtract a day from the end.
 11. Move the email to `GMT Portal/Processed`.
@@ -213,15 +219,17 @@ troubleshooting:
 - `gmt_submission_id` and stable `gmt_record_id`
 - `gmt_year`, `gmt_month`, `gmt_worked_hours`, `gmt_basic_hours`,
   `gmt_ot15_hours`, `gmt_ot20_hours` and `gmt_absence_count`
-- `gmt_attachment_manifest: xlsx,csv,calendar-sync-json`
+- `gmt_attachment_manifest: xlsx,csv`
 - `gmt_submitted_at`
 
 **Test:** submit a one-day Sick test timesheet. Confirm the shared calendar
 contains both the weekly `Timesheet submitted` event and the all-day `Sick`
 event, then remove the test events.
 
-**Test:** submit one small real timesheet; verify two attachments, one list item,
-correct folder path, and the processed email.
+**Test:** submit one small real timesheet; verify two attachments, the structured
+daily rows and calendar payload, one list item, the correct folder path, and the
+processed email. If a legacy message contains four attachments, file only the
+useful XLSX/CSV pair and retain the ignored-file decision in the audit note.
 
 ## Flow 1A: Clock Event Intake
 

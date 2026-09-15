@@ -26,6 +26,12 @@
   var lastMeta = {};
   var lastCompletion = null;
   var selectedHistory = -1;
+  var selectedCalendarDate = '';
+  var requestedRecordId = '';
+  var requestedEmployee = '';
+  var requestedMonth = '';
+  var requestedDate = '';
+  var routeApplied = false;
   var requestInFlight = false;
   var previewRequest = 0;
 
@@ -47,6 +53,27 @@
 
   function currentEmployee() {
     return employeeControl && employeeControl.value ? employeeControl.value : "";
+  }
+
+  function queryValue(name) {
+    var search = window.location ? String(window.location.search || '') : '';
+    var match = search.match(new RegExp('[?&]' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^&]*)', 'i'));
+    if (!match) return '';
+    try { return decodeURIComponent(match[1].replace(/\+/g, ' ')); } catch (_) { return match[1]; }
+  }
+
+  function applyRouteState() {
+    if (routeApplied) return;
+    requestedRecordId = queryValue('record');
+    requestedEmployee = queryValue('employee');
+    requestedMonth = queryValue('month').match(/^\d{4}-\d{2}$/) ? queryValue('month') : '';
+    requestedDate = queryValue('day').match(/^\d{4}-\d{2}-\d{2}$/) ? queryValue('day') : '';
+    if (requestedMonth) {
+      var parts = requestedMonth.split('-').map(Number);
+      viewDate = new Date(parts[0], parts[1] - 1, 1);
+    }
+    selectedCalendarDate = requestedDate;
+    routeApplied = true;
   }
 
   function setBusy(isBusy) {
@@ -148,13 +175,13 @@
       var metrics = employeeMetrics(employee);
       var missingItems = (employee.missing || []).slice();
       if (metrics.flags) missingItems.push(metrics.flags + ' daily review flag' + (metrics.flags === 1 ? '' : 's'));
-      if (employee.schedule_label) missingItems.push("Schedule: " + employee.schedule_label);
       var missing = missingItems.join("; ") || "None";
       var daySummary = metrics.daySummary.join(" · ") || "None";
       var hoursLabel = metrics.rows.length ? formatHours(metrics.hours) : "Not available";
       var absenceRequests = metrics.absences.concat(metrics.requests || []).filter(function (value, index, values) { return value && values.indexOf(value) === index; });
       var absenceLabel = absenceRequests.join("; ") || "None";
-      return '<tr><td data-label="Employee"><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td data-label="Status"><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td data-label="Submitted records">' + safe(submitted) + '</td><td data-label="Source variants">' + safe(employee.source_variants || submitted) + '</td><td data-label="Daily entries">' + safe(metrics.dailyEntries) + '</td><td data-label="Recorded hours"><strong>' + safe(hoursLabel) + '</strong><br><span class="small-text">' + safe(daySummary) + '</span></td><td data-label="Completed weeks">' + safe(completed) + '</td><td data-label="Absence / requests">' + safe(absenceLabel) + '</td><td data-label="Missing / needs attention">' + safe(missing) + '</td></tr>';
+      var schedule = employee.schedule_label ? '<br><span class="small-text">Works: ' + safe(employee.schedule_label) + '</span>' : '';
+      return '<tr><td data-label="Employee"><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span>' + schedule + '</td><td data-label="Status"><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td data-label="Submitted records">' + safe(submitted) + '</td><td data-label="Source variants">' + safe(employee.source_variants || submitted) + '</td><td data-label="Daily entries">' + safe(metrics.dailyEntries) + '</td><td data-label="Recorded hours"><strong>' + safe(hoursLabel) + '</strong><br><span class="small-text">' + safe(daySummary) + '</span></td><td data-label="Completed weeks">' + safe(completed) + '</td><td data-label="Absence / requests">' + safe(absenceLabel) + '</td><td data-label="Missing / needs attention">' + safe(missing) + '</td></tr>';
     }).join("") + '</tbody>';
   }
 
@@ -217,6 +244,59 @@
     try { return JSON.parse(value); } catch (_) { return null; }
   }
 
+  // Power Automate/SharePoint has emitted the daily attachment through a few
+  // different envelopes (rows, data, values, an item wrapper, and JSON
+  // strings nested inside those wrappers). Unpack those shapes at the browser
+  // boundary so the calendar and the spreadsheet preview see the same days.
+  var dailyRowKeys = ['rows', 'daily_rows', 'dailyRows', 'records', 'values', 'data', 'items', 'entries', 'dayRows', 'daily', 'timesheet', 'timesheets'];
+  var dailyEnvelopeKeys = ['payload', 'body', 'result', 'response', 'content', 'value', 'item', 'fields', 'properties'];
+  var dailyValueKeys = [
+    'date', 'record_date', 'recordDate', 'workDate', 'day', 'start', 'startTime', 'start_time', 'clockIn', 'clock_in',
+    'finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out', 'workedMinutes', 'worked_minutes', 'workedHours',
+    'worked_hours', 'hours', 'totalHours', 'basicHours', 'basic_hours', 'ot15Hours', 'ot15_hours', 'ot20Hours',
+    'ot20_hours', 'lunchMinutes', 'lunch_minutes', 'breakMinutes', 'break_minutes', 'break', 'absenceStatus',
+    'absence_status', 'absenceReason', 'absence_reason', 'absence', 'action', 'clockAction', 'clock_action', 'time', 'timestamp'
+  ];
+  function looksLikeDailyRow(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    return dailyValueKeys.some(function (key) {
+      var item = objectValue(value, [key]);
+      return item !== '' && item !== null && item !== undefined;
+    });
+  }
+  function collectDailyRows(value, depth, seen) {
+    if (depth > 8) return [];
+    var candidate = parseJsonValue(value);
+    if (!candidate) return [];
+    if (Array.isArray(candidate)) {
+      var rows = [];
+      candidate.forEach(function (item) {
+        var nested = collectDailyRows(item, depth + 1, seen);
+        if (nested.length) rows = rows.concat(nested);
+        else if (looksLikeDailyRow(item)) rows.push(item);
+      });
+      return rows.slice(0, 80);
+    }
+    if (typeof candidate !== 'object') return [];
+    seen = seen || [];
+    if (seen.indexOf(candidate) !== -1) return [];
+    seen.push(candidate);
+    for (var keyIndex = 0; keyIndex < dailyRowKeys.length; keyIndex += 1) {
+      var nestedValue = objectValue(candidate, [dailyRowKeys[keyIndex]]);
+      if (nestedValue === '' || nestedValue === null || nestedValue === undefined) continue;
+      var nestedRows = collectDailyRows(nestedValue, depth + 1, seen);
+      if (nestedRows.length) return nestedRows.slice(0, 80);
+    }
+    if (looksLikeDailyRow(candidate)) return [candidate];
+    for (var envelopeIndex = 0; envelopeIndex < dailyEnvelopeKeys.length; envelopeIndex += 1) {
+      var envelope = objectValue(candidate, [dailyEnvelopeKeys[envelopeIndex]]);
+      if (envelope === '' || envelope === null || envelope === undefined) continue;
+      var envelopeRows = collectDailyRows(envelope, depth + 1, seen);
+      if (envelopeRows.length) return envelopeRows.slice(0, 80);
+    }
+    return [];
+  }
+
   function payloadForRecord(record) {
     if (!record) return {};
     var payload = parseJsonValue(record.payload);
@@ -229,19 +309,14 @@
   function rawTimesheetRows(record) {
     if (!record) return [];
     var payload = payloadForRecord(record);
-    var candidates = [
-      Array.isArray(payload) ? payload : null,
-      payload.rows, payload.daily_rows, payload.dailyRows, payload.records, payload.row,
-      record.rows, record.daily_rows, record.dailyRows
-    ];
-    for (var i = 0; i < candidates.length; i += 1) {
-      var candidate = parseJsonValue(candidates[i]);
-      if (Array.isArray(candidate)) return candidate.filter(function (row) { return row && typeof row === 'object'; }).slice(0, 80);
-      if (candidate && typeof candidate === 'object' && (objectValue(candidate, ['date', 'record_date', 'recordDate', 'workDate', 'Date']) || objectValue(candidate, ['action', 'clockAction', 'clock_action', 'time', 'start', 'startTime', 'finish', 'finishTime', 'Start', 'Finish']))) return [candidate];
-    }
+    var payloadRows = collectDailyRows(payload, 0, []);
+    if (payloadRows.length) return payloadRows;
+    var recordRows = collectDailyRows(record.rows || record.daily_rows || record.dailyRows || record.records || record.values || record.data, 0, []);
+    if (recordRows.length) return recordRows;
     var directDate = objectValue(record, ['date', 'record_date', 'recordDate', 'workDate']);
     var directTime = objectValue(record, ['start', 'startTime', 'start_time', 'clockIn', 'clock_in', 'finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out']);
-    if (directDate && directTime) return [record];
+    var directDailyValue = objectValue(record, ['workedMinutes', 'worked_minutes', 'workedHours', 'worked_hours', 'hours', 'totalHours', 'basicHours', 'basic_hours', 'lunchMinutes', 'lunch_minutes', 'breakMinutes', 'break_minutes', 'break', 'absenceStatus', 'absence_status', 'absenceReason', 'absence_reason', 'absence']);
+    if (directDate && (directTime || directDailyValue)) return [record];
     return [];
   }
 
@@ -330,6 +405,7 @@
   function normaliseTimesheetRow(row, record) {
     row = row || {};
     var date = String(objectValue(row, ['date', 'record_date', 'recordDate', 'workDate', 'day']) || '').slice(0, 10);
+    var sourceDate = String(objectValue(row, ['sourceDate', 'source_date', 'originalDate', 'original_date']) || '').slice(0, 10);
     var start = String(objectValue(row, ['start', 'startTime', 'start_time', 'clockIn', 'clock_in', 'dayStart', 'day_start', 'Start']) || '');
     var finish = String(objectValue(row, ['finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out', 'dayFinish', 'day_finish', 'Finish']) || '');
     var lunchStart = String(objectValue(row, ['lunchStart', 'lunch_start', 'breakStart', 'break_start', 'Lunch start']) || '');
@@ -371,6 +447,7 @@
       recordId: recordId,
       submissionId: submissionId,
       date: date,
+      sourceDate: sourceDate && sourceDate !== date ? sourceDate : '',
       start: start,
       finish: finish,
       lunchStart: lunchStart,
@@ -490,6 +567,7 @@
       if (!row.absenceIsNone && start === null && finish === null) row.breakStatus = row.breakStatus || 'not-required';
       if (start !== null && finish !== null && finish < start) row.issues.push('Finish is earlier than clock in');
       if (row.scheduled === false && row.scheduleIssue) row.issues.push(row.scheduleIssue);
+      if (row.sourceDate) row.issues.push('Source date corrected from ' + row.sourceDate);
       var weekStart = dateOnly(record && record.start_date);
       var weekEnd = dateOnly(record && record.end_date);
       var rowDate = dateOnly(row.date);
@@ -509,6 +587,17 @@
                 : 'Not recorded';
     });
     var configuredSchedule = Array.isArray(record && record.schedule_weekdays) ? record.schedule_weekdays.map(Number).filter(function (day) { return day >= 1 && day <= 7; }) : [];
+    if (!configuredSchedule.length && lastCompletion && Array.isArray(lastCompletion.employees)) {
+      var employeeUpn = String(record && record.employee_upn || '').toLowerCase();
+      var employeeName = String(record && record.employee_name || '').toLowerCase();
+      var directoryEmployee = lastCompletion.employees.find(function (employee) {
+        return (employeeUpn && String(employee.employee_upn || '').toLowerCase() === employeeUpn)
+          || (employeeName && String(employee.employee_name || '').toLowerCase() === employeeName);
+      });
+      if (directoryEmployee && Array.isArray(directoryEmployee.schedule_weekdays)) {
+        configuredSchedule = directoryEmployee.schedule_weekdays.map(Number).filter(function (day) { return day >= 1 && day <= 7; });
+      }
+    }
     if (configuredSchedule.length) rows.forEach(function (row) {
       var parts = String(row.date || '').split('-').map(Number);
       if (parts.length !== 3 || parts.some(function (part) { return !Number.isFinite(part); })) return;
@@ -521,7 +610,13 @@
   }
 
   function recordRows(record) {
-    return ['timesheets', 'clock'].indexOf(actionKey(record)) !== -1 ? enrichTimesheetRows(record) : [];
+    if (['timesheets', 'clock'].indexOf(actionKey(record)) === -1) return [];
+    // A configured employee schedule is authoritative for the day-level view.
+    // Keep the source payload intact for audit, but do not present days that
+    // are outside that employee's working pattern as submitted timesheet rows.
+    // This is especially important for Michelle, whose valid working days are
+    // Tuesday and Wednesday only.
+    return enrichTimesheetRows(record).filter(function (row) { return row.scheduled !== false; });
   }
 
   function recordDailyDates(record) {
@@ -632,6 +727,52 @@
     return { rows: rows, countedRows: countedRows, dailyEntries: rows.length, hours: hours, daySummary: daySummary, absences: absences, requests: calendarRequestsForEmployee(employee), flags: flags };
   }
 
+  function monthLabel(monthKey) {
+    var date = dateOnly(String(monthKey || '') + '-01');
+    return date ? new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(date) : 'selected pay month';
+  }
+
+  function payMonthRows(record, monthKey) {
+    var employee = String(record && (record.employee_upn || record.employee_name) || '');
+    var rows = [];
+    (lastRecords || []).forEach(function (candidate) {
+      if (['timesheets', 'clock'].indexOf(actionKey(candidate)) === -1) return;
+      if (employee && !employeeMatches(candidate, employee)) return;
+      recordRows(candidate).forEach(function (row) {
+        if (row && row.date && String(row.date).slice(0, 7) === monthKey) rows.push(row);
+      });
+    });
+    // Keep one authoritative row per day while retaining the best populated
+    // variant when a weekly submission and clock event overlap.
+    return uniqueMetricRows(rows);
+  }
+
+  function renderTimesheetRow(row, selectedDate, compact) {
+    var issue = rowIssueText(row);
+    var note = row.note || '';
+    if (issue) note = (note ? note + ' · ' : '') + issue;
+    var selected = selectedDate && dateKey(row.date) === selectedDate;
+    var columns = compact
+      ? '<td data-label="Date"><strong>' + safe(row.date || 'Not dated') + '</strong></td><td data-label="Clock in">' + safe(row.start || 'Missing') + '</td><td data-label="Clock out">' + safe(row.finish || 'Missing') + '</td><td data-label="Break"><span class="timesheet-break-status ' + (row.breakStatus === 'not-taken' ? 'confirmed' : row.breakStatus === 'added' ? 'added' : issue.indexOf('Break') !== -1 ? 'flagged' : '') + '">' + safe(row.displayBreak) + '</span></td><td data-label="Worked">' + safe(row.workedMinutes === null ? 'Not recorded' : formatMinutes(row.workedMinutes)) + '</td><td data-label="Absence / status">' + safe(row.absenceStatus || 'None') + '<small class="timesheet-row-status">' + safe(row.status || '') + '</small></td><td data-label="Notes">' + safe(note || '—') + '</td>'
+      : '<td data-label="Date"><strong>' + safe(row.date || 'Not dated') + '</strong></td><td data-label="Clock in">' + safe(row.start || 'Missing') + (row.clockInSource ? '<small class="timesheet-row-source">' + safe(row.clockInSource) + '</small>' : '') + '</td><td data-label="Clock out">' + safe(row.finish || 'Missing') + (row.clockOutSource ? '<small class="timesheet-row-source">' + safe(row.clockOutSource) + '</small>' : '') + '</td><td data-label="Break"><span class="timesheet-break-status ' + (row.breakStatus === 'not-taken' ? 'confirmed' : row.breakStatus === 'added' ? 'added' : issue.indexOf('Break') !== -1 ? 'flagged' : '') + '">' + safe(row.displayBreak) + '</span></td><td data-label="Worked">' + safe(row.workedMinutes === null ? 'Not recorded' : formatMinutes(row.workedMinutes)) + '</td><td data-label="Basic">' + safe(formatHours(row.basicHours)) + '</td><td data-label="OT x1.5">' + safe(formatHours(row.ot15Hours)) + '</td><td data-label="OT x2">' + safe(formatHours(row.ot20Hours)) + '</td><td data-label="Absence / status">' + safe(row.absenceStatus || 'None') + '<small class="timesheet-row-status">' + safe(row.status || '') + '</small></td><td data-label="Notes">' + safe(note || '—') + '</td>';
+    return '<tr class="' + (issue ? 'has-timesheet-issue ' : '') + (selected ? 'is-selected-day' : '') + '"' + (selected ? ' aria-current="date"' : '') + '>' + columns + '</tr>';
+  }
+
+  function renderPayMonthSpreadsheet(record) {
+    var monthKey = recordPayMonth(record) || (selectedCalendarDate ? selectedCalendarDate.slice(0, 7) : dateKey(viewDate).slice(0, 7));
+    if (!monthKey) return '';
+    var rows = payMonthRows(record, monthKey);
+    var selectedDate = selectedCalendarDate && selectedCalendarDate.slice(0, 7) === monthKey ? selectedCalendarDate : '';
+    var totalMinutes = rows.filter(function (row) { return row.scheduled !== false; }).reduce(function (total, row) { return total + (row.workedMinutes === null ? 0 : row.workedMinutes); }, 0);
+    var flagged = rows.filter(function (row) { return row.issues.length; }).length;
+    var selectedNote = selectedDate ? '<p class="timesheet-selected-day-note">Selected day: <strong>' + safe(selectedDate) + '</strong>. The matching row is highlighted below.</p>' : '<p class="small-text">Select a day in the calendar to highlight it in this pay-month view.</p>';
+    if (!rows.length) {
+      return '<section class="timesheet-pay-month" aria-labelledby="timesheet-pay-month-title"><div class="timesheet-pay-month-heading"><div><p class="portal-card-kicker">Pay-month spreadsheet</p><h3 id="timesheet-pay-month-title">' + safe(monthLabel(monthKey)) + '</h3></div></div><p class="small-text">No daily spreadsheet rows are available for this employee in ' + safe(monthLabel(monthKey)) + '. The protected source returned a header only, so times and totals remain unavailable until the intake flow files the attached rows.</p></section>';
+    }
+    var body = rows.map(function (row) { return renderTimesheetRow(row, selectedDate, true); }).join('');
+    return '<section class="timesheet-pay-month" aria-labelledby="timesheet-pay-month-title"><div class="timesheet-pay-month-heading"><div><p class="portal-card-kicker">Pay-month spreadsheet</p><h3 id="timesheet-pay-month-title">' + safe(monthLabel(monthKey)) + '</h3><p class="small-text">' + safe(record && (record.employee_name || record.employee_upn) || 'Selected employee') + ' · ' + safe(rows.length) + ' daily entr' + (rows.length === 1 ? 'y' : 'ies') + ' · ' + safe(formatMinutes(totalMinutes)) + ' recorded · ' + safe(flagged) + ' review flag' + (flagged === 1 ? '' : 's') + '</p></div></div>' + selectedNote + '<div class="table-scroll timesheet-pay-month-scroll"><table class="timesheet-paper-rows timesheet-pay-month-rows"><thead><tr><th>Date</th><th>Clock in</th><th>Clock out</th><th>Break</th><th>Worked</th><th>Absence / status</th><th>Notes</th></tr></thead><tbody>' + body + '</tbody></table></div></section>';
+  }
+
   function renderTimesheetPreview(record) {
     if (!historyPreview) return;
     if (!record) {
@@ -664,14 +805,10 @@
     var absenceRows = rows.filter(function (row) { return !row.absenceIsNone; });
     var flaggedRows = rows.filter(function (row) { return row.issues.length; });
     var hasDailyRows = rows.length > 0;
-    var scheduleNote = Array.isArray(record.schedule_weekdays) && record.schedule_weekdays.length ? '<p class="small-text">Configured workdays: ' + safe(record.schedule_label || record.schedule_weekdays.join(', ')) + '. Rows outside this schedule remain visible for audit and are excluded from the payable total until Accounts reviews them.</p>' : '';
+    var scheduleNote = Array.isArray(record.schedule_weekdays) && record.schedule_weekdays.length ? '<p class="small-text">Configured workdays: ' + safe(record.schedule_label || record.schedule_weekdays.join(', ')) + '. Days outside this schedule are excluded from the calendar and payable totals; the original source remains available to Accounts for audit.</p>' : '';
     var summary = '<div class="timesheet-summary" aria-label="Timesheet totals"><div><span>Recorded days</span><strong>' + safe(rows.length) + '</strong></div><div><span>Counted hours</span><strong>' + safe(hasDailyRows ? formatMinutes(totalMinutes) : 'Not available') + '</strong></div><div><span>Basic</span><strong>' + safe(hasDailyRows ? formatHours(basicHours) : 'Not available') + '</strong></div><div><span>OT x1.5 / x2</span><strong>' + safe(hasDailyRows ? formatHours(ot15Hours) + ' / ' + formatHours(ot20Hours) : 'Not available') + '</strong></div><div><span>Absence</span><strong>' + safe(absenceRows.length ? absenceRows.length + ' day' + (absenceRows.length === 1 ? '' : 's') : 'None') + '</strong></div><div><span>Review flags</span><strong class="' + (flaggedRows.length ? 'timesheet-flag-count' : '') + '">' + safe(flaggedRows.length) + '</strong></div></div>';
-    var rowTable = rows.length ? '<div class="table-scroll timesheet-rows-scroll"><table class="timesheet-paper-rows"><thead><tr><th>Date</th><th>Clock in</th><th>Clock out</th><th>Break</th><th>Worked</th><th>Basic</th><th>OT x1.5</th><th>OT x2</th><th>Absence / status</th><th>Notes</th></tr></thead><tbody>' + rows.map(function (row) {
-      var issue = rowIssueText(row);
-      var note = row.note || '';
-      if (issue) note = (note ? note + ' · ' : '') + issue;
-      return '<tr class="' + (issue ? 'has-timesheet-issue' : '') + '"><td data-label="Date"><strong>' + safe(row.date || 'Not dated') + '</strong></td><td data-label="Clock in">' + safe(row.start || 'Missing') + (row.clockInSource ? '<small class="timesheet-row-source">' + safe(row.clockInSource) + '</small>' : '') + '</td><td data-label="Clock out">' + safe(row.finish || 'Missing') + (row.clockOutSource ? '<small class="timesheet-row-source">' + safe(row.clockOutSource) + '</small>' : '') + '</td><td data-label="Break"><span class="timesheet-break-status ' + (row.breakStatus === 'not-taken' ? 'confirmed' : row.breakStatus === 'added' ? 'added' : issue.indexOf('Break') !== -1 ? 'flagged' : '') + '">' + safe(row.displayBreak) + '</span></td><td data-label="Worked">' + safe(row.workedMinutes === null ? 'Not recorded' : formatMinutes(row.workedMinutes)) + '</td><td data-label="Basic">' + safe(formatHours(row.basicHours)) + '</td><td data-label="OT x1.5">' + safe(formatHours(row.ot15Hours)) + '</td><td data-label="OT x2">' + safe(formatHours(row.ot20Hours)) + '</td><td data-label="Absence / status">' + safe(row.absenceStatus || 'None') + '<small class="timesheet-row-status">' + safe(row.status || '') + '</small></td><td data-label="Notes">' + safe(note || '—') + '</td></tr>';
-    }).join('') + '</tbody></table></div>' : '<p class="small-text">Daily spreadsheet rows were not included in this protected history response, so only the submission header is available.</p>';
+    var selectedDateForRecord = selectedCalendarDate && rows.some(function (row) { return dateKey(row.date) === selectedCalendarDate; }) ? selectedCalendarDate : '';
+    var rowTable = rows.length ? '<div class="table-scroll timesheet-rows-scroll"><table class="timesheet-paper-rows"><thead><tr><th>Date</th><th>Clock in</th><th>Clock out</th><th>Break</th><th>Worked</th><th>Basic</th><th>OT x1.5</th><th>OT x2</th><th>Absence / status</th><th>Notes</th></tr></thead><tbody>' + rows.map(function (row) { return renderTimesheetRow(row, selectedDateForRecord, false); }).join('') + '</tbody></table></div>' : '<p class="small-text">Daily spreadsheet rows were not included in this protected history response, so only the submission header is available.</p>';
     var weekStart = dateOnly(record.start_date);
     var weekEnd = dateOnly(record.end_date);
     var outsideRows = rows.filter(function (row) { var date = dateOnly(row.date); return weekStart && weekEnd && date && (date < weekStart || date > weekEnd); });
@@ -683,7 +820,7 @@
       '<div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(actionLabel(record)) + '</p><p><strong>Period:</strong> ' + safe(periodLabel(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.submitted_at || 'Not recorded') + '</p><p><strong>Updated:</strong> ' + safe(record.updated_at || record.submitted_at || 'Not recorded') + '</p><p><strong>Source:</strong> ' + safe(sourceLabel) + '</p><p><strong>Pay month:</strong> ' + safe(recordPayMonth(record) || 'Not dated') + '</p></div>' +
       '<p class="small-text">' + (key === 'timesheets' ? 'Viewable at any time; editing is limited to the current pay month. Clock in/out records are joined by employee and date when available; missing clock or break data is flagged for review.' : 'This clock record is joined to the employee\'s daily timesheet by date when available. Missing clock or break data is flagged for review.') + '</p>' +
       (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') + dateWarning + summary + rowTable +
-      scheduleNote + editFooter;
+      renderPayMonthSpreadsheet(record) + scheduleNote + editFooter;
   }
 
   function dateOnly(value) {
@@ -731,15 +868,9 @@
           return parsed && parsed.getUTCFullYear() === monthDate.getFullYear() && parsed.getUTCMonth() === monthDate.getMonth();
         });
       }
-      // A legacy weekly row may not have its record attachment yet. Keep one
-      // selectable label for that submission until the daily data arrives.
-      var start = dateOnly(record.start_date || record.startDate || record.record_date || record.recordDate);
-      var end = dateOnly(record.end_date || record.endDate || record.start_date || record.record_date);
-      var anchor = dateOnly(record.record_date || record.recordDate || record.start_date || record.startDate || record.end_date || record.endDate);
-      if (anchor && anchor.getUTCFullYear() === monthDate.getFullYear() && anchor.getUTCMonth() === monthDate.getMonth()) return [dateKey(anchor)];
-      var monthStart = new Date(Date.UTC(monthDate.getFullYear(), monthDate.getMonth(), 1));
-      var monthEnd = new Date(Date.UTC(monthDate.getFullYear(), monthDate.getMonth() + 1, 0));
-      if (start && end && start <= monthEnd && end >= monthStart) return [dateKey(monthStart)];
+      // A weekly header is not a filled day. Do not place a misleading
+      // submission-day marker on the calendar when the protected source has
+      // not returned its attached daily rows yet.
       return [];
     }
     return recordDateKeys(record);
@@ -764,9 +895,14 @@
       (employee.missing || []).forEach(function (reason) {
         var match = String(reason || '').match(/(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/i);
         var monthFirst = dateKey(new Date(Date.UTC(monthDate.getFullYear(), monthDate.getMonth(), 1)));
-        var keys = match
-          ? calendarDateKeys({ kind: 'timesheets', start_date: match[1], end_date: match[2] }, monthDate)
-          : (currentPayMonth() + '-01' === monthFirst ? [monthFirst] : []);
+        var keys = match ? dateRange(match[1], match[2]).filter(function (dayKey) {
+          var parsed = dateOnly(dayKey);
+          if (!parsed || parsed.getUTCFullYear() !== monthDate.getFullYear() || parsed.getUTCMonth() !== monthDate.getMonth()) return false;
+          var workdays = Array.isArray(employee.schedule_weekdays) ? employee.schedule_weekdays.map(Number).filter(function (day) { return day >= 1 && day <= 7; }) : [];
+          if (!workdays.length) return true;
+          var weekday = parsed.getUTCDay() || 7;
+          return workdays.indexOf(weekday) !== -1;
+        }) : (currentPayMonth() + '-01' === monthFirst ? [monthFirst] : []);
         keys.forEach(function (key) {
           if (!labels[key]) labels[key] = [];
           labels[key].push({ missing: true, label: 'Missing · ' + (employee.employee_name || employee.employee_upn || 'Employee'), detail: reason });
@@ -784,7 +920,7 @@
       var statusClass = statusValue.toLowerCase().replace(/\s+/g, '-');
       return '<button type="button" class="estimate-history-item" data-history-index="' + index + '" aria-current="' + String(index === selectedHistory) + '"><strong>' + safe(record.employee_name || 'Timesheet') + '</strong><span>' + safe(action) + '</span><small>' + safe(periodLabel(record)) + ' · ' + safe(statusValue) + '</small></button>';
     }).join('');
-    if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index'))); }); });
+    if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index')), button.getAttribute('data-calendar-date') || ''); }); });
   }
 
   function renderCalendar(visible) {
@@ -829,8 +965,12 @@
           ? (daily.absenceIsNone ? (daily.workedMinutes === null ? 'Clock issue' : formatMinutes(daily.workedMinutes)) : daily.absenceStatus) + (dailyInterval ? ' · ' + dailyInterval : '')
           : actionLabel(record);
         var issueLabel = daily && daily.issues.length ? ' · Review' : (!daily && record.issue ? ' · Review' : '');
+        var labelState = !daily
+          ? (record.issue ? 'review' : 'submitted')
+          : (daily.issues.length ? 'review' : (daily.absenceIsNone ? (daily.workedMinutes === null ? 'clock' : 'worked') : 'absence'));
+        var isSelected = entry.index === selectedHistory && selectedCalendarDate === key;
         var description = employee + ' · ' + (daily ? key + ' · ' + dailyDetail : actionLabel(record)) + countLabel + issueLabel + ' · ' + periodLabel(record);
-        return '<button type="button" class="timesheet-calendar-label submitted' + ((daily && daily.issues.length) || (!daily && record.issue) ? ' has-timesheet-issue' : '') + '" data-history-index="' + entry.index + '" aria-current="' + String(entry.index === selectedHistory) + '" aria-label="' + safe(description) + '" title="' + safe(description) + '"><strong>' + safe(employee) + '</strong><small>' + safe(daily ? dailyDetail + (entry.count > 1 ? ' ×' + entry.count : '') : actionLabel(record) + (entry.count > 1 ? ' ×' + entry.count : '') + issueLabel) + '</small></button>';
+        return '<button type="button" class="timesheet-calendar-label ' + labelState + ((daily && daily.issues.length) || (!daily && record.issue) ? ' has-timesheet-issue' : '') + '" data-history-index="' + entry.index + '" data-calendar-date="' + safe(key) + '" aria-current="' + String(isSelected) + '" aria-label="' + safe(description) + '" title="' + safe(description) + '"><strong>' + safe(employee) + '</strong><small>' + safe(daily ? dailyDetail + (entry.count > 1 ? ' ×' + entry.count : '') : actionLabel(record) + (entry.count > 1 ? ' ×' + entry.count : '') + issueLabel) + '</small></button>';
       }).join('');
       labels += (missing[key] || []).map(function (entry) {
         return '<span class="timesheet-calendar-label missing" title="' + safe(entry.detail || entry.label) + '">' + safe(entry.label) + '</span>';
@@ -838,14 +978,22 @@
       html += '<article class="calendar-day' + (key === today ? ' calendar-day-today' : '') + '"><time datetime="' + key + '">' + day + '</time>' + (labels || '<span class="timesheet-calendar-no-entry">No entry</span>') + '</article>';
     }
     list.innerHTML = html;
-    if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index'))); }); });
+    if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index')), button.getAttribute('data-calendar-date') || ''); }); });
   }
 
-  function selectHistory(index) {
+  function selectHistory(index, date) {
     selectedHistory = Number(index);
-    if (list && typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.setAttribute('aria-current', String(Number(button.getAttribute('data-history-index')) === selectedHistory)); });
     var visible = filteredRecords();
     var record = visible[selectedHistory];
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(String(date))) selectedCalendarDate = String(date);
+    else if (record) {
+      var availableDates = recordDailyDates(record);
+      if (!selectedCalendarDate || availableDates.indexOf(selectedCalendarDate) === -1) selectedCalendarDate = availableDates[0] || dateKey(record.record_date || record.start_date || record.end_date) || '';
+    }
+    if (list && typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) {
+      var buttonDate = button.getAttribute('data-calendar-date') || '';
+      button.setAttribute('aria-current', String(Number(button.getAttribute('data-history-index')) === selectedHistory && (!buttonDate || buttonDate === selectedCalendarDate)));
+    });
     renderTimesheetPreview(record);
     var token = ++previewRequest;
     if (record && record.source === 'portal-d1' && record.source_record_id && window.GMTPortalApi && typeof window.GMTPortalApi.getRecord === 'function') {
@@ -868,6 +1016,7 @@
   }
 
   function render(records) {
+    applyRouteState();
     lastRecords = Array.isArray(records) ? records : [];
     var visible = filteredRecords();
     renderCalendar(visible);
@@ -878,8 +1027,17 @@
       }
       return showEmpty(lastRecords.length ? 'No submissions match this filter.' : 'No completed timesheets were found for this account.');
     }
-    if (selectedHistory < 0 || selectedHistory >= visible.length) selectedHistory = 0;
-    selectHistory(selectedHistory);
+    if (requestedEmployee && employeeControl && lastMeta.is_admin === true && !currentEmployee()) {
+      employeeControl.value = requestedEmployee;
+      visible = filteredRecords();
+      renderCalendar(visible);
+    }
+    var requestedIndex = requestedRecordId ? visible.findIndex(function (record) { return String(record.source_record_id || record.record_id || '') === requestedRecordId; }) : -1;
+    if (requestedIndex >= 0) selectedHistory = requestedIndex;
+    if (selectedHistory < 0 || selectedHistory >= visible.length) selectedHistory = requestedIndex >= 0 ? requestedIndex : 0;
+    selectHistory(selectedHistory, requestedDate);
+    requestedRecordId = '';
+    requestedDate = '';
   }
 
   function showSetupState() {
@@ -959,8 +1117,8 @@
   });
   if (refreshButton) refreshButton.addEventListener("click", refresh);
   if (frame) frame.addEventListener("load", sendCurrentFilter);
-  if (calendarPrevious) calendarPrevious.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); renderCalendar(filteredRecords()); });
-  if (calendarNext) calendarNext.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); renderCalendar(filteredRecords()); });
+  if (calendarPrevious) calendarPrevious.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); selectedCalendarDate = ''; renderCalendar(filteredRecords()); });
+  if (calendarNext) calendarNext.addEventListener("click", function () { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); selectedCalendarDate = ''; renderCalendar(filteredRecords()); });
   if (calendarTitle) calendarTitle.addEventListener("click", function () {
     if (!calendarPicker) return;
     if (typeof calendarPicker.showPicker === "function") calendarPicker.showPicker();
@@ -970,6 +1128,7 @@
     var match = String(calendarPicker.value || '').match(/^(\d{4})-(\d{2})$/);
     if (!match) return;
     viewDate = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+    selectedCalendarDate = '';
     calendarPicker.hidden = true;
     renderCalendar(filteredRecords());
   });
@@ -993,6 +1152,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    applyRouteState();
     if (frame) sendCurrentFilter();
     else return loadDirect();
   });

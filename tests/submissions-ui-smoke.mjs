@@ -12,7 +12,7 @@ const browser = await chromium.launch({ headless: true, ...(existsSync(chromePat
 
 try {
   const page = await browser.newPage();
-  await page.setContent('<p id="submissions-status"></p><select id="submissions-filter"><option value="all">All</option></select><button id="submissions-refresh"></button><p id="submissions-admin-timesheet-notice" hidden></p><section id="submissions-admin-timesheet-summary" hidden><p id="submissions-admin-timesheet-status"></p><p id="submissions-admin-timesheet-note"></p><table id="submissions-admin-timesheet-table"></table></section><div id="submissions-list"></div><article id="submissions-preview"></article>');
+  await page.setContent('<p id="submissions-status"></p><select id="submissions-filter"><option value="all">All</option></select><label id="submissions-employee-filter" hidden>Employee <select id="submissions-employee"><option value="">All employees</option></select></label><button id="submissions-refresh"></button><p id="submissions-admin-timesheet-notice" hidden></p><section id="submissions-admin-timesheet-summary" hidden><p id="submissions-admin-timesheet-status"></p><p id="submissions-admin-timesheet-note"></p><table id="submissions-admin-timesheet-table"></table></section><div id="submissions-list"></div><article id="submissions-preview"></article>');
   await page.evaluate(() => {
     window.GMTPortalApi = { enabled: () => true, history: async () => ({ records: [], meta: { is_admin: true, upstream: 'flow-permission-not-configured', visible_scope: 'all employee submissions', completion: { pay_month: '2026-09', counts: { completed: 0, incomplete: 1, missing: 1 }, directory_configured: true, employees: [{ employee_name: 'Jason', employee_upn: 'jason@gmt-services.co.uk', status: 'incomplete', submitted_records: 0, missing: ['Timesheet week 2026-09-07 to 2026-09-13'] }, { employee_name: 'Matthew', employee_upn: 'matthew@gmt-services.co.uk', status: 'missing', submitted_records: 0, missing: ['Timesheet week 2026-09-07 to 2026-09-13'] }] } } }) };
   });
@@ -28,6 +28,16 @@ try {
   assert.match(await page.locator('#submissions-admin-timesheet-table').innerText(), /Jason/);
   assert.equal(await page.locator('#submissions-admin-timesheet-notice a').getAttribute('href'), 'timesheets.html?connect-history=1');
   assert.match(await page.locator('#submissions-admin-timesheet-notice').innerText(), /Connect Microsoft 365 history access/);
+  assert.equal(await page.locator('#submissions-list .submission-record-header').count(), 1);
+  assert.equal(await page.locator('#submissions-list .submission-record-row').count(), 3);
+  assert.deepEqual(await page.locator('#submissions-list .submission-record-type').allTextContents(), ['Job card', 'Estimate', 'Task']);
+  assert.equal(await page.locator('#submissions-employee-filter').getAttribute('hidden'), null);
+  assert.deepEqual(await page.locator('#submissions-employee option').allTextContents(), ['All employees', 'Jason', 'Matthew']);
+  assert.equal(await page.locator('#submissions-list .submission-record-row').first().locator('.submission-record-cell').count(), 4);
+  await page.locator('#submissions-employee').selectOption('jason@gmt-services.co.uk');
+  assert.equal(await page.locator('#submissions-list [data-submission-index]').count(), 0);
+  await page.locator('#submissions-employee').selectOption('');
+  assert.equal(await page.locator('#submissions-list [data-submission-index]').count(), 3);
   await page.locator('#submissions-list [data-submission-index="0"]').click();
   assert.match(await page.locator('#submissions-preview').innerText(), /Example preview only/);
   assert.equal(await page.locator('#submissions-preview .job-card-sheet').count(), 1);
@@ -52,13 +62,23 @@ try {
   assert.equal(await calendarPage.locator('.portal-calendar-weekday').count(), 7);
   assert.ok((await calendarPage.locator('[data-submissions-calendar-title]').innerText()).length > 0);
   await calendarPage.addScriptTag({ path: resolve(repoRoot, 'portal/calendar-data.js') });
-  const sparseCalendarEvent = await calendarPage.evaluate(() => window.GMTCalendarData.recordsToEvents([{
+  const sparseCalendarEvents = await calendarPage.evaluate(() => window.GMTCalendarData.recordsToEvents([{
     kind: 'timesheets', employee_name: 'Jason', record_date: '2026-09-01',
     source_record_id: 'history-timesheets-jason-2026-09-01',
     daily_detail_issue: 'Daily rows were not returned by the Microsoft 365 history source; times, breaks and totals are unavailable.'
-  }])[0]);
-  assert.equal(sparseCalendarEvent.recordId, 'history-timesheets-jason-2026-09-01');
-  assert.match(sparseCalendarEvent.detail, /Daily detail unavailable/);
+  }]));
+  assert.equal(sparseCalendarEvents.length, 0, 'a weekly header without daily rows must not create a misleading submission-day label');
+  const scheduleEvents = await calendarPage.evaluate(() => window.GMTCalendarData.recordsToEvents([{
+    kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk', schedule_weekdays: [2, 3],
+    source_record_id: 'michelle-week', payload: { data: { values: [
+      { date: '2026-09-07', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+      { date: '2026-09-08', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+      { date: '2026-09-09', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+      { date: '2026-09-10', startTime: '08:00', finishTime: '17:00', workedHours: 8 }
+    ] } }
+  }]));
+  assert.deepEqual(scheduleEvents.map((event) => event.date), ['2026-09-08', '2026-09-09']);
+  assert.equal(scheduleEvents.every((event) => event.scheduled !== false), true);
 
   const dashboardCalendarPage = await browser.newPage();
   await dashboardCalendarPage.setContent('<p id="portal-calendar-status"></p><div class="portal-calendar-toolbar"><button data-portal-calendar-prev></button><button data-portal-calendar-picker><span data-portal-calendar-title></span></button><input id="portal-calendar-month-input" data-portal-calendar-input type="month"><button data-portal-calendar-next></button></div><div data-portal-calendar></div>');

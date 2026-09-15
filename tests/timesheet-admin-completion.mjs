@@ -81,6 +81,36 @@ assert.equal(boundarySummary.employees[0].submitted_records, 1);
 assert.deepEqual(boundarySummary.employees[0].completed_weeks, ['2026-08-31']);
 assert.equal(boundarySummary.employees[0].status, 'incomplete');
 
+const michelleScheduleEnv = {
+  STAFF_DIRECTORY_JSON: JSON.stringify([
+    { name: 'Michelle', upn: 'michelle@gmt-services.co.uk', workdays: [2, 3] }
+  ])
+};
+const michelleScheduleSummary = completionSummary([
+  {
+    kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk',
+    start_date: '2026-08-31', end_date: '2026-09-06', record_date: '2026-08-31', status: 'Submitted', issue: '',
+    payload: { rows: [
+      { date: '2026-09-01', scheduled: true },
+      { date: '2026-09-02', scheduled: true },
+      { date: '2026-09-03', scheduled: false, scheduleIssue: 'Outside configured work schedule' }
+    ] }
+  },
+  {
+    kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk',
+    start_date: '2026-09-07', end_date: '2026-09-13', record_date: '2026-09-07', status: 'Submitted', issue: '',
+    payload: { rows: [
+      { date: '2026-09-08', scheduled: true },
+      { date: '2026-09-09', scheduled: true },
+      { date: '2026-09-10', scheduled: false, scheduleIssue: 'Outside configured work schedule' }
+    ] }
+  }
+], michelleScheduleEnv, 'Europe/London', now);
+const michelle = michelleScheduleSummary.employees[0];
+assert.deepEqual(michelle.schedule_weekdays, [2, 3]);
+assert.equal(michelle.status, 'completed');
+assert.equal(michelle.review_flags, 0);
+
 const rows = [
   {
     record_id: 'real-jason', owner_oid: 'jason-oid', owner_upn: 'jason@gmt-services.co.uk', employee_name: 'Jason', kind: 'timesheets', action: 'submission', status: 'Submitted', start_date: '2026-09-07', end_date: '2026-09-13', record_date: '2026-09-07', submitted_at: '2026-09-14T10:00:00Z', updated_at: '2026-09-14T10:00:00Z', issue: '', payload_json: '{}'

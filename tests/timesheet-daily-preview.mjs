@@ -67,11 +67,22 @@ const request = {
   record_date: '2026-09-11', event_date: '2026-09-11', event_title: 'Holiday', event_type: 'Holiday',
   source: 'portal-d1', source_record_id: 'calendar-matthew-holiday'
 };
+const michelleBatch = {
+  kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk', schedule_weekdays: [2, 3],
+  start_date: '2026-09-07', end_date: '2026-09-13', record_date: '2026-09-07',
+  action: 'submission', status: 'Submitted', source: 'microsoft-365', source_record_id: 'michelle-week',
+  payload: { data: { values: [
+    { date: '2026-09-07', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+    { date: '2026-09-08', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+    { date: '2026-09-09', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+    { date: '2026-09-10', startTime: '08:00', finishTime: '17:00', workedHours: 8 }
+  ] } }
+};
 messageListener({
   origin: 'https://gmt.test',
   data: {
     type: 'gmt:history-records',
-    records: [weekly, clockIn, request],
+    records: [weekly, clockIn, request, michelleBatch],
     meta: {
       is_admin: true,
       upstream: 'ok',
@@ -91,8 +102,14 @@ assert.match(elements['timesheet-history-preview'].innerHTML, /9h 30m/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /Clock out missing/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /data-label="Clock in">08:00/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /Sick/);
+assert.match(elements['timesheet-history-preview'].innerHTML, /Pay-month spreadsheet/);
+assert.match(elements['timesheet-history-preview'].innerHTML, /2026-09-08/);
 assert.match(elements['timesheet-history-list'].innerHTML, /Matthew/);
 assert.match(elements['timesheet-history-list'].innerHTML, /10h · 08:00–18:00/);
+const calendarLabels = [...elements['timesheet-history-list'].innerHTML.matchAll(/data-calendar-date="([^"]+)"[^>]*><strong>([^<]+)/g)].map((match) => ({ date: match[1], employee: match[2] }));
+assert.ok(calendarLabels.some((label) => label.date === '2026-09-08' && label.employee === 'Michelle'));
+assert.equal(calendarLabels.some((label) => label.date === '2026-09-07' && label.employee === 'Michelle'), false);
+assert.equal(calendarLabels.some((label) => label.date === '2026-09-10' && label.employee === 'Michelle'), false);
 assert.match(elements['timesheet-completion-table'].innerHTML, /Absence \/ requests/);
 assert.match(elements['timesheet-completion-table'].innerHTML, /Approved/);
 assert.match(elements['timesheet-completion-table'].innerHTML, /19\.5h/);

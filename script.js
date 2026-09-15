@@ -1070,14 +1070,14 @@ function createEmailForm() {
     <input type="hidden" name="gmt_calendar_sync" data-clean-field="gmtCalendarSync">
     <input type="hidden" name="gmt_calendar_name" data-clean-field="gmtCalendarName">
     <input type="hidden" name="gmt_calendar_event_count" data-clean-field="gmtCalendarEventCount">
+    <input type="hidden" name="gmt_daily_rows" data-clean-field="gmtDailyRows">
+    <input type="hidden" name="gmt_calendar_sync_payload" data-clean-field="gmtCalendarSyncPayload">
     <input type="hidden" name="gmt_attachment_manifest" data-clean-field="gmtAttachmentManifest">
     <input type="hidden" name="gmt_submitted_at" data-clean-field="gmtSubmittedAt">
     <input type="hidden" name="summary" data-clean-field="summary">
     <input type="hidden" name="message" data-clean-field="message">
-    <input type="file" name="attachment_record" data-clean-field="record">
     <input type="file" name="attachment" data-clean-field="xlsx">
     <input type="file" name="attachment_csv" data-clean-field="csv">
-    <input type="file" name="attachment_calendar_sync" data-clean-field="calendarSync">
   `;
   document.body.appendChild(emailForm);
   return emailForm;
@@ -1105,8 +1105,8 @@ async function submitTimesheet(event) {
     const submissionId = editSourceId || buildTimesheetSubmissionId(calendarSync);
     const workbookKey = buildTimesheetWorkbookKey(calendarSync);
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
-    const calendarSyncFile = buildCalendarSyncFile(calendarSyncWithIds);
-    const recordFile = buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId);
+    const calendarSyncFile = deferCorrection ? buildCalendarSyncFile(calendarSyncWithIds) : null;
+    const recordFile = deferCorrection ? buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId) : null;
     saveSubmittedDraft(submissionId);
     if (portalApiEnabled()) {
       protectedRecord = portalTimesheetRecord(calendarSyncWithIds, calculated, totals, weighted, submissionId, 'Pending delivery');
@@ -1114,10 +1114,8 @@ async function submitTimesheet(event) {
     }
     if (deferCorrection) {
       const queued = await queueCorrectionAttachments(submissionId, [
-        { fieldName: 'attachment_record', file: recordFile },
         { fieldName: 'attachment', file: xlsxFile },
-        { fieldName: 'attachment_csv', file: csvFile },
-        { fieldName: 'attachment_calendar_sync', file: calendarSyncFile }
+        { fieldName: 'attachment_csv', file: csvFile }
       ]);
       if (queued && queued.skipped) {
         showSuccess('Synthetic correction retained for testing and was not sent to Accounts.');
@@ -1162,15 +1160,33 @@ async function submitTimesheet(event) {
     field('gmtCalendarSync').value = 'requested';
     field('gmtCalendarName').value = calendarSyncWithIds.calendarName;
     field('gmtCalendarEventCount').value = String(calendarSyncWithIds.events.length);
-    field('gmtAttachmentManifest').value = 'record-json,xlsx,csv,calendar-sync-json';
+    field('gmtDailyRows').value = JSON.stringify(calculated.map((row) => ({
+      label: row.label,
+      date: row.date,
+      weekday: row.dayName,
+      startTime: row.start,
+      finishTime: row.finish,
+      lunchHad: !!row.lunchHad,
+      lunchMinutes: normaliseBreakMinutes(row.lunchMinutes),
+      absenceStatus: row.absenceStatus || 'NA',
+      workedMinutes: row.workedActual,
+      workedHours: hours(row.workedActual),
+      basicHours: hours(row.appliedBasic ?? row.basic),
+      ot15Hours: hours(row.appliedOt15 ?? row.ot15),
+      ot20Hours: hours(row.appliedOt20 ?? row.ot20),
+      weightedHours: Number(weightedFor(row).toFixed(2)),
+      status: statusFor(row),
+      category: categoryFor(row),
+      note: [row.note || '', row.description || ''].filter(Boolean).join(' ')
+    })));
+    field('gmtCalendarSyncPayload').value = JSON.stringify(calendarSyncWithIds);
+    field('gmtAttachmentManifest').value = 'xlsx,csv';
     field('gmtSubmittedAt').value = calendarSync.submittedAt;
     field('summary').value = calculatedSummaryInput.value;
     field('message').value = `Timesheet spreadsheets are attached. Calendar sync requested for ${calendarSyncWithIds.calendarName}: ${calendarSyncWithIds.events.length} event(s), including ${calendarSyncWithIds.events.filter((event) => event.type === 'absence').length} absence event(s).`;
     emailForm.querySelectorAll('[data-daily-record]').forEach((input) => input.remove());
-    setFileInputFiles(field('record'), [recordFile]);
     setFileInputFiles(field('xlsx'), [xlsxFile]);
     setFileInputFiles(field('csv'), [csvFile]);
-    setFileInputFiles(field('calendarSync'), [calendarSyncFile]);
     await submitMultipartForm(emailForm);
     if (portalApiEnabled() && protectedRecord) {
       protectedRecord = { ...protectedRecord, status: 'Submitted', updatedAt: new Date().toISOString(), issue: '' };

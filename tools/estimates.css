@@ -44,3 +44,86 @@
 @media (max-width:900px) { .estimate-layout, .estimate-history-layout { grid-template-columns:1fr; } .estimate-preview-panel { position:static; } }
 @media (max-width:700px) { .estimate-intro, .estimate-form-heading, .estimate-preview-toolbar { align-items:flex-start; flex-direction:column; } .estimate-line { grid-template-columns:1fr 1fr; } .estimate-line label:first-child { grid-column:1/-1; } .estimate-line-total { text-align:left; } .estimate-paper { min-height:0; padding:1.1rem; } .estimate-paper-header { flex-direction:column; } .estimate-paper-logo { max-width:80%; } .estimate-paper-company { text-align:left; } .estimate-history-layout { gap:.75rem; } .estimate-history-list { max-height:none; } }
 @media print { body { background:#fff; } .app-header, .estimate-intro, .estimate-form, .estimate-preview-toolbar { display:none !important; } .estimate-main, .estimate-layout, .estimate-preview-panel { display:block; max-width:none; margin:0; padding:0; } .estimate-paper { min-height:0; border:0; box-shadow:none; } }
+
+/* Submitted documents uses a dense record column so the document list stays
+   scannable while its selected preview keeps the existing paper layout. */
+.submissions-record-list {
+  max-height: 560px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  gap: .4rem;
+  padding: .1rem;
+  scrollbar-width: thin;
+}
+.submission-record-header,
+.submission-record-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(7rem, .85fr) minmax(9rem, 1fr) minmax(6.5rem, .75fr);
+  gap: .65rem;
+  align-items: center;
+  min-width: 0;
+}
+.submission-record-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: .35rem .75rem;
+  color: var(--muted);
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.submission-record-row {
+  padding: .55rem .75rem;
+  border-radius: .6rem;
+}
+.submission-record-cell {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.submission-record-cell strong,
+.submission-record-cell small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.submission-record-cell strong { color: var(--green); font-size: .94rem; line-height: 1.2; }
+.submission-record-cell small { margin-top: .14rem; color: var(--muted); font-size: .7rem; line-height: 1.2; }
+.submission-record-type,
+.submission-record-date,
+.submission-record-status { color: var(--ink); font-size: .78rem; line-height: 1.25; }
+.submission-record-status { font-weight: 800; }
+.submission-record-row[aria-current="true"] { box-shadow: 0 0 0 2px #cda72e inset; }
+
+@media (max-width: 700px) {
+  .submissions-record-list { max-height: 370px; }
+  .submission-record-header { display: none; }
+  .submission-record-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: .38rem .65rem;
+    padding: .6rem .7rem;
+  }
+  .submission-record-user { grid-column: 1 / -1; }
+  .submission-record-type::before,
+  .submission-record-date::before,
+  .submission-record-status::before {
+    display: block;
+    margin-bottom: .12rem;
+    color: var(--muted);
+    font-size: .64rem;
+    font-weight: 900;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .submission-record-type::before { content: "Type"; }
+  .submission-record-date::before { content: "Date"; }
+  .submission-record-status::before { content: "Status"; }
+  .submission-record-type,
+  .submission-record-date,
+  .submission-record-status { font-size: .76rem; }
+  .submission-record-status { grid-column: 1 / -1; }
+}

@@ -58,13 +58,19 @@
       }
     } catch (_) {}
     var protectedRecords = [];
+    var historyMeta = {};
     if (window.GMTPortalApi && typeof window.GMTPortalApi.enabled === "function" && window.GMTPortalApi.enabled()) {
       try {
+        // The dashboard requests all authorised dated records so its shared
+        // calendar matches Submitted documents. The narrower route remains
+        // available as `GMTPortalApi.history("calendar")` when only requests
+        // are needed.
         var history = await window.GMTPortalApi.history("all");
         protectedRecords = history && Array.isArray(history.records) ? history.records : [];
+        historyMeta = history && history.meta && typeof history.meta === "object" ? history.meta : {};
       } catch (_) {}
     }
-    var derived = typeof helper.recordsToEvents === "function" ? helper.recordsToEvents(protectedRecords) : [];
+    var derived = typeof helper.recordsToEvents === "function" ? helper.recordsToEvents(protectedRecords, { employees: historyMeta.completion && historyMeta.completion.employees || [] }) : [];
     events = local.concat(derived);
     var seen = {};
     events = events.filter(function (event) {

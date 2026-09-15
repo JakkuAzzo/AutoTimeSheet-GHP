@@ -31,21 +31,72 @@
     if (!/^[\[{]/.test(raw)) return null;
     try { return JSON.parse(raw); } catch (_) { return null; }
   }
+  var ROW_KEYS = [
+    "rows", "daily_rows", "dailyRows", "records", "values", "data", "items",
+    "entries", "dayRows", "daily", "timesheet", "timesheets"
+  ];
+  var ENVELOPE_KEYS = ["payload", "body", "result", "response", "content", "value", "item", "fields", "properties"];
+  var ROW_VALUE_KEYS = [
+    "date", "record_date", "recordDate", "workDate", "day", "start", "startTime", "start_time",
+    "clockIn", "clock_in", "finish", "finishTime", "finish_time", "clockOut", "clock_out",
+    "workedMinutes", "worked_minutes", "workedHours", "worked_hours", "hours", "totalHours",
+    "basicHours", "basic_hours", "ot15Hours", "ot15_hours", "ot20Hours", "ot20_hours",
+    "lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "absenceStatus",
+    "absence_status", "absenceReason", "absence_reason", "absence", "action", "clockAction", "clock_action",
+    "time", "timestamp"
+  ];
+  function hasRowValue(value) {
+    return ROW_VALUE_KEYS.some(function (key) {
+      var actual = objectValue(value, [key]);
+      return actual !== "" && actual !== null && actual !== undefined;
+    });
+  }
+  function collectRows(value, depth, seen) {
+    if (depth > 8) return [];
+    var candidate = parsed(value);
+    if (!candidate) return [];
+    if (Array.isArray(candidate)) {
+      var arrayRows = [];
+      candidate.forEach(function (item) {
+        var nestedRows = collectRows(item, depth + 1, seen);
+        if (nestedRows.length) arrayRows = arrayRows.concat(nestedRows);
+        else if (item && typeof item === "object" && !Array.isArray(item) && hasRowValue(item)) arrayRows.push(item);
+      });
+      return arrayRows.slice(0, 80);
+    }
+    if (typeof candidate !== "object") return [];
+    seen = seen || [];
+    if (seen.indexOf(candidate) !== -1) return [];
+    seen.push(candidate);
+    // Prefer known row containers before treating an envelope carrying a
+    // summary date as the row itself. This preserves every day in nested
+    // Power Automate responses such as { data: { values: [...] } }.
+    for (var keyIndex = 0; keyIndex < ROW_KEYS.length; keyIndex += 1) {
+      var nested = objectValue(candidate, [ROW_KEYS[keyIndex]]);
+      if (nested === "" || nested === null || nested === undefined) continue;
+      var rows = collectRows(nested, depth + 1, seen);
+      if (rows.length) return rows.slice(0, 80);
+    }
+    if (hasRowValue(candidate)) return [candidate];
+    for (var envelopeIndex = 0; envelopeIndex < ENVELOPE_KEYS.length; envelopeIndex += 1) {
+      var envelope = objectValue(candidate, [ENVELOPE_KEYS[envelopeIndex]]);
+      if (envelope === "" || envelope === null || envelope === undefined) continue;
+      var envelopeRows = collectRows(envelope, depth + 1, seen);
+      if (envelopeRows.length) return envelopeRows.slice(0, 80);
+    }
+    return [];
+  }
   function rowsFor(record) {
     var payload = parsed(record && record.payload) || parsed(record && record.payload_json) || {};
-    var candidates = [
-      Array.isArray(payload) ? payload : null,
-      payload.rows, payload.daily_rows, payload.dailyRows, payload.records,
-      record && record.rows, record && record.daily_rows, record && record.dailyRows
-    ];
-    for (var index = 0; index < candidates.length; index += 1) {
-      var candidate = parsed(candidates[index]);
-      if (Array.isArray(candidate)) return candidate.filter(function (row) { return row && typeof row === "object"; }).slice(0, 80);
-    }
-    // A weekly header normally has `record_date` but no daily fields. Treat it
-    // as a sparse submission so dateFallback can keep the record visible. Only
-    // promote a direct object to a day row when it also carries a daily time,
-    // hour, break or absence value.
+    var payloadRows = collectRows(payload, 0, []);
+    if (payloadRows.length) return payloadRows;
+    var recordRows = collectRows(record && (record.rows || record.daily_rows || record.dailyRows || record.records || record.values || record.data), 0, []);
+    if (recordRows.length) return recordRows;
+    // A weekly header normally has `record_date` but no daily fields. Keep the
+    // source record addressable for history and detail views, but do not place
+    // a synthetic marker on the shared calendar. Only promote a direct object
+    // to a day row when it also carries a daily time, hour, break or absence
+    // value.
     var directDate = objectValue(record, ["date", "record_date", "recordDate", "workDate", "day"]);
     var directTime = objectValue(record, ["start", "startTime", "start_time", "clockIn", "clock_in", "finish", "finishTime", "finish_time", "clockOut", "clock_out"]);
     var directDailyValue = objectValue(record, ["workedMinutes", "worked_minutes", "workedHours", "worked_hours", "hours", "totalHours", "basicHours", "basic_hours", "lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"]);
@@ -100,11 +151,21 @@
     var day = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])).getUTCDay();
     return day === 0 ? 7 : day;
   }
-  function schedule(record) {
+  function schedule(record, options) {
     var value = record && (record.schedule_weekdays || record.scheduleWeekdays || record.workdays);
     if (Array.isArray(value)) return value.map(function (item) { return Number(item); }).filter(function (item) { return item >= 1 && item <= 7; });
     var payload = parsed(record && record.payload) || {};
     value = payload.scheduleWeekdays || payload.workdays;
+    if (Array.isArray(value)) return value.map(function (item) { return Number(item); }).filter(function (item) { return item >= 1 && item <= 7; });
+    var employees = options && (options.employees || options.schedules);
+    if (!Array.isArray(employees)) return [];
+    var upn = text(record && (record.employee_upn || record.employeeEmail || record.employee_email)).toLowerCase();
+    var name = text(record && (record.employee_name || record.employeeName)).toLowerCase();
+    var match = employees.find(function (employee) {
+      return (upn && text(employee && (employee.employee_upn || employee.upn || employee.email)).toLowerCase() === upn)
+        || (name && text(employee && (employee.employee_name || employee.name)).toLowerCase() === name);
+    });
+    value = match && (match.schedule_weekdays || match.scheduleWeekdays || match.workdays);
     return Array.isArray(value) ? value.map(function (item) { return Number(item); }).filter(function (item) { return item >= 1 && item <= 7; }) : [];
   }
   function employee(record) { return text(record && (record.employee_name || record.employee_upn || record.owner || "Submission")); }
@@ -119,7 +180,7 @@
     return value || "general";
   }
   function recordId(record) { return text(record && (record.source_record_id || record.record_id || record.id)); }
-  function rowEvent(record, row, index) {
+  function rowEvent(record, row, index, options) {
     var date = key(objectValue(row, ["date", "record_date", "recordDate", "workDate", "day"]) || record && (record.record_date || record.start_date));
     if (!date) return null;
     var start = text(objectValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in", "dayStart", "day_start", "Start"]));
@@ -140,7 +201,7 @@
     var lunchEnd = text(objectValue(row, ["lunchEnd", "lunch_end", "breakEnd", "break_end", "Lunch end"]));
     var breakValue = objectValue(row, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "Break"]);
     var breakStatus = text(objectValue(row, ["breakStatus", "break_status"]));
-    var scheduleDays = schedule(record);
+    var scheduleDays = schedule(record, options);
     var explicitScheduled = objectValue(row, ["scheduled"]);
     var scheduled = explicitScheduled === false || String(explicitScheduled).toLowerCase() === "false"
       ? false
@@ -177,10 +238,12 @@
       scheduled: scheduled
     };
   }
-  function dateFallback(record) {
+  function dateFallback(record, options) {
     var start = key(record && (record.record_date || record.start_date || record.event_date || record.planned_date || record.due_date));
     if (!start) return [];
     var recordKind = kind(record);
+    var scheduleDays = schedule(record, options);
+    if (scheduleDays.length && (recordKind === "timesheets" || recordKind === "clock") && scheduleDays.indexOf(weekday(start)) === -1) return [];
     var issue = text(record && record.issue);
     var detail = text(record && (record.event_title || record.job_ref || record.estimate_number || record.action || "Record"));
     if (recordKind === "timesheets" && (record && (record.daily_detail_issue || record.issue))) {
@@ -191,15 +254,25 @@
     }
     return [{ id: recordId(record) + "|" + start, recordId: recordId(record), date: start, title: employee(record), type: recordKind, owner: employee(record), status: text(record && record.status) || "Submitted", detail: detail, issue: issue, record: record, row: null, scheduled: true }];
   }
-  function recordsToEvents(records) {
+  function recordsToEvents(records, options) {
     var events = [];
     (Array.isArray(records) ? records : []).forEach(function (record) {
       var recordKind = kind(record);
       if (recordKind === "timesheets" || recordKind === "clock") {
         var rows = rowsFor(record);
-        var rowEvents = rows.map(function (row, index) { return rowEvent(record, row, index); }).filter(Boolean);
-        events = events.concat(rowEvents.length ? rowEvents : dateFallback(record));
-      } else events = events.concat(dateFallback(record));
+        var rowEvents = rows.map(function (row, index) { return rowEvent(record, row, index, options); }).filter(Boolean);
+        if (rowEvents.length) {
+          // A roster schedule is authoritative for the shared calendar. Keep
+          // the source record available in history, but do not label a day as
+          // worked when it falls outside the employee's configured workdays.
+          // Michelle, for example, is rostered on Tuesday and Wednesday only.
+          events = events.concat(rowEvents.filter(function (event) { return event.scheduled !== false; }));
+        } else if (!rows.length) {
+          // A sparse header has no day to place on the calendar. Showing its
+          // anchor would imply that a submission was made on that date.
+          events = events.concat(recordKind === "timesheets" ? [] : dateFallback(record, options));
+        }
+      } else events = events.concat(dateFallback(record, options));
     });
     var seen = {};
     return events.filter(function (event) {

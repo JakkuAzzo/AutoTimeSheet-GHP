@@ -126,13 +126,11 @@ try {
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'routing.tester@example.com');
   assert.equal(result.replyTo, 'routing.tester@example.com');
-  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
-  assert.ok(result.files[0].files[0].name.includes('GMT Timesheet Record - Routing Tester - 2026-06-22.json'));
-  assert.ok(result.files[0].files[0].size > 100);
-  assert.ok(result.files[1].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
-  assert.ok(result.files[1].files[0].size > 1000);
-  assert.ok(result.files[2].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.csv'));
-  assert.ok(result.files[2].files[0].size > 100);
+  assert.deepEqual(result.files.map((entry) => entry.name), ['attachment', 'attachment_csv']);
+  assert.ok(result.files[0].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.xlsx'));
+  assert.ok(result.files[0].files[0].size > 1000);
+  assert.ok(result.files[1].files[0].name.includes('GMT Timesheet - Routing Tester - 2026-06-22.csv'));
+  assert.ok(result.files[1].files[0].size > 100);
   assert.equal(result.fields.gmt_type, 'timesheet');
   assert.equal(result.fields.gmt_action, 'submission');
   assert.equal(result.fields.gmt_schema_version, '1');
@@ -154,37 +152,36 @@ try {
   assert.equal(result.fields.gmt_calendar_sync, 'requested');
   assert.equal(result.fields.gmt_calendar_name, 'GMT Operational Calendar');
   assert.equal(result.fields.gmt_calendar_event_count, '1');
-  assert.equal(result.fields.gmt_attachment_manifest, 'record-json,xlsx,csv,calendar-sync-json');
+  assert.equal(result.fields.gmt_attachment_manifest, 'xlsx,csv');
+  const dailyRows = JSON.parse(result.fields.gmt_daily_rows);
+  assert.equal(dailyRows.length, 1);
+  assert.deepEqual(dailyRows[0], {
+    label: 'Day 1',
+    date: '2026-06-22',
+    weekday: 'Monday',
+    startTime: '08:00',
+    finishTime: '16:00',
+    lunchHad: false,
+    lunchMinutes: 0,
+    absenceStatus: 'NA',
+    workedMinutes: 480,
+    workedHours: 8,
+    basicHours: 8,
+    ot15Hours: 0,
+    ot20Hours: 0,
+    weightedHours: 8,
+    status: 'Recorded',
+    category: 'Basic day',
+    note: 'Weekday without absence records an 8h minimum.'
+  });
+  const calendarPayload = JSON.parse(result.fields.gmt_calendar_sync_payload);
+  assert.equal(calendarPayload.events[0].startDate, '2026-06-22');
   assert.match(result.fields.gmt_submitted_at, /^2026|^20\d{2}-\d{2}-\d{2}T/);
-  assert.ok(result.files[3].files[0].name.includes('GMT Calendar Sync - Routing Tester - 2026-06-22.json'));
-  assert.ok(result.files[3].files[0].size > 100);
-  const recordEnvelope = await page.evaluate(async () => {
-    const file = window.__submittedRawForms[0].get('attachment_record');
-    return JSON.parse(await file.text());
-  });
-  assert.equal(recordEnvelope.recordId, `${result.fields.gmt_record_id}|2026-06-22`);
-  assert.equal(recordEnvelope.submissionId, result.fields.gmt_submission_id);
-  assert.equal(recordEnvelope.date, '2026-06-22');
-  assert.equal(recordEnvelope.startTime, '08:00');
-  assert.equal(recordEnvelope.finishTime, '16:00');
-  assert.equal(recordEnvelope.employeeName, 'Routing Tester');
-  assert.equal(recordEnvelope.action, 'submission');
-  assert.equal(recordEnvelope.weekStart, '2026-06-22');
-  assert.equal(recordEnvelope.workedHours, 8);
-  const regularCalendarSync = await page.evaluate(async () => {
-    const file = window.__submittedRawForms[0].get('attachment_calendar_sync');
-    return JSON.parse(await file.text());
-  });
-  assert.equal(regularCalendarSync.submissionId, result.fields.gmt_submission_id);
-  assert.equal(regularCalendarSync.events[0].syncEventId, 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22-weekly-2026-06-22-1');
-
   await page.locator('[data-field="absenceStatus"]').first().selectOption('Sick');
   await page.locator('#submit-btn').click();
   await page.waitForFunction(() => window.__submittedForms.length === 2, null, { timeout: 15000 });
-  const absenceCalendarSync = await page.evaluate(async () => {
-    const file = window.__submittedRawForms[1].get('attachment_calendar_sync');
-    return JSON.parse(await file.text());
-  });
+  const secondFields = new Map(Object.entries(await page.evaluate(() => window.__submittedForms[1].fields)));
+  const absenceCalendarSync = JSON.parse(secondFields.get('gmt_calendar_sync_payload'));
   assert.equal(absenceCalendarSync.events.length, 2);
   assert.deepEqual(absenceCalendarSync.events[1], {
     type: 'absence',

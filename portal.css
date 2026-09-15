@@ -515,8 +515,24 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .timesheet-calendar-label small { font-size: .63rem; }
 .timesheet-calendar-label.submitted { color: #0d4c16; background: #eaf3e7; }
 .timesheet-calendar-label.submitted[aria-current="true"] { color: #fff; background: var(--green); }
+.timesheet-calendar-label.worked { color: #0d4c16; background: #eaf3e7; }
+.timesheet-calendar-label.absence { color: #60420b; background: #fff1bf; }
+.timesheet-calendar-label.clock { color: #7a3f00; background: #fff1d6; }
+.timesheet-calendar-label.review { color: #7a3f00; background: #ffe2b8; }
+.timesheet-calendar-label.worked[aria-current="true"],
+.timesheet-calendar-label.absence[aria-current="true"],
+.timesheet-calendar-label.clock[aria-current="true"],
+.timesheet-calendar-label.review[aria-current="true"] { color: #fff; background: var(--green); }
 .timesheet-calendar-label.missing { color: #80200d; background: #ffe0d8; }
 .timesheet-calendar-no-entry { display: block; margin-top: .35rem; color: #8c968a; font-size: .68rem; }
+.timesheet-calendar-legend { display: flex; flex-wrap: wrap; gap: .35rem .75rem; margin: .65rem 0 .8rem; padding: 0; list-style: none; color: var(--muted); font-size: .72rem; font-weight: 800; }
+.timesheet-calendar-legend li { display: inline-flex; align-items: center; gap: .3rem; }
+.timesheet-calendar-legend-swatch { width: .75rem; height: .75rem; flex: 0 0 .75rem; border-radius: .2rem; border: 1px solid rgba(0,0,0,.12); }
+.timesheet-calendar-legend-swatch.worked { background: #eaf3e7; }
+.timesheet-calendar-legend-swatch.absence { background: #fff1bf; }
+.timesheet-calendar-legend-swatch.clock { background: #fff1d6; }
+.timesheet-calendar-legend-swatch.review { background: #ffe2b8; }
+.timesheet-calendar-legend-swatch.missing { background: #ffe0d8; }
 .timesheet-time-off-link { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .timesheet-time-off-link .button { min-height: 34px; padding: .3rem .7rem; }
 .timesheet-paper-header { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 2px solid #cda72e; }
@@ -526,6 +542,13 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .timesheet-paper-rows { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .timesheet-paper-rows th, .timesheet-paper-rows td { padding: .4rem; border-bottom: 1px solid #d9dfd4; text-align: left; }
 .timesheet-paper-rows th { color: var(--green); background: #f5f8f3; }
+.timesheet-pay-month { margin-top: 1rem; padding: .8rem; border: 1px solid var(--line); border-radius: .75rem; background: #fbfdf9; }
+.timesheet-pay-month-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.timesheet-pay-month-heading h3 { margin: .1rem 0 0; color: var(--green); }
+.timesheet-pay-month-heading p { margin: .3rem 0 0; }
+.timesheet-selected-day-note { margin: .65rem 0; padding: .55rem .7rem; border-left: 3px solid var(--green); border-radius: .35rem; background: #eaf3e7; color: var(--ink); }
+.timesheet-pay-month-rows tr.is-selected-day td { background: #eaf3e7; }
+.timesheet-pay-month-rows tr.is-selected-day td:first-child { border-left: 3px solid var(--green); }
 .portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; overflow-wrap: anywhere; }
 .timesheet-completion { margin-top: 1rem; padding: .85rem; border: 1px solid var(--line); border-radius: .85rem; background: #f8fbf6; }
 .timesheet-completion h3 { margin: 0; color: var(--green); }
