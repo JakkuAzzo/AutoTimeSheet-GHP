@@ -1,5 +1,6 @@
 const CONFIG = window.GMT_APP_CONFIG || {};
 const STORAGE_KEY = 'gmt_guest_timesheet_manual_draft_v2';
+const DRAFT_CLEARED_KEY = 'gmt_guest_timesheet_draft_cleared_v1';
 const HOLIDAY_PAID_MINUTES = 8 * 60;
 const BASIC_DAY_MINUTES = 8 * 60;
 const XLSX_SRC = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
@@ -1277,6 +1278,7 @@ async function submitTimesheet(event) {
 
 function saveDraftManually() {
   try {
+    localStorage.removeItem(DRAFT_CLEARED_KEY);
     localStorage.setItem(draftStorageKey(), JSON.stringify({
       schemaVersion: 2,
       savedAt: new Date().toISOString(),
@@ -1295,6 +1297,9 @@ function saveDraftManually() {
 
 function loadSavedDraft() {
   try {
+    // Keep an explicit clear effective across reloads. Older versions could
+    // leave a profile-scoped key behind when the signed-in identity changed.
+    if (localStorage.getItem(DRAFT_CLEARED_KEY) === '1') return false;
     const currentKey = draftStorageKey();
     const legacyKey = legacyDraftStorageKey();
     const raw = localStorage.getItem(currentKey) || localStorage.getItem(legacyKey);
@@ -1331,6 +1336,8 @@ function clearDraft() {
   // would otherwise be restored again on the next load.
   localStorage.removeItem(draftStorageKey());
   localStorage.removeItem(legacyDraftStorageKey());
+  Object.keys(localStorage).filter((key) => key.startsWith(`${STORAGE_KEY}:`)).forEach((key) => localStorage.removeItem(key));
+  localStorage.setItem(DRAFT_CLEARED_KEY, '1');
   showSuccess('Saved draft cleared on this device.');
 }
 
