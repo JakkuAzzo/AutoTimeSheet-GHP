@@ -911,6 +911,39 @@ function upstreamWeekday(value) {
   return day === 0 ? 7 : day;
 }
 
+function upstreamDateKey(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return '';
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+}
+
+function upstreamDailyWindow(startDate, endDate, rows) {
+  const dates = (Array.isArray(rows) ? rows : [])
+    .map((row) => upstreamDateKey(row?.date))
+    .filter(Boolean)
+    .sort();
+  if (!dates.length) return null;
+  const declaredStart = upstreamDateKey(startDate);
+  const declaredEnd = upstreamDateKey(endDate);
+  if (!declaredStart || !declaredEnd) return null;
+  const insideDeclaredWindow = dates.filter((date) => date >= declaredStart && date <= declaredEnd).length;
+  if (insideDeclaredWindow || dates[dates.length - 1] > datePlusDays(dates[0], 6)) return null;
+  // A forwarded/legacy SharePoint row can carry the following week's email
+  // header while its attached daily rows belong to the preceding week. When
+  // every daily date is coherent but outside that header, use the daily window
+  // for reporting and retain the header below as an audit issue.
+  const first = dates[0];
+  const weekday = upstreamWeekday(first);
+  const effectiveStart = datePlusDays(first, -(weekday ? weekday - 1 : 0));
+  return effectiveStart ? {
+    start: effectiveStart,
+    end: datePlusDays(effectiveStart, 6),
+    first,
+    last: dates[dates.length - 1]
+  } : null;
+}
+
 function upstreamBreakMinutes(value) {
   const number = numericUpstreamValue(value);
   if (number !== null) return number;
@@ -1073,9 +1106,12 @@ function normaliseUpstreamRecord(row, identity, env) {
     MAX_RECORD_ID
   );
   const firstDailyDate = text(upstreamObjectValue(firstDailyRow, ['date', 'record_date', 'recordDate', 'Date', 'workDate', 'day']), '', 80);
-  const startDate = text(upstreamValue(row, ['start_date', 'startDate', 'weekStart', 'WeekStart', 'Week Start', 'Week_x0020_Start', 'gmt_week_start']) || titleDetails.weekStart || firstDailyDate, '', 80);
-  const endDate = text(upstreamValue(row, ['end_date', 'endDate', 'weekEnd', 'WeekEnd', 'Week End', 'Week_x0020_End', 'gmt_week_end']) || (kind === 'clock' ? startDate : datePlusDays(startDate, 6)), '', 80);
-  const recordDate = text(upstreamValue(row, ['record_date', 'recordDate', 'date', 'Date', 'gmt_record_date']) || firstDailyDate || startDate, '', 80);
+  let startDate = text(upstreamValue(row, ['start_date', 'startDate', 'weekStart', 'WeekStart', 'Week Start', 'Week_x0020_Start', 'gmt_week_start']) || titleDetails.weekStart || firstDailyDate, '', 80);
+  let endDate = text(upstreamValue(row, ['end_date', 'endDate', 'weekEnd', 'WeekEnd', 'Week End', 'Week_x0020_End', 'gmt_week_end']) || (kind === 'clock' ? startDate : datePlusDays(startDate, 6)), '', 80);
+  let recordDate = text(upstreamValue(row, ['record_date', 'recordDate', 'date', 'Date', 'gmt_record_date']) || firstDailyDate || startDate, '', 80);
+  const declaredStartDate = startDate;
+  const declaredEndDate = endDate;
+  const declaredRecordDate = recordDate;
   const embeddedSubmittedAt = upstreamObjectValue(sourceData.payload, ['submittedAt', 'submitted_at', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at'])
     || upstreamObjectValue(firstDailyRow, ['submittedAt', 'submitted_at', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at']);
   const submittedAt = text(upstreamValue(row, ['submitted_at', 'submittedAt', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at']) || embeddedSubmittedAt || upstreamValue(row, ['Created', 'created', 'Modified', 'modified']), '', 100);
@@ -1091,6 +1127,15 @@ function normaliseUpstreamRecord(row, identity, env) {
     sourceRecordId,
     scheduleWeekdays: directoryEntry?.workdays || []
   })).filter(Boolean);
+  const dailyWindow = kind === 'timesheets' ? upstreamDailyWindow(startDate, endDate, rows) : null;
+  const periodIssue = dailyWindow
+    ? `Source week ${declaredStartDate || 'not dated'} to ${declaredEndDate || 'not dated'} differs from daily rows ${dailyWindow.first} to ${dailyWindow.last}; reporting uses the daily dates.`
+    : '';
+  if (dailyWindow) {
+    startDate = dailyWindow.start;
+    endDate = dailyWindow.end;
+    recordDate = dailyWindow.first;
+  }
   const payloadObject = sourceData.payload && typeof sourceData.payload === 'object' && !Array.isArray(sourceData.payload)
     ? { ...sourceData.payload }
     : {};
@@ -1101,7 +1146,7 @@ function normaliseUpstreamRecord(row, identity, env) {
   const issueValue = parsedIssue
     ? (typeof parsedIssue === 'object' && !Array.isArray(parsedIssue) ? upstreamObjectValue(parsedIssue, ['issue', 'Issue', 'message']) : '')
     : rawIssue;
-  const issue = text(issueValue, '', 1000);
+  const issue = [text(issueValue, '', 1000), periodIssue].filter(Boolean).join(' · ');
   const mapped = {
     kind,
     employee_name: employeeName,
@@ -1124,6 +1169,12 @@ function normaliseUpstreamRecord(row, identity, env) {
     mapped.payload = payload;
     mapped.daily_rows_count = rows.length;
     mapped.daily_dates = rows.map((item) => item.date).filter(Boolean).filter((value, index, values) => values.indexOf(value) === index);
+  }
+  if (periodIssue) {
+    mapped.period_issue = periodIssue;
+    mapped.declared_start_date = declaredStartDate;
+    mapped.declared_end_date = declaredEndDate;
+    mapped.declared_record_date = declaredRecordDate;
   }
   if (directoryEntry?.workdays?.length) {
     mapped.schedule_weekdays = directoryEntry.workdays;
