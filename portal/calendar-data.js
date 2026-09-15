@@ -46,7 +46,7 @@
     // as a sparse submission so dateFallback can keep the record visible. Only
     // promote a direct object to a day row when it also carries a daily time,
     // hour, break or absence value.
-    var directDate = objectValue(record, ["date", "workDate", "day"]);
+    var directDate = objectValue(record, ["date", "record_date", "recordDate", "workDate", "day"]);
     var directTime = objectValue(record, ["start", "startTime", "start_time", "clockIn", "clock_in", "finish", "finishTime", "finish_time", "clockOut", "clock_out"]);
     var directDailyValue = objectValue(record, ["workedMinutes", "worked_minutes", "workedHours", "worked_hours", "hours", "totalHours", "basicHours", "basic_hours", "lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"]);
     return directDate && (directTime || directDailyValue) ? [record] : [];
