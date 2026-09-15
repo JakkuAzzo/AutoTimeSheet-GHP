@@ -23,10 +23,15 @@
   }
   function eventDate(event) { return dateKey(event && (event.date || event.startDate || event.event_date || event.record_date)); }
   function eventType(event) { return String(event && event.type || "general").toLowerCase().replace(/[^a-z]+/g, "-"); }
+  function currentMonthKey() {
+    var parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+    var year = parts.find(function (part) { return part.type === "year"; });
+    var month = parts.find(function (part) { return part.type === "month"; });
+    return (year && year.value ? year.value : "") + "-" + (month && month.value ? month.value : "");
+  }
   function isCurrentPayMonth(key) {
-    return typeof window.GMTCalendarActions?.currentPayMonth === "function"
-      ? String(key).slice(0, 7) === window.GMTCalendarActions.currentPayMonth()
-      : String(key).slice(0, 7) === new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit" }).formatToParts(new Date()).reduce(function (value, part) { return value + (part.type === "year" || part.type === "month" ? part.value + (part.type === "year" ? "-" : "") : ""); }, "");
+    var actionApi = window.GMTCalendarActions;
+    return String(key).slice(0, 7) === (actionApi && typeof actionApi.currentPayMonth === "function" ? actionApi.currentPayMonth() : currentMonthKey());
   }
   function choose(event) {
     if (!event || !event.recordId) return;

@@ -65,6 +65,7 @@ try {
   await calendarPage.waitForFunction(() => document.querySelector('.portal-calendar-grid'));
   assert.equal(await calendarPage.locator('.portal-calendar-weekday').count(), 7);
   assert.ok((await calendarPage.locator('[data-submissions-calendar-title]').innerText()).length > 0);
+  assert.ok(await calendarPage.locator('[data-calendar-day]').count() > 0, 'current-pay-month dates should expose day actions even when the shared action helper has not loaded');
   await calendarPage.addScriptTag({ path: resolve(repoRoot, 'portal/calendar-data.js') });
   const sparseCalendarEvents = await calendarPage.evaluate(() => window.GMTCalendarData.recordsToEvents([{
     kind: 'timesheets', employee_name: 'Jason', record_date: '2026-09-01',
