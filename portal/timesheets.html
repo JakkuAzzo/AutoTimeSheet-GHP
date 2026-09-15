@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <title>My completed timesheets | GMT Staff Portal</title>
 <link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=timesheet-history-admin-completion-20260914">
+<link rel="stylesheet" href="../portal.css?v=timesheet-desktop-calendar-20260915">
 <link rel="stylesheet" href="../tools/estimates.css?v=timesheet-estimate-layout-20260914">
 <script src="../config.js?v=entra-oidc-history-scope-20260914"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
@@ -54,7 +54,7 @@
     <div class="estimate-history-layout timesheet-history-layout">
       <div class="timesheet-calendar-panel">
         <div class="timesheet-calendar-toolbar"><button type="button" id="timesheet-calendar-previous" class="icon-button" aria-label="Previous month">&lt;</button><h3 id="timesheet-calendar-title"></h3><button type="button" id="timesheet-calendar-next" class="icon-button" aria-label="Next month">&gt;</button></div>
-        <p class="small-text">Select a submitted label to open its spreadsheet preview. Accounts can see multiple employee labels and missing-week reasons on the same day.</p>
+        <p class="small-text">Select a submitted label to open its spreadsheet preview. Weekly submissions appear on their week date; cross-month weeks are anchored to the first day shown. Duplicate source rows are grouped with a submission count.</p>
         <div class="calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
         <div id="timesheet-history-list" class="calendar-month-grid timesheet-calendar-grid" aria-live="polite"></div>
       </div>
@@ -64,6 +64,6 @@
   </section>
 </main>
 <script defer src="../portal-api.js?v=portal-api-xero-20260914"></script>
-<script defer src="timesheets.js?v=timesheets-history-preview-20260914"></script>
+<script defer src="timesheets.js?v=timesheet-desktop-calendar-20260915"></script>
 </body>
 </html>

@@ -245,7 +245,35 @@
     return single ? [dateKey(single)].filter(Boolean) : [];
   }
 
-  function completionMissingLabels() {
+  function calendarDateKeys(record, monthDate) {
+    if (!record) return [];
+    // A weekly timesheet is one submission for one week. Put its label on
+    // the recorded week date, or on the first day of the visible month when
+    // that week crosses a month boundary. Rendering the full seven-day range
+    // made desktop cells overflow and hid the buttons users need to select.
+    if (actionKey(record) === 'timesheets') {
+      var start = dateOnly(record.start_date || record.startDate || record.record_date || record.recordDate);
+      var end = dateOnly(record.end_date || record.endDate || record.start_date || record.record_date);
+      var anchor = dateOnly(record.record_date || record.recordDate || record.start_date || record.startDate || record.end_date || record.endDate);
+      if (anchor && anchor.getUTCFullYear() === monthDate.getFullYear() && anchor.getUTCMonth() === monthDate.getMonth()) return [dateKey(anchor)];
+      var monthStart = new Date(Date.UTC(monthDate.getFullYear(), monthDate.getMonth(), 1));
+      var monthEnd = new Date(Date.UTC(monthDate.getFullYear(), monthDate.getMonth() + 1, 0));
+      if (start && end && start <= monthEnd && end >= monthStart) return [dateKey(monthStart)];
+      return [];
+    }
+    return recordDateKeys(record);
+  }
+
+  function calendarGroupKey(record, index) {
+    var kind = actionKey(record);
+    if (kind !== 'timesheets') return kind + '|record|' + index;
+    var employee = String(record && (record.employee_upn || record.employee_name || '') || '').toLowerCase();
+    var week = String(record && (record.start_date || record.record_date || record.end_date || '') || '').slice(0, 10);
+    var status = String(record && record.status || 'Submitted').toLowerCase();
+    return kind + '|' + employee + '|' + week + '|' + status;
+  }
+
+  function completionMissingLabels(monthDate) {
     var labels = {};
     if (!(currentFilter() === 'all' || currentFilter() === 'timesheets') || !lastCompletion) return labels;
     (lastCompletion.employees || []).forEach(function (employee) {
@@ -254,7 +282,10 @@
       if (selectedEmployee && employeeValue.toLowerCase() !== selectedEmployee && String(employee.employee_name || '').toLowerCase() !== selectedEmployee) return;
       (employee.missing || []).forEach(function (reason) {
         var match = String(reason || '').match(/(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/i);
-        var keys = match ? dateRange(match[1], match[2]) : [currentPayMonth() + '-01'];
+        var monthFirst = dateKey(new Date(Date.UTC(monthDate.getFullYear(), monthDate.getMonth(), 1)));
+        var keys = match
+          ? calendarDateKeys({ kind: 'timesheets', start_date: match[1], end_date: match[2] }, monthDate)
+          : (currentPayMonth() + '-01' === monthFirst ? [monthFirst] : []);
         keys.forEach(function (key) {
           if (!labels[key]) labels[key] = [];
           labels[key].push({ missing: true, label: 'Missing · ' + (employee.employee_name || employee.employee_upn || 'Employee'), detail: reason });
@@ -288,12 +319,15 @@
     var days = new Date(year, month + 1, 0).getDate();
     var byDate = {};
     visible.forEach(function (record, index) {
-      recordDateKeys(record).forEach(function (key) {
+      calendarDateKeys(record, viewDate).forEach(function (key) {
         if (!byDate[key]) byDate[key] = [];
-        byDate[key].push({ record: record, index: index });
+        var groupKey = calendarGroupKey(record, index);
+        var existing = byDate[key].find(function (entry) { return entry.groupKey === groupKey; });
+        if (existing) existing.count += 1;
+        else byDate[key].push({ record: record, index: index, groupKey: groupKey, count: 1 });
       });
     });
-    var missing = completionMissingLabels();
+    var missing = completionMissingLabels(viewDate);
     var html = '';
     for (var blank = 0; blank < offset; blank += 1) html += '<div class="calendar-day calendar-day-empty" aria-hidden="true"></div>';
     var today = dateKey(new Date());
@@ -303,8 +337,9 @@
       var labels = entries.map(function (entry) {
         var record = entry.record;
         var employee = record.employee_name || record.employee_upn || 'My submission';
-        var description = employee + ' · ' + actionLabel(record) + ' · ' + periodLabel(record);
-        return '<button type="button" class="timesheet-calendar-label submitted" data-history-index="' + entry.index + '" aria-current="' + String(entry.index === selectedHistory) + '" aria-label="' + safe(description) + '" title="' + safe(description) + '"><strong>' + safe(employee) + '</strong><small>' + safe(actionLabel(record)) + '</small></button>';
+        var countLabel = entry.count > 1 ? ' · ' + entry.count + ' submissions' : '';
+        var description = employee + ' · ' + actionLabel(record) + countLabel + ' · ' + periodLabel(record);
+        return '<button type="button" class="timesheet-calendar-label submitted" data-history-index="' + entry.index + '" aria-current="' + String(entry.index === selectedHistory) + '" aria-label="' + safe(description) + '" title="' + safe(description) + '"><strong>' + safe(employee) + '</strong><small>' + safe(actionLabel(record) + (entry.count > 1 ? ' ×' + entry.count : '')) + '</small></button>';
       }).join('');
       labels += (missing[key] || []).map(function (entry) {
         return '<span class="timesheet-calendar-label missing" title="' + safe(entry.detail || entry.label) + '">' + safe(entry.label) + '</span>';
