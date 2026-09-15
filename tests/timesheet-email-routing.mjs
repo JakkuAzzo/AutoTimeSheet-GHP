@@ -31,7 +31,14 @@ const server = createServer((req, res) => {
 
   if (rawPath === '/config.js') {
     res.writeHead(200, { 'content-type': 'text/javascript' });
-    res.end(readFileSync(filePath, 'utf8').replace(/(entraSpaAuth:\s*\{\s*enabled:\s*)true/, '$1false'));
+    const config = readFileSync(filePath, 'utf8')
+      .replace(/(entraSpaAuth:\s*\{\s*enabled:\s*)true/, '$1false')
+      // This suite exercises the FormSubmit transport. Keep the protected
+      // portal API disabled so a local test cannot attempt an unauthenticated
+      // cross-origin save before the email mock is observed.
+      .replace(/(portalApiEndpoint:\s*)"[^"]*"/, '$1""')
+      .replace(/(portalHistoryEndpoint:\s*)"[^"]*"/, '$1""');
+    res.end(config);
     return;
   }
 

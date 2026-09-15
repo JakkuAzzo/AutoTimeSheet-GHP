@@ -77,14 +77,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .planner-panel:not([open]) { padding-bottom: .7rem; }
 .planner-panel summary { cursor: pointer; color: var(--green); font-weight: 900; }
 .planner-panel summary span { color: var(--muted); font-size: .8rem; font-weight: 600; }
-.portal-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 100; width: min(36rem, calc(100vw - 2rem)); padding: .85rem 1rem; color: #fff; background: var(--green); border: 1px solid #d5b64a; border-radius: .85rem; box-shadow: 0 14px 36px rgba(0,0,0,.25); animation: portal-toast-fade 4.5s ease both; }
+.portal-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 100; width: min(36rem, calc(100vw - 2rem)); padding: .85rem 1rem; color: #fff; background: var(--green); border: 1px solid #d5b64a; border-radius: .85rem; box-shadow: 0 14px 36px rgba(0,0,0,.25); animation: portal-toast-fade 3.5s ease both; }
 .portal-toast[hidden] { display: none; }
 .portal-toast.portal-toast-error { background: #7d2419; }
 .portal-toast-content { display: flex; align-items: center; gap: .8rem; min-width: 0; }
 .portal-toast-content strong { flex: 1 1 auto; min-width: 0; line-height: 1.35; overflow-wrap: anywhere; }
 .portal-toast-dashboard { flex: 0 0 auto; color: #123d1d; background: #fff3b8; border-radius: 999px; padding: .45rem .7rem; font-size: .82rem; font-weight: 900; text-decoration: none; white-space: nowrap; }
 .portal-toast-dismiss { flex: 0 0 auto; width: 2rem; min-height: 2rem; padding: 0; color: #fff; background: transparent; border: 1px solid rgba(255,255,255,.7); font-size: 1.2rem; line-height: 1; }
-@keyframes portal-toast-fade { 0% { opacity: 0; transform: translateY(.4rem); } 8%, 82% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(.25rem); } }
+@keyframes portal-toast-fade { 0% { opacity: 0; transform: translateY(.4rem); } 10%, 78% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(.25rem); } }
 @media (min-width: 1100px) {
   .timesheet-create-main #timesheet-form { padding: 1.4rem; }
   .timesheet-create-main .days-container { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }

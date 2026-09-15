@@ -71,6 +71,25 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/timesheets/create.html`, { waitUntil: 'load' });
 
+  const periodUi = await page.evaluate(() => {
+    const legacy = document.querySelector('.timesheet-period-legacy');
+    const planner = document.querySelector('#absence-planner');
+    return {
+      payMonth: document.querySelector('#timesheet-pay-month-display')?.textContent.trim() || '',
+      period: document.querySelector('#timesheet-period-display')?.textContent.trim() || '',
+      legacyAriaHidden: legacy?.getAttribute('aria-hidden') || '',
+      legacyOpacity: legacy ? getComputedStyle(legacy).opacity : '',
+      legacyPointerEvents: legacy ? getComputedStyle(legacy).pointerEvents : '',
+      absencePlannerOpen: Boolean(planner?.open)
+    };
+  });
+  assert.match(periodUi.payMonth, /^[A-Z][a-z]+ \d{4}$/);
+  assert.equal(periodUi.period, 'Daily entries are generated automatically for the current pay month.');
+  assert.equal(periodUi.legacyAriaHidden, 'true');
+  assert.equal(periodUi.legacyOpacity, '0');
+  assert.equal(periodUi.legacyPointerEvents, 'none');
+  assert.equal(periodUi.absencePlannerOpen, false);
+
   const initialDefaults = await page.evaluate(() => ({
     start: document.querySelector('[data-field="start"]')?.value,
     finish: document.querySelector('[data-field="finish"]')?.value

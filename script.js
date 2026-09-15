@@ -162,9 +162,9 @@ function showToast(message, success) {
   formToast.classList.toggle('portal-toast-error', !success);
   if (formToastDashboard) formToastDashboard.hidden = !success;
   formToast.hidden = false;
-  // Give a successful submission enough time for the dashboard action to be
-  // usable while still removing stale feedback automatically.
-  toastTimer = window.setTimeout(hideToast, 4500);
+  // Keep feedback visible long enough to read, then clear it automatically so
+  // the form is not permanently covered by a stale status banner.
+  toastTimer = window.setTimeout(hideToast, 3500);
 }
 
 function clearMessage() {
@@ -208,11 +208,7 @@ function updatePeriodSummary() {
     timesheetPayMonthDisplay.textContent = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(now);
   }
   if (timesheetPeriodDisplay) {
-    const start = periodDateLabel(weekStart?.value);
-    const end = periodDateLabel(weekEnd?.value);
-    timesheetPeriodDisplay.textContent = start && end
-      ? `${start} to ${end} · generated automatically for this timesheet`
-      : 'The current submission period will be generated automatically.';
+    timesheetPeriodDisplay.textContent = 'Daily entries are generated automatically for the current pay month.';
   }
 }
 
