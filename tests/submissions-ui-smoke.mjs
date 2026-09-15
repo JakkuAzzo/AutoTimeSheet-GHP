@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const submissionsHtml = readFileSync(resolve(repoRoot, 'portal/submissions.html'), 'utf8');
+assert.match(submissionsHtml, /class="submission-list-controls"/);
+assert.ok(submissionsHtml.indexOf('estimate-history-layout') < submissionsHtml.indexOf('submission-list-controls'), 'document filters should live in the document list section');
+assert.doesNotMatch(submissionsHtml, /portal-history-toolbar[^<]*<[^>]+id="submissions-filter"/, 'document filters should not be attached to the status toolbar');
 const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
 
@@ -79,6 +83,26 @@ try {
   }]));
   assert.deepEqual(scheduleEvents.map((event) => event.date), ['2026-09-08', '2026-09-09']);
   assert.equal(scheduleEvents.every((event) => event.scheduled !== false), true);
+
+  const duplicateVersionEvents = await calendarPage.evaluate(() => window.GMTCalendarData.recordsToEvents([
+    {
+      kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk',
+      start_date: '2026-09-07', end_date: '2026-09-13', updated_at: '2026-09-15T09:00:00Z',
+      source_record_id: 'michelle-invalid-latest', payload: { rows: [
+        { date: '2026-09-09', startTime: '05:00', finishTime: '05:00', lunchMinutes: 0, workedHours: 8 }
+      ] }
+    },
+    {
+      kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk',
+      start_date: '2026-09-07', end_date: '2026-09-13', updated_at: '2026-09-14T09:00:00Z',
+      source_record_id: 'michelle-valid-version', payload: { rows: [
+        { date: '2026-09-09', startTime: '09:00', finishTime: '17:00', lunchMinutes: 0, workedHours: 8 }
+      ] }
+    }
+  ]));
+  assert.equal(duplicateVersionEvents.length, 1, 'calendar should select one authoritative weekly version');
+  assert.match(duplicateVersionEvents[0].detail, /09:00–17:00/);
+  assert.doesNotMatch(duplicateVersionEvents[0].detail, /05:00/);
 
   const dashboardCalendarPage = await browser.newPage();
   await dashboardCalendarPage.setContent('<p id="portal-calendar-status"></p><div class="portal-calendar-toolbar"><button data-portal-calendar-prev></button><button data-portal-calendar-picker><span data-portal-calendar-title></span></button><input id="portal-calendar-month-input" data-portal-calendar-input type="month"><button data-portal-calendar-next></button></div><div data-portal-calendar></div>');

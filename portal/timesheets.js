@@ -565,7 +565,10 @@
       if (row.breakStatus === 'added' && row.lunchMinutes === null) row.issues.push('Break duration missing');
       if (row.absenceIsNone && start !== null && finish !== null && !row.breakStatus && row.lunchMinutes === null) row.issues.push('Break not recorded');
       if (!row.absenceIsNone && start === null && finish === null) row.breakStatus = row.breakStatus || 'not-required';
-      if (start !== null && finish !== null && finish < start) row.issues.push('Finish is earlier than clock in');
+      if (start !== null && finish !== null) {
+        if (finish === start) row.issues.push('Clock in and clock out are the same time');
+        else if (finish < start) row.issues.push('Finish is earlier than clock in');
+      }
       if (row.scheduled === false && row.scheduleIssue) row.issues.push(row.scheduleIssue);
       if (row.sourceDate) row.issues.push('Source date corrected from ' + row.sourceDate);
       var weekStart = dateOnly(record && record.start_date);
@@ -643,7 +646,11 @@
     if (!row) return 0;
     var start = timeMinutes(row.start);
     var finish = timeMinutes(row.finish);
-    if (start !== null && finish !== null && finish >= start) return 4;
+    // A zero-length shift is an invalid source variant. Treat it as less
+    // complete than a real interval so a corrected version wins when records
+    // for the same employee/day are merged.
+    if (start !== null && finish !== null && finish > start) return 4;
+    if (start !== null && finish !== null && finish === start) return 0;
     if (start !== null || finish !== null) return 1;
     return 0;
   }
@@ -678,6 +685,68 @@
       }
     });
     return Object.keys(byDate).sort().map(function (date) { return byDate[date]; });
+  }
+
+  function recordUpdatedAt(record) {
+    var value = record && (record.updated_at || record.updatedAt || record.submitted_at || record.submittedAt || record.created_at || record.createdAt);
+    var timestamp = Date.parse(String(value || ''));
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
+  function recordWeekStart(record) {
+    var candidate = dateKey(record && (record.start_date || record.startDate || record.record_date || record.recordDate || record.end_date || record.endDate));
+    if (!candidate) return '';
+    var date = dateOnly(candidate);
+    if (!date) return '';
+    var offset = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - offset);
+    return dateKey(date);
+  }
+
+  function timesheetRecordQuality(record) {
+    var rows = recordRows(record).filter(function (row) { return row && row.scheduled !== false; });
+    if (!rows.length) return { valid: false, validRows: 0, rowCount: 0 };
+    var validRows = rows.filter(function (row) {
+      return !row.issues.some(function (issue) { return /same time|earlier than clock|clock in missing|clock out missing/i.test(issue); });
+    }).length;
+    return { valid: validRows === rows.length, validRows: validRows, rowCount: rows.length };
+  }
+
+  function preferTimesheetRecord(candidate, existing) {
+    if (!existing) return true;
+    var left = timesheetRecordQuality(candidate);
+    var right = timesheetRecordQuality(existing);
+    if (left.valid !== right.valid) return left.valid;
+    var leftUpdated = recordUpdatedAt(candidate);
+    var rightUpdated = recordUpdatedAt(existing);
+    if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
+    if (left.validRows !== right.validRows) return left.validRows > right.validRows;
+    if (left.rowCount !== right.rowCount) return left.rowCount > right.rowCount;
+    return String(candidate && candidate.source_record_id || '').localeCompare(String(existing && existing.source_record_id || '')) > 0;
+  }
+
+  // A forwarded or corrected weekly submission can leave several source rows
+  // for the same employee/week. The calendar should represent the latest
+  // valid version, while the document history continues to retain every
+  // source row for audit.
+  function authoritativeTimesheetEntries(records) {
+    var grouped = {};
+    var passthrough = [];
+    (records || []).forEach(function (record, index) {
+      if (actionKey(record) !== 'timesheets') {
+        passthrough.push({ record: record, index: index });
+        return;
+      }
+      var employee = String(record && (record.employee_upn || record.employee_name || '') || '').toLowerCase();
+      var week = recordWeekStart(record);
+      if (!employee || !week) {
+        passthrough.push({ record: record, index: index });
+        return;
+      }
+      var groupKey = employee + '|' + week;
+      if (!grouped[groupKey] || preferTimesheetRecord(record, grouped[groupKey].record)) grouped[groupKey] = { record: record, index: index };
+    });
+    return passthrough.concat(Object.keys(grouped).map(function (groupKey) { return grouped[groupKey]; }));
   }
 
   function requestStatusLabel(value) {
@@ -939,7 +1008,9 @@
     var offset = (first.getDay() + 6) % 7;
     var days = new Date(year, month + 1, 0).getDate();
     var byDate = {};
-    visible.forEach(function (record, index) {
+    authoritativeTimesheetEntries(visible).forEach(function (entry) {
+      var record = entry.record;
+      var index = entry.index;
       calendarDateKeys(record, viewDate).forEach(function (key) {
         if (!byDate[key]) byDate[key] = [];
         var groupKey = calendarGroupKey(record, index, key);

@@ -211,7 +211,10 @@
     if (!absence || /^(na|none|no absence|not applicable|n\/a)$/i.test(absence)) {
       if (!start) issues.push("Clock in missing");
       if (!finish) issues.push("Clock out missing");
-      if (start && finish && timeMinutes(finish) !== null && timeMinutes(start) !== null && timeMinutes(finish) < timeMinutes(start)) issues.push("Finish earlier than clock in");
+      if (start && finish && timeMinutes(finish) !== null && timeMinutes(start) !== null) {
+        if (timeMinutes(finish) === timeMinutes(start)) issues.push("Clock in and clock out are the same time");
+        else if (timeMinutes(finish) < timeMinutes(start)) issues.push("Finish earlier than clock in");
+      }
       if (!breakStatus && breakMinutes(breakValue) === null) issues.push("Break not recorded");
     }
     var breakTotal = breakMinutes(breakValue);
@@ -254,9 +257,66 @@
     }
     return [{ id: recordId(record) + "|" + start, recordId: recordId(record), date: start, title: employee(record), type: recordKind, owner: employee(record), status: text(record && record.status) || "Submitted", detail: detail, issue: issue, record: record, row: null, scheduled: true }];
   }
+  function recordUpdatedAt(record) {
+    var value = record && (record.updated_at || record.updatedAt || record.submitted_at || record.submittedAt || record.created_at || record.createdAt);
+    var timestamp = Date.parse(String(value || ""));
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+  function recordWeekStart(record) {
+    var candidate = key(record && (record.start_date || record.startDate || record.record_date || record.recordDate || record.end_date || record.endDate));
+    if (!candidate) return "";
+    var parts = candidate.split("-").map(Number);
+    var date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12));
+    if (Number.isNaN(date.getTime())) return "";
+    var offset = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - offset);
+    return date.toISOString().slice(0, 10);
+  }
+  function timesheetQuality(record) {
+    var rows = rowsFor(record);
+    if (!rows.length) return { valid: false, validRows: 0, rowCount: 0 };
+    var events = rows.map(function (row, index) { return rowEvent(record, row, index, {}); }).filter(Boolean).filter(function (event) { return event.scheduled !== false; });
+    if (!events.length) return { valid: false, validRows: 0, rowCount: 0 };
+    var validRows = events.filter(function (event) {
+      if (event.issue && /same time|earlier than clock|clock in missing|clock out missing/i.test(event.issue)) return false;
+      return true;
+    }).length;
+    return { valid: validRows === events.length, validRows: validRows, rowCount: events.length };
+  }
+  function preferTimesheet(candidate, existing) {
+    if (!existing) return true;
+    var left = timesheetQuality(candidate);
+    var right = timesheetQuality(existing);
+    if (left.valid !== right.valid) return left.valid;
+    var leftUpdated = recordUpdatedAt(candidate);
+    var rightUpdated = recordUpdatedAt(existing);
+    if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
+    if (left.validRows !== right.validRows) return left.validRows > right.validRows;
+    if (left.rowCount !== right.rowCount) return left.rowCount > right.rowCount;
+    return String(recordId(candidate)).localeCompare(String(recordId(existing))) > 0;
+  }
+  function authoritativeTimesheetRecords(records) {
+    var grouped = {};
+    var passthrough = [];
+    (Array.isArray(records) ? records : []).forEach(function (record) {
+      if (kind(record) !== "timesheets") {
+        passthrough.push(record);
+        return;
+      }
+      var identity = employee(record).toLowerCase();
+      var week = recordWeekStart(record);
+      if (!identity || !week) {
+        passthrough.push(record);
+        return;
+      }
+      var groupKey = identity + "|" + week;
+      if (!grouped[groupKey] || preferTimesheet(record, grouped[groupKey])) grouped[groupKey] = record;
+    });
+    return passthrough.concat(Object.keys(grouped).map(function (groupKey) { return grouped[groupKey]; }));
+  }
   function recordsToEvents(records, options) {
     var events = [];
-    (Array.isArray(records) ? records : []).forEach(function (record) {
+    authoritativeTimesheetRecords(records).forEach(function (record) {
       var recordKind = kind(record);
       if (recordKind === "timesheets" || recordKind === "clock") {
         var rows = rowsFor(record);
@@ -283,5 +343,5 @@
       return true;
     });
   }
-  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor };
+  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, authoritativeTimesheetRecords: authoritativeTimesheetRecords };
 }());

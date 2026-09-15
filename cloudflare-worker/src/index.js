@@ -895,7 +895,10 @@ function upstreamObjectValue(value, keys) {
 
 const UPSTREAM_DAILY_ROW_KEYS = [
   'rows', 'daily_rows', 'dailyRows', 'records', 'values', 'data', 'items', 'entries', 'dayRows', 'daily',
-  'timesheet', 'timesheets', 'attachments', 'files', 'file', 'attachment'
+  'timesheet', 'timesheets', 'attachments', 'files', 'file', 'attachment',
+  'attachment_content', 'attachmentContent', 'attachment_contents', 'attachmentContents',
+  'file_content', 'fileContent', 'file_contents', 'fileContents', 'calendarSync', 'calendar_sync',
+  'calendarSyncPayload', 'calendar_sync_payload'
 ];
 const UPSTREAM_DAILY_ENVELOPE_KEYS = [
   'payload', 'body', 'result', 'response', 'content', 'value', 'item', 'fields', 'properties',
@@ -1052,9 +1055,13 @@ function alignUpstreamDailyRows(rows, declaredStart, declaredEnd) {
 function upstreamPayloadAndRows(row) {
   const candidates = [
     'payload', 'payload_json', 'payloadJson', 'record_json', 'recordJson', 'Record JSON',
-    'attachment_record', 'attachmentRecord', 'daily_rows', 'dailyRows', 'rows', 'Rows',
-    'record', 'Record', 'issue', 'Issue', 'gmt_payload', 'gmt_daily_rows', 'daily_rows_json',
-    'dailyRowsJson', 'gmt_calendar_sync_payload'
+    'attachment_record', 'attachmentRecord', 'record_attachment', 'recordAttachment',
+    'attachment_content', 'attachmentContent', 'attachment_contents', 'attachmentContents',
+    'file_content', 'fileContent', 'file_contents', 'fileContents',
+    'daily_rows', 'dailyRows', 'rows', 'Rows', 'record', 'Record', 'issue', 'Issue',
+    'body_json', 'bodyJson', 'json_content', 'jsonContent', 'gmt_payload', 'gmt_daily_rows',
+    'daily_rows_json', 'dailyRowsJson', 'gmt_calendar_sync_payload', 'calendarSyncPayload',
+    'calendar_sync_payload', 'calendarSync', 'calendar_sync'
   ];
   for (const key of candidates) {
     const value = upstreamObjectValue(row, [key]);

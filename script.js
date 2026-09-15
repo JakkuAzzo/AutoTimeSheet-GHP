@@ -8,6 +8,12 @@ const form = document.getElementById('timesheet-form');
 const daysContainer = document.getElementById('days-container');
 const summaryOutput = document.getElementById('summary-output');
 const formError = document.getElementById('form-error');
+const formToast = document.getElementById('form-toast');
+const formToastMessage = document.getElementById('form-toast-message');
+const formToastDashboard = document.getElementById('form-toast-dashboard');
+const formToastDismiss = document.getElementById('form-toast-dismiss');
+const timesheetPayMonthDisplay = document.getElementById('timesheet-pay-month-display');
+const timesheetPeriodDisplay = document.getElementById('timesheet-period-display');
 const addDayBtn = document.getElementById('add-day-btn');
 const generateDaysBtn = document.getElementById('generate-days-btn');
 const addAbsenceBtn = document.getElementById('add-absence-btn');
@@ -32,6 +38,7 @@ let dayCount = 0;
 let absenceRanges = [];
 let recalculateTimer = null;
 let xlsxPromise = null;
+let toastTimer = null;
 
 function applyPortalProfile(profile, force = false) {
   if (!profile || typeof profile !== 'object') return;
@@ -41,7 +48,7 @@ function applyPortalProfile(profile, force = false) {
   }
   if (profile.name && timesheetEntryTitle && timesheetEntryCopy) {
     timesheetEntryTitle.textContent = 'Your timesheet';
-    timesheetEntryCopy.textContent = 'Your GMT profile has filled in your name. Choose week dates, mark absences, then complete daily entries.';
+    timesheetEntryCopy.textContent = 'Your GMT profile has filled in your name. The current pay month is selected automatically; complete daily entries and record any absence for each day.';
   }
 }
 
@@ -139,23 +146,74 @@ function absenceForDate(date) {
   return absenceRanges.find((range) => dateInRange(date, range.start, range.end))?.reason || 'NA';
 }
 
+function hideToast() {
+  window.clearTimeout(toastTimer);
+  toastTimer = null;
+  if (!formToast) return;
+  formToast.hidden = true;
+  formToast.classList.remove('portal-toast-success', 'portal-toast-error');
+}
+
+function showToast(message, success) {
+  if (!formToast || !formToastMessage) return;
+  window.clearTimeout(toastTimer);
+  formToastMessage.textContent = message;
+  formToast.classList.toggle('portal-toast-success', Boolean(success));
+  formToast.classList.toggle('portal-toast-error', !success);
+  if (formToastDashboard) formToastDashboard.hidden = !success;
+  formToast.hidden = false;
+  // Give a successful submission enough time for the dashboard action to be
+  // usable while still removing stale feedback automatically.
+  toastTimer = window.setTimeout(hideToast, 4500);
+}
+
 function clearMessage() {
   formError.textContent = '';
+  // Feedback is presented through the transient toast. Keep the legacy
+  // inline node in the DOM for older integrations, but never leave a stale
+  // banner in the form after the toast has disappeared.
+  formError.hidden = true;
   formError.classList.add('hidden');
   formError.classList.remove('success');
   formError.classList.add('banner');
+  hideToast();
 }
 
 function showError(message) {
   formError.textContent = message;
-  formError.classList.remove('hidden', 'success');
+  formError.hidden = true;
+  formError.classList.add('hidden');
+  formError.classList.remove('success');
   formError.classList.add('banner');
+  showToast(message, false);
 }
 
 function showSuccess(message) {
   formError.textContent = message;
-  formError.classList.remove('hidden', 'banner');
-  formError.classList.add('success');
+  formError.hidden = true;
+  formError.classList.add('hidden');
+  formError.classList.remove('success', 'banner');
+  showToast(message, true);
+}
+
+function periodDateLabel(value) {
+  const date = dateObj(value);
+  if (!date || Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+}
+
+function updatePeriodSummary() {
+  if (timesheetPayMonthDisplay) {
+    const now = new Date();
+    timesheetPayMonthDisplay.textContent = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(now);
+  }
+  if (timesheetPeriodDisplay) {
+    const start = periodDateLabel(weekStart?.value);
+    const end = periodDateLabel(weekEnd?.value);
+    timesheetPeriodDisplay.textContent = start && end
+      ? `${start} to ${end} · generated automatically for this timesheet`
+      : 'The current submission period will be generated automatically.';
+  }
 }
 
 function defaultDateForNextDay() {
@@ -166,7 +224,10 @@ function defaultDateForNextDay() {
 }
 
 function initialiseWeekDates() {
-  if (weekStart.value && weekEnd.value) return;
+  if (weekStart.value && weekEnd.value) {
+    updatePeriodSummary();
+    return;
+  }
   const today = new Date();
   const mondayOffset = (today.getDay() + 6) % 7;
   const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -175,6 +236,7 @@ function initialiseWeekDates() {
   sunday.setDate(sunday.getDate() + 6);
   if (!weekStart.value) weekStart.value = isoDate(monday);
   if (!weekEnd.value) weekEnd.value = isoDate(sunday);
+  updatePeriodSummary();
 }
 
 function renderAbsenceRanges() {
@@ -354,6 +416,11 @@ function calculateRows(rows) {
     if (row.absenceStatus === 'Sick') {
       return { ...row, dayName: day, workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: true, note: 'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
     }
+    const startMinutes = parseTimeToMinutes(row.start);
+    const finishMinutes = parseTimeToMinutes(row.finish);
+    if (startMinutes !== null && finishMinutes !== null && startMinutes === finishMinutes) {
+      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish cannot be the same time.' };
+    }
     const actual = workedMinutes(row);
     if (actual === null) {
       return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish are required unless absence reason is Sick or Holiday.' };
@@ -501,7 +568,8 @@ function addAbsenceRange() {
 
 function generateDaysFromRange(preserveRows = false) {
   clearMessage();
-  if (!weekStart.value || !weekEnd.value) return showError('Choose a week starting and week ending date first.');
+  if (!weekStart.value || !weekEnd.value) initialiseWeekDates();
+  if (!weekStart.value || !weekEnd.value) return showError('The current pay-month period could not be generated. Refresh and try again.');
   const start = dateObj(weekStart.value);
   const end = dateObj(weekEnd.value);
   if (start > end) return showError('Week starting must be before or equal to week ending.');
@@ -515,6 +583,7 @@ function generateDaysFromRange(preserveRows = false) {
     cursor.setDate(cursor.getDate() + 1);
   }
   renderRows(rows);
+  updatePeriodSummary();
 }
 
 function ensureXlsxLoaded() {
@@ -874,6 +943,7 @@ function loadSubmittedDraft() {
     employeeEmail.value = String(draft.employeeEmail || employeeEmail.value || '');
     weekStart.value = String(draft.weekStart || '');
     weekEnd.value = String(draft.weekEnd || '');
+    initialiseWeekDates();
     absenceRanges = Array.isArray(draft.absenceRanges) ? draft.absenceRanges : [];
     renderAbsenceRanges();
     renderRows(draft.rows.slice(0, 45));
@@ -909,6 +979,7 @@ async function loadProtectedSubmittedDraft() {
     employeeEmail.value = String(payload.employeeEmail || record?.employee_upn || employeeEmail.value || '');
     weekStart.value = String(payload.weekStart || record?.start_date || '');
     weekEnd.value = String(payload.weekEnd || record?.end_date || '');
+    initialiseWeekDates();
     absenceRanges = Array.isArray(payload.absenceRanges) ? payload.absenceRanges : [];
     renderAbsenceRanges();
     renderRows(rows.slice(0, 45));
@@ -1241,6 +1312,7 @@ function loadSavedDraft() {
     if (typeof draft.employeeEmail === 'string') employeeEmail.value = draft.employeeEmail;
     if (typeof draft.weekStart === 'string') weekStart.value = draft.weekStart;
     if (typeof draft.weekEnd === 'string') weekEnd.value = draft.weekEnd;
+    initialiseWeekDates();
     absenceRanges = Array.isArray(draft.absenceRanges)
       ? draft.absenceRanges.filter((range) => range && range.start && range.end && range.reason)
       : [];
@@ -1321,6 +1393,7 @@ addAbsenceBtn.addEventListener('click', addAbsenceRange);
 saveDraftBtn.addEventListener('click', saveDraftManually);
 clearDraftBtn.addEventListener('click', clearDraft);
 form.addEventListener('submit', submitTimesheet);
+formToastDismiss?.addEventListener('click', hideToast);
 document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail, true));
 document.addEventListener('gmtportalprofile', (event) => applyPortalProfile(event.detail, true));
 
@@ -1331,8 +1404,9 @@ syncPortalProfileWhenReady();
 initialiseWeekDates();
 if (!loadSubmittedDraft() && !loadSavedDraft()) {
   renderAbsenceRanges();
-  addDay();
-  recalculate();
+  // Start with the current Monday-to-Sunday period so employees do not need
+  // to choose a week before they can record a day.
+  generateDaysFromRange();
 }
 
 // A protected record can be edited from a different browser. The local copy

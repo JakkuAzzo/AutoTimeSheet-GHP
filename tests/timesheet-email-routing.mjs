@@ -98,6 +98,15 @@ try {
   await page.locator('#employee-email').fill('routing.tester@example.com');
   await page.locator('#week-start').fill('2026-06-22');
   await page.locator('#week-end').fill('2026-06-26');
+  // The form now generates the current period automatically. This test uses
+  // a fixed historical period, so explicitly regenerate the cards after
+  // setting the compatibility fields.
+  await page.locator('#generate-days-btn').click();
+  // Keep this transport-focused test to one populated day; the daily
+  // calculation suite covers the full generated period.
+  while (await page.locator('#days-container .remove-day').count() > 1) {
+    await page.locator('#days-container .remove-day').last().click();
+  }
   await page.locator('[data-field="date"]').first().fill('2026-06-22');
   await page.locator('[data-field="start"]').first().fill('08:00');
   await page.locator('[data-field="finish"]').first().fill('16:00');
