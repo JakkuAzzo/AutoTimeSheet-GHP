@@ -31,7 +31,7 @@
     try { return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(Number(value) || 0); } catch (_) { return "£" + (Number(value) || 0).toFixed(2); }
   }
   function actionKey(record) {
-    var value = String(record && (record.kind || record.action || record.category || record.record_type || "timesheet")).toLowerCase();
+    var value = [record && record.kind, record && record.action, record && record.category, record && record.record_type].filter(Boolean).join(" ").toLowerCase() || "timesheet";
     if (value.indexOf("clock") !== -1 || value.indexOf("break") !== -1 || value.indexOf("absence") !== -1) return "clock";
     if (value.indexOf("enquir") !== -1 || value.indexOf("inquir") !== -1 || value.indexOf("contact") !== -1) return "enquiries";
     if (value.indexOf("job") !== -1) return "job-cards";
