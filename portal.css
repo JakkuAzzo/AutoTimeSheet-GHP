@@ -148,7 +148,7 @@
 .submissions-calendar-panel { margin-bottom: 1rem; }
 .estimate-history-panel { container-type: inline-size; }
 @container (max-width: 1100px) {
-  .timesheet-history-layout,
+  .portal-history-card .timesheet-history-layout,
   .estimate-history-layout { grid-template-columns: 1fr; }
   .timesheet-calendar-grid,
   .estimate-history-list { max-height: none; }
@@ -494,10 +494,11 @@
 .timesheet-calendar-grid { max-height: 650px; overflow: auto; border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
 .timesheet-calendar-grid .calendar-day { display: block; min-height: 108px; padding: .4rem; }
 .timesheet-calendar-grid .calendar-day time { margin-bottom: .3rem; }
-.timesheet-calendar-label { display: block; width: 100%; margin-top: .22rem; padding: .22rem .3rem; overflow: hidden; border: 0; border-radius: .3rem; text-align: left; font: inherit; font-size: .7rem; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.portal-history-card .timesheet-history-layout { grid-template-columns: minmax(320px, .9fr) minmax(520px, 1.1fr); }
+.timesheet-calendar-label { display: block; width: 100%; min-width: 0; margin-top: .22rem; padding: .22rem .3rem; overflow-wrap: anywhere; border: 0; border-radius: .3rem; text-align: left; font: inherit; font-size: .7rem; line-height: 1.15; white-space: normal; }
 button.timesheet-calendar-label { cursor: pointer; }
 button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
-.timesheet-calendar-label strong, .timesheet-calendar-label small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timesheet-calendar-label strong, .timesheet-calendar-label small { display: block; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .timesheet-calendar-label strong { font-size: .69rem; }
 .timesheet-calendar-label small { font-size: .63rem; }
 .timesheet-calendar-label.submitted { color: #0d4c16; background: #eaf3e7; }
