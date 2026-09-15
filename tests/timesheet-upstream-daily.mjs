@@ -23,4 +23,24 @@ assert.equal(record.payload.rows[0].breakStatus, 'not-taken');
 assert.equal(record.payload.rows[1].lunchMinutes, 30);
 assert.equal(record.payload.rows[1].breakStatus, 'added');
 assert.equal(record.issue, '');
+
+const mismatchedWindow = normaliseUpstreamRecord({
+  Id: 18,
+  Title: 'FW: [GMT][TIMESHEET][SUBMISSION] Matthew | Week 2026-09-07',
+  EmployeeName: 'Matthew',
+  Issue: JSON.stringify([
+    { date: '2026-08-31', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+    { date: '2026-09-01', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+    { date: '2026-09-02', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+    { date: '2026-09-03', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
+    { date: '2026-09-04', startTime: '08:00', finishTime: '17:00', workedHours: 8 }
+  ]),
+  Modified: '2026-09-09T07:00:00Z'
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, directory);
+assert.equal(mismatchedWindow.start_date, '2026-08-31');
+assert.equal(mismatchedWindow.end_date, '2026-09-06');
+assert.equal(mismatchedWindow.record_date, '2026-08-31');
+assert.equal(mismatchedWindow.declared_start_date, '2026-09-07');
+assert.match(mismatchedWindow.period_issue, /differs from daily rows 2026-08-31 to 2026-09-04/);
+assert.match(mismatchedWindow.issue, /reporting uses the daily dates/);
 console.log('Upstream daily attachment: base64 decoding, stable submission IDs, breaks and metadata: PASS');
