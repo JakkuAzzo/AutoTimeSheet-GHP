@@ -28,7 +28,7 @@ ADMIN_GROUP_IDS = ""
 HISTORY_UPSTREAM_URL = "https://default8b182d6b6f344ca284ad50ca712b54.88.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/491610e0763f41269a645bde6346369d/triggers/manual/paths/invoke?api-version=1"
 # The Accounts completion view uses this approved portal roster to distinguish
 # a missing submission from an employee who has never submitted a record.
-STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"name":"Matthew","upn":"matthew@gmt-services.co.uk"},{"name":"Ainsley","upn":"ainsley@gmt-services.co.uk"},{"name":"Simon","upn":"simon@gmt-services.co.uk"},{"name":"Faith","upn":"faith.b@gmt-services.co.uk"},{"name":"Michelle","upn":"michelle@gmt-services.co.uk"}]'
+STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"name":"Matthew","upn":"matthew@gmt-services.co.uk"},{"name":"Ainsley","upn":"ainsley@gmt-services.co.uk"},{"name":"Simon","upn":"simon@gmt-services.co.uk"},{"name":"Faith","upn":"faith.b@gmt-services.co.uk"},{"name":"Michelle","upn":"michelle@gmt-services.co.uk","workdays":[2,3]}]'
 DISPATCH_ENABLED = "true"
 DISPATCH_WEEKDAY = "Friday"
 DISPATCH_HOUR = "18"

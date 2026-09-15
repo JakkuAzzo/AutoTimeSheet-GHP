@@ -23,7 +23,7 @@
   <section class="card submissions-calendar-panel" aria-labelledby="submissions-calendar-title">
     <div class="portal-calendar-preview-heading"><div><span class="portal-card-kicker">Shared information</span><h2 id="submissions-calendar-title">Shared calendar</h2></div><a class="portal-text-link" href="../calendar/">Open calendar tools <span aria-hidden="true">→</span></a></div>
     <p id="submissions-calendar-status" class="small-text" role="status">Loading shared calendar…</p>
-    <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-submissions-calendar-prev aria-label="Previous month">&lt;</button><h3 data-submissions-calendar-title></h3><button type="button" class="icon-button" data-submissions-calendar-next aria-label="Next month">&gt;</button></div>
+    <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-submissions-calendar-prev aria-label="Previous month">&lt;</button><button type="button" class="portal-calendar-month-picker" data-submissions-calendar-picker aria-haspopup="dialog" aria-controls="submissions-calendar-month-input"><span data-submissions-calendar-title></span></button><input id="submissions-calendar-month-input" class="sr-only" data-submissions-calendar-input type="month" tabindex="-1" aria-label="Choose calendar month"><button type="button" class="icon-button" data-submissions-calendar-next aria-label="Next month">&gt;</button></div>
     <div class="portal-calendar-month" data-submissions-calendar aria-label="Shared calendar"></div>
   </section>
   <section class="card estimate-history-panel" aria-labelledby="submissions-title">
@@ -41,6 +41,7 @@
 </main>
 <script defer src="../portal-api.js?v=portal-api-xero-20260914"></script>
 <script defer src="submissions.js?v=submitted-documents-mobile-history-20260914"></script>
-<script defer src="submissions-calendar.js?v=submitted-documents-calendar-20260914"></script>
+<script defer src="calendar-data.js?v=calendar-record-reconciliation-20260915"></script>
+<script defer src="submissions-calendar.js?v=submitted-documents-calendar-reconciled-20260915"></script>
 </body>
 </html>

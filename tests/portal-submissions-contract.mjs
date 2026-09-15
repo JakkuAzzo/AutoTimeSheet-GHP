@@ -34,6 +34,7 @@ assert.match(calendarScript, /Shared calendar connected/);
 assert.match(fs.readFileSync(new URL('../public-site.js', import.meta.url), 'utf8'), /gmt_enquiry_id/);
 assert.match(dashboard, /href="submissions\.html"/);
 assert.match(dashboard, /Submitted documents/);
+assert.match(dashboard, /portal-dashboard-main/);
 assert.doesNotMatch(dashboard, /href="\.\.\/jobs\/"/);
 assert.doesNotMatch(dashboard, />Job Cards<\/strong>/);
 assert.doesNotMatch(dashboard, />My completed timesheets</);

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Invoices | GMT Accounts</title>
+<link rel="icon" type="image/svg+xml" href="../favicon.svg?v=invoices-favicon-20260915">
+<link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
+<link rel="stylesheet" href="../portal.css?v=xero-invoice-list-20260915">
+<script src="../config.js?v=entra-oidc-history-scope-20260914"></script>
+<script defer src="../analytics.js?v=umami-20260819"></script>
+<script defer src="../portal/auth.js?v=entra-auth-20260914-signout-dashboard"></script>
+</head>
+<body>
+<header class="app-header portal-header">
+  <div class="brand-block"><img src="../image.webp" alt="GMT Electrical Services Ltd logo" class="site-logo" width="1536" height="1024"><div><p class="eyebrow">GMT Accounts</p><h1>Invoices</h1><p class="portal-header-subtitle">Xero invoice listing and tracking</p></div></div>
+  <nav class="header-actions" aria-label="Invoice navigation"><a href="./">Tools</a><a href="../portal/">Dashboard</a><a href="../timesheets/">Timesheets</a><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
+</header>
+<main class="app-main estimate-main" hidden>
+  <section class="estimate-intro card"><div><p class="portal-card-kicker">Accounts-only workflow</p><h2>Invoices in Xero</h2><p>This page uses the organisation connection held by GMT Accounts. The connection is shared across the Accounts aliases and refreshes securely when Xero access tokens rotate.</p></div><span id="xero-connection-chip" class="estimate-status-chip">Checking connection…</span></section>
+  <section id="xero-access-panel" class="card xero-invoice-panel" aria-labelledby="xero-access-title">
+    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">1 · Connection</p><h2 id="xero-access-title">Xero organisation</h2></div><button type="button" id="xero-refresh" class="secondary">Refresh</button></div>
+    <p id="xero-status" class="small-text" role="status">Checking the protected Xero connection…</p>
+    <div id="xero-connections" class="xero-connections"></div>
+    <button type="button" id="xero-connect" class="button button-link">Connect Xero once</button>
+    <p class="small-text">Only the Accounts administrator can connect or read invoices. Once connected, the encrypted organisation token is retained by the portal service for future Accounts sessions.</p>
+  </section>
+  <section class="card xero-invoice-panel" aria-labelledby="invoice-list-title">
+    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">2 · Register</p><h2 id="invoice-list-title">Invoice register</h2></div><div class="xero-invoice-actions"><label>Status<select id="xero-invoice-status"><option value="">All statuses</option><option value="DRAFT">Draft</option><option value="SUBMITTED">Submitted</option><option value="AUTHORISED">Authorised</option><option value="PAID">Paid</option><option value="VOIDED">Voided</option></select></label><button type="button" id="xero-invoice-load" class="secondary">Load invoices</button></div></div>
+    <p id="xero-invoice-status-message" class="small-text" role="status">Connect Xero to load the invoice register.</p>
+    <div class="table-scroll"><table id="xero-invoice-table" class="portal-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Date</th><th>Due</th><th>Total</th><th>Amount due</th></tr></thead><tbody><tr><td colspan="7">No invoices loaded.</td></tr></tbody></table></div>
+  </section>
+  <section class="card xero-invoice-panel" aria-labelledby="invoice-lookup-title">
+    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">3 · Tracking</p><h2 id="invoice-lookup-title">Find an invoice</h2></div></div>
+    <form id="xero-invoice-lookup" class="xero-invoice-lookup"><label>Invoice number<input id="xero-invoice-number" required placeholder="e.g. INV-0001"></label><button type="submit" class="secondary">Find in Xero</button></form>
+    <p id="xero-invoice-lookup-status" class="small-text" role="status"></p>
+    <article id="xero-invoice-result" class="xero-invoice-result" hidden></article>
+    <p class="small-text"><a class="button button-link" href="https://go.xero.com/" target="_blank" rel="noopener">Create or edit invoices in Xero ↗</a> Invoice creation remains in Xero so its numbering, approval and audit trail stay authoritative.</p>
+  </section>
+</main>
+<script defer src="../portal-api.js?v=portal-api-xero-invoices-20260915"></script>
+<script defer src="invoices.js?v=xero-invoice-list-20260915"></script>
+</body>
+</html>

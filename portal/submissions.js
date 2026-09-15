@@ -173,11 +173,14 @@
       adminTimesheetTable.innerHTML = '<tbody><tr><td>No employee rows were returned by the protected history source.</td></tr></tbody>';
       return;
     }
-    adminTimesheetTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Submitted records</th><th>Missing / needs attention</th></tr></thead><tbody>' + employees.map(function (employee) {
+    adminTimesheetTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Submitted records</th><th>Source variants</th><th>Missing / needs attention</th></tr></thead><tbody>' + employees.map(function (employee) {
       var statusValue = String(employee.status || "missing");
       var statusLabel = statusValue === "completed" ? "Completed" : statusValue === "incomplete" ? "Incomplete" : "Missing";
-      var missing = Array.isArray(employee.missing) && employee.missing.length ? employee.missing.join("; ") : "None";
-      return '<tr><td><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td>' + safe(employee.submitted_records || 0) + '</td><td>' + safe(missing) + '</td></tr>';
+      var missingItems = Array.isArray(employee.missing) ? employee.missing.slice() : [];
+      if (employee.review_flags) missingItems.push(employee.review_flags + ' daily review flag' + (employee.review_flags === 1 ? '' : 's'));
+      if (employee.schedule_label) missingItems.push('Schedule: ' + employee.schedule_label);
+      var missing = missingItems.length ? missingItems.join("; ") : "None";
+      return '<tr><td data-label="Employee"><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td data-label="Status"><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td data-label="Submitted records">' + safe(employee.submitted_records || 0) + '</td><td data-label="Source variants">' + safe(employee.source_variants || employee.submitted_records || 0) + '</td><td data-label="Missing / needs attention">' + safe(missing) + '</td></tr>';
     }).join("") + '</tbody>';
   }
   function renderEnquiryPreview(record) {
@@ -318,5 +321,21 @@
   }
   if (filter) filter.addEventListener("change", function () { selected = -1; render(); });
   if (refresh) refresh.addEventListener("click", load);
+  // Shared calendar labels carry the protected source record ID. Selecting a
+  // day therefore opens the same document preview as selecting its history
+  // row, including records whose daily data came from a weekly attachment.
+  document.addEventListener("gmt:calendar-select", function (event) {
+    var detail = event && event.detail || {};
+    var recordId = String(detail.recordId || "");
+    if (!recordId) return;
+    var visible = visibleRecords();
+    var index = visible.findIndex(function (record) {
+      return String(record && (record.source_record_id || record.record_id || record.id) || "") === recordId;
+    });
+    if (index < 0) return;
+    select(index);
+    var item = list && list.querySelector('[data-submission-index="' + index + '"]');
+    if (item && typeof item.scrollIntoView === "function") item.scrollIntoView({ block: "nearest" });
+  });
   document.addEventListener("DOMContentLoaded", load);
 }());
