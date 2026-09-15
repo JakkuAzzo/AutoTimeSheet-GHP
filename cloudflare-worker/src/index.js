@@ -1021,7 +1021,9 @@ function normaliseUpstreamRecord(row, identity, env) {
   const startDate = text(upstreamValue(row, ['start_date', 'startDate', 'weekStart', 'WeekStart', 'Week Start', 'Week_x0020_Start', 'gmt_week_start']) || titleDetails.weekStart || firstDailyDate, '', 80);
   const endDate = text(upstreamValue(row, ['end_date', 'endDate', 'weekEnd', 'WeekEnd', 'Week End', 'Week_x0020_End', 'gmt_week_end']) || (kind === 'clock' ? startDate : datePlusDays(startDate, 6)), '', 80);
   const recordDate = text(upstreamValue(row, ['record_date', 'recordDate', 'date', 'Date', 'gmt_record_date']) || firstDailyDate || startDate, '', 80);
-  const submittedAt = text(upstreamValue(row, ['submitted_at', 'submittedAt', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at']) || upstreamValue(row, ['Created', 'created', 'Modified', 'modified']), '', 100);
+  const embeddedSubmittedAt = upstreamObjectValue(sourceData.payload, ['submittedAt', 'submitted_at', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at'])
+    || upstreamObjectValue(firstDailyRow, ['submittedAt', 'submitted_at', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at']);
+  const submittedAt = text(upstreamValue(row, ['submitted_at', 'submittedAt', 'Submitted At', 'Submitted_x0020_At', 'gmt_submitted_at']) || embeddedSubmittedAt || upstreamValue(row, ['Created', 'created', 'Modified', 'modified']), '', 100);
   const updatedAt = text(upstreamValue(row, ['updated_at', 'updatedAt', 'Modified', 'modified']) || submittedAt, '', 100);
   const action = text(upstreamValue(row, ['action', 'Action', 'category', 'record_type', 'gmt_action']) || (kind === 'timesheets' ? 'submission' : kind === 'clock' ? 'clock' : 'Timesheet'), 'Timesheet', 100);
   const status = text(upstreamValue(row, ['status', 'Status', 'Status Value', 'gmt_status']) || 'Submitted', 'Submitted', 100);
