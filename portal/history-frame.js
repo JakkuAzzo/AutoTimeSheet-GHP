@@ -125,7 +125,8 @@
   }
 
   function recordPayMonth(record) {
-    return String(record && (record.start_date || record.record_date || record.end_date) || "").slice(0, 7);
+    // Use the week-ending date for payroll windows that cross a month edge.
+    return String(record && (record.end_date || record.start_date || record.record_date) || "").slice(0, 7);
   }
 
   function minutes(value) {
@@ -198,7 +199,7 @@
     event.preventDefault();
     var form = event.currentTarget; var message = document.getElementById("timesheet-editor-message"); var button = document.getElementById("timesheet-editor-submit");
     var weekStart = form.elements.weekStart.value; var weekEnd = form.elements.weekEnd.value;
-    if (!weekStart || weekStart.slice(0, 7) !== currentPayMonth()) { message.textContent = "Only timesheets made within the current pay month may be edited."; message.classList.remove("hidden"); return; }
+    if (!weekStart || recordPayMonth({ start_date: weekStart, end_date: weekEnd }) !== currentPayMonth()) { message.textContent = "Only timesheets made within the current pay month may be edited."; message.classList.remove("hidden"); return; }
     var rows = originalRows.map(function (row, index) { return Object.assign({}, row, { date: form.elements["date-" + index].value, start: form.elements["start-" + index].value, finish: form.elements["finish-" + index].value, lunchMinutes: Number(form.elements["break-" + index].value || 0), lunchHad: Number(form.elements["break-" + index].value || 0) > 0, absenceStatus: form.elements["absence-" + index].value, description: form.elements["note-" + index].value }); });
     var calculation = calculateRows(rows);
     if (calculation.totals.errors.length) { message.textContent = calculation.totals.errors.join(" "); message.classList.remove("hidden"); return; }

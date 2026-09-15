@@ -136,15 +136,16 @@
       return String(employee.employee_upn || "").toLowerCase() === selectedEmployee || String(employee.employee_name || "").toLowerCase() === selectedEmployee;
     });
     if (!employees.length) {
-      completionTable.innerHTML = '<tbody><tr><td colspan="4">No employee rows were returned.</td></tr></tbody>';
+      completionTable.innerHTML = '<tbody><tr><td colspan="5">No employee rows were returned.</td></tr></tbody>';
       return;
     }
-    completionTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Completed weeks</th><th>Missing / needs attention</th></tr></thead><tbody>' + employees.map(function (employee) {
+    completionTable.innerHTML = '<thead><tr><th>Employee</th><th>Status</th><th>Submitted records</th><th>Completed weeks</th><th>Missing / needs attention</th></tr></thead><tbody>' + employees.map(function (employee) {
       var statusValue = String(employee.status || "missing");
       var statusLabel = statusValue === "completed" ? "Completed" : statusValue === "incomplete" ? "Incomplete" : "Missing";
+      var submitted = Number(employee.submitted_records || 0);
       var completed = (employee.completed_weeks || []).join(", ") || "None";
       var missing = (employee.missing || []).join("; ") || "None";
-      return '<tr><td><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td>' + safe(completed) + '</td><td>' + safe(missing) + '</td></tr>';
+      return '<tr><td><strong>' + safe(employee.employee_name || employee.employee_upn || "Unnamed employee") + '</strong><br><span class="small-text">' + safe(employee.employee_upn || "") + '</span></td><td><span class="portal-status ' + safe(statusValue) + '">' + safe(statusLabel) + '</span></td><td>' + safe(submitted) + '</td><td>' + safe(completed) + '</td><td>' + safe(missing) + '</td></tr>';
     }).join("") + '</tbody>';
   }
 
@@ -180,7 +181,10 @@
   }
 
   function recordPayMonth(record) {
-    return String(record && (record.start_date || record.record_date || record.end_date) || '').slice(0, 7);
+    // Pay months follow the week-ending date so a Monday week that starts in
+    // the previous calendar month (for example 31 Aug–6 Sep) is included in
+    // the September payroll window.
+    return String(record && (record.end_date || record.start_date || record.record_date) || '').slice(0, 7);
   }
 
   function renderTimesheetPreview(record) {

@@ -503,8 +503,11 @@ function recordMonthKey(value, timeZone = 'Europe/London') {
 // for every authorised record.
 function isCurrentPayMonthRecord(row, timeZone = 'Europe/London') {
   if (!row) return false;
+  const month = monthKeyInTimeZone(new Date(), timeZone);
+  const week = recordWeekStart(row);
+  if (week) return completionWeeks(month, timeZone, new Date()).some((entry) => entry.start === week);
   const recordMonth = recordMonthKey(row.start_date || row.record_date || row.end_date, timeZone);
-  return Boolean(recordMonth && recordMonth === monthKeyInTimeZone(new Date(), timeZone));
+  return Boolean(recordMonth && recordMonth === month);
 }
 
 const isCurrentMonthRecord = isCurrentPayMonthRecord;
@@ -868,7 +871,15 @@ function normaliseUpstreamRecord(row, identity, env) {
     source: 'microsoft-365',
     synthetic: false
   };
-  mapped.synthetic = syntheticRecord(mapped, row) || /^TEST(?:[\s_-]|$)/i.test(employeeName) || /\b(?:flow\s+test|flow\s+validation|historical\s+backfill|archive\s+(?:backfill|real)|test\s+(?:route|external))\b/i.test(title);
+  // The protected history list also contains old validation/backfill rows. Once
+  // the employee roster is configured, an unmatched identity cannot be a
+  // current employee submission, so keep it out of the default Accounts view
+  // and completion totals. This also excludes the retiring acc.gmtelect test
+  // account without hard-coding it into the UI.
+  mapped.synthetic = syntheticRecord(mapped, row)
+    || /^TEST(?:[\s_-]|$)/i.test(employeeName)
+    || /\b(?:flow\s+test|flow\s+validation|historical\s+backfill|archive\s+(?:backfill|real)|test\s+(?:route|external))\b/i.test(title)
+    || (directory.length > 0 && !directoryEntry);
   return mapped;
 }
 
@@ -936,6 +947,16 @@ function recordStatusIssue(row) {
   return '';
 }
 
+function historyRecordKey(record) {
+  if (!record || typeof record !== 'object') return '';
+  const source = text(record.source_record_id || record.sourceRecordId, '', MAX_RECORD_ID).toLowerCase();
+  if (source) return `source:${source}`;
+  const kind = canonicalKind(record.kind || record.action || 'timesheets');
+  const employee = text(record.employee_upn || record.employee_email || record.employee_name, '', 320).toLowerCase();
+  const week = recordWeekStart(record) || text(record.start_date || record.record_date || record.end_date, '', 80).slice(0, 10);
+  return `${kind}|${employee}|${week}|${text(record.status, 'Submitted', 120).toLowerCase()}`;
+}
+
 function completionSummary(records, env, timeZone = 'Europe/London', nowDate = new Date()) {
   const month = monthKeyInTimeZone(nowDate, timeZone);
   const weeks = completionWeeks(month, timeZone, nowDate);
@@ -948,14 +969,17 @@ function completionSummary(records, env, timeZone = 'Europe/London', nowDate = n
     const upn = text(record.employee_upn || record.employeeEmail || record.employee_email, '', 320).toLowerCase();
     const name = text(record.employee_name || record.employeeName, '', 240);
     const key = upn || name.toLowerCase();
+    // With a configured roster, completion is an employee coverage report;
+    // unmatched validation/archive identities must not create extra employees.
+    if (directory.length && !directoryEntryFor(directory, name, upn)) return;
     if (!key || identities.has(key)) return;
     identities.set(key, { name, upn, configured: false });
   });
   const employees = [...identities.values()].map((employee) => {
     const employeeRecords = records.filter((record) => {
       if (!timesheetRecord(record)) return false;
-      const recordMonth = recordMonthKey(record.start_date || record.record_date || record.end_date, timeZone);
-      if (recordMonth !== month) return false;
+      const week = recordWeekStart(record);
+      if (!week || !weeks.some((entry) => entry.start === week)) return false;
       const upn = text(record.employee_upn || record.employeeEmail || record.employee_email, '', 320).toLowerCase();
       const name = text(record.employee_name || record.employeeName, '', 240).toLowerCase();
       return employee.upn ? upn === employee.upn : name === employee.name.toLowerCase();
@@ -1595,7 +1619,6 @@ async function listRecords(request, env, identity) {
   let upstreamSourceRowCount = 0;
   let upstreamNormalisedRecordCount = 0;
   let upstreamEmployeeMatchedRecordCount = 0;
-  let upstreamSampleFields = [];
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
   const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
   if (upstreamUrl && upstreamEnabledForKind) {
@@ -1618,24 +1641,23 @@ async function listRecords(request, env, identity) {
                 : null;
           if (sourceRows) {
             upstreamSourceRowCount = sourceRows.length;
-            upstreamSampleFields = sourceRows.slice(0, 5).map((row) => row && typeof row === 'object' && !Array.isArray(row) ? Object.keys(row).slice(0, 60) : []);
             const normalisedRows = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env));
             upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
             const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
             upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
-            if (identity.isAdmin) {
-              const sampleKeys = ['employee_name', 'employee_email', 'start_date', 'end_date', 'status', 'submitted_at', 'updated_at', 'issue', 'source_record_id'];
-              const sampleShapes = sourceRows.slice(0, 5).map((row) => Object.fromEntries(sampleKeys.map((key) => {
-                const value = row && typeof row === 'object' ? row[key] : undefined;
-                return [key, { type: Array.isArray(value) ? 'array' : typeof value, length: value == null ? 0 : String(value).trim().length }];
-              })));
-              console.log('history-projection', JSON.stringify({ sourceRows: upstreamSourceRowCount, normalized: upstreamNormalisedRecordCount, matched: upstreamEmployeeMatchedRecordCount, sampleFields: upstreamSampleFields, sampleShapes }));
-            }
             const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
             const localIds = new Set(records.map((row) => row.source_record_id));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
             upstreamRecordCount = visibleUpstreamRecords.length;
-            records = [...records, ...visibleUpstreamRecords.filter((row) => !localIds.has(row.source_record_id))];
+            const seenHistoryKeys = new Set(records.map(historyRecordKey).filter(Boolean));
+            const uniqueUpstreamRecords = visibleUpstreamRecords.filter((row) => {
+              if (row.source_record_id && localIds.has(row.source_record_id)) return false;
+              const key = historyRecordKey(row);
+              if (!key || seenHistoryKeys.has(key)) return false;
+              seenHistoryKeys.add(key);
+              return true;
+            });
+            records = [...records, ...uniqueUpstreamRecords];
             upstream = 'ok';
           } else upstream = 'invalid-response';
         } else upstream = `http-${upstreamResponse.status}`;
@@ -1659,7 +1681,6 @@ async function listRecords(request, env, identity) {
       upstream_source_row_count: upstreamSourceRowCount,
       upstream_normalized_record_count: upstreamNormalisedRecordCount,
       upstream_employee_matched_record_count: upstreamEmployeeMatchedRecordCount,
-      upstream_sample_fields: upstreamSampleFields,
       synthetic_record_count: syntheticRecordCount,
       synthetic_included: includeSynthetic,
       role: identity.isAdmin ? 'accounts-admin' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee')),

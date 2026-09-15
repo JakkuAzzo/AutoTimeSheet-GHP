@@ -66,6 +66,21 @@ assert.equal(byName.Matthew.status, 'missing');
 assert.equal(summary.employees.some((employee) => employee.employee_name === 'TEST AUTOMATED USER'), false);
 assert.deepEqual(summary.counts, { completed: 0, incomplete: 2, missing: 2 });
 
+const boundaryEnv = {
+  STAFF_DIRECTORY_JSON: JSON.stringify([
+    { name: 'Simon', upn: 'simon@gmt-services.co.uk' }
+  ])
+};
+const boundarySummary = completionSummary([
+  {
+    kind: 'timesheets', employee_name: 'Simon', employee_upn: 'simon@gmt-services.co.uk',
+    start_date: '2026-08-31', end_date: '2026-09-06', status: 'Submitted', issue: ''
+  }
+], boundaryEnv, 'Europe/London', now);
+assert.equal(boundarySummary.employees[0].submitted_records, 1);
+assert.deepEqual(boundarySummary.employees[0].completed_weeks, ['2026-08-31']);
+assert.equal(boundarySummary.employees[0].status, 'incomplete');
+
 const rows = [
   {
     record_id: 'real-jason', owner_oid: 'jason-oid', owner_upn: 'jason@gmt-services.co.uk', employee_name: 'Jason', kind: 'timesheets', action: 'submission', status: 'Submitted', start_date: '2026-09-07', end_date: '2026-09-13', record_date: '2026-09-07', submitted_at: '2026-09-14T10:00:00Z', updated_at: '2026-09-14T10:00:00Z', issue: '', payload_json: '{}'
