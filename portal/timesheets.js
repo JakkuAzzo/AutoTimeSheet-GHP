@@ -201,6 +201,9 @@
   }
 
   function actionLabel(record) {
+    var key = actionKey(record);
+    var labels = { timesheets: 'Timesheet', clock: 'Clock / breaks', 'job-cards': 'Job card', estimates: 'Estimate', invoices: 'Invoice', tasks: 'Task', calendar: 'Calendar request' };
+    if (labels[key]) return labels[key];
     return String(record && (record.action || record.kind || 'Timesheet')).replace(/_/g, ' ').replace(/\b\w/g, function (letter) { return letter.toUpperCase(); });
   }
 
