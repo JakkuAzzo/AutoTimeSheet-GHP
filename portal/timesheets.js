@@ -979,13 +979,30 @@
     return kind + '|' + employee + '|' + week + '|' + String(date || '') + '|' + status;
   }
 
-  function completionMissingLabels(monthDate) {
+  function completionMissingLabels(monthDate, visibleRecords) {
     var labels = {};
     if (!(currentFilter() === 'all' || currentFilter() === 'timesheets') || !lastCompletion) return labels;
+    // Completion metadata is week based, while the calendar is day based.
+    // Suppress a missing-week marker when the authoritative daily source has
+    // already supplied a valid row for that employee/date. Keep the original
+    // completion reason in the employee table and source history for audit.
+    var filledDates = {};
+    authoritativeTimesheetEntries(visibleRecords || lastRecords || []).forEach(function (entry) {
+      var record = entry && entry.record;
+      var identity = calendarEmployeeKey(record);
+      if (!identity) return;
+      calendarDateKeys(record, monthDate).forEach(function (dayKey) {
+        filledDates[identity + '|' + dayKey] = true;
+      });
+    });
+    var emitted = {};
     (lastCompletion.employees || []).forEach(function (employee) {
       var selectedEmployee = currentEmployee().toLowerCase();
       var employeeValue = String(employee.employee_upn || employee.employee_name || '');
       if (selectedEmployee && employeeValue.toLowerCase() !== selectedEmployee && String(employee.employee_name || '').toLowerCase() !== selectedEmployee) return;
+      var employeeKeys = [employee.employee_upn, employee.employee_name]
+        .map(function (value) { return String(value || '').trim().toLowerCase(); })
+        .filter(Boolean);
       (employee.missing || []).forEach(function (reason) {
         var match = String(reason || '').match(/(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/i);
         var monthFirst = dateKey(new Date(Date.UTC(monthDate.getFullYear(), monthDate.getMonth(), 1)));
@@ -998,6 +1015,10 @@
           return workdays.indexOf(weekday) !== -1;
         }) : (currentPayMonth() + '-01' === monthFirst ? [monthFirst] : []);
         keys.forEach(function (key) {
+          if (employeeKeys.some(function (identity) { return filledDates[identity + '|' + key]; })) return;
+          var emittedKey = employeeValue.toLowerCase() + '|' + key + '|' + String(reason || '');
+          if (emitted[emittedKey]) return;
+          emitted[emittedKey] = true;
           if (!labels[key]) labels[key] = [];
           labels[key].push({ missing: true, label: 'Missing · ' + (employee.employee_name || employee.employee_upn || 'Employee'), detail: reason });
         });
@@ -1051,7 +1072,7 @@
         }
       });
     });
-    var missing = completionMissingLabels(viewDate);
+    var missing = completionMissingLabels(viewDate, visible);
     var html = '';
     for (var blank = 0; blank < offset; blank += 1) html += '<div class="calendar-day calendar-day-empty" aria-hidden="true"></div>';
     var today = dateKey(new Date());
