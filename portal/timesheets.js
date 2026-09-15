@@ -1016,7 +1016,11 @@
         }) : (currentPayMonth() + '-01' === monthFirst ? [monthFirst] : []);
         keys.forEach(function (key) {
           if (employeeKeys.some(function (identity) { return filledDates[identity + '|' + key]; })) return;
-          var emittedKey = employeeValue.toLowerCase() + '|' + key + '|' + String(reason || '');
+          // A week can be represented by more than one completion reason
+          // (for example an old missing week and a current incomplete week).
+          // The calendar needs one readable marker per employee/day; the
+          // detailed reasons remain in the Accounts completion table.
+          var emittedKey = employeeValue.toLowerCase() + '|' + key;
           if (emitted[emittedKey]) return;
           emitted[emittedKey] = true;
           if (!labels[key]) labels[key] = [];
