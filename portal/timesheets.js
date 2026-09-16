@@ -791,6 +791,11 @@
     return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
+  function recordVariantRank(record) {
+    var variant = String(record && record.reconciliation && record.reconciliation.variant_status || '').toLowerCase();
+    return variant === 'authoritative' ? 2 : variant === 'source-variant' ? 1 : 0;
+  }
+
   function recordWeekStart(record) {
     var candidate = dateKey(record && (record.start_date || record.startDate || record.record_date || record.recordDate || record.end_date || record.endDate));
     if (!candidate) return '';
@@ -818,9 +823,9 @@
     if (left.valid !== right.valid) return left.valid;
     if (left.validRows !== right.validRows) return left.validRows > right.validRows;
     if (left.rowCount !== right.rowCount) return left.rowCount > right.rowCount;
-    var leftVariant = String(candidate && candidate.reconciliation && candidate.reconciliation.variant_status || '').toLowerCase();
-    var rightVariant = String(existing && existing.reconciliation && existing.reconciliation.variant_status || '').toLowerCase();
-    if (leftVariant !== rightVariant && (leftVariant || rightVariant)) return leftVariant === 'authoritative';
+    var leftVariantRank = recordVariantRank(candidate);
+    var rightVariantRank = recordVariantRank(existing);
+    if (leftVariantRank !== rightVariantRank) return leftVariantRank > rightVariantRank;
     // A reconciled authoritative record may include an explicitly documented
     // date correction. Prefer it over the older upstream projection before
     // applying the correction penalty, otherwise the stale 31h/78h history
@@ -875,9 +880,9 @@
     if (left.valid !== right.valid) return left.valid;
     if (left.validity !== right.validity) return left.validity > right.validity;
     if (left.completeness !== right.completeness) return left.completeness > right.completeness;
-    var leftVariant = String(candidate && candidate.record && candidate.record.reconciliation && candidate.record.reconciliation.variant_status || '').toLowerCase();
-    var rightVariant = String(existing && existing.record && existing.record.reconciliation && existing.record.reconciliation.variant_status || '').toLowerCase();
-    if (leftVariant !== rightVariant && (leftVariant || rightVariant)) return leftVariant === 'authoritative';
+    var leftVariantRank = recordVariantRank(candidate && candidate.record);
+    var rightVariantRank = recordVariantRank(existing && existing.record);
+    if (leftVariantRank !== rightVariantRank) return leftVariantRank > rightVariantRank;
     if (left.corrected !== right.corrected) return left.corrected < right.corrected;
     var leftUpdated = recordUpdatedAt(candidate && candidate.record);
     var rightUpdated = recordUpdatedAt(existing && existing.record);
@@ -906,7 +911,12 @@
   }
 
   function employeeMetrics(employee) {
-    var records = (lastRecords || []).filter(function (record) { return ['timesheets', 'clock'].indexOf(actionKey(record)) !== -1 && employeeMatches(record, employee.employee_upn || employee.employee_name); });
+    var payMonth = String(lastCompletion && lastCompletion.pay_month || currentPayMonth());
+    var records = (lastRecords || []).filter(function (record) {
+      return ['timesheets', 'clock'].indexOf(actionKey(record)) !== -1
+        && employeeMatches(record, employee.employee_upn || employee.employee_name)
+        && recordPayMonth(record) === payMonth;
+    });
     var rows = [];
     records.forEach(function (record) { rows = rows.concat(recordRows(record)); });
     var schedule = Array.isArray(employee.schedule_weekdays) ? employee.schedule_weekdays.map(Number) : [];
@@ -1260,7 +1270,11 @@
 
   function render(records) {
     applyRouteState();
-    lastRecords = Array.isArray(records) ? records : [];
+    lastRecords = (Array.isArray(records) ? records : []).slice().sort(function (left, right) {
+      var variantOrder = recordVariantRank(right) - recordVariantRank(left);
+      if (variantOrder) return variantOrder;
+      return recordUpdatedAt(right) - recordUpdatedAt(left);
+    });
     var visible = filteredRecords();
     renderCalendar(visible);
     if (!visible.length) {
