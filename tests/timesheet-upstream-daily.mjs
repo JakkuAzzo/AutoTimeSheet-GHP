@@ -110,8 +110,8 @@ assert.match(sparseSubmission.issue, /times, breaks and totals are unavailable/)
 const michelleDirectory = { STAFF_DIRECTORY_JSON: JSON.stringify([{ name: 'Michelle', upn: 'michelle@gmt-services.co.uk', workdays: [2, 3] }]) };
 const nestedMichelle = normaliseUpstreamRecord({
   Id: 19,
-  Title: 'FW: [GMT][TIMESHEET][SUBMISSION] Michelle Reid | Week 2026-09-07',
-  EmployeeName: 'Michelle Reid',
+  Title: 'FW: [GMT][TIMESHEET][SUBMISSION] Michelle | Week 2026-09-07',
+  EmployeeName: 'Michelle',
   Issue: JSON.stringify({ data: { values: [
     { date: '2026-09-07', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
     { date: '2026-09-08', startTime: '08:00', finishTime: '17:00', workedHours: 8 },
