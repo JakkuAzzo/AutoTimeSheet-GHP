@@ -17,8 +17,25 @@ failed`. `Sent to Accounts` confirms FormSubmit acceptance only; the mailbox
 intake remains responsible for SharePoint and Excel filing. Synthetic test
 records are retained for protected verification and are never dispatched.
 
-Status: frontend envelope and Excel Online upsert script prepared; Microsoft 365
-flow activation and company-owned filing remain required before this is live.
+Status: frontend envelope and Excel Online upsert script prepared. Historical
+mailbox bundles supplied for the Accounts repair are now loaded into the
+protected portal D1 history and drive the daily/pay-month view. The active
+Microsoft 365 flow still owns the company SharePoint/Excel filing; its next
+replay must consume the reconciliation export so those workbooks become the
+authoritative company-owned copies.
+
+## Historical reconciliation handoff
+
+`power-platform/reconciliation/2026-09/source-manifest.json` preserves every
+supplied mailbox bundle, attachment hash and parser outcome. The corresponding
+`records.json` contains the selected daily rows and materially different source
+variants; `seed.sql` is idempotent against the protected D1 history database.
+The flow handoff should use these records as the controlled JSON input and keep
+the original source date beside any corrected declared-week date. Valid clock
+intervals (after a recorded break) are the portal's calculated worked minutes;
+the submitted value remains an audit field. Invalid, duplicate and
+header-only variants must remain in `Reconciliation` and must not overwrite the
+selected monthly row.
 
 ## Observed live failure on 19 August 2026
 

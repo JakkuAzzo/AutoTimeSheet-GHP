@@ -747,6 +747,23 @@ function projectRow(row, includeDetails = true, env = null) {
     source: 'portal-d1',
     synthetic: syntheticRecord(row, payload)
   };
+  const sourceAttachmentIds = (() => {
+    try {
+      const parsed = JSON.parse(row.source_attachment_ids || '[]');
+      return Array.isArray(parsed) ? parsed.slice(0, 200).map((value) => text(value, '', 160)).filter(Boolean) : [];
+    } catch (_) {
+      return [];
+    }
+  })();
+  if (row.reconciliation_key || row.source_message_key || row.source_variant_status || sourceAttachmentIds.length) {
+    result.reconciliation = {
+      key: text(row.reconciliation_key, '', 500),
+      source_message_key: text(row.source_message_key, '', 500),
+      source_attachment_ids: sourceAttachmentIds,
+      variant_status: text(row.source_variant_status, '', 80),
+      reconciled_at: text(row.reconciled_at, '', 100)
+    };
+  }
   const directoryEntry = env ? directoryEntryFor(staffDirectory(env), row.employee_name, row.owner_upn) : null;
   const scheduleWeekdays = Array.isArray(payload.scheduleWeekdays)
     ? payload.scheduleWeekdays.map((day) => Number(day)).filter((day) => day >= 1 && day <= 7)
@@ -1134,6 +1151,28 @@ function upstreamBreakMinutes(value) {
   return (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
 }
 
+// Timesheet sources use the same compact clock values as the portal form, but
+// older SharePoint rows sometimes contain an ISO timestamp.  Keep this parser
+// deliberately timezone-neutral: a timesheet's entered clock values are local
+// workday times, so the duration must not shift when the record is viewed in a
+// different browser timezone.
+function upstreamTimeMinutes(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const raw = String(value).trim().toLowerCase();
+  const iso = raw.match(/(?:t|\s)(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:z|[+-]\d{2}:?\d{2})?$/i);
+  const match = iso || raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute > 59) return null;
+  if (!iso && match[3]) {
+    if (hour < 1 || hour > 12) return null;
+    if (match[3] === 'pm' && hour < 12) hour += 12;
+    if (match[3] === 'am' && hour === 12) hour = 0;
+  }
+  return hour >= 0 && hour <= 23 ? hour * 60 + minute : null;
+}
+
 function breakMinutesFromNote(value) {
   const raw = text(value, '', 3000);
   const match = raw.match(/\bbreak\s*:\s*(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/i);
@@ -1161,7 +1200,11 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
   const lunchEnd = text(upstreamObjectValue(row, ['lunchEnd', 'lunch_end', 'breakEnd', 'break_end', 'Lunch end']), '', 40);
   const note = text(upstreamObjectValue(row, ['description', 'note', 'notes', 'Note']), '', 3000);
   const rawLunch = upstreamObjectValue(row, ['lunchMinutes', 'lunch_minutes', 'breakMinutes', 'break_minutes', 'break', 'Break']);
-  const lunchMinutes = upstreamBreakMinutes(rawLunch) ?? breakMinutesFromNote(note);
+  const lunchMinutes = upstreamBreakMinutes(rawLunch)
+    ?? breakMinutesFromNote(note)
+    ?? (upstreamTimeMinutes(lunchStart) !== null && upstreamTimeMinutes(lunchEnd) !== null
+      ? Math.max(0, upstreamTimeMinutes(lunchEnd) - upstreamTimeMinutes(lunchStart))
+      : null);
   const lunchHad = booleanUpstreamValue(upstreamObjectValue(row, ['lunchHad', 'lunch_had', 'breakTaken', 'break_taken', 'hadBreak']));
   const absenceStatus = text(upstreamObjectValue(row, ['absenceStatus', 'absence_status', 'absenceReason', 'absence_reason', 'absence', 'Absence reason']), 'NA', 160);
   const status = text(upstreamObjectValue(row, ['status', 'Status']), defaults.status || 'Recorded', 120);
@@ -1175,12 +1218,35 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     || (lunchHad === true ? 'added' : '')
     || (lunchMinutes !== null && lunchMinutes > 0 ? 'added' : '')
     || (/break:\s*(?:no break|none|not taken)/i.test(note) ? 'not-taken' : '');
-  const workedHours = numericUpstreamValue(upstreamObjectValue(row, ['workedHours', 'worked_hours', 'hours', 'totalHours', 'Worked hours']));
+  const reportedWorkedHours = numericUpstreamValue(upstreamObjectValue(row, ['workedHours', 'worked_hours', 'hours', 'totalHours', 'Worked hours']));
   const basicHours = numericUpstreamValue(upstreamObjectValue(row, ['basicHours', 'basic_hours', 'Basic hours']));
   const ot15Hours = numericUpstreamValue(upstreamObjectValue(row, ['ot15Hours', 'ot15_hours', 'overtime15Hours', 'OT x1.5 hours']));
   const ot20Hours = numericUpstreamValue(upstreamObjectValue(row, ['ot20Hours', 'ot20_hours', 'overtime20Hours', 'OT x2.0 hours']));
-  const workedMinutes = numericUpstreamValue(upstreamObjectValue(row, ['workedMinutes', 'worked_minutes', 'Worked minutes']))
-    ?? (workedHours !== null ? workedHours * 60 : (basicHours !== null || ot15Hours !== null || ot20Hours !== null ? ((basicHours || 0) + (ot15Hours || 0) + (ot20Hours || 0)) * 60 : null));
+  const reportedWorkedMinutes = numericUpstreamValue(upstreamObjectValue(row, ['workedMinutes', 'worked_minutes', 'Worked minutes']))
+    ?? (reportedWorkedHours !== null ? reportedWorkedHours * 60 : null);
+  const startMinutes = upstreamTimeMinutes(start);
+  const finishMinutes = upstreamTimeMinutes(finish);
+  let workedMinutes = null;
+  let calculationSource = 'unavailable';
+  const validationIssues = [];
+  if (!/^(?:na|n\/a|none|no absence|not applicable)$/i.test(absenceStatus.trim())) {
+    workedMinutes = reportedWorkedMinutes === null ? 0 : reportedWorkedMinutes;
+    calculationSource = reportedWorkedMinutes === null ? 'absence' : 'reported absence total';
+  } else if (startMinutes !== null && finishMinutes !== null) {
+    if (finishMinutes > startMinutes) {
+      workedMinutes = Math.max(0, finishMinutes - startMinutes - (lunchMinutes || 0));
+      calculationSource = 'clock interval';
+    } else if (finishMinutes === startMinutes) {
+      validationIssues.push('Clock in and clock out are the same time');
+      calculationSource = 'invalid clock interval';
+    } else {
+      validationIssues.push('Finish is earlier than clock in');
+      calculationSource = 'invalid clock interval';
+    }
+  } else {
+    if (startMinutes === null) validationIssues.push('Clock in missing');
+    if (finishMinutes === null) validationIssues.push('Clock out missing');
+  }
   const result = {
     recordId: sourceRecordId || (defaults.sourceRecordId && date ? `${defaults.sourceRecordId}|${date}` : defaults.sourceRecordId || ''),
     submissionId: text(upstreamObjectValue(row, ['submissionId', 'submission_id']), defaults.sourceRecordId || '', MAX_RECORD_ID),
@@ -1197,7 +1263,10 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     lunchHad,
     breakStatus,
     workedMinutes,
-    workedHours: workedHours !== null ? workedHours : (workedMinutes !== null ? workedMinutes / 60 : null),
+    workedHours: workedMinutes !== null ? workedMinutes / 60 : null,
+    reportedWorkedHours,
+    reportedWorkedMinutes,
+    calculationSource,
     basicHours,
     ot15Hours,
     ot20Hours,
@@ -1205,7 +1274,8 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     location: text(upstreamObjectValue(row, ['location', 'site', 'Location / site']), '', 500),
     note,
     submittedAt: rowSubmittedAt,
-    source: 'microsoft-365'
+    source: 'microsoft-365',
+    validationIssues
   };
   const scheduledWeekdays = Array.isArray(defaults.scheduleWeekdays)
     ? defaults.scheduleWeekdays.map((day) => Number(day)).filter((day) => day >= 1 && day <= 7)
@@ -1378,6 +1448,21 @@ function normaliseUpstreamRecord(row, identity, env) {
   }
   if (dailyDetailIssue) mapped.daily_detail_issue = dailyDetailIssue;
   if (alignedSource.issue) mapped.date_correction_issue = alignedSource.issue;
+  const sourceMessageKey = text(upstreamValue(row, ['source_message_key', 'sourceMessageKey', 'sourceMessageId', 'source_message_id']), '', 500);
+  const sourceVariantStatus = text(upstreamValue(row, ['source_variant_status', 'sourceVariantStatus', 'reconciliationStatus']), '', 80);
+  const reconciliationKey = text(upstreamValue(row, ['reconciliation_key', 'reconciliationKey']), '', 500);
+  const sourceAttachmentIds = upstreamObjectValue(row, ['source_attachment_ids', 'sourceAttachmentIds']);
+  const reconciledAt = text(upstreamValue(row, ['reconciled_at', 'reconciledAt']), '', 100);
+  if (sourceMessageKey || sourceVariantStatus || reconciliationKey || sourceAttachmentIds || reconciledAt) {
+    const parsedAttachmentIds = parseUpstreamJson(sourceAttachmentIds);
+    mapped.reconciliation = {
+      key: reconciliationKey,
+      source_message_key: sourceMessageKey,
+      source_attachment_ids: Array.isArray(parsedAttachmentIds) ? parsedAttachmentIds.slice(0, 200).map((value) => text(value, '', 160)).filter(Boolean) : [],
+      variant_status: sourceVariantStatus,
+      reconciled_at: reconciledAt
+    };
+  }
   if (directoryEntry?.workdays?.length) {
     mapped.schedule_weekdays = directoryEntry.workdays;
     mapped.schedule_label = directoryEntry.workdays.map((day) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7]).join(', ');
@@ -1501,11 +1586,24 @@ function historyRecordFingerprint(record) {
 
 function historyRecordRichness(record) {
   if (!record || typeof record !== 'object') return 0;
-  const daily = Math.max(0, Number(record.daily_rows_count || 0) || 0);
+  const rows = record.payload && typeof record.payload === 'object' && Array.isArray(record.payload.rows) ? record.payload.rows : [];
+  const daily = Math.max(0, Number(record.daily_rows_count || rows.length || 0) || 0);
+  const invalidRows = rows.filter((row) => Array.isArray(row?.validationIssues) && row.validationIssues.some((issue) => /same time|earlier than clock|clock in missing|clock out missing/i.test(String(issue)))).length;
+  const validRows = Math.max(0, daily - invalidRows);
+  const correctedRows = rows.filter((row) => row?.sourceDate || row?.source_date).length;
   const payload = record.payload && typeof record.payload === 'object' ? 1 : 0;
   const metadata = ['employee_upn', 'start_date', 'end_date', 'record_date', 'submitted_at', 'updated_at', 'status']
     .reduce((score, key) => score + (text(record[key], '', 320) ? 1 : 0), 0);
-  return daily * 100 + payload * 10 + metadata;
+  // Valid, complete day coverage is the canonical view.  Timestamp recency
+  // only breaks ties after row quality, so a later sparse retry cannot hide a
+  // richer weekly submission; date-corrected rows remain auditable but lose a
+  // tie to rows whose source dates already match the declared week.
+  return (validRows === daily && daily > 0 ? 1000000 : 0)
+    + validRows * 10000
+    + daily * 100
+    + payload * 10
+    + metadata
+    - correctedRows;
 }
 
 function completionSummary(records, env, timeZone = 'Europe/London', nowDate = new Date()) {

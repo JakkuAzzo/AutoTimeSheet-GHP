@@ -1,6 +1,6 @@
 # GMT Operational Build Status
 
-Updated 15 September 2026. This records the live intake reconciliation and the
+Updated 16 September 2026. This records the live intake reconciliation and the
 remaining source-data boundary.
 
 ## Completed in the GMT tenant
@@ -16,17 +16,19 @@ remaining source-data boundary.
 | Timesheet business-mail copy | Paused. `accounts@gmt-services.co.uk` is not currently a mail-enabled Exchange recipient. Keep the approved legacy Timesheet FormSubmit route active until the Microsoft 365 mail cutover and shared mailbox are complete. |
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
 | Connector capability check | The existing GMT-owned Power Automate connection exposes Office 365 Outlook create/update/delete event actions and SharePoint create-folder/create-file actions |
+| Historical mailbox reconciliation | Loaded into the protected portal D1 store on 16 September 2026 from 32 supplied Accounts bundles: 114 parsed daily rows, 113 attachment records and 14 source-preserving timesheet variants. Exact retries are grouped; materially different and invalid versions remain addressable for audit. |
 
 ## Not enabled by design
 
 1. Job Card and Task calendar flows. The existing proof schema does not yet
    carry planned/due dates, job/client details, Outlook event IDs or sync
    errors. Enabling a create-only flow now would make duplicates on updates.
-2. Legacy source-row repair. New portal submissions carry structured daily
-   record JSON and are parsed by the upsert branch. Older Microsoft 365 list
-   rows that contain only a weekly header remain visible and are explicitly
-   marked as missing daily detail; the portal does not invent clock, break or
-   hour values for those rows.
+2. Legacy source-row repair in Microsoft 365. The supplied mailbox exports are
+   now reconciled in the portal's protected D1 history and drive daily calendar
+   and pay-month views. The original SharePoint/Excel rows still need to be
+   reintroduced through the active flow so the company-owned monthly workbooks
+   and raw-file links become authoritative there as well; the portal never
+   invents clock, break or hour values for a header-only source.
 3. Outlook routing rules. The folder/rule contract is approved, but rules must
    be created and tested against a benign submission without moving existing
    Accounts mail. This prevents the current Accounts inbox from being hidden
@@ -54,7 +56,9 @@ configuration; no Microsoft credential or endpoint belongs in GitHub Pages.
    lifecycle tests from the contract.
 5. Reconcile legacy rows by supplying their original structured record JSON (or
    an equivalent source-preserving daily export), then run the same idempotent
-   upsert. Do not manufacture payroll values from a header-only email.
+   upsert. The 16 September reconciliation manifest and seed provide that
+   source-preserving export for the supplied mailbox bundles. Do not
+   manufacture payroll values from a header-only email.
 6. Create the folders and narrowly scoped subject rules, then test one benign
    submission in each category.
 7. Extend the active Timesheet Calendar Sync flow only after the portal emits
@@ -76,6 +80,26 @@ The remaining “daily detail unavailable” flags are source gaps in older
 Microsoft 365 rows, not a calendar rendering shortcut. They stay addressable in
 history and are deliberately excluded from fabricated completion totals until
 the original daily attachment data is reintroduced.
+
+## 16 September 2026 source-preserving reconciliation
+
+The Accounts mailbox bundle export supplied for reconciliation contains 32
+bundle copies (including nine Michelle Reid administrative/payroll bundles kept
+as audit-only evidence), 113 attachments and 114 parsed daily rows. The portal
+seed in `reconciliation/2026-09/` loads 14 records: Ainsley June/August/
+September, Jason August, Matthew August/September with the 20-hour and invalid
+source variants retained, and Simon August/September with the incremental
+retries retained. The selected calendar/pay-month view uses the richest valid
+daily version; rows with a missing or reversed clock interval remain visible as
+review variants and contribute no hours. A valid clock interval (minus a
+recorded break) determines worked minutes; any submitted total is retained as
+`reportedWorkedHours` for audit.
+
+The D1 source tables are `reconciliation_sources`,
+`reconciliation_source_attachments` and `reconciliation_source_rows`. They
+retain attachment hashes, parser outcomes, original dates and the selected
+version flag without exposing mailbox credentials or message content in the
+frontend.
 
 ## Controlled calendar-sync validation
 

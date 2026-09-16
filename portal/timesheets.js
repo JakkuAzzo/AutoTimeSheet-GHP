@@ -490,6 +490,10 @@
     var workedHours = numberValue(objectValue(row, ['workedHours', 'worked_hours', 'hours', 'totalHours', 'Worked hours']));
     var workedMinutes = numberValue(objectValue(row, ['workedMinutes', 'worked_minutes']));
     if (workedMinutes === null && workedHours !== null) workedMinutes = workedHours * 60;
+    var reportedWorkedHours = numberValue(objectValue(row, ['reportedWorkedHours', 'reported_worked_hours', 'reportedHours', 'reported_hours']));
+    if (reportedWorkedHours === null) reportedWorkedHours = workedHours;
+    var reportedWorkedMinutes = numberValue(objectValue(row, ['reportedWorkedMinutes', 'reported_worked_minutes']));
+    if (reportedWorkedMinutes === null && reportedWorkedHours !== null) reportedWorkedMinutes = reportedWorkedHours * 60;
     var basicHours = numberValue(objectValue(row, ['basicHours', 'basic_hours', 'Basic hours']));
     var ot15Hours = numberValue(objectValue(row, ['ot15Hours', 'ot15_hours', 'overtime15Hours', 'OT x1.5 hours']));
     var ot20Hours = numberValue(objectValue(row, ['ot20Hours', 'ot20_hours', 'overtime20Hours', 'OT x2.0 hours']));
@@ -531,6 +535,9 @@
       status: statusValue,
       workedHours: workedHours,
       workedMinutes: workedMinutes,
+      reportedWorkedHours: reportedWorkedHours,
+      reportedWorkedMinutes: reportedWorkedMinutes,
+      calculationSource: String(objectValue(row, ['calculationSource', 'calculation_source']) || ''),
       basicHours: basicHours,
       ot15Hours: ot15Hours,
       ot20Hours: ot20Hours,
@@ -539,7 +546,7 @@
       absenceIsNone: absenceIsNone,
       scheduled: objectValue(row, ['scheduled']) === false || String(objectValue(row, ['scheduled'])).toLowerCase() === 'false' ? false : (objectValue(row, ['scheduled']) === true || String(objectValue(row, ['scheduled'])).toLowerCase() === 'true' ? true : null),
       scheduleIssue: String(objectValue(row, ['scheduleIssue', 'schedule_issue']) || ''),
-      issues: []
+      issues: Array.isArray(row.validationIssues) ? row.validationIssues.map(String) : []
     };
   }
 
@@ -628,9 +635,21 @@
       var start = timeMinutes(row.start);
       var finish = timeMinutes(row.finish);
       var breakMinutes = row.lunchMinutes === null ? 0 : Math.max(0, row.lunchMinutes);
-      if (row.workedMinutes === null && start !== null && finish !== null && finish >= start) {
-        row.workedMinutes = finish - start - breakMinutes;
+      // A clock interval is authoritative whenever both ends are present.
+      // Keep any submitted total as reportedWorkedHours for audit, but do not
+      // let a stale/malformed total drive calendar labels or pay-month totals.
+      if (start !== null && finish !== null && finish > start) {
+        row.workedMinutes = Math.max(0, finish - start - breakMinutes);
         row.workedHours = row.workedMinutes / 60;
+        row.calculationSource = 'clock interval';
+      } else if (start !== null && finish !== null && finish <= start) {
+        row.workedMinutes = null;
+        row.workedHours = null;
+        row.calculationSource = 'invalid clock interval';
+      } else if (row.absenceIsNone) {
+        row.workedMinutes = null;
+        row.workedHours = null;
+        row.calculationSource = 'missing clock';
       }
       if (row.absenceIsNone && start === null) row.issues.push('Clock in missing');
       if (row.absenceIsNone && finish === null) row.issues.push('Clock out missing');
@@ -727,6 +746,11 @@
     return 0;
   }
 
+  function rowCorrectionPenalty(row) {
+    if (!row) return 0;
+    return (row.sourceDate ? 1 : 0) + (row.issues || []).filter(function (issue) { return /Source date corrected/i.test(issue); }).length;
+  }
+
   function rowSignature(row) {
     if (!row) return '';
     return [row.start, row.finish, row.lunchMinutes, row.workedMinutes, row.basicHours, row.ot15Hours, row.ot20Hours, row.absenceStatus, row.note].join('|');
@@ -743,7 +767,9 @@
         return;
       }
       var conflicting = rowSignature(row) !== rowSignature(existing);
-      var replace = rowValidity(row) > rowValidity(existing) || (rowValidity(row) === rowValidity(existing) && rowCompleteness(row) > rowCompleteness(existing));
+      var replace = rowValidity(row) > rowValidity(existing)
+        || (rowValidity(row) === rowValidity(existing) && rowCompleteness(row) > rowCompleteness(existing))
+        || (rowValidity(row) === rowValidity(existing) && rowCompleteness(row) === rowCompleteness(existing) && rowCorrectionPenalty(row) < rowCorrectionPenalty(existing));
       if (conflicting) {
         var winner = replace ? row : existing;
         if (winner.issues.indexOf('Conflicting source variants') === -1) winner.issues.push('Conflicting source variants');
@@ -777,11 +803,12 @@
 
   function timesheetRecordQuality(record) {
     var rows = recordRows(record).filter(function (row) { return row && row.scheduled !== false; });
-    if (!rows.length) return { valid: false, validRows: 0, rowCount: 0 };
+    if (!rows.length) return { valid: false, validRows: 0, rowCount: 0, correctedRows: 0 };
     var validRows = rows.filter(function (row) {
       return !row.issues.some(function (issue) { return /same time|earlier than clock|clock in missing|clock out missing/i.test(issue); });
     }).length;
-    return { valid: validRows === rows.length, validRows: validRows, rowCount: rows.length };
+    var correctedRows = rows.filter(function (row) { return row.sourceDate || row.issues.some(function (issue) { return /Source date corrected/i.test(issue); }); }).length;
+    return { valid: validRows === rows.length, validRows: validRows, rowCount: rows.length, correctedRows: correctedRows };
   }
 
   function preferTimesheetRecord(candidate, existing) {
@@ -789,11 +816,15 @@
     var left = timesheetRecordQuality(candidate);
     var right = timesheetRecordQuality(existing);
     if (left.valid !== right.valid) return left.valid;
+    if (left.validRows !== right.validRows) return left.validRows > right.validRows;
+    if (left.rowCount !== right.rowCount) return left.rowCount > right.rowCount;
+    if (left.correctedRows !== right.correctedRows) return left.correctedRows < right.correctedRows;
+    var leftVariant = String(candidate && candidate.reconciliation && candidate.reconciliation.variant_status || '').toLowerCase();
+    var rightVariant = String(existing && existing.reconciliation && existing.reconciliation.variant_status || '').toLowerCase();
+    if (leftVariant !== rightVariant && (leftVariant || rightVariant)) return leftVariant === 'authoritative';
     var leftUpdated = recordUpdatedAt(candidate);
     var rightUpdated = recordUpdatedAt(existing);
     if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
-    if (left.validRows !== right.validRows) return left.validRows > right.validRows;
-    if (left.rowCount !== right.rowCount) return left.rowCount > right.rowCount;
     return String(candidate && candidate.source_record_id || '').localeCompare(String(existing && existing.source_record_id || '')) > 0;
   }
 
@@ -828,9 +859,9 @@
   function calendarEntryQuality(entry, date) {
     var rows = recordRows(entry && entry.record);
     var row = rows.find(function (candidate) { return dateKey(candidate && candidate.date) === date; });
-    if (!row) return { valid: false, completeness: 0, validity: 0 };
+    if (!row) return { valid: false, completeness: 0, validity: 0, corrected: 0 };
     var issue = row.issues.some(function (value) { return /same time|earlier than clock|clock in missing|clock out missing/i.test(value); });
-    return { valid: !issue, completeness: rowCompleteness(row), validity: rowValidity(row) };
+    return { valid: !issue, completeness: rowCompleteness(row), validity: rowValidity(row), corrected: rowCorrectionPenalty(row) };
   }
 
   function preferCalendarEntry(candidate, existing, date) {
@@ -838,11 +869,12 @@
     var left = calendarEntryQuality(candidate, date);
     var right = calendarEntryQuality(existing, date);
     if (left.valid !== right.valid) return left.valid;
+    if (left.validity !== right.validity) return left.validity > right.validity;
+    if (left.completeness !== right.completeness) return left.completeness > right.completeness;
+    if (left.corrected !== right.corrected) return left.corrected < right.corrected;
     var leftUpdated = recordUpdatedAt(candidate && candidate.record);
     var rightUpdated = recordUpdatedAt(existing && existing.record);
     if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
-    if (left.validity !== right.validity) return left.validity > right.validity;
-    if (left.completeness !== right.completeness) return left.completeness > right.completeness;
     return preferTimesheetRecord(candidate && candidate.record, existing && existing.record);
   }
 
@@ -949,6 +981,10 @@
     var statusValue = String(record.status || 'Submitted');
     var statusClass = statusValue.toLowerCase().replace(/\s+/g, '-');
     var sourceLabel = record.source === 'portal-d1' ? 'Protected GMT portal' : (record.source || 'Microsoft 365 history');
+    var reconciliation = record.reconciliation && typeof record.reconciliation === 'object' ? record.reconciliation : null;
+    var reconciliationNote = reconciliation
+      ? '<p class="small-text timesheet-reconciliation-note"><strong>Reconciliation:</strong> ' + safe(reconciliation.variant_status || 'source variant') + (reconciliation.source_message_key ? ' · source ' + safe(reconciliation.source_message_key) : '') + (Array.isArray(reconciliation.source_attachment_ids) && reconciliation.source_attachment_ids.length ? ' · ' + safe(reconciliation.source_attachment_ids.length) + ' attachment' + (reconciliation.source_attachment_ids.length === 1 ? '' : 's') : '') + '</p>'
+      : '';
     if (key === 'calendar') {
       var eventDate = record.event_date || record.eventDate || record.record_date || record.start_date || 'Not dated';
       var eventEnd = record.end_date && record.end_date !== eventDate ? ' to ' + record.end_date : '';
@@ -984,7 +1020,7 @@
       : '';
     historyPreview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(record.employee_name || 'Timesheet') + '</h2></div><span class="portal-status ' + safe(statusClass) + '">' + safe(statusValue) + '</span></div>' +
       '<div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(actionLabel(record)) + '</p><p><strong>Period:</strong> ' + safe(periodLabel(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.submitted_at || 'Not recorded') + '</p><p><strong>Updated:</strong> ' + safe(record.updated_at || record.submitted_at || 'Not recorded') + '</p><p><strong>Source:</strong> ' + safe(sourceLabel) + '</p><p><strong>Pay month:</strong> ' + safe(recordPayMonth(record) || 'Not dated') + '</p></div>' +
-      '<p class="small-text">' + (key === 'timesheets' ? 'Viewable at any time; editing is limited to the current pay month. Clock in/out records are joined by employee and date when available; missing clock or break data is flagged for review.' : 'This clock record is joined to the employee\'s daily timesheet by date when available. Missing clock or break data is flagged for review.') + '</p>' +
+      '<p class="small-text">' + (key === 'timesheets' ? 'Viewable at any time; editing is limited to the current pay month. Clock in/out records are joined by employee and date when available; missing clock or break data is flagged for review.' : 'This clock record is joined to the employee\'s daily timesheet by date when available. Missing clock or break data is flagged for review.') + '</p>' + reconciliationNote +
       (record.issue ? '<p class="portal-history-warning">Review needed: ' + safe(record.issue) + '</p>' : '') + dateWarning + summary + rowTable +
       renderPayMonthSpreadsheet(record) + scheduleNote + editFooter;
   }
