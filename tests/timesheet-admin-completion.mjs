@@ -19,15 +19,24 @@ const recovered = normaliseUpstreamRecord({
   EmployeeName: 'Michelle Reid',
   Modified: '2026-09-09T07:00:00Z'
 }, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, env);
-assert.equal(recovered.employee_name, 'Michelle');
-assert.equal(recovered.employee_upn, 'michelle@gmt-services.co.uk');
+assert.equal(recovered.employee_name, 'Michelle Reid');
+assert.equal(recovered.employee_upn, '');
 assert.equal(recovered.start_date, '2026-09-07');
 assert.equal(recovered.end_date, '2026-09-13');
 assert.equal(recovered.record_date, '2026-09-07');
 assert.equal(recovered.status, 'Submitted');
 assert.equal(recovered.submitted_at, '2026-09-09T07:00:00Z');
 assert.equal(recovered.source_record_id, 'sharepoint-timesheet-44');
-assert.equal(recovered.synthetic, false);
+assert.equal(recovered.synthetic, true);
+
+const mismatchedRosterUpn = normaliseUpstreamRecord({
+  Id: 46,
+  Title: '[GMT][TIMESHEET][SUBMISSION] Michelle Reid | Week 2026-09-07',
+  EmployeeName: 'Michelle Reid',
+  EmployeeEmail: 'micheller.admin@gmt-services.co.uk',
+  Modified: '2026-09-09T07:00:00Z'
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, env);
+assert.equal(mismatchedRosterUpn.synthetic, true);
 
 const excludedAdminTest = normaliseUpstreamRecord({
   Id: 45,

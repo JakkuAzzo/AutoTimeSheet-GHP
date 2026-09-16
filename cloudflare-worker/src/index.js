@@ -764,7 +764,13 @@ function projectRow(row, includeDetails = true, env = null) {
       reconciled_at: text(row.reconciled_at, '', 100)
     };
   }
-  const directoryEntry = env ? directoryEntryFor(staffDirectory(env), row.employee_name, row.owner_upn) : null;
+  const directory = env ? staffDirectory(env) : [];
+  const directoryEntry = directory.length ? directoryEntryFor(directory, row.employee_name, row.owner_upn) : null;
+  // The approved employee roster is authoritative for timesheet visibility.
+  // Keep unmatched administrative or legacy timesheet rows available only
+  // when Accounts explicitly requests synthetic/audit records; other
+  // document categories are unaffected by the employee roster.
+  if (directory.length && ['timesheets', 'clock'].includes(row.kind) && !directoryEntry) result.synthetic = true;
   const scheduleWeekdays = Array.isArray(payload.scheduleWeekdays)
     ? payload.scheduleWeekdays.map((day) => Number(day)).filter((day) => day >= 1 && day <= 7)
     : (directoryEntry?.workdays || []);
@@ -1313,12 +1319,17 @@ function directoryEntryFor(directory, name, upn) {
   const candidateUpn = text(upn, '', 320).toLowerCase();
   const candidateName = text(name, '', 240).trim().toLowerCase();
   const compactName = candidateName.replace(/[^a-z0-9]+/g, '');
+  if (candidateUpn) {
+    const exact = directory.find((entry) => entry.upn && candidateUpn === entry.upn);
+    // An explicit address that is not on the roster must not be rescued by a
+    // similar display name (for example Michelle Reid vs Michelle).
+    if (exact || directory.some((entry) => entry.upn)) return exact || null;
+  }
   return directory.find((entry) => {
-    if (candidateUpn && entry.upn && candidateUpn === entry.upn) return true;
     if (!candidateName || !entry.name) return false;
     const directoryName = entry.name.trim().toLowerCase();
     const compactDirectoryName = directoryName.replace(/[^a-z0-9]+/g, '');
-    return candidateName === directoryName || compactName === compactDirectoryName || compactName.startsWith(compactDirectoryName);
+    return candidateName === directoryName || compactName === compactDirectoryName;
   }) || null;
 }
 
