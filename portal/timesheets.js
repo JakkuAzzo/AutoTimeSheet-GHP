@@ -238,6 +238,16 @@
     return String(record && (record.end_date || record.start_date || record.record_date) || '').slice(0, 7);
   }
 
+  function payMonthKeyForDate(value) {
+    var date = dateOnly(value);
+    if (!date) return '';
+    // Key a daily row by the Sunday week-ending date. This keeps a Monday
+    // boundary such as 2026-08-31 in the September payroll month.
+    var weekday = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + (7 - weekday));
+    return dateKey(date).slice(0, 7);
+  }
+
   function objectValue(value, keys) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
     var actualKeys = Object.keys(value);
@@ -925,6 +935,12 @@
     var records = authoritativeTimesheetEntries(candidateRecords).map(function (entry) { return entry.record; });
     var rows = [];
     records.forEach(function (record) { rows = rows.concat(recordRows(record)); });
+    // A malformed upstream header can carry daily rows from another week.
+    // Preserve that source item in history, but keep this pay-month metric
+    // scoped to the week-ending month of each dated row.
+    rows = rows.filter(function (row) {
+      return row && row.date && payMonthKeyForDate(row.date) === payMonth;
+    });
     var schedule = Array.isArray(employee.schedule_weekdays) ? employee.schedule_weekdays.map(Number) : [];
     rows.forEach(function (row) {
       if (!schedule.length || !row.date) return;
@@ -966,7 +982,9 @@
       // daily row from records assigned to that payroll month, including the
       // Monday that can fall in the preceding calendar month (for example
       // 2026-08-31 in the September 2026 pay month).
-      recordRows(entry.record).forEach(function (row) { if (row && row.date) rows.push(row); });
+      recordRows(entry.record).forEach(function (row) {
+        if (row && row.date && payMonthKeyForDate(row.date) === monthKey) rows.push(row);
+      });
     });
     // Keep one row per day while retaining the best populated clock/timesheet
     // detail when a selected weekly submission and clock event overlap.
