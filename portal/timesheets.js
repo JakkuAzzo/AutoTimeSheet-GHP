@@ -88,6 +88,8 @@
   }
 
   function sendCurrentFilter() {
+    selectedHistory = -1;
+    selectedCalendarDate = '';
     send("gmt:history-filter", { filter: currentFilter(), employee: currentEmployee() });
     render(lastRecords);
   }
@@ -1297,8 +1299,11 @@
       renderCalendar(visible);
     }
     var requestedIndex = requestedRecordId ? visible.findIndex(function (record) { return String(record.source_record_id || record.record_id || '') === requestedRecordId; }) : -1;
+    var requestedMonthIndex = requestedMonth ? visible.findIndex(function (record) {
+      return recordPayMonth(record) === requestedMonth && recordDailyDates(record).some(function (date) { return date.slice(0, 7) === requestedMonth; });
+    }) : -1;
     if (requestedIndex >= 0) selectedHistory = requestedIndex;
-    if (selectedHistory < 0 || selectedHistory >= visible.length) selectedHistory = requestedIndex >= 0 ? requestedIndex : 0;
+    if (selectedHistory < 0 || selectedHistory >= visible.length) selectedHistory = requestedIndex >= 0 ? requestedIndex : (requestedMonthIndex >= 0 ? requestedMonthIndex : 0);
     selectHistory(selectedHistory, requestedDate);
     requestedRecordId = '';
     requestedDate = '';
