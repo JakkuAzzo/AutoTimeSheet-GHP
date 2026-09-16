@@ -962,9 +962,11 @@
       return recordPayMonth(candidate) === monthKey;
     });
     authoritativeTimesheetEntries(candidates).forEach(function (entry) {
-      recordRows(entry.record).forEach(function (row) {
-        if (row && row.date && String(row.date).slice(0, 7) === monthKey) rows.push(row);
-      });
+      // Pay months follow the submitted week-ending date. Include every
+      // daily row from records assigned to that payroll month, including the
+      // Monday that can fall in the preceding calendar month (for example
+      // 2026-08-31 in the September 2026 pay month).
+      recordRows(entry.record).forEach(function (row) { if (row && row.date) rows.push(row); });
     });
     // Keep one row per day while retaining the best populated clock/timesheet
     // detail when a selected weekly submission and clock event overlap.
