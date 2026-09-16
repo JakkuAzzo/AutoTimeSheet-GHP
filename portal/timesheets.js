@@ -912,11 +912,15 @@
 
   function employeeMetrics(employee) {
     var payMonth = String(lastCompletion && lastCompletion.pay_month || currentPayMonth());
-    var records = (lastRecords || []).filter(function (record) {
+    var candidateRecords = (lastRecords || []).filter(function (record) {
       return ['timesheets', 'clock'].indexOf(actionKey(record)) !== -1
         && employeeMatches(record, employee.employee_upn || employee.employee_name)
         && recordPayMonth(record) === payMonth;
     });
+    // Completion metrics use the same one-record-per-employee/week selection
+    // as the calendar. This prevents duplicate retries and sparse upstream
+    // projections from inflating an employee's daily count or hours.
+    var records = authoritativeTimesheetEntries(candidateRecords).map(function (entry) { return entry.record; });
     var rows = [];
     records.forEach(function (record) { rows = rows.concat(recordRows(record)); });
     var schedule = Array.isArray(employee.schedule_weekdays) ? employee.schedule_weekdays.map(Number) : [];
@@ -950,15 +954,18 @@
   function payMonthRows(record, monthKey) {
     var employee = String(record && (record.employee_upn || record.employee_name) || '');
     var rows = [];
-    (lastRecords || []).forEach(function (candidate) {
+    var candidates = (lastRecords || []).filter(function (candidate) {
       if (['timesheets', 'clock'].indexOf(actionKey(candidate)) === -1) return;
       if (employee && !employeeMatches(candidate, employee)) return;
-      recordRows(candidate).forEach(function (row) {
+      return recordPayMonth(candidate) === monthKey;
+    });
+    authoritativeTimesheetEntries(candidates).forEach(function (entry) {
+      recordRows(entry.record).forEach(function (row) {
         if (row && row.date && String(row.date).slice(0, 7) === monthKey) rows.push(row);
       });
     });
-    // Keep one authoritative row per day while retaining the best populated
-    // variant when a weekly submission and clock event overlap.
+    // Keep one row per day while retaining the best populated clock/timesheet
+    // detail when a selected weekly submission and clock event overlap.
     return uniqueMetricRows(rows);
   }
 
