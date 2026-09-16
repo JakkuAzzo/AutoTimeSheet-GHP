@@ -17,6 +17,7 @@ remaining source-data boundary.
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
 | Connector capability check | The existing GMT-owned Power Automate connection exposes Office 365 Outlook create/update/delete event actions and SharePoint create-folder/create-file actions |
 | Historical mailbox reconciliation | Loaded into the protected portal D1 store on 16 September 2026 from 32 supplied Accounts bundles: 114 parsed daily rows, 113 attachment records and 14 source-preserving timesheet variants. Exact retries are grouped; materially different and invalid versions remain addressable for audit. |
+| Post-reconciliation workbook replay | A live replay of `GMT Portal - Timesheet Intake` completed successfully on 16 September 2026 after the reconciliation load. It created SharePoint Timesheet Submissions item 55 for Simon's 24–30 August week and the Excel Online script returned HTTP 200 with `unchanged: 7`, `flagged: 12`, `skipped: 0` for the company-owned August Simon workbook. See [post-reconciliation-replay-evidence.md](reconciliation/2026-09/post-reconciliation-replay-evidence.md). |
 
 ## Not enabled by design
 
@@ -25,10 +26,11 @@ remaining source-data boundary.
    errors. Enabling a create-only flow now would make duplicates on updates.
 2. Legacy source-row repair in Microsoft 365. The supplied mailbox exports are
    now reconciled in the portal's protected D1 history and drive daily calendar
-   and pay-month views. The original SharePoint/Excel rows still need to be
-   reintroduced through the active flow so the company-owned monthly workbooks
-   and raw-file links become authoritative there as well; the portal never
-   invents clock, break or hour values for a header-only source.
+   and pay-month views. The post-reconciliation replay has been proven for the
+   company-owned Simon August workbook; the remaining employee/month workbooks
+   still need an equivalent successful replay before the whole workbook set can
+   be certified. The portal never invents clock, break or hour values for a
+   header-only source.
 3. Outlook routing rules. The folder/rule contract is approved, but rules must
    be created and tested against a benign submission without moving existing
    Accounts mail. This prevents the current Accounts inbox from being hidden
