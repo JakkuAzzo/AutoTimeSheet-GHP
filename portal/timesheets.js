@@ -818,10 +818,14 @@
     if (left.valid !== right.valid) return left.valid;
     if (left.validRows !== right.validRows) return left.validRows > right.validRows;
     if (left.rowCount !== right.rowCount) return left.rowCount > right.rowCount;
-    if (left.correctedRows !== right.correctedRows) return left.correctedRows < right.correctedRows;
     var leftVariant = String(candidate && candidate.reconciliation && candidate.reconciliation.variant_status || '').toLowerCase();
     var rightVariant = String(existing && existing.reconciliation && existing.reconciliation.variant_status || '').toLowerCase();
     if (leftVariant !== rightVariant && (leftVariant || rightVariant)) return leftVariant === 'authoritative';
+    // A reconciled authoritative record may include an explicitly documented
+    // date correction. Prefer it over the older upstream projection before
+    // applying the correction penalty, otherwise the stale 31h/78h history
+    // row can hide the source-preserving record that should drive the calendar.
+    if (left.correctedRows !== right.correctedRows) return left.correctedRows < right.correctedRows;
     var leftUpdated = recordUpdatedAt(candidate);
     var rightUpdated = recordUpdatedAt(existing);
     if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
@@ -871,6 +875,9 @@
     if (left.valid !== right.valid) return left.valid;
     if (left.validity !== right.validity) return left.validity > right.validity;
     if (left.completeness !== right.completeness) return left.completeness > right.completeness;
+    var leftVariant = String(candidate && candidate.record && candidate.record.reconciliation && candidate.record.reconciliation.variant_status || '').toLowerCase();
+    var rightVariant = String(existing && existing.record && existing.record.reconciliation && existing.record.reconciliation.variant_status || '').toLowerCase();
+    if (leftVariant !== rightVariant && (leftVariant || rightVariant)) return leftVariant === 'authoritative';
     if (left.corrected !== right.corrected) return left.corrected < right.corrected;
     var leftUpdated = recordUpdatedAt(candidate && candidate.record);
     var rightUpdated = recordUpdatedAt(existing && existing.record);

@@ -1592,13 +1592,16 @@ function historyRecordRichness(record) {
   const validRows = Math.max(0, daily - invalidRows);
   const correctedRows = rows.filter((row) => row?.sourceDate || row?.source_date).length;
   const payload = record.payload && typeof record.payload === 'object' ? 1 : 0;
+  const variant = text(record.source_variant_status || record.reconciliation?.variant_status, '', 80).toLowerCase();
+  const authoritative = variant === 'authoritative' ? 1 : 0;
   const metadata = ['employee_upn', 'start_date', 'end_date', 'record_date', 'submitted_at', 'updated_at', 'status']
     .reduce((score, key) => score + (text(record[key], '', 320) ? 1 : 0), 0);
   // Valid, complete day coverage is the canonical view.  Timestamp recency
   // only breaks ties after row quality, so a later sparse retry cannot hide a
   // richer weekly submission; date-corrected rows remain auditable but lose a
   // tie to rows whose source dates already match the declared week.
-  return (validRows === daily && daily > 0 ? 1000000 : 0)
+  return (authoritative ? 500000 : 0)
+    + (validRows === daily && daily > 0 ? 1000000 : 0)
     + validRows * 10000
     + daily * 100
     + payload * 10
