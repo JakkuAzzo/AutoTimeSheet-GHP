@@ -87,6 +87,10 @@ attempt:
   `8e1f2bc0-b23e-11f1-85e4-9b8d54d37305`, client request ID
   `112eeb63-63a4-4e89-b5cb-206d77461902`, and backend correlation ID
   `d3af8c0f-8ffa-4e80-94fb-956100b694f1`.
+- A further Safari recheck at `2026-09-17T05:38:41Z` selected the stored
+  Amanda credential and displayed `AutoFillAuthenticationSheet`: “Touch ID to
+  AutoFill your login information.” The prompt was dismissed without a
+  password or token being entered, so no owner session was established.
 
 These checks are live evidence that the info account cannot currently access
 the owner connection or even resolve the configured environment. They do not
