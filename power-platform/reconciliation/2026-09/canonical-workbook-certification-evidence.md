@@ -127,6 +127,12 @@ Reloading the exact flow-run URL at `2026-09-17T05:55:46Z` returned the same
 `shared_logicflows` connection error under `info@gmt-services.co.uk`; no replay
 controls or successful child Excel action became available.
 
+As an alternate owner-session route, the Amanda-authenticated Excel workbook's
+**Automate → Power Automate** panel was opened at `2026-09-17T05:59:28Z`.
+It exposed no selectable flow, and **Automation Templates** opened only an
+empty `about:blank` pop-up. This workbook owner session therefore does not
+establish a usable Power Automate owner session or replay control.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
