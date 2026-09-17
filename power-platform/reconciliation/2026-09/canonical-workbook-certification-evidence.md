@@ -123,6 +123,10 @@ sign-in page opened Safari's `AutoFillAuthenticationSheet` and required Touch
 ID; it was cancelled without entering a password or establishing the owner
 Power Automate session.
 
+Reloading the exact flow-run URL at `2026-09-17T05:55:46Z` returned the same
+`shared_logicflows` connection error under `info@gmt-services.co.uk`; no replay
+controls or successful child Excel action became available.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
