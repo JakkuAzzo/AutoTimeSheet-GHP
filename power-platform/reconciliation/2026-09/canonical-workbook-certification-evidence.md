@@ -114,6 +114,15 @@ and **You do not have any environments**. The picker was read-only and was
 closed without changing configuration. This is additional live evidence that
 the info account cannot see the environment hosting the intake flow.
 
+At `2026-09-17T05:52:17Z`, an already-open Excel Online workbook tab showed the
+account manager as **Amanda Brown-Bennett**, confirming that the company-owned
+workbook session is available in Safari. Opening the same intake-flow URL in an
+isolated tab still resolved to `info@gmt-services.co.uk` and the same
+`shared_logicflows` error. Invoking the saved Amanda credential on the Microsoft
+sign-in page opened Safari's `AutoFillAuthenticationSheet` and required Touch
+ID; it was cancelled without entering a password or establishing the owner
+Power Automate session.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
