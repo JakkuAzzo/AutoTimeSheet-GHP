@@ -67,6 +67,31 @@ This owner-session check was repeated on 17 September 2026: selecting the
 stored `amanda.bb@gmtelectservsltd.onmicrosoft.com` credential opened the
 Touch ID approval sheet and did not produce an authenticated owner session.
 
+## Live platform recheck on 17 September 2026
+
+The current administrator session was rechecked after the owner-session
+attempt:
+
+- Power Platform admin center route
+  `admin.powerplatform.microsoft.com/manage/environments/environment/b7db48c9-5976-ef8e-9438-78dfe2098742/hub`
+  returned **Environment Not Found** for the environment ID in the route.
+  Its request ID was `3a7aec17-89be-4eee-9d2f-b108830df55b` at 05:29:49 UTC;
+  the environments list then returned “An unexpected error occurred while
+  loading the environments list” after a read-only refresh.
+- The info account's Power Automate **My flows** page for
+  `Default-8b182d6b-6f34-4ca2-84ad-50ca712b5488` showed **You don't have any
+  flows**. Its **Shared with me** page also showed no flows.
+- Opening the flow editor for `GMT Portal - Timesheet Intake` failed at
+  `2026-09-17T05:33:44.355Z` with the same `shared_logicflows` connection
+  error. The editor supplied session ID
+  `8e1f2bc0-b23e-11f1-85e4-9b8d54d37305`, client request ID
+  `112eeb63-63a4-4e89-b5cb-206d77461902`, and backend correlation ID
+  `d3af8c0f-8ffa-4e80-94fb-956100b694f1`.
+
+These checks are live evidence that the info account cannot currently access
+the owner connection or even resolve the configured environment. They do not
+constitute a replay and do not change any workbook's certification state.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified

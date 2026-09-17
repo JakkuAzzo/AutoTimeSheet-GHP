@@ -76,3 +76,11 @@ The current per-workbook evidence matrix is maintained in
 It records direct workbook read-backs separately from Power Automate run proof;
 the workbook set remains uncertified until each remaining source pair has its
 own successful child Excel action.
+
+On 17 September 2026 the live owner/admin path was rechecked. The info account
+could not resolve the configured Power Platform environment, showed no owned or
+shared flows, and the flow editor returned the `shared_logicflows` connection
+error with no run history. The exact request, session and correlation IDs and
+the environment-list error are recorded in the [canonical workbook
+certification evidence](canonical-workbook-certification-evidence.md). This
+recheck leaves the Simon run as the only replay-certified source week.
