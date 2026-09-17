@@ -150,6 +150,13 @@ existing Microsoft sign-in tab reached Safari's native
 information.” No credential was entered and no flow was changed. The owner
 session remains pending the user's local biometric/password action.
 
+After the user resumed the owner sign-in, the flow-run tab was re-opened at
+`2026-09-17T14:04:17Z`. Microsoft identified
+`amanda.bb@gmtelectservsltd.onmicrosoft.com` and stopped at **Approve sign in
+request**; the preceding retry returned Microsoft error `500121` (“Sorry,
+we're having trouble verifying your account”). The flow-run page therefore
+still has no replay controls, and no workbook was changed.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
