@@ -63,6 +63,10 @@ that owner session is completed, the remaining run-history records cannot be
 read or replayed from the current browser session. The workbook read-backs are
 therefore recovery evidence, not a substitute for the missing replay proof.
 
+This owner-session check was repeated on 17 September 2026: selecting the
+stored `amanda.bb@gmtelectservsltd.onmicrosoft.com` credential opened the
+Touch ID approval sheet and did not produce an authenticated owner session.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
