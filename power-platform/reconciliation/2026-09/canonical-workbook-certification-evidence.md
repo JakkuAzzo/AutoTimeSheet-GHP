@@ -108,6 +108,12 @@ constitute a replay and do not change any workbook's certification state.
 The flow run page was polled again at `2026-09-17T05:42:23Z` while signed in
 as `info@gmt-services.co.uk`; the same connection error remained visible.
 
+At `2026-09-17T05:45:20Z`, opening the Power Automate environment picker while
+still signed in as `info@gmt-services.co.uk` showed **No environments found**
+and **You do not have any environments**. The picker was read-only and was
+closed without changing configuration. This is additional live evidence that
+the info account cannot see the environment hosting the intake flow.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
