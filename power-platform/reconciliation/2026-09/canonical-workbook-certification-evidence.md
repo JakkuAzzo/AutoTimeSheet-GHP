@@ -105,6 +105,9 @@ These checks are live evidence that the info account cannot currently access
 the owner connection or even resolve the configured environment. They do not
 constitute a replay and do not change any workbook's certification state.
 
+The flow run page was polled again at `2026-09-17T05:42:23Z` while signed in
+as `info@gmt-services.co.uk`; the same connection error remained visible.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
