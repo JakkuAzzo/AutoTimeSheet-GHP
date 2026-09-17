@@ -70,3 +70,9 @@ The reconciliation set contains 32 supplied Accounts bundles, 113 attachment rec
 ## Boundary
 
 This is live end-to-end evidence for the Simon August company workbook. The replay is idempotent (`unchanged: 7`), so it proves the post-reconciliation path and existing workbook population without fabricating new rows. A separate successful replay for each remaining employee/month workbook is still needed before claiming that every company workbook has been individually certified.
+
+The current per-workbook evidence matrix is maintained in
+[canonical-workbook-certification-evidence.md](canonical-workbook-certification-evidence.md).
+It records direct workbook read-backs separately from Power Automate run proof;
+the workbook set remains uncertified until each remaining source pair has its
+own successful child Excel action.

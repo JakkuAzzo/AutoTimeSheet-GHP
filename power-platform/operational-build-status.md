@@ -1,6 +1,6 @@
 # GMT Operational Build Status
 
-Updated 16 September 2026. This records the live intake reconciliation and the
+Updated 17 September 2026. This records the live intake reconciliation and the
 remaining source-data boundary.
 
 ## Completed in the GMT tenant
@@ -17,7 +17,7 @@ remaining source-data boundary.
 | Developer portal | `GMT Portal Development` with the published GMT Staff Portal proof app |
 | Connector capability check | The existing GMT-owned Power Automate connection exposes Office 365 Outlook create/update/delete event actions and SharePoint create-folder/create-file actions |
 | Historical mailbox reconciliation | Loaded into the protected portal D1 store on 16 September 2026 from 32 supplied Accounts bundles: 114 parsed daily rows, 113 attachment records and 14 source-preserving timesheet variants. Exact retries are grouped; materially different and invalid versions remain addressable for audit. |
-| Post-reconciliation workbook replay | A live replay of `GMT Portal - Timesheet Intake` completed successfully on 16 September 2026 after the reconciliation load. It created SharePoint Timesheet Submissions item 55 for Simon's 24–30 August week and the Excel Online script returned HTTP 200 with `unchanged: 7`, `flagged: 12`, `skipped: 0` for the company-owned August Simon workbook. See [post-reconciliation-replay-evidence.md](reconciliation/2026-09/post-reconciliation-replay-evidence.md). |
+| Post-reconciliation workbook replay | A live replay of `GMT Portal - Timesheet Intake` completed successfully on 16 September 2026 after the reconciliation load. It created SharePoint Timesheet Submissions item 55 for Simon's 24–30 August week and the Excel Online script returned HTTP 200 with `unchanged: 7`, `flagged: 12`, `skipped: 0` for the company-owned August Simon workbook. The full per-workbook matrix is in [canonical-workbook-certification-evidence.md](reconciliation/2026-09/canonical-workbook-certification-evidence.md); the remaining source pairs are not certified until each has its own successful replay and read-back. |
 
 ## Not enabled by design
 

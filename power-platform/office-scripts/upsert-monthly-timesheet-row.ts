@@ -31,6 +31,39 @@ type MonthlyTimesheetRecord = {
   sourceFolderLink?: string;
 };
 
+type CalendarSyncEvent = {
+  type?: string;
+  title?: string;
+  startDate?: string;
+  endDateExclusive?: string;
+  workedHours?: number | string;
+  basicHours?: number | string;
+  ot15Hours?: number | string;
+  ot20Hours?: number | string;
+  absenceReason?: string;
+  absenceStatus?: string;
+  status?: string;
+  startTime?: string;
+  lunchStart?: string;
+  lunchEnd?: string;
+  finishTime?: string;
+  note?: string;
+  syncEventId?: string;
+};
+
+type CalendarSyncEnvelope = {
+  employee?: string;
+  employeeName?: string;
+  employeeEmail?: string;
+  employeeUpn?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  submittedAt?: string;
+  submissionId?: string;
+  events?: CalendarSyncEvent[];
+  rows?: Record<string, unknown>[];
+};
+
 type UpsertResult = {
   created: number;
   updated: number;
@@ -137,13 +170,178 @@ function parseFormSubmitBody(input: string): MonthlyTimesheetRecord[] {
   }];
 }
 
+function csvCell(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2 && trimmed[0] === '"' && trimmed[trimmed.length - 1] === '"') {
+    return trimmed.slice(1, -1).replace(/""/g, '"');
+  }
+  return trimmed;
+}
+
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index++) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') { current += '"'; index++; }
+      else quoted = !quoted;
+    } else if (character === ',' && !quoted) {
+      cells.push(csvCell(current)); current = '';
+    } else current += character;
+  }
+  cells.push(csvCell(current));
+  return cells;
+}
+
+function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRecord[] {
+  const lines = input.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]);
+  const indexOf = (name: string): number => headers.findIndex((header) => header.trim().toLowerCase() === name.toLowerCase());
+  const valueAt = (cells: string[], name: string): string => {
+    const index = indexOf(name);
+    return index >= 0 ? text(cells[index]).trim() : '';
+  };
+  const nameMatch = /^GMT Timesheet - (.+?) - (\d{4}-\d{2}-\d{2})\.csv$/i.exec(fileName.trim());
+  const employeeName = nameMatch ? nameMatch[1].trim() : '';
+  const rows: MonthlyTimesheetRecord[] = [];
+  const toDay = (value: string): number => /^\d{4}-\d{2}-\d{2}$/.test(value) ? Date.parse(value + 'T00:00:00Z') : NaN;
+  const weekStartValue = nameMatch ? nameMatch[2] : '';
+  lines.slice(1).forEach((line, rowIndex) => {
+    const cells = parseCsvLine(line);
+    const employeeEmail = valueAt(cells, 'Employee email') || valueAt(cells, 'Email');
+    const sourceDate = valueAt(cells, 'Date');
+    const weekStart = valueAt(cells, 'Week start') || weekStartValue || sourceDate;
+    const weekEnd = valueAt(cells, 'Week end') || weekStart;
+    if (!sourceDate && !weekStart) return;
+    let date = sourceDate || weekStart;
+    const startDay = toDay(weekStart);
+    const endDay = toDay(weekEnd);
+    // Several historical exports put the prior week's dates in a later
+    // submission. The declared week and row order are authoritative for the
+    // workbook day; retain the original value in the note for audit.
+    if (Number.isFinite(startDay) && Number.isFinite(endDay) &&
+      (!Number.isFinite(toDay(date)) || toDay(date) < startDay || toDay(date) > endDay)) {
+      date = new Date(startDay + rowIndex * 86400000).toISOString().slice(0, 10);
+    }
+    // CSV exports do not always include an employee-email column. Derive the
+    // same stable identity slug used by the portal's JSON/calendar payloads so
+    // a CSV replay merges with an existing daily row instead of creating a
+    // duplicate source record. When a future export includes an email, prefer
+    // that value because it is authoritative.
+    const identitySource = employeeEmail || ((employeeName || 'employee') + '@gmt-services.co.uk');
+    const identity = identitySource.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const submissionId = 'timesheet-' + identity + '-' + weekStart;
+    const sourceNote = sourceDate && sourceDate !== date ? 'Source date corrected from ' + sourceDate : '';
+    const submittedNote = valueAt(cells, 'Note');
+    rows.push({
+      recordId: submissionId + '|' + (date || weekStart),
+      employeeName,
+      employeeEmail,
+      weekStart,
+      weekEnd,
+      date: date || weekStart,
+      action: 'submission',
+      status: valueAt(cells, 'Status') || 'Recorded',
+      absenceReason: valueAt(cells, 'Absence reason'),
+      startTime: valueAt(cells, 'Start'),
+      finishTime: valueAt(cells, 'Finish'),
+      workedHours: valueAt(cells, 'Worked hours'),
+      basicHours: valueAt(cells, 'Basic hours'),
+      ot15Hours: valueAt(cells, 'OT x1.5 hours'),
+      ot20Hours: valueAt(cells, 'OT x2.0 hours'),
+      note: [submittedNote, sourceNote].filter((value) => Boolean(value)).join(' '),
+      submittedAt: ''
+    });
+    // The source row number is intentionally included in the note only when
+    // the submitted CSV did not provide any identifying detail. It makes a
+    // malformed row traceable without changing valid payroll values.
+    if (!employeeName && rows[rowIndex].note === '') rows[rowIndex].note = 'CSV source row ' + (rowIndex + 2);
+  });
+  return rows;
+}
+
+function calendarRecords(envelope: CalendarSyncEnvelope): MonthlyTimesheetRecord[] {
+  const employeeName = text(envelope.employeeName || envelope.employee).trim();
+  const employeeEmail = text(envelope.employeeEmail || envelope.employeeUpn).trim();
+  const submissionId = text(envelope.submissionId).trim();
+  const events = Array.isArray(envelope.events) ? envelope.events : [];
+  return events.map((event, index) => {
+    const date = text(event.startDate).trim();
+    const recordId = submissionId && date ? submissionId + '|' + date :
+      text(event.syncEventId).trim() || [employeeEmail || employeeName, envelope.weekStart || date, date, index].join('|');
+    return {
+      recordId,
+      employeeName,
+      employeeEmail,
+      weekStart: text(envelope.weekStart || date),
+      weekEnd: text(envelope.weekEnd || date),
+      date,
+      action: event.type === 'absence' ? 'absence' : 'submission',
+      status: text(event.status || (event.type === 'absence' ? 'Absent' : 'Recorded')),
+      absenceReason: text(event.absenceReason || event.absenceStatus),
+      startTime: text(event.startTime),
+      lunchStart: text(event.lunchStart),
+      lunchEnd: text(event.lunchEnd),
+      finishTime: text(event.finishTime),
+      workedHours: event.workedHours == null ? '' : event.workedHours,
+      basicHours: event.basicHours == null ? '' : event.basicHours,
+      ot15Hours: event.ot15Hours == null ? '' : event.ot15Hours,
+      ot20Hours: event.ot20Hours == null ? '' : event.ot20Hours,
+      note: text(event.note || event.title),
+      submittedAt: text(envelope.submittedAt)
+    };
+  }).filter((record) => Boolean(record.employeeName && record.date));
+}
+
+function rowRecords(envelope: CalendarSyncEnvelope): MonthlyTimesheetRecord[] {
+  if (!Array.isArray(envelope.rows)) return [];
+  const employeeName = text(envelope.employeeName || envelope.employee).trim();
+  const employeeEmail = text(envelope.employeeEmail || envelope.employeeUpn).trim();
+  const submissionId = text(envelope.submissionId).trim();
+  return envelope.rows.map((row, index) => {
+    const value = (names: string[]): string => {
+      for (const name of names) if (row[name] != null && text(row[name]).trim()) return text(row[name]).trim();
+      return '';
+    };
+    const date = value(['date', 'Date']) || text(envelope.weekStart);
+    return {
+      recordId: value(['recordId', 'record_id']) || (submissionId ? submissionId + '|' + date : employeeName + '|' + date + '|' + index),
+      employeeName: employeeName || value(['employeeName', 'employee_name']),
+      employeeEmail: employeeEmail || value(['employeeEmail', 'employee_email']),
+      weekStart: text(envelope.weekStart || date), weekEnd: text(envelope.weekEnd || date), date,
+      action: value(['action']) || 'submission', status: value(['status']) || 'Recorded',
+      absenceReason: value(['absenceReason', 'absenceStatus']), startTime: value(['startTime', 'start']),
+      lunchStart: value(['lunchStart']), lunchEnd: value(['lunchEnd']), finishTime: value(['finishTime', 'finish']),
+      workedHours: value(['workedHours', 'reportedWorkedHours']), basicHours: value(['basicHours', 'reportedBasicHours']),
+      ot15Hours: value(['ot15Hours', 'reportedOt15Hours']), ot20Hours: value(['ot20Hours', 'reportedOt20Hours']),
+      note: value(['note']), submittedAt: value(['submittedAt']) || text(envelope.submittedAt)
+    };
+  }).filter((record) => Boolean(record.employeeName && record.date));
+}
+
 function parseRecords(input: string): MonthlyTimesheetRecord[] {
-  const value = text(input).trim();
+  let value = text(input).trim();
   if (!value) return [];
+  // The flow prefixes the attachment name so CSV rows can be attributed to
+  // the destination employee workbook. JSON callers may also use this form.
+  let sourceName = '';
+  const firstLine = value.split(/\r?\n/, 1)[0].trim();
+  if (/^GMT\s/i.test(firstLine) && (firstLine.toLowerCase().endsWith('.csv') || firstLine.toLowerCase().endsWith('.json'))) {
+    sourceName = firstLine;
+    value = value.slice(value.indexOf('\n') + 1).trim();
+  }
   try {
-    const parsed = JSON.parse(value) as MonthlyTimesheetRecord | MonthlyTimesheetRecord[];
-    return Array.isArray(parsed) ? parsed : [parsed];
+    const parsed = JSON.parse(value) as MonthlyTimesheetRecord | MonthlyTimesheetRecord[] | CalendarSyncEnvelope;
+    if (Array.isArray(parsed)) return parsed;
+    const envelope = parsed as CalendarSyncEnvelope;
+    if (Array.isArray(envelope.events)) return calendarRecords(envelope);
+    if (Array.isArray(envelope.rows)) return rowRecords(envelope);
+    return [parsed as MonthlyTimesheetRecord];
   } catch (_error) {
+    if (sourceName.toLowerCase().endsWith('.csv')) return parseCsvSubmitBody(value, sourceName);
     return parseFormSubmitBody(value);
   }
 }
@@ -273,7 +471,7 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
   if (!parsed.length || parsed.some((record) => !record || !text(record.recordId).trim() || !text(record.employeeName).trim())) {
     throw new Error("No valid timesheet records: employeeName and recordId are required.");
   }
-  const skippedRecords = parsed.filter(isSyntheticOrAdminRecord);
+  const skippedRecords = parsed.filter((record) => isSyntheticOrAdminRecord(record));
   const records = parsed.filter((record) => !isSyntheticOrAdminRecord(record));
   if (!records.length) {
     return {
@@ -289,7 +487,10 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
     if (text(record.employeeName).trim().toLowerCase() !== fileMatch[1].trim().toLowerCase()) {
       throw new Error("Employee does not match the destination workbook.");
     }
-    const recordMonth = text(record.date || record.weekStart).slice(0, 7);
+    // A weekly submission is filed under its declared week-start/pay-month.
+    // This keeps cross-month weeks (for example 31 Aug–4 Sep) together while
+    // each daily row still retains its actual calendar date.
+    const recordMonth = text(record.weekStart || record.date).slice(0, 7);
     if (recordMonth !== fileMatch[2]) throw new Error("Record month does not match the destination workbook.");
   });
   const sheet = getOrCreateSheet(workbook);
@@ -308,6 +509,7 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
   });
   let nextRow = Math.max(2, lastRow + 1);
   let created = 0;
+  let updated = 0;
   let unchanged = 0;
   records.forEach((record) => {
     const id = text(record.recordId).trim();
@@ -315,6 +517,34 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
     const values = recordValues(record);
     const versions = existingById["id:" + id] || [];
     if (versions.some((index) => sameSubmission(rows[index], values))) { unchanged++; return; }
+    // Calendar Sync JSON carries the day and totals, while the companion CSV
+    // carries the clock and break detail. Merge those two representations when
+    // one side is merely an enrichment; retain distinct, conflicting versions.
+    const dayMatches = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
+      text(row[0]).trim().toLowerCase() === text(values[0]).trim().toLowerCase() &&
+      normalizedCell(row[2], 2) === normalizedCell(values[2], 2) &&
+      normalizedCell(row[4], 4) === normalizedCell(values[4], 4)
+    );
+    const detailed = (row: (string | number | boolean)[]): boolean =>
+      Boolean(normalizedCell(row[8], 8) || normalizedCell(row[11], 11) || Number(row[12]) || Number(row[13]));
+    const newDetailed = detailed(values);
+    const mergeTarget = dayMatches.find(({ row }) => {
+      if (sameSubmission(row, values)) return false;
+      const oldDetailed = detailed(row);
+      return (newDetailed && !oldDetailed) || (!newDetailed && oldDetailed);
+    });
+    if (mergeTarget) {
+      const merged = values.slice() as (string | number)[];
+      // Keep the richer identity/source metadata already present in the row.
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].forEach((column) => {
+        if (!text(merged[column]).trim() && text(mergeTarget.row[column]).trim()) merged[column] = mergeTarget.row[column] as string | number;
+      });
+      if (!text(merged[19]).trim()) merged[19] = mergeTarget.row[19] as string | number;
+      sheet.getRange("A" + (mergeTarget.index + 2) + ":U" + (mergeTarget.index + 2)).setValues([merged]);
+      rows[mergeTarget.index] = merged;
+      updated++;
+      return;
+    }
     const targetRow = nextRow++;
     sheet.getRange("A" + targetRow + ":U" + targetRow).setValues([values]);
     versions.push(rows.length);
@@ -325,7 +555,7 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
 
   const flagged = refreshReconciliation(workbook, sheet, rows);
   return {
-    created, updated: 0, unchanged, flagged,
+    created, updated, unchanged, flagged,
     skipped: skippedRecords.length,
     recordIds: records.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value)),
     skippedRecordIds: skippedRecords.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value))
