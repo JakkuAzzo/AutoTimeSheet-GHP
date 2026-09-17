@@ -47,6 +47,15 @@ this pass. That action is a direct workbook recovery and is deliberately kept
 separate from the Power Automate replay evidence. It does not upgrade the
 second Simon source week, or any other row, to replay-certified status.
 
+The local reconciled source set was also checked before the latest replay
+attempt. All eight canonical record IDs in the matrix are present in
+`records.json` with daily detail: Ainsley June (5 rows), Ainsley August (5),
+Ainsley September (5), Jason August (1), Matthew August (5), Matthew
+September (5), Simon 24–30 August (7), and Simon 31 August–6 September (7).
+The stored row dates are explicit for every one of those records, so the
+remaining gap is the provider replay/read-back proof rather than an absent
+local source payload.
+
 ## Why the full set is not certified
 
 The current info-account Power Automate session cannot activate the flow
