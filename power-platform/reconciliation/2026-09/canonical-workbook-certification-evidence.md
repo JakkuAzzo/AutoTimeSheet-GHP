@@ -144,6 +144,12 @@ the current SharePoint/Power Automate identity. The fresh info-account
 Power Automate check in the same session still showed zero flows in both **My
 flows** and **Shared with me**.
 
+At `2026-09-17T10:41:00Z`, selecting the stored Amanda credential in the
+existing Microsoft sign-in tab reached Safari's native
+**AutoFillAuthenticationSheet**: “Touch ID to AutoFill your login
+information.” No credential was entered and no flow was changed. The owner
+session remains pending the user's local biometric/password action.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
