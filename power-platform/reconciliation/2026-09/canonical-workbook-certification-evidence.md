@@ -133,6 +133,17 @@ It exposed no selectable flow, and **Automation Templates** opened only an
 empty `about:blank` pop-up. This workbook owner session therefore does not
 establish a usable Power Automate owner session or replay control.
 
+At `2026-09-17T10:37:07Z`, the SharePoint **Timesheet Submissions** list was
+opened in the Amanda-authenticated session. The list contained source rows for
+Jason, Ainsley, Matthew, Simon and Michelle, as well as labelled test and
+backfill rows. The list's **Integrate → Flows** menu did not show an existing
+intake flow; expanding it exposed only **Set a reminder**, which opened a new
+flow form. That form was closed without creating anything. This confirms that
+the SharePoint list data is present, while the intake flow is not exposed to
+the current SharePoint/Power Automate identity. The fresh info-account
+Power Automate check in the same session still showed zero flows in both **My
+flows** and **Shared with me**.
+
 ## Required final replay pass
 
 After the Amanda owner connection is activated, replay each not-certified
