@@ -14,10 +14,10 @@
 <title>GMT Electrical Services Ltd | Motor, Pump and Fan Repairs in Croydon</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""></noscript>
-<link rel="stylesheet" href="public-site.css?v=hero-carousel-20260914-2">
-<link rel="preload" as="image" href="assets/website/workshop/lidia-office-portrait-20260914-v2.jpg" type="image/jpeg">
+<link rel="stylesheet" href="public-site.css?v=public-hero-refresh-20260918-1">
+<link rel="preload" as="image" href="assets/website/workshop/joe-workshop.jpg" type="image/jpeg">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script defer src="public-site.js?v=team-lidia-20260914-2"></script>
+<script defer src="public-site.js?v=public-hero-refresh-20260918-1"></script>
 </head>
 <body>
 <header class="site-header">
@@ -31,7 +31,6 @@
 <div class="site-nav-bar" data-site-nav>
   <nav class="site-nav" aria-label="Main navigation">
     <a href="#services">Services</a>
-    <a href="#about">Team</a>
     <a href="#workshop-enquiry" data-enquire-nav>Enquire</a>
     <a class="portal-link" href="portal/">Login</a>
   </nav>
@@ -56,6 +55,17 @@
           <button class="button secondary" type="button" data-contact-open>Contact us</button>
         </div>
       </div>
+      <aside class="hero-established" aria-labelledby="hero-established-title">
+        <p class="eyebrow">GMT Electrical Services</p>
+        <h2 id="hero-established-title">Established in 1985</h2>
+        <p>GMT Electrical Services was started by three partners who had worked for one of the industry's most experienced companies. The team has continued to adapt with the industry while building long-standing knowledge in motor rewind, pumps, motors, extractors, air conditioning, gearboxes and fan repairs.</p>
+        <ul>
+          <li>Experienced engineers</li>
+          <li>Workshop and site support</li>
+          <li>Repair, supply and installation</li>
+          <li>Local Croydon service</li>
+        </ul>
+      </aside>
     </div>
   </section>
 
@@ -86,7 +96,15 @@
   </section>
 
   <section class="workshop-motion" aria-labelledby="workshop-motion-title">
-    <img class="workshop-motion-image" src="assets/website/workshop/pump-repair.jpg" alt="" aria-hidden="true" width="960" height="1280" loading="lazy" decoding="async">
+    <div class="workshop-motion-media" aria-hidden="true">
+      <div class="workshop-motion-track" data-workshop-motion-track>
+        <img class="workshop-motion-image is-active" src="assets/website/workshop/joe-workshop.jpg" alt="" width="960" height="1280" loading="lazy" decoding="async">
+        <img class="workshop-motion-image" src="assets/website/workshop/jason-workshop.jpg" alt="" width="960" height="1280" loading="lazy" decoding="async">
+        <img class="workshop-motion-image" src="assets/website/workshop/simon-workshop.jpg" alt="" width="960" height="1280" loading="lazy" decoding="async">
+        <img class="workshop-motion-image" src="assets/website/workshop/ainsley-workshop.jpg" alt="" width="960" height="1280" loading="lazy" decoding="async">
+        <img class="workshop-motion-image" src="assets/website/workshop/lidia-office-portrait-20260914-v2.jpg" alt="" width="720" height="1280" loading="lazy" decoding="async">
+      </div>
+    </div>
     <div class="workshop-motion-content">
       <p class="eyebrow">Workshop in motion</p>
       <h2 id="workshop-motion-title">Practical repairs, carefully carried out</h2>
@@ -184,60 +202,6 @@
     </div>
   </section>
   </div>
-
-  <section class="about-band team-showcase" id="about" data-team-showcase>
-    <div class="team-showcase-portrait" aria-hidden="true">
-      <img data-team-current-image src="assets/website/workshop/joe-workshop.jpg" alt="" width="960" height="1280" decoding="async">
-    </div>
-    <div class="team-showcase-current" aria-live="polite">
-      <p class="eyebrow">The GMT team</p>
-      <h2 data-team-name>Joe</h2>
-      <p class="team-role" data-team-role>Director</p>
-      <p class="team-showcase-bio" data-team-bio>Joe established GMT and continues to guide its practical, dependable service.</p>
-    </div>
-    <div class="team-context">
-      <button class="team-context-toggle" type="button" data-team-context-toggle aria-label="Hide company details" aria-expanded="true">
-        <span aria-hidden="true">−</span>
-      </button>
-      <h3>Established in 1985</h3>
-      <p>GMT Electrical Services was started by three partners who had worked for one of the industry's most experienced companies. The team has continued to adapt with the industry while building long-standing knowledge in motor rewind, pumps, motors, extractors, air conditioning, gearboxes and fan repairs.</p>
-      <ul>
-        <li>Experienced engineers</li>
-        <li>Workshop and site support</li>
-        <li>Repair, supply and installation</li>
-        <li>Local Croydon service</li>
-      </ul>
-    </div>
-    <div class="team-progress" aria-label="Time until the next team member">
-      <button class="team-progress-toggle" type="button" data-team-toggle aria-pressed="false" aria-label="Pause team showcase">
-        <span data-team-toggle-icon aria-hidden="true">Ⅱ</span>
-      </button>
-      <span class="team-progress-bar"><span data-team-progress></span></span>
-      <span class="team-progress-text" data-team-progress-text>Next in 7s</span>
-      <button class="team-next-preview" type="button" data-team-next-preview aria-label="Show the next GMT team member">
-        <span class="team-next-label">Next up</span>
-        <img data-team-next-image src="assets/website/workshop/lidia-office-portrait-20260914-v2.jpg" alt="" width="720" height="1280" loading="lazy" decoding="async">
-        <span><strong data-team-next-name>Lidia</strong><small data-team-next-role>GMT team</small></span>
-      </button>
-    </div>
-    <div class="team-roster" hidden>
-      <article class="team-profile" data-team-member data-name="Joe" data-role="Director" data-bio="Joe established GMT and continues to guide its practical, dependable service.">
-        <img src="assets/website/workshop/joe-workshop.jpg" alt="Joe working on equipment in the GMT workshop" width="960" height="1280" decoding="async">
-      </article>
-      <article class="team-profile" data-team-member data-name="Lidia" data-role="GMT team" data-bio="Lidia supports the GMT team from the office.">
-        <img src="assets/website/workshop/lidia-office-portrait-20260914-v2.jpg" alt="Lidia supporting the GMT team in the office" width="720" height="1280" decoding="async">
-      </article>
-      <article class="team-profile" data-team-member data-name="Jason" data-role="Engineer" data-bio="Hands-on workshop support across inspection, repair and preparation of electrical equipment.">
-        <img src="assets/website/workshop/jason-workshop.jpg" alt="Jason working at the GMT workshop" width="960" height="1280" decoding="async">
-      </article>
-      <article class="team-profile" data-team-member data-name="Simon" data-role="Engineer" data-bio="Simon brings practical bench experience to inspection, repair and workshop preparation.">
-        <img src="assets/website/workshop/simon-workshop.jpg" alt="Simon working at the GMT workshop" width="960" height="1280" decoding="async">
-      </article>
-      <article class="team-profile" data-team-member data-name="Ainsley" data-role="Engineer" data-bio="Ainsley supports careful motor inspection, repair and practical workshop turnaround.">
-        <img src="assets/website/workshop/ainsley-workshop.jpg" alt="Ainsley working on a motor at the GMT workshop" width="960" height="1280" decoding="async">
-      </article>
-    </div>
-  </section>
 
   <section class="section contact-section" id="contact">
     <div class="contact-card">
