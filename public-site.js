@@ -245,6 +245,47 @@
     }
   }
 
+  function initWorkshopMotionCarousel() {
+    var root = document.querySelector('[data-workshop-motion-track]');
+    var slides = root ? Array.prototype.slice.call(root.querySelectorAll('.workshop-motion-image')) : [];
+    if (!root || slides.length < 2) return;
+
+    var index = 0;
+    var duration = 7000;
+    var timer = null;
+    var paused = false;
+    var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function setIndex(nextIndex) {
+      index = (nextIndex + slides.length) % slides.length;
+      slides.forEach(function (slide, slideIndex) {
+        slide.classList.toggle('is-active', slideIndex === index);
+      });
+    }
+
+    function advance() {
+      if (!paused) setIndex(index + 1);
+    }
+
+    root.addEventListener('mouseenter', function () { paused = true; });
+    root.addEventListener('mouseleave', function () { paused = false; });
+    root.addEventListener('focusin', function () { paused = true; });
+    root.addEventListener('focusout', function (event) {
+      if (!root.contains(event.relatedTarget)) paused = false;
+    });
+    document.addEventListener('visibilitychange', function () {
+      paused = document.hidden;
+    });
+
+    setIndex(0);
+    if (!reducedMotion) {
+      timer = window.setInterval(advance, duration);
+      window.addEventListener('beforeunload', function () {
+        if (timer) window.clearInterval(timer);
+      });
+    }
+  }
+
   function initContentCarousel() {
     var root = document.querySelector('[data-content-carousel]');
     if (!root) return;
@@ -372,122 +413,6 @@
     });
   }
 
-  function initTeamShowcase() {
-    var root = document.querySelector('[data-team-showcase]');
-    if (!root) return;
-
-    var members = Array.prototype.slice.call(root.querySelectorAll('[data-team-member]'));
-    var currentImage = root.querySelector('[data-team-current-image]');
-    var name = root.querySelector('[data-team-name]');
-    var role = root.querySelector('[data-team-role]');
-    var bio = root.querySelector('[data-team-bio]');
-    var nextButton = root.querySelector('[data-team-next-preview]');
-    var nextImage = root.querySelector('[data-team-next-image]');
-    var nextName = root.querySelector('[data-team-next-name]');
-    var nextRole = root.querySelector('[data-team-next-role]');
-    var progress = root.querySelector('[data-team-progress]');
-    var progressText = root.querySelector('[data-team-progress-text]');
-    var playbackToggle = root.querySelector('[data-team-toggle]');
-    var playbackIcon = root.querySelector('[data-team-toggle-icon]');
-    var context = root.querySelector('.team-context');
-    var contextToggle = root.querySelector('[data-team-context-toggle]');
-    if (!members.length || !currentImage || !name || !role || !bio || !nextButton || !nextImage || !nextName || !nextRole || !progress || !progressText || !playbackToggle || !playbackIcon || !context || !contextToggle) return;
-
-    var index = 0;
-    var duration = 7000;
-    var elapsed = 0;
-    var lastTick = Date.now();
-    var paused = false;
-    var timer = null;
-    var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    function updatePlaybackControl() {
-      playbackToggle.setAttribute('aria-pressed', String(paused));
-      playbackToggle.setAttribute('aria-label', paused ? 'Play team showcase' : 'Pause team showcase');
-      playbackIcon.textContent = paused ? '▶' : 'Ⅱ';
-    }
-
-    function memberImage(member) {
-      var image = member.querySelector('img');
-      return image ? image.getAttribute('src') : '';
-    }
-
-    function render() {
-      var member = members[index];
-      var next = members[(index + 1) % members.length];
-      root.style.setProperty('--team-image', 'url("' + memberImage(member) + '")');
-      root.setAttribute('data-team-current', member.getAttribute('data-name'));
-      currentImage.src = memberImage(member);
-      name.textContent = member.getAttribute('data-name');
-      role.textContent = member.getAttribute('data-role');
-      bio.textContent = member.getAttribute('data-bio');
-      nextImage.src = memberImage(next);
-      var nextImageSource = next.querySelector('img');
-      nextImage.alt = nextImageSource && nextImageSource.getAttribute('alt')
-        ? nextImageSource.getAttribute('alt')
-        : 'Preview of ' + next.getAttribute('data-name');
-      nextName.textContent = next.getAttribute('data-name');
-      nextRole.textContent = next.getAttribute('data-role');
-      nextButton.setAttribute('aria-label', 'Show ' + next.getAttribute('data-name') + ', the next GMT team member');
-      elapsed = 0;
-      lastTick = Date.now();
-      progress.style.width = '0%';
-      progressText.textContent = 'Next in 7s';
-      updatePlaybackControl();
-    }
-
-    function setIndex(nextIndex) {
-      index = (nextIndex + members.length) % members.length;
-      render();
-    }
-
-    function tick() {
-      if (paused) {
-        lastTick = Date.now();
-        return;
-      }
-      var now = Date.now();
-      elapsed += now - lastTick;
-      lastTick = now;
-      if (elapsed >= duration) {
-        setIndex(index + 1);
-        return;
-      }
-      var percentage = Math.min(100, (elapsed / duration) * 100);
-      var seconds = Math.max(1, Math.ceil((duration - elapsed) / 1000));
-      progress.style.width = percentage + '%';
-      progressText.textContent = 'Next in ' + seconds + 's';
-    }
-
-    nextButton.addEventListener('click', function () {
-      setIndex(index + 1);
-    });
-    playbackToggle.addEventListener('click', function () {
-      paused = !paused;
-      lastTick = Date.now();
-      updatePlaybackControl();
-    });
-    contextToggle.addEventListener('click', function () {
-      var expanded = contextToggle.getAttribute('aria-expanded') === 'true';
-      contextToggle.setAttribute('aria-expanded', String(!expanded));
-      contextToggle.setAttribute('aria-label', expanded ? 'Show company details' : 'Hide company details');
-      contextToggle.querySelector('span').textContent = expanded ? '+' : '−';
-      context.classList.toggle('is-collapsed', expanded);
-    });
-    document.addEventListener('visibilitychange', function () {
-      paused = document.hidden;
-      lastTick = Date.now();
-      updatePlaybackControl();
-    });
-
-    render();
-    playbackToggle.disabled = reducedMotion;
-    if (!reducedMotion) timer = window.setInterval(tick, 100);
-    window.addEventListener('beforeunload', function () {
-      if (timer) window.clearInterval(timer);
-    });
-  }
-
   function initWorkshopEnquiry() {
     var form = document.querySelector('[data-workshop-enquiry-form]');
     var card = form ? form.closest('.workshop-enquiry-card') : null;
@@ -586,19 +511,8 @@
 
   function initStickyNavigation() {
     var navBar = document.querySelector('[data-site-nav]');
-    var team = document.querySelector('[data-team-showcase]');
-    if (!navBar || !team || !('IntersectionObserver' in window)) return;
-
-    var observer = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        navBar.classList.toggle('is-hidden', entry.isIntersecting);
-      });
-    }, { threshold: 0.01 });
-
-    observer.observe(team);
-    window.addEventListener('beforeunload', function () {
-      observer.disconnect();
-    });
+    if (!navBar) return;
+    navBar.classList.remove('is-hidden');
   }
 
   function initRevealAnimations() {
@@ -638,9 +552,9 @@
     initStickyNavigation();
     initWorkshopMap();
     initHeroCarousel();
+    initWorkshopMotionCarousel();
     initServiceCarousel();
     initContentCarousel();
-    initTeamShowcase();
     initContactModal();
     initWorkshopEnquiry();
     initRevealAnimations();
