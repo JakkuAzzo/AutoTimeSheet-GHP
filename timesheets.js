@@ -931,37 +931,8 @@
     return entries.concat(Object.keys(grouped).map(function (groupKey) { return grouped[groupKey]; }));
   }
 
-  function calendarEmployeeKey(record, employees, records) {
-    var upn = String(record && (record.employee_upn || record.employee_email || record.employeeEmail || '') || '').trim().toLowerCase();
-    var name = String(record && (record.employee_name || record.employeeName || '') || '').trim().toLowerCase();
-    var normalisedName = name.replace(/[^a-z0-9]+/g, '');
-    var roster = Array.isArray(employees) ? employees : [];
-    var upnMatch = upn && roster.find(function (employee) {
-      return String(employee && (employee.employee_upn || employee.upn || employee.email) || '').trim().toLowerCase() === upn;
-    });
-    if (upnMatch) return 'employee|' + String(upnMatch.employee_upn || upnMatch.upn || upnMatch.email || upn).trim().toLowerCase();
-    var nameMatches = normalisedName ? roster.filter(function (employee) {
-      var employeeName = String(employee && (employee.employee_name || employee.name) || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-      return employeeName === normalisedName;
-    }) : [];
-    if (nameMatches.length === 1) {
-      var canonicalUpn = String(nameMatches[0].employee_upn || nameMatches[0].upn || nameMatches[0].email || '').trim().toLowerCase();
-      if (canonicalUpn) return 'employee|' + canonicalUpn;
-    }
-    if (normalisedName) {
-      var matchingUpns = {};
-      (Array.isArray(records) ? records : []).forEach(function (candidate) {
-        var candidateName = String(candidate && (candidate.employee_name || candidate.employeeName) || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-        var candidateUpn = String(candidate && (candidate.employee_upn || candidate.employee_email || candidate.employeeEmail) || '').trim().toLowerCase();
-        if (candidateName === normalisedName && candidateUpn) matchingUpns[candidateUpn] = true;
-      });
-      if (Object.keys(matchingUpns).length <= 1) return 'name|' + normalisedName;
-      // A display name alone cannot safely distinguish two people with the
-      // same name. Preserve their separate identities instead of collapsing
-      // records into one payroll-calendar entry.
-      return upn ? 'upn|' + upn : 'record|' + String(record && (record.source_record_id || record.id) || normalisedName);
-    }
-    return upn ? 'upn|' + upn : '';
+  function calendarEmployeeKey(record) {
+    return String(record && (record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || '') || '').trim().toLowerCase();
   }
 
   function calendarEntryQuality(entry, date) {
@@ -1225,7 +1196,7 @@
     var filledDates = {};
     authoritativeTimesheetEntries(visibleRecords || lastRecords || []).forEach(function (entry) {
       var record = entry && entry.record;
-      var identity = calendarEmployeeKey(record, lastCompletion && lastCompletion.employees, lastRecords);
+      var identity = calendarEmployeeKey(record);
       if (!identity) return;
       calendarDateKeys(record, monthDate).forEach(function (dayKey) {
         filledDates[identity + '|' + dayKey] = true;
@@ -1300,7 +1271,7 @@
       calendarDateKeys(record, viewDate).forEach(function (key) {
         if (!byDate[key]) byDate[key] = [];
         var action = actionKey(record);
-        var identity = calendarEmployeeKey(record, lastCompletion && lastCompletion.employees, lastRecords);
+        var identity = calendarEmployeeKey(record);
         var groupKey = ['timesheets', 'clock'].indexOf(action) !== -1 && identity
           ? 'time|' + identity
           : calendarGroupKey(record, index, key);

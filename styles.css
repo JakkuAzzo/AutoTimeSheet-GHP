@@ -43,9 +43,27 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 button:hover { filter: brightness(1.06); }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .in-progress-badge { display: inline-flex; align-items: center; width: fit-content; margin-top: .45rem; border-radius: 999px; padding: .2rem .55rem; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); font-size: .82rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
-.days-container { display: grid; gap: 1rem; }
-.day-card { background: #fff; border: 2px solid var(--line); border-radius: 1.15rem; padding: 1rem; margin: 1rem 0; box-shadow: 0 10px 24px rgba(0,0,0,.08); overflow: hidden; }
+.timesheet-grid { overflow-x: auto; overflow-y: visible; max-width: 100%; border: 1px solid var(--line); border-radius: .85rem; background: #fff; overscroll-behavior-x: contain; }
+.timesheet-grid-heading { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 5rem 10.5rem 7.5rem 7.5rem 9rem 11rem 7rem; min-width: 57.5rem; gap: .55rem; align-items: center; padding: .65rem .75rem; color: #fff; background: var(--green); font-size: .78rem; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
+.days-container { display: grid; gap: 0; min-width: 57.5rem; }
+.day-card { display: grid; grid-template-columns: 5rem 1fr; background: #fff; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: .65rem .75rem; margin: 0; box-shadow: none; overflow: visible; }
 .day-card-header { display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center; }
+.day-card-header, .day-card-body, .day-grid { display: contents; }
+.day-card-header .collapse-day { grid-column: 1; grid-row: 1; }
+.day-title-block { grid-column: 1; grid-row: 1; padding-left: 2.3rem; pointer-events: none; }
+.day-title-block h3 { font-size: .9rem; }
+.day-mini-summary { display: none; }
+.day-card-body .day-grid > label { align-self: center; }
+.day-card-body .day-grid > label:nth-child(1) { grid-column: 2; }
+.day-card-body .day-grid > label:nth-child(2) { grid-column: 3; }
+.day-card-body .day-grid > label:nth-child(3) { grid-column: 4; }
+.day-card-body .day-grid > label:nth-child(4) { grid-column: 5; }
+.day-card-body .day-grid > label:nth-child(5) { grid-column: 6; }
+.day-card-body label { min-width: 0; font-size: .78rem; }
+.day-card-body label input, .day-card-body label select { margin-top: 0; min-height: 40px; }
+.day-card .remove-day { grid-column: 7; grid-row: 1; align-self: center; }
+.day-card .additional-fields { grid-column: 2 / -1; grid-row: 2; margin-top: .5rem; }
+.day-card .day-result { grid-column: 2 / -1; grid-row: 3; }
 .day-title-block h3 { margin: 0; color: var(--green); font-size: 1.55rem; }
 .day-mini-summary { margin: .25rem 0 0; color: var(--muted); line-height: 1.35; }
 .collapse-day { width: 3rem; min-width: 3rem; height: 3rem; padding: 0; border-radius: 999px; display: grid; place-items: center; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
@@ -74,6 +92,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .timesheet-period-summary span { color: var(--muted); font-size: .9rem; line-height: 1.35; }
 .timesheet-period-legacy { position: fixed; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .timesheet-period-legacy input { width: 1px; min-width: 1px; min-height: 1px; height: 1px; margin: 0; padding: 0; }
+.generate-bar, .day-entry-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.toggle-control { display: inline-flex; align-items: center; gap: .5rem; color: var(--green); font-weight: 800; }
+.toggle-control input[type="checkbox"] { width: 1.25rem; min-width: 1.25rem; min-height: 1.25rem; height: 1.25rem; margin: 0; accent-color: var(--green); }
+.weekend-help { max-width: 58rem; margin: .35rem 0 0; }
+.day-entry-actions .round-btn { white-space: nowrap; }
 .planner-panel:not([open]) { padding-bottom: .7rem; }
 .planner-panel summary { cursor: pointer; color: var(--green); font-weight: 900; }
 .planner-panel summary span { color: var(--muted); font-size: .8rem; font-weight: 600; }
@@ -95,11 +118,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .brand-block { align-items: center; flex-direction: column; text-align: center; }
   .logo-crop, .brand-block .site-logo { width: min(360px, 84vw); height: 122px; }
   .site-logo.small-logo { width: min(260px, 72vw); height: 88px; }
-  .day-card { padding: .85rem; border-radius: 1rem; margin: .85rem 0; }
+  .timesheet-grid { border-radius: .65rem; }
+  .timesheet-grid-heading { position: sticky; top: 0; }
+  .day-card { padding: .65rem .75rem; }
   .day-card-header { grid-template-columns: auto 1fr; }
   .remove-day { grid-column: 1 / -1; justify-self: start; }
-  .form-grid, .compact-grid, .day-grid { grid-template-columns: 1fr; }
+  .form-grid, .compact-grid { grid-template-columns: 1fr; }
   .summary-grid { grid-template-columns: 1fr; }
+  .generate-bar, .day-entry-actions { align-items: stretch; flex-direction: column; }
+  .generate-bar button, .day-entry-actions button { width: 100%; }
+  .toggle-control { justify-content: flex-start; }
   .day-result { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
   .day-result span { justify-content: center; text-align: center; }
   .portal-toast { right: .65rem; bottom: .65rem; width: calc(100vw - 1.3rem); }

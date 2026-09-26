@@ -59,6 +59,80 @@
   padding: .1rem;
   scrollbar-width: thin;
 }
+
+/* Pay-month workspace mobile-first pass. The list is a compact two-line
+   record row; the preview keeps its spreadsheet width inside one scroll
+   region instead of reflowing cells into overlapping pseudo-labels. */
+.pay-month-workspace { overflow: hidden; }
+.pay-month-layout { grid-template-columns: minmax(0, 1fr); }
+.pay-month-list-panel, .pay-month-preview, .pay-month-sheet-preview { min-width: 0; }
+.pay-month-list { max-height: none; overflow: visible; }
+.pay-month-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  gap: .2rem .65rem;
+  align-items: start;
+  min-width: 0;
+  padding: .7rem .75rem;
+}
+.pay-month-list-item-heading { display: contents; }
+.pay-month-list-item-heading strong {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.pay-month-list-item-heading .portal-status {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  white-space: nowrap;
+}
+.pay-month-list-item-month {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+.pay-month-list-item small {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.pay-month-preview { overflow: hidden; }
+.pay-month-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.pay-month-edit-table { min-width: 44rem; }
+.pay-month-edit-actions { align-items: flex-start; }
+.pay-month-download { white-space: normal; }
+.pay-month-download-status { min-width: 0; overflow-wrap: anywhere; }
+
+@media (min-width: 900px) {
+  .pay-month-layout { grid-template-columns: minmax(250px, .75fr) minmax(0, 1.65fr); }
+  .pay-month-preview { position: sticky; top: 1rem; }
+}
+
+@media (max-width: 700px) {
+  .pay-month-layout { gap: .75rem; }
+  .pay-month-list { max-height: 360px; overflow-y: auto; padding-right: .1rem; }
+  .pay-month-preview { padding: .9rem; }
+  .pay-month-edit-table { display: table; min-width: 44rem; }
+  .pay-month-edit-table thead { display: table-header-group; }
+  .pay-month-edit-table tbody { display: table-row-group; }
+  .pay-month-edit-table tr { display: table-row; padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .pay-month-edit-table th, .pay-month-edit-table td { display: table-cell; width: auto; padding: .5rem .45rem; border-bottom: 1px solid #e0e5dd; vertical-align: middle; }
+  .pay-month-edit-table td::before { display: none; }
+  .pay-month-edit-actions { display: grid; grid-template-columns: 1fr; gap: .55rem; }
+  .pay-month-edit-actions .small-text { min-width: 0; }
+}
 .submission-record-header,
 .submission-record-row {
   display: grid;
@@ -130,4 +204,164 @@
   .submission-record-date,
   .submission-record-status { font-size: .76rem; }
   .submission-record-status { grid-column: 1 / -1; }
+}
+
+/* Pay-month workspace: keep navigation compact and give the selected sheet
+   the space it needs on wide displays without creating a horizontal page
+   overflow on phones. */
+.submission-type-tabs {
+  display: flex;
+  gap: .45rem;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: .15rem .05rem .45rem;
+  scrollbar-width: thin;
+}
+.submission-type-tabs button {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: .5rem .75rem;
+  color: var(--green);
+  background: #f5f8f1;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.submission-type-tabs button:hover,
+.submission-type-tabs button:focus-visible { border-color: var(--green); outline: 0; box-shadow: 0 0 0 3px rgba(18,61,29,.12); }
+.submission-type-tabs button[aria-selected="true"] { color: #fff; background: var(--green); border-color: var(--green); }
+.pay-month-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: .75rem;
+  padding: .2rem 0 .75rem;
+  border-bottom: 1px solid var(--line);
+}
+.pay-month-filters .portal-history-filter { display: grid; gap: .25rem; color: var(--green); font-size: .78rem; font-weight: 850; }
+.pay-month-filters select { width: 100%; min-width: 0; }
+.pay-month-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, .75fr) minmax(0, 1.65fr);
+  gap: 1rem;
+  align-items: start;
+  min-width: 0;
+}
+.pay-month-list-panel { display: grid; gap: .55rem; min-width: 0; }
+.pay-month-list-heading { display: flex; justify-content: space-between; gap: .75rem; align-items: end; padding: .1rem .1rem .2rem; }
+.pay-month-list-heading h3 { margin: .1rem 0 0; color: var(--green); }
+.pay-month-list-item { gap: .35rem; padding: .75rem .85rem; }
+.pay-month-list-item-heading { display: flex; justify-content: space-between; gap: .5rem; align-items: start; }
+.pay-month-list-item-heading strong { min-width: 0; overflow-wrap: anywhere; }
+.pay-month-list-item-month { color: var(--ink); font-size: .8rem; font-weight: 800; line-height: 1.3; }
+.pay-month-list-item small { line-height: 1.35; }
+.pay-month-preview { position: sticky; top: 1rem; min-width: 0; min-height: 0; }
+.pay-month-preview .pay-month-sheet-preview { min-width: 0; }
+.pay-month-edit-note { margin: 0 0 1rem; padding: .65rem .75rem; color: #694d00; background: #fff8dc; border: 1px solid #d8be63; border-radius: .55rem; font-size: .85rem; }
+.pay-month-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid #d9dfd4; border-radius: .6rem; }
+.pay-month-edit-table { width: 100%; min-width: 680px; margin: 0; border-collapse: collapse; font-size: .82rem; }
+.pay-month-edit-table th { color: var(--muted); background: #f4f7f0; font-size: .72rem; letter-spacing: .03em; text-transform: uppercase; }
+.pay-month-edit-table th, .pay-month-edit-table td { padding: .55rem .45rem; border-bottom: 1px solid #e0e5dd; vertical-align: middle; text-align: left; }
+.pay-month-edit-table tbody tr:last-child td { border-bottom: 0; }
+.pay-month-edit-table tbody tr.is-read-only { opacity: .72; }
+.pay-month-edit-table input, .pay-month-edit-table select { width: 100%; min-width: 0; padding: .45rem .5rem; font-size: .82rem; }
+.pay-month-edit-table input[type="date"] { min-width: 9.3rem; }
+.pay-month-edit-table input[type="time"] { min-width: 6.4rem; }
+.pay-month-edit-table .pay-month-row-hours { display: inline-block; min-width: 3.5rem; color: var(--green); font-weight: 850; white-space: nowrap; }
+.pay-month-sheet-total { display: flex; justify-content: space-between; gap: 1rem; align-items: center; margin-top: .65rem; padding: .75rem .9rem; border: 1px solid #b8cdb3; border-radius: .65rem; background: #edf5e9; color: var(--green); font-weight: 800; }
+.pay-month-sheet-total strong { font-size: 1.05rem; white-space: nowrap; }
+.pay-month-edit-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; padding-top: .85rem; }
+.pay-month-edit-actions .small-text { flex: 1 1 15rem; min-width: 12rem; }
+
+/* The left pane is intentionally narrow. Record-type tabs use a compact
+   two-column card there so names never collapse into one letter per line. */
+.pay-month-list-panel .submission-record-header { display: none; }
+.pay-month-list-panel .submission-record-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: .38rem .65rem;
+  padding: .6rem .7rem;
+}
+.pay-month-list-panel .submission-record-user { grid-column: 1 / -1; }
+.pay-month-list-panel .submission-record-type::before,
+.pay-month-list-panel .submission-record-date::before,
+.pay-month-list-panel .submission-record-status::before {
+  display: block;
+  margin-bottom: .12rem;
+  color: var(--muted);
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.pay-month-list-panel .submission-record-type::before { content: "Type"; }
+.pay-month-list-panel .submission-record-date::before { content: "Date"; }
+.pay-month-list-panel .submission-record-status::before { content: "Status"; grid-column: 1 / -1; }
+.pay-month-list-panel .submission-record-status { grid-column: 1 / -1; }
+
+@media (max-width: 900px) {
+  .pay-month-preview { position: static; }
+  .pay-month-layout { grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr); }
+}
+@media (max-width: 700px) {
+  .pay-month-filters { grid-template-columns: 1fr; }
+  .pay-month-layout { grid-template-columns: 1fr; gap: .75rem; }
+  .pay-month-list { max-height: 330px; }
+  .pay-month-preview { padding: 1rem; }
+  .pay-month-edit-table { min-width: 0; border: 0; }
+  .pay-month-table-scroll { border: 0; overflow: visible; }
+  .pay-month-edit-table thead { display: none; }
+  .pay-month-edit-table, .pay-month-edit-table tbody, .pay-month-edit-table tr, .pay-month-edit-table td { display: block; width: 100%; }
+  .pay-month-edit-table tbody { display: grid; gap: .65rem; }
+  .pay-month-edit-table tr { padding: .65rem; border: 1px solid var(--line); border-radius: .65rem; background: #fbfdf9; }
+  .pay-month-edit-table td { display: grid; grid-template-columns: 5.2rem minmax(0, 1fr); gap: .5rem; align-items: center; padding: .28rem 0; border: 0; }
+  .pay-month-edit-table td::before { content: attr(data-label); color: var(--muted); font-size: .7rem; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
+  .pay-month-edit-table input[type="date"], .pay-month-edit-table input[type="time"] { min-width: 0; }
+}
+
+/* Final mobile-first overrides for the submitted pay-month workspace. */
+.pay-month-workspace { overflow: hidden; }
+.pay-month-layout { grid-template-columns: minmax(0, 1fr); }
+.pay-month-list-panel, .pay-month-preview, .pay-month-sheet-preview { min-width: 0; }
+.pay-month-list { max-height: none; overflow: visible; }
+.pay-month-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  gap: .2rem .65rem;
+  align-items: start;
+  min-width: 0;
+  padding: .7rem .75rem;
+}
+.pay-month-list-item-heading { display: contents; }
+.pay-month-list-item-heading strong { grid-column: 1; grid-row: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
+.pay-month-list-item-heading .portal-status { grid-column: 2; grid-row: 1 / span 2; align-self: start; white-space: nowrap; }
+.pay-month-list-item-month { grid-column: 1; grid-row: 2; min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+.pay-month-list-item small { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.pay-month-preview { overflow: hidden; }
+.pay-month-sheet-preview .timesheet-paper-header { align-items: flex-start; }
+.pay-month-sheet-preview .portal-status { flex: 0 0 auto; height: fit-content; }
+.pay-month-table-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
+.pay-month-edit-table { min-width: 44rem; }
+.pay-month-edit-actions { align-items: flex-start; }
+.pay-month-download { white-space: normal; }
+.pay-month-download-status { min-width: 0; overflow-wrap: anywhere; }
+
+@media (min-width: 900px) {
+  .pay-month-layout { grid-template-columns: minmax(250px, .75fr) minmax(0, 1.65fr); }
+  .pay-month-preview { position: sticky; top: 1rem; }
+}
+
+@media (max-width: 700px) {
+  .pay-month-layout { gap: .75rem; }
+  .pay-month-list { max-height: 360px; overflow-y: auto; padding-right: .1rem; }
+  .pay-month-preview { padding: .9rem; }
+  .pay-month-edit-table { display: table; min-width: 44rem; }
+  .pay-month-edit-table thead { display: table-header-group; }
+  .pay-month-edit-table tbody { display: table-row-group; }
+  .pay-month-edit-table tr { display: table-row; padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .pay-month-edit-table th, .pay-month-edit-table td { display: table-cell; width: auto; padding: .5rem .45rem; border-bottom: 1px solid #e0e5dd; vertical-align: middle; }
+  .pay-month-edit-table td::before { display: none; }
+  .pay-month-edit-actions { display: grid; grid-template-columns: 1fr; gap: .55rem; }
+  .pay-month-edit-actions .small-text { min-width: 0; }
 }

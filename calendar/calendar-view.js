@@ -15,10 +15,47 @@
     return String(value || '').slice(0, 10);
   }
 
+  function eventRecordId(event) {
+    return String(event && (event.recordId || event.record_id || event.source_record_id || event.id) || '');
+  }
+
+  function eventKind(event) {
+    return String(event && (event.type || event.kind || 'general') || '');
+  }
+
+  function eventCanEdit(event) {
+    return !!(event && (event.can_edit === true || event.canEdit === true));
+  }
+
+  function eventCanDelete(event) {
+    return !!(event && (event.can_delete === true || event.canDelete === true));
+  }
+
+  function eventIdentity(event) {
+    // Daily rows from one weekly submission share a parent recordId. Prefer
+    // the row-level id first so each filled date remains visible on the
+    // calendar while recordId still points actions back to the submission.
+    return String(event && event.id || '') || eventRecordId(event) || [dateKey(event && (event.date || event.startDate)), event && event.title, event && event.type, event && event.owner].join('|');
+  }
+
+  function mergeEvents() {
+    const values = Array.from(arguments).flat();
+    const helper = window.GMTCalendarData;
+    if (helper && typeof helper.mergeEvents === 'function') return helper.mergeEvents(values);
+    const seen = new Set();
+    return values.filter((event) => {
+      if (!event || !dateKey(event.date || event.startDate)) return false;
+      const id = eventIdentity(event);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }
+
   function isCurrentPayMonth(key) {
-    return typeof window.GMTCalendarActions?.currentPayMonth === 'function'
-      ? String(key).slice(0, 7) === window.GMTCalendarActions.currentPayMonth()
-      : String(key).slice(0, 7) === new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).formatToParts(new Date()).reduce((value, part) => value + (part.type === 'year' || part.type === 'month' ? part.value + (part.type === 'year' ? '-' : '') : ''), '');
+    // The calendar is also a creation surface. Keep every valid date
+    // actionable; the timesheet form assigns its payroll workbook by date.
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(key || ''));
   }
 
   function allEvents() {
@@ -55,7 +92,10 @@
     for (let day = 1; day <= daysInMonth; day += 1) {
       const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const events = eventsByDay[key] || [];
-      const eventMarkup = events.slice(0, 3).map((event) => `<span class="calendar-event calendar-event-${escapeHtml(String(event.type || 'general').toLowerCase().replace(/[^a-z]+/g, '-'))}" title="${escapeHtml(event.title || 'Untitled event')}">${escapeHtml(event.title || event.type || 'Event')}</span>`).join('');
+      const eventMarkup = events.slice(0, 3).map((event) => {
+        const label = `${event.title || event.type || 'Event'}${event.detail ? ` · ${event.detail}` : ''}`;
+        return `<button type="button" class="calendar-event calendar-event-${escapeHtml(String(event.type || 'general').toLowerCase().replace(/[^a-z]+/g, '-'))}" data-calendar-record-id="${escapeHtml(eventRecordId(event))}" data-calendar-record-kind="${escapeHtml(eventKind(event))}" data-calendar-can-edit="${String(eventCanEdit(event))}" data-calendar-can-delete="${String(eventCanDelete(event))}" data-calendar-preview-title="${escapeHtml(event.title || event.type || 'Event')}" data-calendar-preview="${escapeHtml(event.detail || label)}" data-calendar-preview-status="${escapeHtml(event.status || '')}" data-calendar-date="${escapeHtml(key)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${escapeHtml(event.title || event.type || 'Event')}</button>`;
+      }).join('');
       const more = events.length > 3 ? `<span class="calendar-more">+${events.length - 3} more</span>` : '';
       const dateMarkup = isCurrentPayMonth(key)
         ? `<button type="button" class="calendar-day-date" data-calendar-day="${key}" aria-label="Actions for ${key}">${day}</button>`
@@ -67,15 +107,32 @@
 
   async function loadPublishedEvents() {
     const status = $('#calendar-sync-status');
+    const localEvents = window.GMTCalendarData && typeof window.GMTCalendarData.localEvents === 'function'
+      ? window.GMTCalendarData.localEvents()
+      : [];
+    let feedEvents = [];
+    let feedLoaded = false;
     try {
       const response = await fetch(`${calendarDataUrl}?v=${Date.now()}`, { cache: 'no-store' });
       if (!response.ok) throw new Error('Calendar feed unavailable');
       const payload = await response.json();
-      publishedEvents = Array.isArray(payload) ? payload : (Array.isArray(payload.events) ? payload.events : []);
-      status.textContent = publishedEvents.length ? `Shared feed: ${publishedEvents.length} published event${publishedEvents.length === 1 ? '' : 's'}.` : 'Shared feed connected. No published events yet.';
+      feedEvents = Array.isArray(payload) ? payload : (Array.isArray(payload.events) ? payload.events : []);
+      feedLoaded = true;
     } catch (_) {
-      publishedEvents = [];
-      status.textContent = 'Shared feed is not available yet. No local requests are published here.';
+      feedLoaded = false;
+    }
+    publishedEvents = mergeEvents(feedEvents, localEvents);
+    if (status) {
+      if (publishedEvents.length) {
+        const parts = [];
+        if (feedEvents.length) parts.push(`${feedEvents.length} published`);
+        if (localEvents.length) parts.push(`${localEvents.length} local`);
+        status.textContent = `Shared feed connected: ${parts.join(' and ')} event${publishedEvents.length === 1 ? '' : 's'}.`;
+      } else if (feedLoaded) {
+        status.textContent = 'Shared feed connected. No published events yet.';
+      } else {
+        status.textContent = 'Shared feed is temporarily unavailable. No local requests were found.';
+      }
     }
     renderMonth();
   }
@@ -83,19 +140,33 @@
   async function loadProtectedEvents() {
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== 'function' || !window.GMTPortalApi.enabled()) return;
     try {
-      const body = await window.GMTPortalApi.history('calendar');
-      const records = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
-        id: record.source_record_id,
-        title: record.event_title || 'Untitled event',
-        date: record.event_date || record.record_date || '',
-        type: record.event_type || 'General',
-        owner: record.owner || record.employee_name || '',
-        status: record.status || 'Pending approval'
-      }));
-      const existing = new Set(publishedEvents.map((event) => String(event.id || '')));
-      publishedEvents = publishedEvents.concat(records.filter((event) => event.date && !existing.has(String(event.id))));
+      // Use the same all-records interpretation as the dashboard and
+      // Submitted documents calendar. This includes dated timesheet rows,
+      // calendar requests and other authorised operational records.
+      const body = await window.GMTPortalApi.history('all');
+      const records = body && Array.isArray(body.records) ? body.records : [];
+      const meta = body && body.meta && typeof body.meta === 'object' ? body.meta : {};
+      const helper = window.GMTCalendarData;
+      const derived = helper && typeof helper.recordsToEvents === 'function'
+        ? helper.recordsToEvents(records, { employees: meta.completion && meta.completion.employees || [] })
+        : records.filter((record) => record && (record.event_date || record.record_date)).map((record) => ({
+          id: record.source_record_id,
+          recordId: record.source_record_id,
+          title: record.event_title || record.employee_name || 'Untitled event',
+          date: record.event_date || record.record_date || '',
+          type: record.event_type || record.kind || 'General',
+          owner: record.owner || record.employee_name || '',
+          status: record.status || 'Submitted',
+          detail: record.notes || record.detail || '',
+          can_edit: record.can_edit === true,
+          can_delete: record.can_delete === true
+        }));
+      publishedEvents = mergeEvents(publishedEvents, derived);
       const status = $('#calendar-sync-status');
-      if (status && records.length) status.textContent = status.textContent + ' Protected requests: ' + records.length + '.';
+      if (status && derived.length) {
+        const baseStatus = status.textContent.replace(' No published events yet.', '');
+        status.textContent = baseStatus + ' Protected entries: ' + derived.length + '.';
+      }
       renderMonth();
     } catch (_) {
       // The static published feed remains usable if protected history is unavailable.

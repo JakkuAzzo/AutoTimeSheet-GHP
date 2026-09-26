@@ -1,4 +1,4 @@
-const GMT_SITE_BASE_PATH = /(^|\.)gmt-services\.co\.uk$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname)
+const GMT_SITE_BASE_PATH = /(^|\.)gmt-services\.co\.uk$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname)
   ? ""
   : "/AutoTimeSheet-GHP";
 
@@ -20,8 +20,9 @@ window.GMT_APP_CONFIG = {
   estimateSendEndpoint: "",
   estimateHistoryEndpoint: "",
   estimateHistoryScopes: [],
-  // Never fall back to a personal mailbox for client delivery. Populate this
-  // only with the approved Accounts BCC route.
+  // Never fall back to a personal mailbox for client delivery. New timesheets
+  // are delivered to the company Accounts mailbox and copied to the legacy
+  // Accounts archive while that mailbox remains in use.
   estimateAccountsBcc: "",
   // Cloudflare Worker protected portal API. Set this to the deployed Worker
   // origin in the Pages bundle; leave blank in local development.
@@ -53,8 +54,8 @@ window.GMT_APP_CONFIG = {
     scriptUrl: "https://cloud.umami.is/script.js",
     websiteId: "3b22159f-da25-4ae0-93f1-beeaf858b685"
   },
-  // Leave empty until accounts@gmt-services.co.uk is a mail-enabled Exchange mailbox.
-  formSubmitCc: "",
+  // Keep the legacy Accounts archive on every new timesheet delivery.
+  formSubmitCc: "acc.gmtelect@outlook.com",
   allowedAdminEmails: [],
   magicLinkApiBase: "",
   entraSpaAuth: {

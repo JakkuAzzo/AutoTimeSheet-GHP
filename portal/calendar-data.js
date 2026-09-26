@@ -274,6 +274,14 @@
     var lunchEnd = text(objectValue(row, ["lunchEnd", "lunch_end", "breakEnd", "break_end", "Lunch end"]));
     var breakValue = objectValue(row, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "Break"]);
     var breakStatus = text(objectValue(row, ["breakStatus", "break_status"]));
+    var breakTotal = breakMinutes(breakValue);
+    if (breakTotal === null && lunchStart && lunchEnd && timeMinutes(lunchStart) !== null && timeMinutes(lunchEnd) !== null) breakTotal = Math.max(0, timeMinutes(lunchEnd) - timeMinutes(lunchStart));
+    if (breakTotal === null) {
+      var breakNote = text(objectValue(row, ["description", "note", "notes", "Note"]));
+      var notedMinutes = breakNote.match(/\bbreak\s*:\s*(\d+(?:\.\d+)?)\s*minutes?\s*deducted\b/i);
+      if (notedMinutes) breakTotal = Number(notedMinutes[1]);
+      else if (/\bbreak\s*:\s*(?:no break|not taken|none)\b/i.test(breakNote)) breakTotal = 0;
+    }
     var scheduleDays = schedule(record, options);
     var explicitScheduled = objectValue(row, ["scheduled"]);
     var scheduled = explicitScheduled === false || String(explicitScheduled).toLowerCase() === "false"
@@ -288,11 +296,12 @@
         if (timeMinutes(finish) === timeMinutes(start)) issues.push("Clock in and clock out are the same time");
         else if (timeMinutes(finish) < timeMinutes(start)) issues.push("Finish earlier than clock in");
       }
-      if (!breakStatus && breakMinutes(breakValue) === null) issues.push("Break not recorded");
+      if (!breakStatus && breakTotal === null) issues.push("Break not recorded");
     }
-    var breakTotal = breakMinutes(breakValue);
-    if (breakTotal === null && lunchStart && lunchEnd && timeMinutes(lunchStart) !== null && timeMinutes(lunchEnd) !== null) breakTotal = Math.max(0, timeMinutes(lunchEnd) - timeMinutes(lunchStart));
-    if (worked === null && start && finish && timeMinutes(start) !== null && timeMinutes(finish) !== null && timeMinutes(finish) >= timeMinutes(start)) worked = Math.max(0, timeMinutes(finish) - timeMinutes(start) - (breakTotal || 0));
+    if (start && finish && timeMinutes(start) !== null && timeMinutes(finish) !== null && timeMinutes(finish) >= timeMinutes(start)) {
+      if (breakTotal !== null) worked = Math.max(0, timeMinutes(finish) - timeMinutes(start) - breakTotal);
+      else if (worked === null) worked = timeMinutes(finish) - timeMinutes(start);
+    }
     if (!breakStatus && breakTotal !== null) breakStatus = breakTotal > 0 ? "added" : "not-taken";
     var detail = absence && !/^(na|none|no absence|not applicable|n\/a)$/i.test(absence)
       ? absence
@@ -369,27 +378,34 @@
     return String(recordId(candidate)).localeCompare(String(recordId(existing))) > 0;
   }
   function authoritativeTimesheetRecords(records) {
-    var grouped = {};
-    var passthrough = [];
-    (Array.isArray(records) ? records : []).forEach(function (record) {
-      if (kind(record) !== "timesheets") {
-        passthrough.push(record);
-        return;
-      }
-      var identity = text(record && (record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || record.employeeName || employee(record))).toLowerCase();
-      var week = recordWeekStart(record);
-      if (!identity || !week) {
-        passthrough.push(record);
-        return;
-      }
-      var groupKey = identity + "|" + week;
-      if (!grouped[groupKey] || preferTimesheet(record, grouped[groupKey])) grouped[groupKey] = record;
-    });
-    return passthrough.concat(Object.keys(grouped).map(function (groupKey) { return grouped[groupKey]; }));
+    // Do not collapse a whole employee/week to one source record here. A
+    // correction or a replay can contain only part of a pay-month week (for
+    // example, Monday–Friday rows after Saturday/Sunday were removed). The
+    // event-level merge below chooses one valid row per employee/date while
+    // retaining rows from the other source records to restore the missing
+    // days.
+    return Array.isArray(records) ? records : [];
   }
-  function eventEmployeeKey(event) {
+  function eventEmployeeKey(event, options) {
     var record = event && event.record || {};
-    return text(record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || record.employeeName || event && (event.owner || event.title)).toLowerCase();
+    var direct = text(record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || record.employeeName || event && (event.owner || event.title));
+    var wanted = direct.toLowerCase();
+    var employees = options && Array.isArray(options.employees) ? options.employees : [];
+    var match = employees.find(function (employeeRecord) {
+      var email = text(employeeRecord && (employeeRecord.employee_upn || employeeRecord.upn || employeeRecord.email)).toLowerCase();
+      var name = text(employeeRecord && (employeeRecord.employee_name || employeeRecord.name)).toLowerCase();
+      return !!wanted && (wanted === email || wanted === name);
+    });
+    if (match) return text(match.employee_upn || match.upn || match.email || match.employee_name || match.name).toLowerCase();
+    // Microsoft 365 history and a local protected record can carry different
+    // identities for the same person (for example an unmatched mailbox alias
+    // alongside the display name). The calendar is a person/day view, so use
+    // the displayed employee name as the stable fallback identity and merge
+    // those source variants into one daily event.
+    var displayName = text(event && (event.title || event.owner) || record.employee_name || record.employeeName);
+    var displayKey = displayName.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (displayKey) return 'name|' + displayKey;
+    return wanted;
   }
   function eventValidity(event) {
     var issue = text(event && event.issue);
@@ -411,6 +427,23 @@
     var leftValidity = eventValidity(candidate);
     var rightValidity = eventValidity(existing);
     if (leftValidity !== rightValidity) return leftValidity > rightValidity;
+    // A protected history response can contain several source variants for
+    // the same employee/week. Prefer an authoritative reconciliation (or the
+    // durable portal record) for a date, while still allowing rows from a
+    // different source record to fill dates that the selected record lacks.
+    function sourcePriority(event) {
+      var payload = parsed(event && event.record && event.record.payload) || {};
+      var status = text(payload && payload.reconciliation && payload.reconciliation.status).toLowerCase();
+      // A protected correction made in the portal is newer canonical data,
+      // even when an older upstream replay is labelled authoritative.
+      if (payload && (payload.editedAt || payload.edited_at || payload.editNote || payload.editedBy || payload.edited_by)) return 3;
+      if (status === "source-variant") return 0;
+      if (status === "authoritative") return 2;
+      return 1;
+    }
+    var leftSource = sourcePriority(candidate);
+    var rightSource = sourcePriority(existing);
+    if (leftSource !== rightSource) return leftSource > rightSource;
     var leftUpdated = recordUpdatedAt(candidate && candidate.record);
     var rightUpdated = recordUpdatedAt(existing && existing.record);
     if (leftUpdated !== rightUpdated) return leftUpdated > rightUpdated;
@@ -419,8 +452,68 @@
     if (leftDetail !== rightDetail) return leftDetail > rightDetail;
     return String(candidate && candidate.recordId || candidate && candidate.id || '').localeCompare(String(existing && existing.recordId || existing && existing.id || '')) > 0;
   }
+  function calendarEventDate(event) {
+    return key(event && (event.date || event.startDate || event.event_date || event.record_date));
+  }
+  function calendarEventKind(event) {
+    return text(event && (event.type || event.kind || event.action || '')).toLowerCase();
+  }
+  function isTimeEvent(event) {
+    var value = calendarEventKind(event);
+    return value.indexOf('timesheet') !== -1 || value.indexOf('clock') !== -1 || value.indexOf('break') !== -1;
+  }
+  function eventFallbackIdentity(event, options) {
+    var id = text(event && (event.id || event.recordId || event.record_id || event.source_record_id));
+    if (id) return 'id|' + id;
+    return [calendarEventKind(event), eventEmployeeKey(event, options), calendarEventDate(event), text(event && (event.title || event.owner)), text(event && (event.detail || event.notes))].join('|');
+  }
+  function mergeEvents(values, options) {
+    var input = Array.isArray(values) ? values : [];
+    var result = [];
+    var byTimeKey = {};
+    var seen = {};
+    input.forEach(function (event) {
+      var date = calendarEventDate(event);
+      if (!event || !date) return;
+      if (isTimeEvent(event)) {
+        var identity = eventEmployeeKey(event, options);
+        if (!identity) { result.push(event); return; }
+        var timeKey = identity + '|' + date;
+        if (!Object.prototype.hasOwnProperty.call(byTimeKey, timeKey)) {
+          byTimeKey[timeKey] = result.length;
+          result.push(event);
+        } else {
+          var index = byTimeKey[timeKey];
+          if (preferEvent(event, result[index])) result[index] = event;
+        }
+        return;
+      }
+      var fallbackKey = eventFallbackIdentity(event, options);
+      if (seen[fallbackKey]) return;
+      seen[fallbackKey] = true;
+      result.push(event);
+    });
+    return result;
+  }
+  function deletedDayKeys(records) {
+    var deleted = {};
+    (Array.isArray(records) ? records : []).forEach(function (record) {
+      var payload = parsed(record && record.payload) || {};
+      var values = [];
+      if (Array.isArray(payload.deletedDays)) values = values.concat(payload.deletedDays);
+      if (payload.deletedDay) values.push(payload.deletedDay);
+      var identity = text(record && (record.employee_upn || record.employee_email || record.employeeEmail || record.employee_name || record.employeeName || employee(record))).toLowerCase();
+      if (!identity) return;
+      values.forEach(function (value) {
+        var date = key(value);
+        if (date) deleted[identity + "|" + date] = true;
+      });
+    });
+    return deleted;
+  }
   function recordsToEvents(records, options) {
     var events = [];
+    var deleted = deletedDayKeys(records);
     authoritativeTimesheetRecords(records).forEach(function (record) {
       var recordKind = kind(record);
       if (recordKind === "timesheets" || recordKind === "clock") {
@@ -451,7 +544,7 @@
         nonTimesheetEvents.push(event);
         return;
       }
-      var identity = eventEmployeeKey(event);
+      var identity = eventEmployeeKey(event, options);
       if (!identity) {
         nonTimesheetEvents.push(event);
         return;
@@ -463,11 +556,38 @@
     var seen = {};
     return collapsedEvents.filter(function (event) {
       if (!event || !event.date) return false;
+      if (deleted[eventEmployeeKey(event, options) + "|" + event.date]) return false;
       var id = event.id || [event.date, event.title, event.type, event.detail].join("|");
       if (seen[id]) return false;
       seen[id] = true;
       return true;
     });
   }
-  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, authoritativeTimesheetRecords: authoritativeTimesheetRecords };
+  function localEvents() {
+    try {
+      var raw = window.localStorage && window.localStorage.getItem("gmt_portal_calendar_v1");
+      var values = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(values)) return [];
+      return values.map(function (event) {
+        var id = text(event && (event.recordId || event.record_id || event.id));
+        var date = key(event && (event.date || event.event_date || event.record_date));
+        if (!date) return null;
+        return {
+          id: id || [date, text(event.title), text(event.type), text(event.owner)].join("|"),
+          recordId: id,
+          title: text(event.title) || "Untitled event",
+          date: date,
+          type: text(event.type) || "General",
+          owner: text(event.owner || event.requestedBy),
+          status: text(event.status) || "Pending approval",
+          detail: text(event.notes || event.detail),
+          can_edit: text(event.status).toLowerCase() !== "cancelled",
+          can_delete: text(event.status).toLowerCase() === "pending approval"
+        };
+      }).filter(Boolean);
+    } catch (_) {
+      return [];
+    }
+  }
+  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, authoritativeTimesheetRecords: authoritativeTimesheetRecords, localEvents: localEvents, mergeEvents: mergeEvents };
 }());

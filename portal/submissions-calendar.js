@@ -11,6 +11,7 @@
   var input = document.querySelector("[data-submissions-calendar-input]");
   var viewDate = new Date();
   var events = [];
+  var currentHistoryMeta = {};
   var helper = window.GMTCalendarData || {};
 
   function safe(value) {
@@ -30,8 +31,10 @@
     return (year && year.value ? year.value : "") + "-" + (month && month.value ? month.value : "");
   }
   function isCurrentPayMonth(key) {
-    var actionApi = window.GMTCalendarActions;
-    return String(key).slice(0, 7) === (actionApi && typeof actionApi.currentPayMonth === "function" ? actionApi.currentPayMonth() : currentMonthKey());
+    // Every calendar day can start a new entry. Pay-month assignment happens
+    // from the selected date in the timesheet form, so history navigation must
+    // not hide actions for dates outside the current calendar month.
+    return !!String(key || '').match(/^\d{4}-\d{2}-\d{2}$/);
   }
   function choose(event) {
     if (!event || !event.recordId) return;
@@ -64,7 +67,12 @@
         var detail = (event.detail || "") + issueLabel;
         var label = (event.title || event.type || "Event") + (detail ? " · " + detail : "");
         var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (detail ? "<small>" + safe(detail) + "</small>" : "");
-        if (event.recordId) return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(event.recordId) + '" data-calendar-date="' + safe(event.date) + '" aria-label="' + safe(label) + '">' + content + "</button>";
+        if (event.recordId) {
+          var record = event.record || {};
+          var canEdit = record.can_edit === true || currentHistoryMeta.is_admin === true;
+          var canDelete = record.can_delete === true || currentHistoryMeta.is_admin === true;
+          return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(event.recordId) + '" data-calendar-record-kind="' + safe(event.type || '') + '" data-calendar-can-edit="' + String(canEdit) + '" data-calendar-can-delete="' + String(canDelete) + '" data-calendar-preview-title="' + safe(event.title || event.type || 'Event') + '" data-calendar-preview="' + safe(event.detail || label) + '" data-calendar-preview-status="' + safe(event.status || '') + '" data-calendar-date="' + safe(event.date) + '" aria-label="' + safe(label) + '">' + content + "</button>";
+        }
         return '<span class="calendar-event calendar-event-' + safe(eventType(event)) + '" aria-label="' + safe(label) + '">' + content + "</span>";
       }).join("");
       if (dayEvents.length > 4) labels += '<span class="calendar-more">+' + (dayEvents.length - 4) + " more</span>";
@@ -79,7 +87,7 @@
     });
   }
   async function load() {
-    var local = [];
+    var local = typeof helper.localEvents === "function" ? helper.localEvents() : [];
     try {
       var response = await fetch("../data/calendar/events.json?v=" + Date.now(), { cache: "no-store" });
       if (response.ok) {
@@ -101,17 +109,14 @@
         var history = await window.GMTPortalApi.history("all");
         protectedRecords = history && Array.isArray(history.records) ? history.records : [];
         historyMeta = history && history.meta && typeof history.meta === "object" ? history.meta : {};
+        currentHistoryMeta = historyMeta;
       } catch (_) {}
     }
-    var derived = typeof helper.recordsToEvents === "function" ? helper.recordsToEvents(protectedRecords, { employees: historyMeta.completion && historyMeta.completion.employees || [] }) : [];
-    events = local.concat(derived);
-    var seen = {};
-    events = events.filter(function (event) {
-      var id = String(event && (event.id || event.recordId || event.source_record_id) || [eventDate(event), event && event.title, event && event.type, event && event.owner, event && event.detail].join("|"));
-      if (!eventDate(event) || seen[id]) return false;
-      seen[id] = true;
-      return true;
-    });
+    var employees = historyMeta.completion && historyMeta.completion.employees || [];
+    var derived = typeof helper.recordsToEvents === "function" ? helper.recordsToEvents(protectedRecords, { employees: employees }) : [];
+    events = typeof helper.mergeEvents === "function"
+      ? helper.mergeEvents(local.concat(derived), { employees: employees })
+      : local.concat(derived);
     if (status) status.textContent = events.length ? "Shared calendar: " + events.length + " entr" + (events.length === 1 ? "y" : "ies") + ". Select an entry to open its record." : "Shared calendar connected. No events or dated submissions have been filed yet.";
     render();
   }
@@ -128,6 +133,8 @@
     viewDate = new Date(Number(match[1]), Number(match[2]) - 1, 1);
     render();
   });
+  document.addEventListener("gmt:history-record-deleted", function () { setTimeout(load, 0); });
+  document.addEventListener("gmt:history-record-updated", function () { setTimeout(load, 0); });
   render();
   load();
 }());

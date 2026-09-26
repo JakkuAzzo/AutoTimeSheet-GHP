@@ -85,8 +85,11 @@
     return request("/api/records/" + encodeURIComponent(recordId), { method: "GET" });
   }
 
-  function deleteRecord(recordId) {
-    return request("/api/records/" + encodeURIComponent(recordId), { method: "DELETE" });
+  function deleteRecord(recordId, day) {
+    var path = "/api/records/" + encodeURIComponent(recordId);
+    var value = String(day || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) path += "?day=" + encodeURIComponent(value);
+    return request(path, { method: "DELETE" });
   }
 
   function history(kind, options) {

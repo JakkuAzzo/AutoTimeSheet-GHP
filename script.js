@@ -16,7 +16,9 @@ const formToastDismiss = document.getElementById('form-toast-dismiss');
 const timesheetPayMonthDisplay = document.getElementById('timesheet-pay-month-display');
 const timesheetPeriodDisplay = document.getElementById('timesheet-period-display');
 const addDayBtn = document.getElementById('add-day-btn');
+const addWeekendBtn = document.getElementById('add-weekend-btn');
 const generateDaysBtn = document.getElementById('generate-days-btn');
+const includeWeekendsInput = document.getElementById('include-weekends');
 const addAbsenceBtn = document.getElementById('add-absence-btn');
 const absenceRangesEl = document.getElementById('absence-ranges');
 const employeeName = document.getElementById('employee-name');
@@ -46,16 +48,32 @@ let absenceRanges = [];
 let recalculateTimer = null;
 let xlsxPromise = null;
 let toastTimer = null;
+let protectedEditLoaded = false;
+
+function rowsForRequestedDay(rows) {
+  const source = Array.isArray(rows) ? rows : [];
+  if (!requestedDay || !source.length) return source;
+  const hasRequestedDay = source.some((row) => String(row?.date || '').slice(0, 10) === requestedDay);
+  if (!hasRequestedDay) return source;
+  // Preserve every daily row in the pay-month submission, but expand only the
+  // day that the user selected in the calendar. This also makes the behavior
+  // deterministic when the editor is opened from a calendar label.
+  return source.map((row) => ({ ...row, collapsed: String(row?.date || '').slice(0, 10) !== requestedDay }));
+}
 
 function applyPortalProfile(profile, force = false) {
   if (!profile || typeof profile !== 'object') return;
+  // When Accounts opens an employee record, the employee fields are the
+  // protected record's identity. A late auth/profile event must not replace
+  // them with the editor's name or email.
+  if (editSourceId && protectedEditLoaded) return;
   if (profile.name && (force || !employeeName.value.trim())) employeeName.value = profile.name;
   if ((profile.username || profile.notificationEmail) && (force || !employeeEmail.value.trim())) {
     employeeEmail.value = profile.username || profile.notificationEmail;
   }
   if (profile.name && timesheetEntryTitle && timesheetEntryCopy) {
     timesheetEntryTitle.textContent = 'Your timesheet';
-    timesheetEntryCopy.textContent = 'Your GMT profile has filled in your name. The current pay month is selected automatically; complete daily entries and record any absence for each day.';
+    timesheetEntryCopy.textContent = 'Your GMT profile has filled in your name. Enter any dated timesheet; the app assigns each submission to the correct GMT pay-month workbook automatically.';
   }
 }
 
@@ -90,10 +108,87 @@ function dateObj(value) {
   return value ? new Date(`${value}T00:00:00`) : null;
 }
 
+// Payroll routing is shared with the portal and clock forms. GMT's current
+// period is 24 August–18 September 2026 (Pay Month 2026-09); the helper also
+// generates the next period from the same fixed four-week payroll cycle.
+function payMonthKeyForDate(value) {
+  const helper = window.GMTPayPeriods;
+  return helper && typeof helper.payMonthKeyForDate === 'function'
+    ? helper.payMonthKeyForDate(value)
+    : String(value || '').slice(0, 7);
+}
+
+function payMonthKeyForWeek(weekStartValue, weekEndValue) {
+  const helper = window.GMTPayPeriods;
+  return helper && typeof helper.payMonthKeyForWeek === 'function'
+    ? helper.payMonthKeyForWeek(weekStartValue, weekEndValue)
+    : payMonthKeyForDate(weekStartValue || weekEndValue);
+}
+
+function currentPayMonthKey(value) {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value || '';
+  const month = parts.find((part) => part.type === 'month')?.value || '';
+  const day = parts.find((part) => part.type === 'day')?.value || '';
+  return year && month && day ? payMonthKeyForDate(`${year}-${month}-${day}`) : '';
+}
+
+function isCurrentPayMonthWeek(weekStartValue, weekEndValue, now) {
+  const payMonth = payMonthKeyForWeek(weekStartValue, weekEndValue);
+  return !!payMonth && payMonth === currentPayMonthKey(now);
+}
+
+function payMonthLabel(monthKey) {
+  const date = dateObj(`${String(monthKey || '').slice(0, 7)}-01`);
+  return date && !Number.isNaN(date.getTime())
+    ? new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(date)
+    : 'Pay month';
+}
+
+function payPeriodLabelForDate(value) {
+  const helper = window.GMTPayPeriods;
+  return helper && typeof helper.periodLabelForDate === 'function'
+    ? helper.periodLabelForDate(value)
+    : '';
+}
+
 function dayName(value) {
   const date = dateObj(value);
   if (!date || Number.isNaN(date.getTime())) return '';
   return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
+}
+
+const timesheetRowPolicy = window.GMTTimesheetRows || {};
+
+function isWeekendDate(value) {
+  if (typeof timesheetRowPolicy.isWeekendDate === 'function') return timesheetRowPolicy.isWeekendDate(value);
+  const date = dateObj(value);
+  return !!date && !Number.isNaN(date.getTime()) && (date.getDay() === 0 || date.getDay() === 6);
+}
+
+function isUntouchedWeekendRow(row) {
+  if (typeof timesheetRowPolicy.isUntouchedWeekendRow === 'function') return timesheetRowPolicy.isUntouchedWeekendRow(row);
+  if (!row || !isWeekendDate(row.date) || row.weekendEdited === true) return false;
+  return (row.start || '08:00') === '08:00'
+    && (row.finish || '17:00') === '17:00'
+    && Number(row.lunchMinutes || 0) === 0
+    && (row.absenceStatus || 'NA') === 'NA'
+    && !String(row.description || '').trim();
+}
+
+function rangeIncludesWeekend(start, end) {
+  if (typeof timesheetRowPolicy.rangeIncludesWeekend === 'function') return timesheetRowPolicy.rangeIncludesWeekend(start, end);
+  const first = dateObj(start);
+  const last = dateObj(end);
+  if (!first || !last || first > last) return false;
+  const cursor = new Date(first);
+  while (cursor <= last) {
+    if (cursor.getDay() === 0 || cursor.getDay() === 6) return true;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return false;
 }
 
 function parseTimeToMinutes(value) {
@@ -210,20 +305,42 @@ function periodDateLabel(value) {
 }
 
 function updatePeriodSummary() {
+  const anchorDate = weekStart.value || isoDate(new Date());
+  const payMonth = payMonthKeyForDate(anchorDate);
   if (timesheetPayMonthDisplay) {
-    const now = new Date();
-    timesheetPayMonthDisplay.textContent = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(now);
+    timesheetPayMonthDisplay.textContent = payMonthLabel(payMonth);
   }
   if (timesheetPeriodDisplay) {
-    timesheetPeriodDisplay.textContent = 'Daily entries are generated automatically for the current pay month.';
+    const period = payPeriodLabelForDate(anchorDate);
+    timesheetPeriodDisplay.textContent = period
+      ? `Pay-period workbook: ${period}. You can submit any dated week; routing is automatic.`
+      : 'Pay-period workbook is assigned automatically from the dates you enter.';
   }
 }
 
 function defaultDateForNextDay() {
-  const start = dateObj(weekStart.value);
-  if (!start) return '';
-  start.setDate(start.getDate() + dayCount);
-  return isoDate(start);
+  const rows = [...daysContainer.querySelectorAll('.day-card')]
+    .map((card) => card.querySelector('[data-field="date"]')?.value || '')
+    .filter(Boolean)
+    .sort();
+  const candidate = rows.length ? dateObj(rows[rows.length - 1]) : dateObj(weekStart.value);
+  if (!candidate) return '';
+  if (rows.length) candidate.setDate(candidate.getDate() + 1);
+  const includeWeekend = Boolean(includeWeekendsInput?.checked);
+  while (!includeWeekend && isWeekendDate(isoDate(candidate))) candidate.setDate(candidate.getDate() + 1);
+  return isoDate(candidate);
+}
+
+function nextWeekendDate() {
+  const existing = new Set([...daysContainer.querySelectorAll('[data-field="date"]')].map((input) => input.value).filter(Boolean));
+  const first = dateObj(weekStart.value) || new Date();
+  const candidate = new Date(first);
+  for (let offset = 0; offset < 370; offset += 1) {
+    const value = isoDate(candidate);
+    if (isWeekendDate(value) && !existing.has(value)) return value;
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return '';
 }
 
 function initialiseWeekDates() {
@@ -290,6 +407,8 @@ function addDay(data = {}) {
   dayCount += 1;
   const index = dayCount;
   const dateValue = data.date || defaultDateForNextDay();
+  const weekendEdited = isWeekendDate(dateValue)
+    && (data.weekendEdited === true || (data.weekendEdited !== false && !isUntouchedWeekendRow({ ...data, date: dateValue })));
   const absenceStatus = data.absenceStatus || 'NA';
   const startValue = data.start ?? '08:00';
   const finishValue = data.finish ?? '17:00';
@@ -297,6 +416,7 @@ function addDay(data = {}) {
   const card = document.createElement('article');
   card.className = data.collapsed ? 'day-card is-collapsed' : 'day-card';
   card.dataset.dayIndex = String(index);
+  card.dataset.weekendEdited = weekendEdited ? 'true' : 'false';
   if (dateValue) {
     card.dataset.dayDate = String(dateValue);
     card.id = `day-${String(dateValue)}`;
@@ -389,13 +509,13 @@ function applyAbsenceState(card) {
   });
 }
 
-function getRows() {
-  return [...daysContainer.querySelectorAll('.day-card')].map((card, index) => {
+function rowFromCard(card, index) {
     const get = (field) => card.querySelector(`[data-field="${field}"]`);
     const lunchMinutes = normaliseBreakMinutes(get('lunchHad')?.value);
     return {
       label: `Day ${index + 1}`,
       collapsed: card.classList.contains('is-collapsed'),
+      weekendEdited: card.dataset.weekendEdited === 'true',
       date: get('date')?.value || '',
       start: get('start')?.value || '',
       finish: get('finish')?.value || '',
@@ -404,7 +524,22 @@ function getRows() {
       absenceStatus: get('absenceStatus')?.value || 'NA',
       description: get('description')?.value || ''
     };
-  });
+}
+
+function getRows() {
+  return [...daysContainer.querySelectorAll('.day-card')].map(rowFromCard);
+}
+
+function effectiveWeekEnd(rows = getRows()) {
+  const dates = (Array.isArray(rows) ? rows : []).map((row) => row.date).filter(Boolean).sort();
+  return dates[dates.length - 1] || weekEnd.value || '';
+}
+
+function pruneUntouchedWeekendCards() {
+  const removable = [...daysContainer.querySelectorAll('.day-card')]
+    .filter((card, index) => isUntouchedWeekendRow(rowFromCard(card, index)));
+  removable.forEach((card) => card.remove());
+  return removable.length;
 }
 
 function rawShiftMinutes(row) {
@@ -605,14 +740,25 @@ function generateDaysFromRange(preserveRows = false) {
   const end = dateObj(weekEnd.value);
   if (start > end) return showError('Week starting must be before or equal to week ending.');
   const existing = preserveRows ? new Map(getRows().map((row) => [row.date, row])) : new Map();
-  const rows = [];
-  const cursor = new Date(start);
-  while (cursor <= end) {
-    const date = isoDate(cursor);
+  const keepEditedWeekend = [...existing.values()].some((row) => isWeekendDate(row.date) && !isUntouchedWeekendRow(row));
+  const markedWeekendAbsence = absenceRanges.some((range) => rangeIncludesWeekend(range.start, range.end));
+  const includeWeekend = Boolean(includeWeekendsInput?.checked) || keepEditedWeekend || markedWeekendAbsence;
+  const generatedDates = typeof timesheetRowPolicy.weekDates === 'function'
+    ? timesheetRowPolicy.weekDates(weekStart.value, includeWeekend)
+    : (() => {
+      const dates = [];
+      const cursor = new Date(start);
+      const count = includeWeekend ? 7 : 5;
+      for (let index = 0; index < count; index += 1) {
+        dates.push(isoDate(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return dates;
+    })();
+  const rows = generatedDates.map((date, index) => {
     const reason = absenceForDate(date);
-    rows.push({ ...(existing.get(date) || {}), date, absenceStatus: reason, collapsed: rows.length > 0 });
-    cursor.setDate(cursor.getDate() + 1);
-  }
+    return { ...(existing.get(date) || {}), date, absenceStatus: reason, collapsed: index > 0 };
+  });
   renderRows(rows);
   updatePeriodSummary();
 }
@@ -633,11 +779,14 @@ function ensureXlsxLoaded() {
 }
 
 function allRowsForExport(calculated) {
+  const submittedWeekEnd = effectiveWeekEnd(calculated);
+  const payMonth = payMonthKeyForWeek(weekStart.value, submittedWeekEnd);
   return calculated.map((row) => ({
     Status: statusFor(row),
     Category: categoryFor(row),
+    'Pay month': payMonth,
     'Week start': weekStart.value,
-    'Week end': weekEnd.value,
+    'Week end': submittedWeekEnd,
     Day: row.label,
     Date: row.date,
     Weekday: row.dayName,
@@ -655,14 +804,18 @@ function allRowsForExport(calculated) {
 }
 
 function buildWorkbook(calculated, totals, weighted) {
+  const submittedWeekEnd = effectiveWeekEnd(calculated);
+  const payMonth = payMonthKeyForWeek(weekStart.value, submittedWeekEnd);
   const allRows = allRowsForExport(calculated);
   const totalsRows = [
-    ['GMT Weekly Timesheet Totals'],
+    ['GMT Pay-month Timesheet Submission'],
     [],
     ['Employee', employeeName.value.trim()],
     ['Employee email', employeeEmail.value.trim()],
+    ['Pay month', payMonth],
+    ['Pay month label', payMonthLabel(payMonth)],
     ['Week start', weekStart.value],
-    ['Week end', weekEnd.value],
+    ['Week end', submittedWeekEnd],
     [],
     ['Metric', 'Hours / Count'],
     ['Worked hours', hours(totals.workedActual)],
@@ -694,14 +847,15 @@ function buildWorkbook(calculated, totals, weighted) {
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(totalsRows), 'Totals');
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(notesRows), 'Notes');
   const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - ${weekStart.value || 'week'}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${weekStart.value || 'unspecified'}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
 function buildCsvFile(calculated) {
   const rows = allRowsForExport(calculated);
   const header = Object.keys(rows[0] || {});
   const csv = [header, ...rows.map((row) => header.map((key) => row[key]))].map((row) => row.map(csvEscape).join(',')).join('\r\n');
-  return new File([csv], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - ${weekStart.value || 'week'}.csv`, { type: 'text/csv' });
+  const payMonth = payMonthKeyForWeek(weekStart.value, weekEnd.value);
+  return new File([csv], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${weekStart.value || 'unspecified'}.csv`, { type: 'text/csv' });
 }
 
 function setFileInputFiles(input, files) {
@@ -733,7 +887,18 @@ async function queueCorrectionAttachments(recordId, files) {
     sizeBytes: file.size,
     contentBase64: await fileToBase64(file)
   })));
-  return window.GMTPortalApi.queueAttachments(recordId, attachments);
+  try {
+    return await window.GMTPortalApi.queueAttachments(recordId, attachments);
+  } catch (error) {
+    // The durable protected record is the source of truth for portal edits.
+    // Older Worker deployments do not expose the optional binary attachment
+    // queue route; that must not turn a successfully saved correction into a
+    // false delivery failure. A configured queue still propagates real errors.
+    if (Number(error && error.status) === 404 || /route not found|attachment queue/i.test(String(error && error.message || ''))) {
+      return { skipped: true, reason: 'attachment-queue-unavailable' };
+    }
+    throw error;
+  }
 }
 
 function localPortalProfile() {
@@ -790,7 +955,8 @@ function buildCalendarSync(calculated, totals) {
   const employee = employeeName.value.trim();
   const datedRows = calculated.filter((row) => row.date).sort((left, right) => left.date.localeCompare(right.date));
   const startDate = weekStart.value || datedRows[0]?.date || '';
-  const lastDate = weekEnd.value || datedRows[datedRows.length - 1]?.date || startDate;
+  const lastDate = effectiveWeekEnd(calculated) || datedRows[datedRows.length - 1]?.date || startDate;
+  const payMonth = payMonthKeyForWeek(startDate, lastDate);
   const weeklyEvent = startDate && lastDate ? {
     type: 'timesheet',
     title: `Timesheet submitted: ${employee} | Week ${startDate}`,
@@ -807,17 +973,18 @@ function buildCalendarSync(calculated, totals) {
     schemaVersion: 1,
     calendarName: 'GMT Operational Calendar',
     employee,
-    employeeUpn: profile.username || '',
+    employeeUpn: employeeEmail.value.trim() || profile.username || '',
     employeeEmail: employeeEmail.value.trim(),
     weekStart: startDate,
     weekEnd: lastDate,
+    payMonth,
     submittedAt: new Date().toISOString(),
     events: [...(weeklyEvent ? [weeklyEvent] : []), ...absences]
   };
 }
 
 function buildCalendarSyncFile(calendarSync) {
-  const fileName = `GMT Calendar Sync - ${employeeName.value.trim() || 'Employee'} - ${calendarSync.weekStart || 'week'}.json`;
+  const fileName = `GMT Calendar Sync - ${employeeName.value.trim() || 'Employee'} - Pay Month ${calendarSync.payMonth || 'unspecified'} - Week ${calendarSync.weekStart || 'unspecified'}.json`;
   return new File([JSON.stringify(calendarSync, null, 2)], fileName, { type: 'application/json' });
 }
 
@@ -832,6 +999,7 @@ function buildTimesheetRecordFile(calendarSync, calculated, submissionId) {
     employeeUpn: calendarSync.employeeUpn || '',
     weekStart: calendarSync.weekStart,
     weekEnd: calendarSync.weekEnd,
+    payMonth: calendarSync.payMonth || payMonthKeyForWeek(calendarSync.weekStart, calendarSync.weekEnd),
     date: row.Date,
     action: 'submission',
     status: row.Status,
@@ -848,7 +1016,7 @@ function buildTimesheetRecordFile(calendarSync, calculated, submissionId) {
   return record;
   });
   const payload = records.length === 1 ? records[0] : records;
-  const fileName = `GMT Timesheet Record - ${employeeName.value.trim() || 'Employee'} - ${calendarSync.weekStart || 'unspecified'}.json`;
+  const fileName = `GMT Timesheet Record - ${employeeName.value.trim() || 'Employee'} - Pay Month ${calendarSync.payMonth || 'unspecified'} - Week ${calendarSync.weekStart || 'unspecified'}.json`;
   return new File([JSON.stringify(payload, null, 2)], fileName, { type: 'application/json' });
 }
 
@@ -868,9 +1036,9 @@ function buildTimesheetSubmissionId(calendarSync) {
 
 function buildTimesheetWorkbookKey(calendarSync) {
   const profile = localPortalProfile();
-  const employeeIdentity = profile.username || employeeEmail.value.trim() || employeeName.value.trim();
-  const month = String(calendarSync.weekStart || '').slice(0, 7) || 'unspecified';
-  return `timesheet-${submissionKeyPart(employeeIdentity)}-${month}`;
+  const employeeIdentity = employeeEmail.value.trim() || profile.username || employeeName.value.trim();
+  const payMonth = calendarSync.payMonth || payMonthKeyForWeek(calendarSync.weekStart, calendarSync.weekEnd) || 'unspecified';
+  return `timesheet-${submissionKeyPart(employeeIdentity)}-${payMonth}`;
 }
 
 function portalTimesheetRecord(calendarSync, calculated, totals, weighted, submissionId, status = 'Pending delivery', issue = '') {
@@ -897,18 +1065,20 @@ function portalTimesheetRecord(calendarSync, calculated, totals, weighted, submi
     updatedAt: new Date().toISOString(),
     employeeName: employeeName.value.trim(),
     employeeEmail: employeeEmail.value.trim(),
-    employeeUpn: calendarSync.employeeUpn || profile.username || '',
+    employeeUpn: calendarSync.employeeUpn || employeeEmail.value.trim() || profile.username || '',
     testMode,
     weekStart: calendarSync.weekStart,
     weekEnd: calendarSync.weekEnd,
+    payMonth: calendarSync.payMonth || payMonthKeyForWeek(calendarSync.weekStart, calendarSync.weekEnd),
     payload: {
       schemaVersion: 2,
       employeeName: employeeName.value.trim(),
       employeeEmail: employeeEmail.value.trim(),
-      employeeUpn: calendarSync.employeeUpn || profile.username || '',
+      employeeUpn: calendarSync.employeeUpn || employeeEmail.value.trim() || profile.username || '',
       testMode,
       weekStart: calendarSync.weekStart,
       weekEnd: calendarSync.weekEnd,
+      payMonth: calendarSync.payMonth || payMonthKeyForWeek(calendarSync.weekStart, calendarSync.weekEnd),
       rows,
       totals: {
         workedActual: totals.workedActual,
@@ -923,10 +1093,23 @@ function portalTimesheetRecord(calendarSync, calculated, totals, weighted, submi
         errors: totals.errors
       },
       weightedHours: weighted,
+      ...(editSourceId && protectedEditLoaded ? {
+        editNote: editAuditNote(),
+        editedBy: profile.name || profile.username || 'authorised GMT user',
+        editedByEmail: profile.username || '',
+        editedAt: new Date().toISOString(),
+        editedOnBehalfOf: employeeName.value.trim()
+      } : {}),
       absenceRanges,
       calendarSync
     }
   };
+}
+
+function editAuditNote() {
+  const profile = localPortalProfile();
+  const actor = String(profile.name || profile.username || 'authorised GMT user').trim();
+  return `Edited on behalf of ${employeeName.value.trim() || 'employee'} by ${actor}.`;
 }
 
 function portalApiEnabled() {
@@ -977,7 +1160,8 @@ function loadSubmittedDraft() {
     initialiseWeekDates();
     absenceRanges = Array.isArray(draft.absenceRanges) ? draft.absenceRanges : [];
     renderAbsenceRanges();
-    renderRows(draft.rows.slice(0, 45));
+    protectedEditLoaded = true;
+    renderRows(rowsForRequestedDay(draft.rows.slice(0, 45)));
     if (timesheetEditStatus) {
       timesheetEditStatus.hidden = false;
       timesheetEditStatus.textContent = 'A browser-saved copy was loaded. Submitting will create a corrected version with the same source submission ID.';
@@ -994,39 +1178,66 @@ function loadSubmittedDraft() {
 }
 
 async function loadProtectedSubmittedDraft() {
-  if (!editSourceId || !portalApiEnabled()) return false;
+  if (!editSourceId) return false;
+  // portal-api.js is loaded synchronously but auth.js is deferred on this
+  // page.  The initial editor script therefore runs before the authentication
+  // module has created GMT_PORTAL_AUTH_READY.  Wait for that module to publish
+  // its promise before trying the protected detail route; otherwise the form
+  // falls back to a generated week and silently loses the selected employee.
+  const waitForAuthReady = async () => {
+    const deadline = Date.now() + 10000;
+    while (!window.GMT_PORTAL_AUTH_READY && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 25));
+    }
+    const ready = window.GMT_PORTAL_AUTH_READY;
+    if (ready && typeof ready.then === 'function') await ready;
+  };
+  try {
+    await waitForAuthReady();
+  } catch (_) {
+    // The request below will report the protected access failure if auth did
+    // not finish.  Do not replace a useful form state with a generic error.
+  }
+  if (!portalApiEnabled()) return false;
   try {
     if (localStorage.getItem(submittedDraftStorageKey(editSourceId))) return false;
   } catch (_) {
     // Continue with the protected route when browser storage is unavailable.
   }
-  try {
-    const result = await window.GMTPortalApi.getRecord(editSourceId);
-    const record = result && result.record;
-    const payload = result && result.payload;
-    const rows = payload && Array.isArray(payload.rows) ? payload.rows : [];
-    if (!rows.length) throw new Error('The protected record does not contain editable daily rows.');
-    employeeName.value = String(payload.employeeName || record?.employee_name || employeeName.value || '');
-    employeeEmail.value = String(payload.employeeEmail || record?.employee_upn || employeeEmail.value || '');
-    weekStart.value = String(payload.weekStart || record?.start_date || '');
-    weekEnd.value = String(payload.weekEnd || record?.end_date || '');
-    initialiseWeekDates();
-    absenceRanges = Array.isArray(payload.absenceRanges) ? payload.absenceRanges : [];
-    renderAbsenceRanges();
-    renderRows(rows.slice(0, 45));
-    if (timesheetEditStatus) {
-      timesheetEditStatus.hidden = false;
-      timesheetEditStatus.textContent = 'The protected submission was loaded. Submit the correction to update the same record.';
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await window.GMTPortalApi.getRecord(editSourceId);
+      const record = result && result.record;
+      const payload = result && result.payload;
+      const rows = payload && Array.isArray(payload.rows) ? payload.rows : [];
+      if (!rows.length) throw new Error('The protected record does not contain editable daily rows.');
+      employeeName.value = String(payload.employeeName || record?.employee_name || employeeName.value || '');
+      employeeEmail.value = String(payload.employeeEmail || record?.employee_upn || employeeEmail.value || '');
+      weekStart.value = String(payload.weekStart || record?.start_date || '');
+      weekEnd.value = String(payload.weekEnd || record?.end_date || '');
+      initialiseWeekDates();
+      absenceRanges = Array.isArray(payload.absenceRanges) ? payload.absenceRanges : [];
+      renderAbsenceRanges();
+      protectedEditLoaded = true;
+      renderRows(rowsForRequestedDay(rows.slice(0, 45)));
+      if (timesheetEditStatus) {
+        timesheetEditStatus.hidden = false;
+        timesheetEditStatus.textContent = 'The protected submission was loaded. Submit the correction to update the same record.';
+      }
+      showSuccess('Protected submission loaded for editing.');
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 250));
     }
-    showSuccess('Protected submission loaded for editing.');
-    return true;
-  } catch (_) {
-    if (timesheetEditStatus && !timesheetEditStatus.textContent) {
-      timesheetEditStatus.hidden = false;
-      timesheetEditStatus.textContent = 'This submission could not be loaded from protected history. Return to your submissions and try again, or contact Accounts.';
-    }
-    return false;
   }
+  if (timesheetEditStatus) {
+    timesheetEditStatus.hidden = false;
+    const detail = lastError && lastError.message ? ` (${lastError.message})` : '';
+    timesheetEditStatus.textContent = `This submission could not be loaded from protected history${detail} Return to your submissions and try again, or contact Accounts.`;
+  }
+  return false;
 }
 
 function addCalendarEventKeys(calendarSync, submissionId) {
@@ -1162,6 +1373,7 @@ function createEmailForm() {
     <input type="hidden" name="gmt_employee_upn" data-clean-field="gmtEmployeeUpn">
     <input type="hidden" name="gmt_week_start" data-clean-field="gmtWeekStart">
     <input type="hidden" name="gmt_week_end" data-clean-field="gmtWeekEnd">
+    <input type="hidden" name="gmt_pay_month" data-clean-field="gmtPayMonth">
     <input type="hidden" name="gmt_year" data-clean-field="gmtYear">
     <input type="hidden" name="gmt_month" data-clean-field="gmtMonth">
     <input type="hidden" name="gmt_worked_hours" data-clean-field="gmtWorkedHours">
@@ -1190,11 +1402,19 @@ function createEmailForm() {
 async function submitTimesheet(event) {
   event.preventDefault();
   clearMessage();
+  // Weekend cards are opt-in. If a generated Saturday or Sunday was never
+  // changed, remove it before totals, files, calendar sync, and submission so
+  // it cannot create a false worked day in the pay-month workbook.
+  pruneUntouchedWeekendCards();
   const { calculated, totals, weighted } = recalculate();
   if (!employeeName.value.trim()) return showError('Please enter your full name before submitting.');
   if (!employeeEmail.value.trim()) return showError('Your GMT email could not be detected. Sign in again or enter the address linked to your GMT account.');
   if (!calculated.length) return showError('Please add at least one day.');
   if (totals.errors.length) return showError(totals.errors.join(' '));
+  // A submission is always accepted. The pay-period helper assigns the
+  // workbook key from the entered dates, so a late or early timesheet is
+  // filed to its correct payroll workbook instead of being rejected by the
+  // browser because it falls outside the current calendar month.
   const deferCorrection = Boolean(editSourceId && portalApiEnabled());
   if (!deferCorrection && !formSubmitEndpoint()) return showError('FormSubmit is not configured yet.');
   let protectedRecord = null;
@@ -1216,7 +1436,7 @@ async function submitTimesheet(event) {
     const recordFile = buildTimesheetRecordFile(calendarSyncWithIds, calculated, submissionId);
     saveSubmittedDraft(submissionId);
     if (portalApiEnabled()) {
-      protectedRecord = portalTimesheetRecord(calendarSyncWithIds, calculated, totals, weighted, submissionId, 'Pending delivery');
+      protectedRecord = portalTimesheetRecord(calendarSyncWithIds, calculated, totals, weighted, submissionId, deferCorrection ? 'Submitted' : 'Pending delivery');
       await window.GMTPortalApi.saveRecord(protectedRecord);
     }
     if (deferCorrection) {
@@ -1227,7 +1447,11 @@ async function submitTimesheet(event) {
         { fieldName: 'attachment_calendar_sync', file: calendarSyncFile }
       ]);
       if (queued && queued.skipped) {
-        showSuccess('Synthetic correction retained for testing and was not sent to Accounts.');
+        if (timesheetEditStatus) {
+          timesheetEditStatus.hidden = false;
+          timesheetEditStatus.textContent = 'Correction saved to the protected portal record. Binary attachments were not queued because the optional attachment route is not configured.';
+        }
+        showSuccess('Correction saved. The protected employee record and calendar data were updated.');
       } else {
         if (timesheetEditStatus) {
           timesheetEditStatus.hidden = false;
@@ -1259,8 +1483,10 @@ async function submitTimesheet(event) {
     field('gmtEmployeeUpn').value = calendarSyncWithIds.employeeUpn;
     field('gmtWeekStart').value = calendarSyncWithIds.weekStart;
     field('gmtWeekEnd').value = calendarSyncWithIds.weekEnd;
-    field('gmtYear').value = calendarSyncWithIds.weekStart.slice(0, 4);
-    field('gmtMonth').value = calendarSyncWithIds.weekStart.slice(5, 7);
+    const payMonth = calendarSyncWithIds.payMonth || payMonthKeyForWeek(calendarSyncWithIds.weekStart, calendarSyncWithIds.weekEnd);
+    field('gmtPayMonth').value = payMonth;
+    field('gmtYear').value = payMonth.slice(0, 4);
+    field('gmtMonth').value = payMonth.slice(5, 7);
     field('gmtWorkedHours').value = String(hours(totals.workedActual));
     field('gmtBasicHours').value = String(hours(totals.basic));
     field('gmtOt15Hours').value = String(hours(totals.ot15));
@@ -1384,9 +1610,23 @@ function clearDraft() {
   showSuccess('Saved draft cleared on this device.');
 }
 
+function updateWeekendControlLabels() {
+  const includeWeekend = Boolean(includeWeekendsInput?.checked);
+  if (generateDaysBtn) generateDaysBtn.textContent = includeWeekend ? 'Generate full week' : 'Generate weekday cards';
+  if (addDayBtn) {
+    addDayBtn.textContent = includeWeekend ? '+ Add next day' : '+ Add weekday';
+    addDayBtn.setAttribute('aria-label', includeWeekend ? 'Add next day' : 'Add next weekday');
+  }
+}
+
 form.addEventListener('input', (event) => {
   clearMessage();
-  if (event.target.closest('.day-card')) scheduleRecalculate();
+  const card = event.target.closest('.day-card');
+  if (card) {
+    const date = card.querySelector('[data-field="date"]')?.value || '';
+    if (event.target.matches('[data-field]') && isWeekendDate(date)) card.dataset.weekendEdited = 'true';
+    scheduleRecalculate();
+  }
 });
 
 form.addEventListener('change', (event) => {
@@ -1397,6 +1637,10 @@ form.addEventListener('change', (event) => {
     const end = dateObj(weekStart.value);
     end.setDate(end.getDate() + 6);
     weekEnd.value = isoDate(end);
+  }
+  if (card && target.matches('[data-field]')) {
+    const date = card.querySelector('[data-field="date"]')?.value || '';
+    if (isWeekendDate(date)) card.dataset.weekendEdited = 'true';
   }
   if (card && target.matches('[data-field="absenceStatus"]')) applyAbsenceState(card);
   if (card && target.matches('[data-field="date"]')) {
@@ -1433,10 +1677,22 @@ absenceRangesEl.addEventListener('click', (event) => {
 
 addDayBtn.addEventListener('click', () => {
   daysContainer.querySelectorAll('.day-card').forEach((card) => toggleDayCard(card, true));
-  addDay({ collapsed: false });
+  addDay({ date: defaultDateForNextDay(), collapsed: false });
   recalculate();
   daysContainer.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
+
+addWeekendBtn?.addEventListener('click', () => {
+  const date = nextWeekendDate();
+  if (!date) return showError('No weekend date could be added.');
+  daysContainer.querySelectorAll('.day-card').forEach((card) => toggleDayCard(card, true));
+  addDay({ date, collapsed: false });
+  recalculate();
+  daysContainer.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+includeWeekendsInput?.addEventListener('change', updateWeekendControlLabels);
+updateWeekendControlLabels();
 
 generateDaysBtn.addEventListener('click', () => generateDaysFromRange(true));
 addAbsenceBtn.addEventListener('click', addAbsenceRange);
@@ -1452,10 +1708,11 @@ syncPortalProfileWhenReady();
 // Safari can visually restore native date controls while their DOM values are blank.
 // A concrete current-week default keeps the form state and visible controls aligned.
 initialiseWeekDates();
-if (!loadSubmittedDraft() && !loadSavedDraft()) {
+const loadedSubmittedDraft = loadSubmittedDraft();
+const loadedSavedDraft = !loadedSubmittedDraft && !requestedDay && loadSavedDraft();
+if (!loadedSubmittedDraft && !loadedSavedDraft) {
   renderAbsenceRanges();
-  // Start with the current Monday-to-Sunday period so employees do not need
-  // to choose a week before they can record a day.
+  // Start with the current Monday-to-Friday period so weekend work is opt-in.
   applyRequestedDayPeriod();
   generateDaysFromRange();
   window.setTimeout(focusRequestedDay, 0);

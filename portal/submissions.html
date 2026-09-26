@@ -7,8 +7,8 @@
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/brand/gmt-icon-256.png?v=gmt-logo-favicon-20260901">
 <title>Submitted documents | GMT Staff Portal</title>
 <link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=submitted-documents-calendar-actions-20260915d">
-<link rel="stylesheet" href="../tools/estimates.css?v=submitted-documents-filter-location-20260915c">
+<link rel="stylesheet" href="../portal.css?v=pay-month-workspace-20260921a">
+<link rel="stylesheet" href="../tools/estimates.css?v=pay-month-workspace-20260921a">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="auth.js?v=entra-auth-20260914-signout-dashboard"></script>
@@ -19,30 +19,47 @@
   <nav class="header-actions" aria-label="Submitted documents navigation"><a href="index.html">Dashboard</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main estimate-main" hidden>
-  <section class="estimate-intro card"><div><p class="portal-card-kicker">Identity-filtered history</p><h2>Submitted documents</h2><p>Review the customer enquiries, job cards, estimates, tasks, calendar requests and timesheets that your signed-in GMT account is authorised to see.</p></div><span class="estimate-status-chip">Protected history</span></section>
+  <section class="estimate-intro card submissions-intro"><div><p class="portal-card-kicker">Identity-filtered workspace</p><h2>Shared work history</h2><p>Use the calendar to open a day, then choose a pay month or record type below. Access and edit actions follow your signed-in GMT permissions.</p></div><span class="estimate-status-chip">Protected history</span></section>
   <section class="card submissions-calendar-panel" aria-labelledby="submissions-calendar-title">
     <div class="portal-calendar-preview-heading"><div><span class="portal-card-kicker">Shared information</span><h2 id="submissions-calendar-title">Shared calendar</h2></div><a class="portal-text-link" href="../calendar/">Open calendar tools <span aria-hidden="true">→</span></a></div>
     <p id="submissions-calendar-status" class="small-text" role="status">Loading shared calendar…</p>
     <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-submissions-calendar-prev aria-label="Previous month">&lt;</button><button type="button" class="portal-calendar-month-picker" data-submissions-calendar-picker aria-haspopup="dialog" aria-controls="submissions-calendar-month-input"><span data-submissions-calendar-title></span></button><input id="submissions-calendar-month-input" class="sr-only" data-submissions-calendar-input type="month" tabindex="-1" aria-label="Choose calendar month"><button type="button" class="icon-button" data-submissions-calendar-next aria-label="Next month">&gt;</button></div>
     <div class="portal-calendar-month" data-submissions-calendar aria-label="Shared calendar"></div>
   </section>
-  <section class="card estimate-history-panel" aria-labelledby="submissions-title">
-    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">All authorised submissions</p><h2 id="submissions-title">Document history</h2></div><button type="button" id="submissions-refresh" class="secondary">Refresh</button></div>
-    <div class="portal-history-toolbar"><p id="submissions-status" class="small-text" role="status">Loading submitted documents…</p></div>
+  <section class="card estimate-history-panel pay-month-workspace" aria-labelledby="submissions-title">
+    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Pay month workspace</p><h2 id="submissions-title">Timesheets and records</h2></div><button type="button" id="submissions-refresh" class="secondary">Refresh</button></div>
+    <div class="portal-history-toolbar"><p id="submissions-status" class="small-text" role="status">Loading authorised records…</p></div>
     <p id="submissions-admin-timesheet-notice" class="portal-history-warning" hidden></p>
-    <section id="submissions-admin-timesheet-summary" class="timesheet-completion submissions-admin-timesheet-summary" aria-labelledby="submissions-admin-timesheet-title" hidden>
-      <div class="portal-section-heading"><div><p class="portal-card-kicker">Accounts completion</p><h3 id="submissions-admin-timesheet-title">Employee timesheet coverage</h3></div><a class="portal-text-link" href="timesheets.html">Open timesheet calendar →</a></div>
-      <p id="submissions-admin-timesheet-status" class="small-text" role="status"></p>
-      <p id="submissions-admin-timesheet-note" class="small-text"></p>
-      <div class="table-scroll"><table id="submissions-admin-timesheet-table" class="portal-table"></table></div>
-    </section>
-    <div class="estimate-history-layout"><section class="submission-history-list-panel" aria-label="Submitted document list"><div class="submission-list-controls" aria-label="Submitted document filters"><label class="portal-history-filter">Show <select id="submissions-filter" aria-label="Filter submitted documents"><option value="all" selected>All documents</option><option value="enquiries">Customer enquiries</option><option value="job-cards">Job cards</option><option value="estimates">Estimates</option><option value="invoices">Invoices</option><option value="tasks">Tasks</option><option value="calendar">Calendar requests</option><option value="timesheets">Timesheets</option><option value="clock">Clock and breaks</option></select></label><label id="submissions-employee-filter" class="portal-history-filter">Filter by employee <select id="submissions-employee" aria-label="Filter submitted documents by employee"><option value="">All employees</option></select></label></div><div id="submissions-list" class="estimate-history-list submissions-record-list" aria-label="Submitted document records" aria-live="polite"></div></section><article id="submissions-preview" class="estimate-paper estimate-history-preview" aria-live="polite"><p class="small-text">Select a document to preview it.</p></article></div>
+    <div class="submission-type-tabs" role="tablist" aria-label="Record type">
+      <button type="button" role="tab" aria-selected="true" data-submission-tab="timesheets">Timesheets</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="all">All records</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="enquiries">Enquiries</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="job-cards">Job cards</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="tasks">Tasks</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="estimates">Estimates</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="invoices">Invoices</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="calendar">Calendar requests</button>
+    </div>
+    <div class="pay-month-filters" aria-label="Pay month and staff filters">
+      <label class="portal-history-filter">Pay month <select id="submissions-pay-month" aria-label="Filter by pay month"><option value="">All pay months</option></select></label>
+      <label id="submissions-employee-filter" class="portal-history-filter">Staff member <select id="submissions-employee" aria-label="Filter by staff member"><option value="">All staff</option></select></label>
+    </div>
+    <div class="pay-month-layout">
+      <section class="pay-month-list-panel" aria-label="Pay month list">
+        <div class="pay-month-list-heading"><div><p class="portal-card-kicker" data-pay-month-list-kicker>Pay month list</p><h3 id="pay-month-list-title">Available sheets</h3></div><span id="pay-month-list-count" class="small-text"></span></div>
+        <div id="submissions-list" class="estimate-history-list submissions-record-list pay-month-list" aria-label="Pay month and record list" aria-live="polite"></div>
+      </section>
+      <article id="submissions-preview" class="estimate-paper estimate-history-preview pay-month-preview" aria-live="polite"><p class="small-text">Select a pay month to preview its combined daily rows.</p></article>
+    </div>
   </section>
 </main>
-<script defer src="../portal-api.js?v=portal-api-xero-20260914"></script>
-<script defer src="submissions.js?v=submitted-documents-filter-location-20260915c"></script>
-<script defer src="calendar-data.js?v=calendar-record-reconciliation-20260915"></script>
-<script defer src="calendar-actions.js?v=calendar-day-actions-20260915b"></script>
-<script defer src="submissions-calendar.js?v=submitted-documents-calendar-reconciled-20260915c"></script>
+<script defer src="../portal-api.js?v=portal-api-day-delete-20260921a"></script>
+<script defer src="../pay-periods.js?v=gmt-pay-periods-20260921c"></script>
+<script defer src="../lazy-xlsx.js?v=excel-generator-20260922a"></script>
+<script defer src="pay-month-workbook.js?v=pay-month-workbook-20260927a"></script>
+<script defer src="submissions.js?v=pay-month-workspace-editable-20260927a"></script>
+<script defer src="calendar-data.js?v=calendar-feed-merge-daily-reconcile-20260926c"></script>
+<script defer src="calendar-actions.js?v=gmt-calendar-actions-day-delete-20260921e"></script>
+<script defer src="submissions-calendar.js?v=gmt-calendar-event-merge-20260922a"></script>
 </body>
 </html>

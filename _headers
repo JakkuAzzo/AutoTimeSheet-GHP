@@ -1,0 +1,22 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/portal/*
+  Cache-Control: no-store
+
+/timesheets/*
+  Cache-Control: no-store
+
+/tools/*
+  Cache-Control: no-store
+
+/jobs/*
+  Cache-Control: no-store
+
+/tasks/*
+  Cache-Control: no-store
+
+/calendar/*
+  Cache-Control: no-store

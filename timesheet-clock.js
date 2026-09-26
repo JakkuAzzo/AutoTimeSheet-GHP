@@ -26,22 +26,49 @@
   }
 
   async function submitMultipartForm(form, endpoint) {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      body: new FormData(form),
-      headers: { Accept: 'application/json' },
-      credentials: 'omit'
-    });
-    const responseText = await response.text();
-    let result = null;
-    try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
-    if (!response.ok) {
-      throw new Error(`Timesheet delivery failed (${response.status}). Please try again or contact Accounts.`);
+    const transport = window.GMTClockTransport;
+    let attemptedNative = false;
+    const nativeSubmit = () => {
+      attemptedNative = true;
+      return transport.submitNativeForm(form, ensureSubmitFrame(), {
+        location: window.location,
+        document,
+        htmlForm: HTMLFormElement
+      });
+    };
+    // FormSubmit's file-upload contract is a regular multipart form post.
+    // Its AJAX endpoint is JSON-oriented and is not reliable for the three
+    // generated clock-event attachments, especially in Safari. Use a hidden
+    // iframe so the user stays on the page while the provider follows _next
+    // back to our same-origin success document.
+    if (transport && transport.shouldUseNativeFallback(endpoint, form)) {
+      return nativeSubmit();
     }
-    if (result && (result.success === false || result.success === 'false')) {
-      throw new Error(result.message || 'Timesheet delivery was rejected. Please try again or contact Accounts.');
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: { Accept: 'application/json' },
+        credentials: 'omit'
+      });
+      const responseText = await response.text();
+      let result = null;
+      try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+      if (!response.ok) {
+        const error = new Error(`Timesheet delivery failed (${response.status}). Please try again or contact Accounts.`);
+        if (transport && transport.shouldUseNativeFallback(endpoint, form, error)) return nativeSubmit();
+        throw error;
+      }
+      if (result && (result.success === false || result.success === 'false')) {
+        const error = new Error(result.message || 'Timesheet delivery was rejected. Please try again or contact Accounts.');
+        if (transport && transport.shouldUseNativeFallback(endpoint, form, error)) return nativeSubmit();
+        throw error;
+      }
+      return result;
+    } catch (error) {
+      if (!attemptedNative && transport && transport.shouldUseNativeFallback(endpoint, form, error)) return nativeSubmit();
+      throw error;
     }
-    return result;
   }
 
   function pad(value) {
@@ -54,6 +81,16 @@
 
   function localTime(date = new Date()) {
     return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  // Use the same GMT payroll-period router as weekly timesheets. A clock
+  // event is never rejected because it is outside the current calendar month;
+  // its date determines the pay-month workbook key.
+  function payMonthKeyForDate(value) {
+    const helper = window.GMTPayPeriods;
+    return helper && typeof helper.payMonthKeyForDate === 'function'
+      ? helper.payMonthKeyForDate(value)
+      : String(value || '').slice(0, 7);
   }
 
   function actionLabel(value) {
@@ -326,7 +363,8 @@
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(totalsRows), 'Totals');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(notesRows), 'Notes');
     const xlsxArray = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    const fileBase = `GMT Clock - ${safeFilePart(payload.employeeName)} - ${payload.date} - ${safeFilePart(payload.actionLabel)}`;
+    const payMonth = payMonthKeyForDate(payload.date) || 'unspecified';
+    const fileBase = `GMT Clock - ${safeFilePart(payload.employeeName)} - Pay Month ${payMonth} - ${payload.date} - ${safeFilePart(payload.actionLabel)}`;
     const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet([row]));
     return {
       workbook: new File([xlsxArray], `${fileBase}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
@@ -349,15 +387,20 @@
     hidden(form, '_template', 'box');
     hidden(form, '_captcha', 'false');
     hidden(form, '_url', window.location.href);
-    hidden(form, '_cc', payload.notificationEmail);
+    const recipients = [CONFIG.formSubmitCc, payload.notificationEmail]
+      .map(value => String(value || '').trim())
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+      .join(',');
+    hidden(form, '_cc', recipients);
     hidden(form, 'gmt_schema_version', '2');
     hidden(form, 'gmt_type', 'timesheet_clock');
     hidden(form, 'gmt_action', payload.action);
     const recordIdentity = payload.employeeEmail || payload.employeeName;
     const recordId = clockRecordId(payload);
-    // Weekly submissions and quick clock events share one employee/month
+    // Weekly submissions and quick clock events share one employee/pay-month
     // workbook. The event-specific record ID remains the dedupe key.
-    const workbookKey = `timesheet-${safeKeyPart(recordIdentity)}-${payload.date.slice(0, 7)}`;
+    const payMonth = payMonthKeyForDate(payload.date) || 'unspecified';
+    const workbookKey = `timesheet-${safeKeyPart(recordIdentity)}-${payMonth}`;
     hidden(form, 'gmt_record_id', recordId);
     hidden(form, 'gmt_workbook_key', workbookKey);
     hidden(form, 'gmt_filing_mode', 'monthly-upsert');
@@ -372,8 +415,12 @@
     hidden(form, 'gmt_lunch_start', payload.lunchStart);
     hidden(form, 'gmt_lunch_end', payload.lunchEnd);
     hidden(form, 'gmt_day_finish', payload.dayFinish);
-    hidden(form, 'gmt_year', payload.date.slice(0, 4));
-    hidden(form, 'gmt_month', payload.date.slice(5, 7));
+    // Route every clock event by pay month as well as by the event date. A
+    // Monday 31 August event therefore lands in Pay Month 2026-09 together
+    // with the rest of the fixed four-week cycle through Sunday 20 September.
+    hidden(form, 'gmt_year', payMonth.slice(0, 4));
+    hidden(form, 'gmt_month', payMonth.slice(5, 7));
+    hidden(form, 'gmt_pay_month', payMonth);
     hidden(form, 'gmt_worked_hours', files.row['Worked hours']);
     hidden(form, 'gmt_basic_hours', files.row['Basic hours']);
     hidden(form, 'gmt_ot15_hours', 0);
@@ -492,6 +539,8 @@
       return;
     }
     let protectedRecord = null;
+    let protectedRecordSaved = false;
+    let portalSyncIssue = '';
     try {
       showStatus(card, 'ok', 'Preparing timesheet files...');
       if (typeof window.ensureXlsxLoaded !== 'function') throw new Error('Excel generator is not available.');
@@ -499,20 +548,30 @@
       const files = buildClockFiles(payload);
       if (window.GMTPortalApi && typeof window.GMTPortalApi.enabled === 'function' && window.GMTPortalApi.enabled()) {
         protectedRecord = protectedClockRecord(payload, files);
-        await window.GMTPortalApi.saveRecord(protectedRecord);
+        try {
+          await window.GMTPortalApi.saveRecord(protectedRecord);
+          protectedRecordSaved = true;
+        } catch (portalError) {
+          portalSyncIssue = portalError && portalError.message ? portalError.message : 'Portal history sync is pending.';
+        }
       }
       const form = createEmailForm(payload, files);
       await submitMultipartForm(form, endpoint);
-      if (protectedRecord) {
-        await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Submitted', issue: '', updatedAt: new Date().toISOString() });
+      if (protectedRecord && protectedRecordSaved) {
+        try {
+          await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Submitted', issue: '', updatedAt: new Date().toISOString() });
+        } catch (portalError) {
+          portalSyncIssue = portalError && portalError.message ? portalError.message : 'Portal history sync is pending.';
+        }
       }
       form.remove();
-      showStatus(card, 'ok', `${payload.actionLabel} saved for ${payload.date}${payload.time && payload.action !== 'full_day' && payload.action !== 'absent' ? ` at ${payload.time}` : ''}.`);
+      const savedMessage = `${payload.actionLabel} saved for ${payload.date}${payload.time && payload.action !== 'full_day' && payload.action !== 'absent' ? ` at ${payload.time}` : ''}.`;
+      showStatus(card, portalSyncIssue ? 'warning' : 'ok', portalSyncIssue ? `${savedMessage} Portal history will sync when access is restored.` : savedMessage);
       card.elements.clock_date.value = localDate();
       card.elements.clock_time.value = localTime();
       card.elements.clock_note.value = '';
     } catch (error) {
-      if (protectedRecord) {
+      if (protectedRecord && protectedRecordSaved) {
         try {
           await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Delivery failed', issue: error && error.message ? error.message : 'Clock delivery failed', updatedAt: new Date().toISOString() });
         } catch (_) {
