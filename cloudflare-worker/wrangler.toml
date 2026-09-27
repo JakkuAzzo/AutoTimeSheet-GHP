@@ -32,6 +32,7 @@ STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"nam
 # Keep verified former aliases separate from the attendance roster when needed.
 HISTORICAL_EMPLOYEE_ALIASES_JSON = '[]'
 DISPATCH_ENABLED = "true"
+PAY_MONTH_REPLAY_READY = "false"
 DISPATCH_WEEKDAY = "Friday"
 DISPATCH_HOUR = "18"
 DISPATCH_TIMEZONE = "Europe/London"

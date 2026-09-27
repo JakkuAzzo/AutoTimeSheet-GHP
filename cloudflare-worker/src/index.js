@@ -2064,6 +2064,15 @@ async function dispatchQueued(env, options = {}) {
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
     const payload = payloadObject(row);
+    // A successful email handoff is not a successful workbook replay. Keep
+    // pay-month snapshots queued until the receiving flow, script and target
+    // workbook have passed an end-to-end read-back.
+    if (row.action === 'pay_month_correction' && env.PAY_MONTH_REPLAY_READY !== 'true') {
+      summary.status = 'awaiting-provider';
+      summary.deferred = (summary.deferred || 0) + 1;
+      summary.records.push({ recordId: row.record_id, status: 'awaiting-provider' });
+      continue;
+    }
     if (options.dryRun) {
       summary.records.push({ recordId: row.record_id, status: syntheticRecord(row, payload) ? 'skipped-dry-run' : 'dry-run' });
       continue;
