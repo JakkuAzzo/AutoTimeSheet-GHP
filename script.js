@@ -617,10 +617,9 @@ function calculateRows(rows) {
     }
     if (day === 'Sunday') return { ...row, dayName: day, workedActual: actual, total: actual, basic: 0, ot15: 0, ot20: actual, absent: false, note: 'Sunday is OT x2.0.' };
     if (day === 'Saturday') return { ...row, dayName: day, ...splitSaturday(row), absent: false, note: 'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
-    const basic = BASIC_DAY_MINUTES;
+    const basic = Math.min(actual, BASIC_DAY_MINUTES);
     const ot15 = Math.max(0, actual - BASIC_DAY_MINUTES);
-    const workedActual = Math.max(actual, BASIC_DAY_MINUTES);
-    return { ...row, dayName: day, workedActual, total: basic + ot15, basic, ot15, ot20: 0, absent: false, note: ot15 ? 'Weekday: 8h basic plus daily excess as OT x1.5.' : 'Weekday without absence records an 8h minimum.' };
+    return { ...row, dayName: day, workedActual: actual, total: actual, basic, ot15, ot20: 0, absent: false, note: ot15 ? 'Weekday: up to 8h basic plus daily excess as OT x1.5.' : 'Weekday hours equal finish minus start and break.' };
   });
 }
 
@@ -801,14 +800,14 @@ function ensureXlsxLoaded() {
 }
 
 function allRowsForExport(calculated) {
-  const submittedWeekEnd = effectiveWeekEnd(calculated);
-  const payMonth = payMonthKeyForWeek(weekStart.value, submittedWeekEnd);
+  const { startDate, endDate } = submittedDateBounds(calculated);
+  const payMonth = payMonthKeyForWeek(startDate, endDate);
   return calculated.map((row) => ({
     Status: statusFor(row),
     Category: categoryFor(row),
     'Pay month': payMonth,
-    'Week start': weekStart.value,
-    'Week end': submittedWeekEnd,
+    'Week start': startDate,
+    'Week end': endDate,
     Day: row.label,
     Date: row.date,
     Weekday: row.dayName,
@@ -826,8 +825,8 @@ function allRowsForExport(calculated) {
 }
 
 function buildWorkbook(calculated, totals, weighted) {
-  const submittedWeekEnd = effectiveWeekEnd(calculated);
-  const payMonth = payMonthKeyForWeek(weekStart.value, submittedWeekEnd);
+  const { startDate, endDate } = submittedDateBounds(calculated);
+  const payMonth = payMonthKeyForWeek(startDate, endDate);
   const allRows = allRowsForExport(calculated);
   const totalsRows = [
     ['GMT Pay-month Timesheet Submission'],
@@ -836,8 +835,8 @@ function buildWorkbook(calculated, totals, weighted) {
     ['Employee email', employeeEmail.value.trim()],
     ['Pay month', payMonth],
     ['Pay month label', payMonthLabel(payMonth)],
-    ['Week start', weekStart.value],
-    ['Week end', submittedWeekEnd],
+    ['Week start', startDate],
+    ['Week end', endDate],
     [],
     ['Metric', 'Hours / Count'],
     ['Worked hours', hours(totals.workedActual)],
@@ -869,15 +868,16 @@ function buildWorkbook(calculated, totals, weighted) {
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(totalsRows), 'Totals');
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(notesRows), 'Notes');
   const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${weekStart.value || 'unspecified'}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${startDate || 'unspecified'}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
 function buildCsvFile(calculated) {
   const rows = allRowsForExport(calculated);
   const header = Object.keys(rows[0] || {});
   const csv = [header, ...rows.map((row) => header.map((key) => row[key]))].map((row) => row.map(csvEscape).join(',')).join('\r\n');
-  const payMonth = payMonthKeyForWeek(weekStart.value, weekEnd.value);
-  return new File([csv], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${weekStart.value || 'unspecified'}.csv`, { type: 'text/csv' });
+  const { startDate, endDate } = submittedDateBounds(calculated);
+  const payMonth = payMonthKeyForWeek(startDate, endDate);
+  return new File([csv], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${startDate || 'unspecified'}.csv`, { type: 'text/csv' });
 }
 
 function setFileInputFiles(input, files) {
@@ -972,12 +972,15 @@ function groupedAbsenceCalendarEvents(rows, employee) {
   }));
 }
 
+function submittedDateBounds(calculated) {
+  const dates = calculated.map((row) => row.date).filter(Boolean).sort();
+  return { startDate: dates[0] || '', endDate: dates[dates.length - 1] || '' };
+}
+
 function buildCalendarSync(calculated, totals) {
   const profile = localPortalProfile();
   const employee = employeeName.value.trim();
-  const datedRows = calculated.filter((row) => row.date).sort((left, right) => left.date.localeCompare(right.date));
-  const startDate = weekStart.value || datedRows[0]?.date || '';
-  const lastDate = effectiveWeekEnd(calculated) || datedRows[datedRows.length - 1]?.date || startDate;
+  const { startDate, endDate: lastDate } = submittedDateBounds(calculated);
   const payMonth = payMonthKeyForWeek(startDate, lastDate);
   const weeklyEvent = startDate && lastDate ? {
     type: 'timesheet',
@@ -1053,7 +1056,13 @@ function submissionKeyPart(value) {
 function buildTimesheetSubmissionId(calendarSync) {
   const profile = localPortalProfile();
   const employeeIdentity = employeeEmail.value.trim() || profile.username || employeeName.value.trim();
-  return `timesheet-${submissionKeyPart(employeeIdentity)}-${calendarSync.weekStart || 'unspecified'}`;
+  // A generated form can retain its original week start after its Date rows
+  // change. Each new submission needs its own identity so separate dated
+  // slices and later versions cannot overwrite one another upstream.
+  const nonce = window.crypto && typeof window.crypto.randomUUID === 'function'
+    ? window.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return `timesheet-${submissionKeyPart(employeeIdentity).slice(0, 64)}-${calendarSync.weekStart || 'unspecified'}-${calendarSync.weekEnd || 'unspecified'}-${nonce}`;
 }
 
 function buildTimesheetWorkbookKey(calendarSync) {
@@ -1501,7 +1510,7 @@ async function submitTimesheet(event) {
     const field = (name) => emailForm.querySelector(`[data-clean-field="${name}"]`);
     const userEmail = employeeEmail.value.trim();
     emailForm.action = formSubmitEndpoint();
-    field('subject').value = `[GMT][TIMESHEET][SUBMISSION] ${employeeName.value.trim()} | Week ${weekStart.value || 'unspecified'}`;
+    field('subject').value = `[GMT][TIMESHEET][SUBMISSION] ${employeeName.value.trim()} | Week ${calendarSync.weekStart || 'unspecified'}`;
     field('url').value = window.location.href;
     field('replyto').value = userEmail;
     const profile = localPortalProfile();

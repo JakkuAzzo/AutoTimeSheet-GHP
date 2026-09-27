@@ -155,7 +155,9 @@ try {
   assert.ok(result.files[0].files[0].name.includes('GMT Timesheet Record - Routing Tester - Pay Month 2026-06 - Week 2026-06-22.json'));
   assert.ok(result.files[0].files[0].size > 100);
   const recordEnvelope = JSON.parse(result.files[0].files[0].content);
-  assert.equal(recordEnvelope.recordId, 'timesheet-routing-tester-example-com-2026-06-22|2026-06-22');
+  const firstSubmissionId = result.fields.gmt_record_id;
+  assert.match(firstSubmissionId, /^timesheet-routing-tester-example-com-2026-06-22-2026-06-22-[0-9a-f-]{36}$/);
+  assert.equal(recordEnvelope.recordId, `${firstSubmissionId}|2026-06-22`);
   assert.equal(recordEnvelope.date, '2026-06-22');
   assert.equal(recordEnvelope.startTime, '08:00');
   assert.equal(recordEnvelope.finishTime, '16:00');
@@ -170,7 +172,6 @@ try {
   assert.equal(result.fields.gmt_type, 'timesheet');
   assert.equal(result.fields.gmt_action, 'submission');
   assert.equal(result.fields.gmt_schema_version, '1');
-  assert.equal(result.fields.gmt_record_id, 'timesheet-routing-tester-example-com-2026-06-22');
   assert.equal(result.fields.gmt_submission_id, result.fields.gmt_record_id);
   assert.equal(result.fields.gmt_workbook_key, 'timesheet-routing-tester-example-com-2026-06');
   assert.equal(result.fields.gmt_filing_mode, 'monthly-upsert');
@@ -208,7 +209,7 @@ try {
     weightedHours: 8,
     status: 'Recorded',
     category: 'Basic day',
-    note: 'Weekday without absence records an 8h minimum.'
+    note: 'Weekday hours equal finish minus start and break.'
   });
   const calendarPayload = JSON.parse(result.fields.gmt_calendar_sync_payload);
   assert.equal(calendarPayload.events[0].startDate, '2026-06-22');
@@ -217,6 +218,9 @@ try {
   await page.locator('#submit-btn').click();
   await page.waitForFunction(() => window.__submittedForms.length === 2, null, { timeout: 15000 });
   const secondFields = new Map(Object.entries(await page.evaluate(() => window.__submittedForms[1].fields)));
+  const secondSubmissionId = secondFields.get('gmt_record_id');
+  assert.match(secondSubmissionId, /^timesheet-routing-tester-example-com-2026-06-22-2026-06-22-[0-9a-f-]{36}$/);
+  assert.notEqual(secondSubmissionId, firstSubmissionId, 'a new submission for the same form week must not overwrite the earlier one');
   const absenceCalendarSync = JSON.parse(secondFields.get('gmt_calendar_sync_payload'));
   assert.equal(absenceCalendarSync.events.length, 2);
   assert.deepEqual(absenceCalendarSync.events[1], {
@@ -226,8 +230,28 @@ try {
     startDate: '2026-06-22',
     endDateExclusive: '2026-06-23',
     isAllDay: true,
-    syncEventId: 'timesheet-routing-tester-example-com-2026-06-22-sick-2026-06-22-2'
+    syncEventId: `${secondSubmissionId}-sick-2026-06-22-2`
   });
+
+  // Form week fields generate cards; the actual Date column identifies the
+  // submitted period, even if a user changes that date without regenerating.
+  await page.locator('[data-field="date"]').first().fill('2026-06-23');
+  await page.locator('[data-field="absenceStatus"]').first().selectOption('NA');
+  await page.locator('[data-field="start"]').first().fill('08:00');
+  await page.locator('[data-field="finish"]').first().fill('11:30');
+  await page.locator('#submit-btn').click();
+  try {
+    await page.waitForFunction(() => window.__submittedForms.length === 3, null, { timeout: 5000 });
+  } catch (error) {
+    throw new Error(`Third submission failed: ${await page.locator('#form-error').textContent()} / ${await page.locator('#form-toast-message').textContent()}`, { cause: error });
+  }
+  const thirdFields = await page.evaluate(() => window.__submittedForms[2].fields);
+  assert.equal(thirdFields.gmt_week_start, '2026-06-23');
+  assert.equal(thirdFields.gmt_week_end, '2026-06-23');
+  assert.equal(JSON.parse(thirdFields.gmt_daily_rows)[0].date, '2026-06-23');
+  assert.equal(JSON.parse(thirdFields.gmt_daily_rows)[0].workedMinutes, 210);
+  assert.equal(thirdFields.gmt_worked_hours, '3.5');
+  assert.equal(JSON.parse(thirdFields.gmt_calendar_sync_payload).events[0].startDate, '2026-06-23');
 
   console.log(JSON.stringify(result, null, 2));
 } finally {
