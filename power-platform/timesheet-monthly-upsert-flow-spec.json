@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GMT monthly timesheet upsert flow specification",
   "version": "1",
-  "status": "activation-ready-local-spec",
+  "status": "repair-required-live-trigger-unverified",
   "ownership": {
     "mailbox": "GMT-owned shared mailbox",
     "storage": "GMT-owned SharePoint document library",
@@ -15,8 +15,8 @@
     "mailbox": "accounts8765@gmtelectservsltd.onmicrosoft.com",
     "folder": "Inbox",
     "optionalRecipientRoute": "acc.gmtelect+timesheets@outlook.com",
-    "routingRule": "The legacy FormSubmit route remains acc.gmtelect@outlook.com. An enabled Outlook rule moves matching plus-address messages into the legacy Timesheets folder and forwards them to accounts8765@gmtelectservsltd.onmicrosoft.com. The tenant mailbox Inbox is the authoritative Power Automate intake; do not rely on the forwarded To field.",
-    "validatedMailboxEvidence": "Outlook shared-mailbox navigation exposes Accounts@GMTElectServsLtd.onmicrosoft.com and the live flow trigger is configured for accounts8765@gmtelectservsltd.onmicrosoft.com / Inbox. Fresh post-correction run proof remains required.",
+    "routingRule": "Read back on 2026-09-27: enabled legacy Outlook rule GMTWebApp-Timesheets-Demo matches acc.gmtelect+timesheets@outlook.com, forwards to accounts8765@gmtelectservsltd.onmicrosoft.com, moves the original into Timesheets, and stops processing further rules. Delivery to the forwarded address has not been proved.",
+    "validatedMailboxEvidence": "Read back on 2026-09-27: the saved flow monitors accounts8765@gmtelectservsltd.onmicrosoft.com / Inbox with a shared-mailbox V2 trigger. Exchange admin center's seven loaded mailboxes show accounts@gmt-services.co.uk as a user mailbox and gmt-portal@gmt-services.co.uk as a shared mailbox; no accounts8765 mailbox was listed. The flow details page warns of a trigger problem, and a previously inspected run reported an invalid requested shared-mailbox user. Flow checker showing zero errors does not prove delivery. Resolve the recipient, connection and trigger type, then correlate a new run and workbook write before replaying payroll corrections.",
     "legacyRoute": {
       "mailbox": "acc.gmtelect@outlook.com",
       "folder": "Timesheets",
