@@ -156,7 +156,7 @@ function canViewAllRecords(identity, kind = '') {
 }
 
 function canAccessRecord(identity, row) {
-  return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (identity.isOperationsAdmin && row.kind !== 'timesheets' && row.kind !== 'clock') || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
+  return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (row.kind === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase()) || (identity.isOperationsAdmin && row.kind !== 'timesheets' && row.kind !== 'clock') || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
 }
 
 async function authenticateToken(token, env) {
@@ -501,13 +501,58 @@ function recordMonthKey(value, timeZone = 'Europe/London') {
 // GMT filing uses one employee workbook per YYYY-MM pay month. Keep the
 // edit window tied to that workbook month, while history reads remain open
 // for every authorised record.
-function isCurrentPayMonthRecord(row, timeZone = 'Europe/London') {
+function payCycleKeyForDate(value) {
+  const match = String(value || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  const date = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (!Number.isFinite(date)) return '';
+  const validated = new Date(date);
+  if (validated.getUTCFullYear() !== Number(match[1]) || validated.getUTCMonth() + 1 !== Number(match[2]) || validated.getUTCDate() !== Number(match[3])) return '';
+  const anchor = Date.UTC(2026, 7, 24);
+  const cycle = Math.floor((date - anchor) / (28 * 86400000));
+  const payday = new Date(anchor + (cycle * 28 + 25) * 86400000);
+  return `${payday.getUTCFullYear()}-${String(payday.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function editablePayCycleKeys(nowDate = new Date(), timeZone = 'Europe/London') {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(nowDate);
+  const value = (kind) => String(parts.find((part) => part.type === kind)?.value || '');
+  const today = `${value('year')}-${value('month')}-${value('day')}`;
+  const current = payCycleKeyForDate(today);
+  const previous = new Date(`${today}T12:00:00Z`);
+  previous.setUTCDate(previous.getUTCDate() - 28);
+  return [current, payCycleKeyForDate(previous.toISOString().slice(0, 10))].filter(Boolean);
+}
+
+function isCurrentPayMonthRecord(row, timeZone = 'Europe/London', nowDate = new Date()) {
   if (!row) return false;
-  const month = monthKeyInTimeZone(new Date(), timeZone);
-  const week = recordWeekStart(row);
-  if (week) return completionWeeks(month, timeZone, new Date()).some((entry) => entry.start === week);
-  const recordMonth = recordMonthKey(row.start_date || row.record_date || row.end_date, timeZone);
-  return Boolean(recordMonth && recordMonth === month);
+  const payload = payloadObject(row);
+  const declared = text(payload.payMonth || payload.pay_month, '', 7);
+  const dates = Array.isArray(payload.rows) ? payload.rows.map((entry) => text(entry?.date, '', 10)).filter(Boolean) : [];
+  const dateMonth = payCycleKeyForDate(dates[0] || row.record_date || row.start_date || row.end_date);
+  const month = row.action === 'pay_month_correction' && /^\d{4}-\d{2}$/.test(declared) ? declared : (dateMonth || declared);
+  return editablePayCycleKeys(nowDate, timeZone).includes(month);
+}
+
+function validatePayMonthCorrection(body, nowDate = new Date()) {
+  const payload = body?.payload && typeof body.payload === 'object' ? body.payload : {};
+  const month = text(payload.payMonth, '', 7);
+  if (!/^\d{4}-\d{2}$/.test(month) || !editablePayCycleKeys(nowDate).includes(month)) {
+    throw Object.assign(new Error('Only the current and previous pay months are editable'), { status: 409 });
+  }
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const deletedDays = Array.isArray(payload.deletedDays) ? payload.deletedDays : [];
+  if (rows.length > 80 || deletedDays.length > 80) throw Object.assign(new Error('Too many pay-month dates'), { status: 400 });
+  const seen = new Set();
+  [...rows.map((row) => row?.date), ...deletedDays].forEach((date) => {
+    const key = text(date, '', 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || payCycleKeyForDate(key) !== month) {
+      throw Object.assign(new Error('Every corrected date must belong to the selected pay month'), { status: 400 });
+    }
+    if (seen.has(key)) throw Object.assign(new Error('Each corrected date must be unique'), { status: 400 });
+    seen.add(key);
+  });
+  return month;
 }
 
 const isCurrentMonthRecord = isCurrentPayMonthRecord;
@@ -562,14 +607,14 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox'];
+  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
   return safe;
 }
 
-function normaliseInput(body, identity, existing = null) {
+function normaliseInput(body, identity, existing = null, env = null) {
   const payload = parsePayload(body);
   const kind = canonicalKind(body.kind || body.type || payload.kind);
   if (!ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
@@ -585,10 +630,22 @@ function normaliseInput(body, identity, existing = null) {
   // employee name. Normal submissions remain mapped to the signed-in Entra
   // identity and cannot spoof another employee by editing this field.
   const syntheticTestName = /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
-  const employeeName = syntheticTestName
-    ? requestedEmployeeName
-    : (identity.name || requestedEmployeeName || identity.upn);
   const action = text(body.action || body.gmtAction || payload.action || (kind === 'clock' ? 'clock_event' : 'submission'), 'submission', 100);
+  const correctionOnBehalf = kind === 'timesheets' && action === 'pay_month_correction' && body.editMode === true && identity.isAdmin && !existing;
+  const requestedUpn = text(body.employeeEmail || body.employee_upn, '', 320).toLowerCase();
+  const rosterTarget = correctionOnBehalf ? directoryEntryFor(staffDirectory(env || {}), requestedEmployeeName, requestedUpn) : null;
+  // Accounts can also correct a real historical sheet whose employee is not
+  // on today's scheduled roster (for example the Accounts or Lidia aliases).
+  // Keep those targets inside the GMT tenant and require a named employee.
+  const historicalTarget = correctionOnBehalf && !rosterTarget && requestedEmployeeName && /@(gmt-services\.co\.uk|gmtelectservsltd\.onmicrosoft\.com)$/i.test(requestedUpn)
+    ? { name: requestedEmployeeName, upn: requestedUpn } : null;
+  const target = rosterTarget || historicalTarget;
+  if (correctionOnBehalf && (!target || !target.upn)) throw Object.assign(new Error('Employee must have a verified GMT address or match the approved staff roster'), { status: 400 });
+  const employeeName = existing?.action === 'pay_month_correction' && existing?.employee_name
+    ? existing.employee_name
+    : syntheticTestName
+    ? requestedEmployeeName
+    : (target?.name || identity.name || requestedEmployeeName || identity.upn);
   const status = text(body.status || payload.status || (kind === 'calendar' || kind === 'tasks' ? 'Pending approval' : 'Submitted'), 'Submitted', 100);
   const startDate = isoOrBlank(body.startDate || body.start_date || payload.weekStart || body.weekStart);
   const endDate = isoOrBlank(body.endDate || body.end_date || payload.weekEnd || body.weekEnd);
@@ -596,8 +653,8 @@ function normaliseInput(body, identity, existing = null) {
   const privilegedEdit = Boolean(existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)));
   return {
     recordId,
-    ownerOid: privilegedEdit ? existing.owner_oid : identity.oid,
-    ownerUpn: privilegedEdit ? existing.owner_upn : identity.upn,
+    ownerOid: privilegedEdit || existing?.action === 'pay_month_correction' ? existing.owner_oid : identity.oid,
+    ownerUpn: privilegedEdit || existing?.action === 'pay_month_correction' ? existing.owner_upn : (target?.upn || identity.upn),
     employeeName,
     kind,
     action,
@@ -1486,7 +1543,10 @@ function normaliseUpstreamRecord(row, identity, env) {
   mapped.synthetic = syntheticRecord(mapped, row)
     || /^TEST(?:[\s_-]|$)/i.test(employeeName)
     || /\b(?:flow\s+test|flow\s+validation|historical\s+backfill|archive\s+(?:backfill|real)|test\s+(?:route|external))\b/i.test(title)
-    || (directory.length > 0 && !directoryEntry);
+    // Historical employee aliases can have real daily rows even when the
+    // current roster has no matching mailbox. Keep those rows available for
+    // Accounts to reconcile; exclude unmatched header-only backfills.
+    || (directory.length > 0 && !directoryEntry && !rows.length);
   return mapped;
 }
 
@@ -2314,24 +2374,25 @@ async function listRecords(request, env, identity) {
   const viewAll = canViewAllRecords(identity, kind);
   const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
+  const ownRecords = "(r.owner_oid = ? OR (r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND lower(r.owner_upn) = ?))";
   const sql = identity.isAdmin
     ? (kind ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`)
     : operationsAdminAcrossKinds
-      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR r.owner_oid = ?) ORDER BY r.updated_at DESC LIMIT ?`
+      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
     : viewAll
       ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`
-      : jobCardAdminAcrossKinds
-        ? `${projection} WHERE r.status <> 'Deleted' AND (r.owner_oid = ? OR r.kind = 'job-cards') ORDER BY r.updated_at DESC LIMIT ?`
-        : (kind ? `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.owner_oid = ? AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
+    : jobCardAdminAcrossKinds
+        ? `${projection} WHERE r.status <> 'Deleted' AND (${ownRecords} OR r.kind = 'job-cards') ORDER BY r.updated_at DESC LIMIT ?`
+        : (kind ? `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
   const bindings = identity.isAdmin
     ? (kind ? [kind, limit] : [limit])
     : operationsAdminAcrossKinds
-      ? [identity.oid, limit]
+      ? [identity.oid, identity.upn, limit]
     : viewAll
       ? [kind || 'job-cards', limit]
       : jobCardAdminAcrossKinds
-        ? [identity.oid, limit]
-        : (kind ? [identity.oid, kind, limit] : [identity.oid, limit]);
+        ? [identity.oid, identity.upn, limit]
+        : (kind ? [identity.oid, identity.upn, kind, limit] : [identity.oid, identity.upn, limit]);
   const result = await env.DB.prepare(sql).bind(...bindings).all();
   const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
   const projectedLocalRecords = (result.results || []).map((row) => projectRow(row, true, env));
@@ -2412,6 +2473,7 @@ async function listRecords(request, env, identity) {
       is_admin: identity.isAdmin,
       is_operations_admin: identity.isOperationsAdmin,
       is_job_card_admin: identity.isJobCardAdmin,
+      editable_pay_months: editablePayCycleKeys(),
       visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isOperationsAdmin ? 'all non-timesheet submissions; this account timesheets and clock records' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions')),
       completion
     }
@@ -2454,12 +2516,14 @@ async function handle(request, env) {
 
   if (url.pathname === '/api/records' && request.method === 'POST') {
     const body = await readJson(request);
+    if (body.action === 'pay_month_correction') validatePayMonthCorrection(body);
     const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
     if (existing && !canAccessRecord(identity, existing)) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
-    if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) throw Object.assign(new Error('Only timesheets made within the current pay month may be edited.'), { status: 409 });
-    const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing);
+    if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
+    if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
+    const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
@@ -2494,9 +2558,11 @@ async function handle(request, env) {
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (request.method === 'GET') return json({ record: projectRow(existing, true, env), payload: payloadObject(existing) }, 200, origin || '');
     if (request.method === 'PATCH') {
-      if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) return json({ error: 'Only timesheets made within the current pay month may be edited.' }, 409, origin || '');
+      if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) return json({ error: 'Only the current and previous pay months may be edited.' }, 409, origin || '');
       const body = await readJson(request);
-      const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing);
+      if (existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') return json({ error: 'A pay-month correction cannot change record type' }, 400, origin || '');
+      if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body);
+      const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env);
       const result = await saveRecord(env, input, identity, existing);
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
     }
@@ -2528,6 +2594,8 @@ export default {
 };
 
 export {
+  normaliseInput,
+  validatePayMonthCorrection,
   dispatchEndpoint,
   dispatchForm,
   dispatchQueued,

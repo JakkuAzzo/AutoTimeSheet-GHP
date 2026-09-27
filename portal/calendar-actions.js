@@ -18,6 +18,7 @@
   var taskLink = null;
   var timeOffLink = null;
   var activeRecord = null;
+  var requestDialog = null;
 
   function validDay(value) {
     var day = String(value || "");
@@ -73,7 +74,7 @@
     var label = recordKindLabel(kind);
     if (!recordId) return "";
     if (label === "timesheet") return href("/timesheets/create.html", { edit: recordId, day: day }, "#day-" + day);
-    if (label === "calendar request") return href("/calendar/", { edit: recordId, date: day }, "#calendar-form");
+    if (label === "calendar request") return href("/portal/submissions", { record: recordId, day: day, tab: "calendar" });
     if (label === "task") return href("/tasks/", { edit: recordId, date: day }, "#task-form");
     if (label === "job card") return href("/jobs/", { record: recordId });
     if (label === "estimate") return href("/tools/estimates.html", { record: recordId });
@@ -134,7 +135,110 @@
       }
     });
     dialog.addEventListener("cancel", function () { dialog.close(); });
+    if (editEntryLink) editEntryLink.addEventListener("click", function (event) {
+      if (!activeRecord || recordKindLabel(activeRecord.recordKind) !== "calendar request") return;
+      event.preventDefault();
+      openCalendarRequest(activeRecord.day, activeRecord.recordId);
+    });
+    if (timeOffLink) timeOffLink.addEventListener("click", function (event) {
+      event.preventDefault();
+      openCalendarRequest(activeRecord && activeRecord.day || "");
+    });
     return dialog;
+  }
+
+  function ensureRequestDialog() {
+    if (requestDialog) return requestDialog;
+    requestDialog = document.createElement("dialog");
+    requestDialog.className = "calendar-day-actions-dialog calendar-request-dialog";
+    requestDialog.setAttribute("aria-labelledby", "calendar-request-title");
+    requestDialog.innerHTML = '<form class="calendar-request-form"><div class="calendar-day-actions-header"><div><p class="portal-card-kicker">Calendar request</p><h2 id="calendar-request-title">Request time off</h2></div><button type="button" class="secondary" data-calendar-request-close>Close</button></div><label>Title<input name="title" required maxlength="160" value="Time off request"></label><label>Date<input name="date" type="date" required></label><label>Type<select name="type"><option>Holiday</option><option>Sick Day</option><option>General</option><option>Training</option></select></label><label>Notes<textarea name="notes" rows="4"></textarea></label><div class="pay-month-edit-actions"><button type="submit">Submit request</button><span class="small-text" data-calendar-request-status role="status"></span></div></form>';
+    document.body.appendChild(requestDialog);
+    requestDialog.querySelector("[data-calendar-request-close]").addEventListener("click", function () { requestDialog.close(); });
+    requestDialog.querySelector("form").addEventListener("submit", async function (event) {
+      event.preventDefault();
+      var form = event.currentTarget;
+      var status = form.querySelector("[data-calendar-request-status]");
+      var button = form.querySelector('button[type="submit"]');
+      var values = new FormData(form);
+      var date = String(values.get("date") || "");
+      var title = String(values.get("title") || "").trim();
+      if (!validDay(date) || !title) { status.textContent = "Enter a title and valid date."; return; }
+      if (!window.GMTPortalApi || typeof window.GMTPortalApi.saveRecord !== "function") { status.textContent = "Protected requests are unavailable in this session."; return; }
+      var recordId = String(form.dataset.editRecordId || "") || "calendar-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      var payload = { title: title, date: date, type: String(values.get("type") || "Holiday"), notes: String(values.get("notes") || ""), owner: "" };
+      button.disabled = true;
+      status.textContent = "Saving request…";
+      try {
+        await window.GMTPortalApi.saveRecord({ recordId: recordId, kind: "calendar", action: form.dataset.editRecordId ? "update_request" : "create_request", status: "Pending approval", recordDate: date, submittedAt: new Date().toISOString(), payload: payload });
+        var queued = queueCalendarRequestEmail(recordId, payload, Boolean(form.dataset.editRecordId));
+        status.textContent = queued ? "Request saved; Accounts email queued." : "Request saved for Accounts review.";
+        document.dispatchEvent(new CustomEvent("gmt:history-record-updated", { detail: { recordId: recordId } }));
+        window.setTimeout(function () { if (requestDialog && requestDialog.open) requestDialog.close(); }, 1800);
+      } catch (error) {
+        status.textContent = error && error.message ? error.message : "The request could not be saved.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return requestDialog;
+  }
+
+  function queueCalendarRequestEmail(recordId, payload, updated) {
+    var config = window.GMT_APP_CONFIG || {};
+    var endpoint = config.calendarFormSubmitEndpoint || config.fallbackFormSubmitEndpoint || config.formSubmitEndpoint;
+    if (!endpoint) return false;
+    var frame = document.createElement("iframe");
+    frame.name = "gmt-calendar-request-" + Date.now();
+    frame.hidden = true;
+    var form = document.createElement("form");
+    form.method = "POST";
+    form.action = endpoint;
+    form.target = frame.name;
+    form.hidden = true;
+    function add(name, value) {
+      var input = document.createElement("input");
+      input.name = name;
+      input.value = String(value || "");
+      form.appendChild(input);
+    }
+    add("_subject", updated ? "GMT calendar request update" : "GMT calendar request");
+    add("_captcha", "false");
+    if (config.formSubmitCc) add("_cc", config.formSubmitCc);
+    add("gmt_record_id", recordId);
+    add("event_title", payload.title);
+    add("event_date", payload.date);
+    add("event_type", payload.type);
+    add("notes", payload.notes);
+    document.body.appendChild(frame);
+    document.body.appendChild(form);
+    form.submit();
+    window.setTimeout(function () { form.remove(); frame.remove(); }, 4000);
+    return true;
+  }
+
+  async function openCalendarRequest(day, recordId) {
+    var target = ensureRequestDialog();
+    var form = target.querySelector("form");
+    form.reset();
+    form.dataset.editRecordId = recordId || "";
+    form.elements.date.value = validDay(day) ? day : "";
+    form.querySelector("[data-calendar-request-status]").textContent = "";
+    if (recordId && window.GMTPortalApi && typeof window.GMTPortalApi.getRecord === "function") {
+      try {
+        var result = await window.GMTPortalApi.getRecord(recordId);
+        var payload = result && (result.payload || result.record && result.record.payload) || {};
+        form.elements.title.value = payload.title || "Calendar request";
+        form.elements.date.value = validDay(payload.date) ? payload.date : form.elements.date.value;
+        form.elements.type.value = payload.type || "General";
+        form.elements.notes.value = payload.notes || "";
+      } catch (_) {
+        form.querySelector("[data-calendar-request-status]").textContent = "Existing details could not be loaded. Review before saving.";
+      }
+    }
+    if (dialog && dialog.open) dialog.close();
+    if (typeof target.showModal === "function") target.showModal();
+    else target.setAttribute("open", "");
   }
 
   function open(day, options) {
@@ -184,7 +288,7 @@
     }
     eventsLink.href = href("/portal/submissions", { day: day });
     taskLink.href = href("/tasks/", { date: day });
-    timeOffLink.href = href("/calendar/", { request: "time-off", date: day }, "#calendar-form");
+    timeOffLink.href = href("/portal/submissions", { request: "time-off", date: day });
     timesheetLink.classList.remove("is-disabled");
     timesheetLink.removeAttribute("aria-disabled");
     timesheetLink.removeAttribute("tabindex");
@@ -216,6 +320,11 @@
       canEdit: trigger.getAttribute("data-calendar-can-edit") === "true",
       canDelete: trigger.getAttribute("data-calendar-can-delete") === "true"
     });
+  });
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var params = new URLSearchParams(window.location.search || "");
+    if (params.get("request") === "time-off") openCalendarRequest(params.get("date") || "");
   });
 
   window.GMTCalendarActions = { open: open, currentPayMonth: currentPayMonth, payMonthKeyForDate: payMonthKeyForDate };

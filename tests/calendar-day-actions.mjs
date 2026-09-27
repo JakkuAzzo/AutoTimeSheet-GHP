@@ -35,6 +35,7 @@ try {
   browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
+  await page.evaluate(() => { window.GMTPortalApi = { saveRecord: async (record) => { window.__requestSaved = record; } }; });
   const day = await page.evaluate(() => `${window.GMTCalendarActions.currentPayMonth()}-15`);
   await page.evaluate((value) => {
     const trigger = document.createElement('button');
@@ -51,15 +52,25 @@ try {
     href: element.href,
     ariaDisabled: element.getAttribute('aria-disabled')
   })));
-  const byPath = (path) => links.find((link) => new URL(link.href).pathname === path);
+  const byPath = (path) => links.find((link) => link.href && new URL(link.href).pathname === path);
   assert.equal(new URL(byPath('/timesheets/create.html').href).search, `?day=${day}`);
   assert.equal(new URL(byPath('/timesheets/create.html').href).hash, `#day-${day}`);
-  assert.equal(new URL(byPath('/portal/submissions.html').href).search, `?day=${day}`);
+  assert.equal(new URL(byPath('/portal/submissions').href).search, `?day=${day}`);
   assert.equal(new URL(byPath('/tasks/').href).search, `?date=${day}`);
-  const timeOff = new URL(byPath('/calendar/').href);
+  const timeOff = new URL(await page.locator('[data-calendar-action-time-off]').getAttribute('href'), page.url());
   assert.equal(timeOff.search, `?request=time-off&date=${day}`);
-  assert.equal(timeOff.hash, '#calendar-form');
-  assert.equal(byPath('/timesheets/create.html').ariaDisabled, 'false');
+  assert.equal(timeOff.pathname, '/portal/submissions');
+  assert.equal(byPath('/timesheets/create.html').ariaDisabled, null);
+  await page.locator('[data-calendar-action-time-off]').click();
+  await page.locator('dialog.calendar-request-dialog').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('dialog.calendar-request-dialog [name=date]').inputValue(), day);
+  await page.locator('dialog.calendar-request-dialog [name=notes]').fill('Test request');
+  await page.locator('dialog.calendar-request-dialog button[type=submit]').click();
+  await page.waitForFunction(() => Boolean(window.__requestSaved));
+  const saved = await page.evaluate(() => window.__requestSaved);
+  assert.equal(saved.kind, 'calendar');
+  assert.equal(saved.recordDate, day);
+  assert.equal(saved.payload.notes, 'Test request');
   console.log(JSON.stringify({ day, links: links.map(({ href, ariaDisabled }) => ({ href, ariaDisabled })) }, null, 2));
 } finally {
   await browser?.close();

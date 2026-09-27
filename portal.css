@@ -204,6 +204,9 @@
 .calendar-day-action-danger:disabled { cursor: wait; opacity: .7; }
 .calendar-day-actions-status { margin: .7rem 0 0; color: var(--muted); font-size: .8rem; line-height: 1.35; }
 .calendar-day-actions-dialog::backdrop { background: rgba(18, 61, 29, .38); }
+.calendar-request-form { display: grid; gap: .75rem; }
+.calendar-request-form label { display: grid; gap: .3rem; font-weight: 700; }
+.calendar-request-form :is(input, select, textarea) { width: 100%; min-width: 0; box-sizing: border-box; }
 .calendar-day-actions-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .calendar-day-actions-header h2 { margin: .15rem 0 .25rem; color: var(--green); font-size: 1.35rem; }
 .calendar-day-actions-header p { margin: 0; }

@@ -1,4 +1,4 @@
-const GMT_SITE_BASE_PATH = /(^|\.)gmt-services\.co\.uk$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname)
+const GMT_SITE_BASE_PATH = /(^|\.)gmt-services\.co\.uk$/i.test(window.location.hostname) || /(^|\.)gmt-timesheets\.pages\.dev$/i.test(window.location.hostname)
   ? ""
   : "/AutoTimeSheet-GHP";
 

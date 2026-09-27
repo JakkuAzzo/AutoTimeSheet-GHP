@@ -38,6 +38,15 @@ const mismatchedRosterUpn = normaliseUpstreamRecord({
 }, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, env);
 assert.equal(mismatchedRosterUpn.synthetic, true);
 
+const historicalEmployee = normaliseUpstreamRecord({
+  Id: 47,
+  Title: '[GMT][TIMESHEET][SUBMISSION] Lidia Alemayoh | Week 2026-09-14',
+  EmployeeName: 'Lidia Alemayoh',
+  Modified: '2026-09-21T13:00:00Z',
+  payload: { rows: [{ date: '2026-09-14', start: '10:00', finish: '17:00', lunchMinutes: 30 }] }
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, env);
+assert.equal(historicalEmployee.synthetic, false, 'historical employee daily rows remain visible without a current roster match');
+
 const excludedAdminTest = normaliseUpstreamRecord({
   Id: 45,
   Title: '[GMT][TIMESHEET][SUBMISSION] Amanda | Week 2026-09-07',

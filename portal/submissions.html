@@ -8,7 +8,7 @@
 <title>Submitted documents | GMT Staff Portal</title>
 <link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
 <link rel="stylesheet" href="../portal.css?v=pay-month-workspace-20260921a">
-<link rel="stylesheet" href="../tools/estimates.css?v=pay-month-workspace-20260921a">
+<link rel="stylesheet" href="../tools/estimates.css?v=pay-month-workspace-20260927b">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="auth.js?v=entra-auth-20260914-signout-dashboard"></script>
@@ -21,7 +21,7 @@
 <main class="app-main estimate-main" hidden>
   <section class="estimate-intro card submissions-intro"><div><p class="portal-card-kicker">Identity-filtered workspace</p><h2>Shared work history</h2><p>Use the calendar to open a day, then choose a pay month or record type below. Access and edit actions follow your signed-in GMT permissions.</p></div><span class="estimate-status-chip">Protected history</span></section>
   <section class="card submissions-calendar-panel" aria-labelledby="submissions-calendar-title">
-    <div class="portal-calendar-preview-heading"><div><span class="portal-card-kicker">Shared information</span><h2 id="submissions-calendar-title">Shared calendar</h2></div><a class="portal-text-link" href="../calendar/">Open calendar tools <span aria-hidden="true">→</span></a></div>
+    <div class="portal-calendar-preview-heading"><div><span class="portal-card-kicker">Shared information</span><h2 id="submissions-calendar-title">Shared calendar</h2></div></div>
     <p id="submissions-calendar-status" class="small-text" role="status">Loading shared calendar…</p>
     <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-submissions-calendar-prev aria-label="Previous month">&lt;</button><button type="button" class="portal-calendar-month-picker" data-submissions-calendar-picker aria-haspopup="dialog" aria-controls="submissions-calendar-month-input"><span data-submissions-calendar-title></span></button><input id="submissions-calendar-month-input" class="sr-only" data-submissions-calendar-input type="month" tabindex="-1" aria-label="Choose calendar month"><button type="button" class="icon-button" data-submissions-calendar-next aria-label="Next month">&gt;</button></div>
     <div class="portal-calendar-month" data-submissions-calendar aria-label="Shared calendar"></div>
@@ -57,9 +57,9 @@
 <script defer src="../pay-periods.js?v=gmt-pay-periods-20260921c"></script>
 <script defer src="../lazy-xlsx.js?v=excel-generator-20260922a"></script>
 <script defer src="pay-month-workbook.js?v=pay-month-workbook-20260927a"></script>
-<script defer src="submissions.js?v=pay-month-workspace-editable-20260927a"></script>
+<script defer src="submissions.js?v=pay-month-workspace-editable-20260927b"></script>
 <script defer src="calendar-data.js?v=calendar-feed-merge-daily-reconcile-20260926c"></script>
-<script defer src="calendar-actions.js?v=gmt-calendar-actions-day-delete-20260921e"></script>
+<script defer src="calendar-actions.js?v=gmt-calendar-actions-request-20260927a"></script>
 <script defer src="submissions-calendar.js?v=gmt-calendar-event-merge-20260922a"></script>
 </body>
 </html>

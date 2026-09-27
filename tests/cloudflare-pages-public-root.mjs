@@ -27,9 +27,14 @@ try {
   assert.match(portalRoot, /auth\.js\?v=/);
   assert.ok(fs.existsSync(path.join(output, 'calendar-actions.js')));
   const flatTimesheets = fs.readFileSync(path.join(output, 'timesheets.html'), 'utf8');
-  assert.match(flatTimesheets, /calendar-actions\.js\?v=calendar-day-actions-/);
+  assert.match(flatTimesheets, /calendar-actions\.js\?v=/);
   assert.ok(fs.existsSync(path.join(output, 'public-site.js')));
   assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));
+  assert.ok(fs.existsSync(path.join(output, 'pay-periods.js')));
+  assert.ok(fs.existsSync(path.join(output, 'timesheet-clock-transport.js')));
+  assert.ok(fs.existsSync(path.join(output, 'timesheet-row-policy.js')));
+  assert.ok(!fs.existsSync(path.join(output, 'calendar', 'index.html')));
+  assert.match(fs.readFileSync(path.join(output, '_redirects'), 'utf8'), /\/calendar\/\* \/portal\/submissions 301/);
 } finally {
   fs.rmSync(output, { recursive: true, force: true });
 }

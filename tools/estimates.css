@@ -110,7 +110,7 @@
   overscroll-behavior-inline: contain;
   -webkit-overflow-scrolling: touch;
 }
-.pay-month-edit-table { min-width: 44rem; }
+.pay-month-edit-table { min-width: 54rem; }
 .pay-month-edit-actions { align-items: flex-start; }
 .pay-month-download { white-space: normal; }
 .pay-month-download-status { min-width: 0; overflow-wrap: anywhere; }
@@ -124,7 +124,7 @@
   .pay-month-layout { gap: .75rem; }
   .pay-month-list { max-height: 360px; overflow-y: auto; padding-right: .1rem; }
   .pay-month-preview { padding: .9rem; }
-  .pay-month-edit-table { display: table; min-width: 44rem; }
+  .pay-month-edit-table { display: table; min-width: 54rem; }
   .pay-month-edit-table thead { display: table-header-group; }
   .pay-month-edit-table tbody { display: table-row-group; }
   .pay-month-edit-table tr { display: table-row; padding: 0; border: 0; border-radius: 0; background: transparent; }
@@ -342,7 +342,7 @@
 .pay-month-sheet-preview .timesheet-paper-header { align-items: flex-start; }
 .pay-month-sheet-preview .portal-status { flex: 0 0 auto; height: fit-content; }
 .pay-month-table-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
-.pay-month-edit-table { min-width: 44rem; }
+.pay-month-edit-table { min-width: 54rem; }
 .pay-month-edit-actions { align-items: flex-start; }
 .pay-month-download { white-space: normal; }
 .pay-month-download-status { min-width: 0; overflow-wrap: anywhere; }
@@ -356,7 +356,7 @@
   .pay-month-layout { gap: .75rem; }
   .pay-month-list { max-height: 360px; overflow-y: auto; padding-right: .1rem; }
   .pay-month-preview { padding: .9rem; }
-  .pay-month-edit-table { display: table; min-width: 44rem; }
+  .pay-month-edit-table { display: table; min-width: 54rem; }
   .pay-month-edit-table thead { display: table-header-group; }
   .pay-month-edit-table tbody { display: table-row-group; }
   .pay-month-edit-table tr { display: table-row; padding: 0; border: 0; border-radius: 0; background: transparent; }
@@ -365,3 +365,6 @@
   .pay-month-edit-actions { display: grid; grid-template-columns: 1fr; gap: .55rem; }
   .pay-month-edit-actions .small-text { min-width: 0; }
 }
+
+.pay-month-edit-table tr.is-removed { opacity: .55; text-decoration: line-through; }
+.pay-month-remove-day { white-space: nowrap; padding: .42rem .55rem; font-size: .83rem; }

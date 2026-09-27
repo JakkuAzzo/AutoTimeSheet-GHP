@@ -28,13 +28,14 @@ function copyText(relativePath, destination, transform) {
 // Keep the original portal routes available for existing bookmarks and also
 // publish a flat Pages root so the Cloudflare project works at its root URL.
 copy('portal');
-for (const directory of ['timesheets', 'jobs', 'tasks', 'calendar', 'tools', 'training', 'audit']) copy(directory);
+for (const directory of ['timesheets', 'jobs', 'tasks', 'tools', 'training', 'audit']) copy(directory);
 fs.rmSync(path.join(output, 'tools', 'build-cloudflare-pages.mjs'), { force: true });
 
 for (const file of [
   'styles.css', 'portal.css', 'analytics.js', 'add-logo.js', 'favicon.svg',
   'image.png', 'image.webp', 'lazy-xlsx.js', 'portal-api.js', 'portal.js',
-  'script.js', 'timesheet-clock.js', 'timesheet-input-fix.js',
+  'script.js', 'pay-periods.js', 'timesheets.js', 'timesheet-clock.js',
+  'timesheet-clock-transport.js', 'timesheet-row-policy.js', 'timesheet-input-fix.js',
   'timesheet-mobile-fixes.js', 'timesheet-preflight.js', 'timesheet-status-labels.js',
   // The custom domain serves the public company site at /. Keep its scripts
   // and media in the same Pages bundle as the protected portal.
@@ -42,6 +43,7 @@ for (const file of [
 ]) copy(file);
 copy('portal/profile.js', 'profile.js');
 copy('assets');
+copy('data/calendar/events.json');
 
 const rootTransform = (contents) => contents
   .replaceAll('../portal/auth.js', './auth.js')
@@ -57,7 +59,7 @@ const rootTransform = (contents) => contents
   .replaceAll('../jobs/', './jobs/')
   .replaceAll('../tools/', './tools/')
   .replaceAll('../tasks/', './tasks/')
-  .replaceAll('../calendar/', './calendar/')
+  .replaceAll('../calendar/', './portal/submissions')
   .replaceAll('../training/', './training/')
   .replaceAll('../', './');
 
@@ -73,7 +75,6 @@ copyText('portal/history-frame.html', 'history-frame.html', rootTransform);
 
 // These scripts are loaded by the flat history page and need the same root
 // relative paths as the bundled HTML.
-copy('portal/timesheets.js', 'timesheets.js');
 copy('portal/history-frame.js', 'history-frame.js');
 copy('portal/calendar-preview.js', 'calendar-preview.js');
 copy('portal/calendar-data.js', 'calendar-data.js');
@@ -84,7 +85,7 @@ copy('portal/auth.js', 'auth.js');
 // kept in /auth.js while their other ../ references already resolve correctly.
 for (const file of [
   'timesheets/index.html', 'timesheets/create.html', 'jobs/index.html',
-  'tasks/index.html', 'calendar/index.html', 'tools/index.html',
+  'tasks/index.html', 'tools/index.html',
   'tools/estimates.html', 'tools/invoices.html', 'training/index.html'
 ]) {
   const target = path.join(output, file);
@@ -97,16 +98,14 @@ for (const file of [
 // protected Worker origin. The worker URL is injected only at deployment
 // time; local builds remain API-disabled by default.
 copyText('config.js', 'config.js', (contents) => {
-  let result = contents
-    .replace(/\/\(\^\|\\\.\)gmt-services\\\.co\\\.uk\$\/i\.test\(window\.location\.hostname\)/,
-      '/(^|\\.)gmt-services\\.co\\.uk$/i.test(window.location.hostname) || /(^|\\.)gmt-timesheets\\.pages\\.dev$/i.test(window.location.hostname)')
-    .replace(/redirectPath:\s*\/\(\^\|\\\.\)gmt-services\\\.co\\\.uk\$\/i\.test\(window\.location\.hostname\)\s*\?\s*"\/portal\/"\s*:\s*"\/AutoTimeSheet-GHP\/portal\/"/, 'redirectPath: GMT_SITE_BASE_PATH + "/portal/"');
+  let result = contents;
   if (workerUrl) {
     result = result.replace(/portalApiEndpoint:\s*"[^"]*"/, `portalApiEndpoint: ${JSON.stringify(workerUrl)}`);
-    result = result.replace(/portalHistoryEndpoint:\s*"[^"]*"/, `portalHistoryEndpoint: ${JSON.stringify(workerUrl + '/api/history')}`);
+    result = result.replace(/portalHistoryEndpoint:\s*"[^"]*"/, `portalHistoryEndpoint: ${JSON.stringify(workerUrl)}`);
   }
   return result;
 });
 
 fs.writeFileSync(path.join(output, '_headers'), `/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: same-origin\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n\n/portal/*\n  Cache-Control: no-store\n\n/timesheets/*\n  Cache-Control: no-store\n\n/tools/*\n  Cache-Control: no-store\n\n/jobs/*\n  Cache-Control: no-store\n\n/tasks/*\n  Cache-Control: no-store\n\n/calendar/*\n  Cache-Control: no-store\n*/\n`);
+fs.writeFileSync(path.join(output, '_redirects'), '/calendar /portal/submissions 301\n/calendar/* /portal/submissions 301\n');
 console.log(JSON.stringify({ output, workerUrl: workerUrl || null, files: fs.readdirSync(output).length }));
