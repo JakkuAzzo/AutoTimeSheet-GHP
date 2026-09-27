@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { completionSummary, completionWeeks, listRecords, normaliseUpstreamRecord } from '../cloudflare-worker/src/index.js';
+import { completionSummary, completionWeeks, listRecords, normaliseUpstreamRecord, projectRow, staffDirectory } from '../cloudflare-worker/src/index.js';
 
 const env = {
   STAFF_DIRECTORY_JSON: JSON.stringify([
@@ -7,6 +7,9 @@ const env = {
     { name: 'Matthew', upn: 'matthew@gmt-services.co.uk' },
     { name: 'Ainsley', upn: 'ainsley@gmt-services.co.uk' },
     { name: 'Michelle', upn: 'michelle@gmt-services.co.uk' }
+  ]),
+  HISTORICAL_EMPLOYEE_ALIASES_JSON: JSON.stringify([
+    { name: 'Lidia Alemayoh', upn: 'lidiaa.admin@gmt-services.co.uk' }
   ])
 };
 const now = new Date('2026-09-14T12:00:00Z');
@@ -46,6 +49,22 @@ const historicalEmployee = normaliseUpstreamRecord({
   payload: { rows: [{ date: '2026-09-14', start: '10:00', finish: '17:00', lunchMinutes: 30 }] }
 }, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, env);
 assert.equal(historicalEmployee.synthetic, false, 'historical employee daily rows remain visible without a current roster match');
+assert.equal(historicalEmployee.employee_upn, 'lidiaa.admin@gmt-services.co.uk', 'name-only Microsoft 365 history resolves to the verified historical mailbox');
+
+const historicalPortalRecord = projectRow({
+  record_id: 'lidia-portal-month', kind: 'timesheets', action: 'submission', status: 'Pending delivery',
+  employee_name: 'Lidia Alemayoh', owner_upn: 'lidiaa.admin@gmt-services.co.uk',
+  payload_json: JSON.stringify({ rows: [{ date: '2026-09-14', start: '10:00', finish: '17:00', lunchMinutes: 30 }] })
+}, true, env);
+assert.equal(historicalPortalRecord.synthetic, false, 'the verified historical portal sheet remains visible beside Microsoft 365 history');
+assert.equal(historicalPortalRecord.employee_upn, historicalEmployee.employee_upn);
+assert.equal(staffDirectory(env).some((employee) => employee.name === 'Lidia Alemayoh'), false, 'historical aliases do not add missing-day roster obligations');
+
+const mismatchedHistoricalAddress = normaliseUpstreamRecord({
+  EmployeeName: 'Lidia Alemayoh', EmployeeEmail: 'someone-else@gmt-services.co.uk',
+  payload: { rows: [{ date: '2026-09-14', start: '10:00', finish: '17:00', lunchMinutes: 30 }] }
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, env);
+assert.equal(mismatchedHistoricalAddress.employee_upn, 'someone-else@gmt-services.co.uk', 'an explicit different mailbox is not silently reassigned');
 
 const excludedAdminTest = normaliseUpstreamRecord({
   Id: 45,

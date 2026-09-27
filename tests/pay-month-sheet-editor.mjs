@@ -30,7 +30,7 @@ try {
           { kind: 'timesheets', source_record_id: 'matthew-upstream', source: 'microsoft-365', employee_name: 'Matthew', employee_upn: 'matthew@gmt-services.co.uk', can_edit: false, start_date: '2026-09-07', updated_at: '2026-09-20T12:00:00Z', payload: { rows: [{ date: '2026-08-31', start: '08:00', finish: '17:00', lunchMinutes: 60 }, { date: '2026-09-01', start: '08:00', finish: '17:45', lunchMinutes: 0 }] } },
           { kind: 'timesheets', source_record_id: 'ainsley-local', source: 'portal-d1', employee_name: 'Ainsley', employee_upn: 'ainsley@gmt-services.co.uk', can_edit: true, start_date: '2026-08-24', updated_at: '2026-09-21T11:00:00Z', payload: { rows: [{ date: '2026-08-24', start: '08:00', finish: '17:00', lunchMinutes: 60 }] } },
           { kind: 'timesheets', source_record_id: 'lidia-upstream', source: 'microsoft-365', employee_name: 'Lidia Alemayoh', employee_upn: '', can_edit: false, updated_at: '2026-09-21T13:00:00Z', payload: { rows: [{ date: '2026-09-14', start: '08:00', finish: '18:00', lunchMinutes: 0 }] } },
-          { kind: 'timesheets', source_record_id: 'lidia-local', source: 'portal-d1', employee_name: 'Lidia Alemayoh', employee_upn: 'lidia.admin@gmt-services.co.uk', can_edit: true, updated_at: '2026-09-21T12:00:00Z', payload: { rows: [{ date: '2026-09-15', start: '08:00', finish: '17:45', lunchMinutes: 30 }] } },
+          { kind: 'timesheets', source_record_id: 'lidia-local', source: 'portal-d1', employee_name: 'Lidia Alemayoh', employee_upn: 'lidiaa.admin@gmt-services.co.uk', can_edit: true, updated_at: '2026-09-21T12:00:00Z', payload: { rows: [{ date: '2026-09-15', start: '08:00', finish: '17:45', lunchMinutes: 30 }] } },
           { kind: 'timesheets', source_record_id: 'empty-demo-1', source: 'microsoft-365', employee_name: 'Canonical employee month workbook replay 2026-09-17-02', can_edit: false, updated_at: '2026-09-17T01:28:17Z', payload: {} },
           { kind: 'timesheets', source_record_id: 'empty-demo-2', source: 'microsoft-365', employee_name: 'ARCHIVE REAL', can_edit: false, updated_at: '2026-09-16T23:37:51Z', payload: {} }
         ]
@@ -43,6 +43,7 @@ try {
   await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
   await page.waitForFunction(() => document.querySelectorAll('[data-sheet-index]').length >= 3);
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Lidia Alemayoh' }).count(), 1, 'the name-only source and unique signed-in mailbox share one pay-month sheet');
+  assert.match(await page.locator('[data-sheet-index]').filter({ hasText: 'Lidia Alemayoh' }).innerText(), /lidiaa\.admin@gmt-services\.co\.uk/, 'the merged sheet has the employee address needed to save corrections');
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Canonical employee month workbook replay' }).count(), 0);
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'ARCHIVE REAL' }).count(), 0);
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Faith' }).count(), 1, 'Accounts can start an empty roster employee sheet');

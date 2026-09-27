@@ -824,11 +824,11 @@ function projectRow(row, includeDetails = true, env = null) {
     };
   }
   const directory = env ? staffDirectory(env) : [];
-  const directoryEntry = directory.length ? directoryEntryFor(directory, row.employee_name, row.owner_upn) : null;
-  // The approved employee roster is authoritative for timesheet visibility.
-  // Keep unmatched administrative or legacy timesheet rows available only
-  // when Accounts explicitly requests synthetic/audit records; other
-  // document categories are unaffected by the employee roster.
+  const directoryEntry = directoryEntryFor(directory, row.employee_name, row.owner_upn)
+    || directoryEntryFor(historicalEmployeeAliases(env), row.employee_name, row.owner_upn);
+  // Current roster members and verified historical aliases can appear in
+  // timesheet history. Keep other administrative/legacy rows in the explicit
+  // synthetic audit view; other document categories are unaffected.
   if (directory.length && ['timesheets', 'clock'].includes(row.kind) && !directoryEntry) result.synthetic = true;
   const scheduleWeekdays = Array.isArray(payload.scheduleWeekdays)
     ? payload.scheduleWeekdays.map((day) => Number(day)).filter((day) => day >= 1 && day <= 7)
@@ -912,6 +912,12 @@ function staffDirectory(env) {
   } catch (_) {
     return [];
   }
+}
+
+// Historical identities have verified mailboxes but are not part of the
+// current attendance roster or its missing-day completion report.
+function historicalEmployeeAliases(env) {
+  return staffDirectory({ STAFF_DIRECTORY_JSON: env?.HISTORICAL_EMPLOYEE_ALIASES_JSON });
 }
 
 function upstreamValue(row, keys) {
@@ -1447,7 +1453,8 @@ function normaliseUpstreamRecord(row, identity, env) {
   const explicitEmail = upstreamValue(row, ['employee_upn', 'employeeUpn', 'employeeEmail', 'employee_email', 'EmployeeEmail', 'Employee Email', 'Employee_x0020_Email', 'email', 'Email', 'gmt_employee_upn']);
   const initialName = text(explicitName || titleDetails.name, '', 240);
   const initialEmail = text(explicitEmail, '', 320).toLowerCase();
-  const directoryEntry = directoryEntryFor(directory, initialName, initialEmail);
+  const directoryEntry = directoryEntryFor(directory, initialName, initialEmail)
+    || directoryEntryFor(historicalEmployeeAliases(env), initialName, initialEmail);
   const employeeName = text(directoryEntry?.name || initialName || (identity.isAdmin ? '' : identity.name || identity.upn), '', 240);
   const employeeUpn = text(directoryEntry?.upn || initialEmail || (identity.isAdmin ? '' : identity.upn), '', 320).toLowerCase();
   if (!employeeName && !employeeUpn) return null;
