@@ -5,6 +5,11 @@ exposes projection-only history. Microsoft Entra access tokens are verified
 against the GMT tenant signing keys before any record is read or written.
 Corrections can be queued with their generated XLSX/CSV attachments and sent
 through the existing FormSubmit intake during the configured weekly window.
+Accounts can also replay due queued corrections from Submitted Documents without
+waiting for that window. The protected `POST /api/admin/dispatch-queue` endpoint
+accepts `{ "dryRun": true }` for a no-send preview; only verified Accounts
+administrators can invoke it. A successful outbound response is not proof that
+Power Automate updated the target SharePoint workbook.
 Customer enquiries can also be stored as protected records with their customer
 details, Outlook conversation ID/link, and an append-only message projection.
 
@@ -111,7 +116,7 @@ Worker remains the source of truth.
 The protected API exposes `GET /api/profile`, `PUT /api/profile`,
 `GET /api/history`, `POST /api/records`,
 `GET/PATCH/DELETE /api/records/:id`, `POST /api/records/:id/attachments`, and
-`GET /api/health`. Accounts also have `POST /api/xero/connect`,
+`GET /api/health`. Accounts also have `POST /api/admin/dispatch-queue`, `POST /api/xero/connect`,
 `GET /api/xero/status`, `POST /api/xero/invoices/lookup`, and
 `POST /api/xero/job-cards/:id/sync`; the OAuth callback is
 `GET /api/xero/callback`. Record history is filtered by the verified Entra owner.

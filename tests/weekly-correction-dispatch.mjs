@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { dispatchForm, dispatchQueued, parseQueuedAttachments, shouldDispatchNow } from '../cloudflare-worker/src/index.js';
+import { adminDispatchQueued, dispatchForm, dispatchQueued, parseQueuedAttachments, shouldDispatchNow } from '../cloudflare-worker/src/index.js';
 
 const enabled = { DISPATCH_ENABLED: 'true', DISPATCH_WEEKDAY: 'Friday', DISPATCH_HOUR: '18', DISPATCH_TIMEZONE: 'Europe/London' };
 assert.equal(shouldDispatchNow(new Date('2026-09-11T17:00:00Z'), enabled), true, '18:00 BST is the configured Friday window');
@@ -104,5 +104,17 @@ const dryRun = await dispatchQueued({ ...enabled, FORM_SUBMIT_TIMESHEET_ENDPOINT
 });
 assert.equal(dryRun.dryRun, true);
 assert.deepEqual(dryRun.records, [{ recordId: record.record_id, status: 'dry-run' }]);
+
+const adminDb = mockDb([{ ...record, dispatch_status: 'queued', attempts: 0, next_attempt_at: '2026-09-11T17:00:00.000Z' }], []);
+const adminEnv = { ...enabled, FORM_SUBMIT_TIMESHEET_ENDPOINT: 'https://formsubmit.co/example', DB: adminDb };
+await assert.rejects(
+  () => adminDispatchQueued(adminEnv, { isAdmin: false }, { dryRun: true, now: '2026-09-11T17:00:00.000Z' }),
+  (error) => error.status === 403,
+  'employees must not be able to dispatch another employee correction'
+);
+assert.equal(adminDb.calls.length, 0, 'denied dispatch must not inspect the queue');
+const adminDryRun = await adminDispatchQueued(adminEnv, { isAdmin: true }, { dryRun: true, now: '2026-09-11T17:00:00.000Z' });
+assert.deepEqual(adminDryRun.records, [{ recordId: record.record_id, status: 'dry-run' }]);
+assert.equal(adminDb.calls.some((call) => call.method === 'run'), false, 'preview must not mutate the queue');
 
 console.log('PASS: correction queue validates attachments, preserves record IDs, dispatches the FormSubmit envelope, and supports a no-send dry run.');

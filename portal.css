@@ -592,6 +592,7 @@
 .app-main.timesheet-main { max-width: 1520px; }
 .portal-identity-name { display: inline-flex; align-items: center; max-width: 15rem; padding: .55rem .85rem; color: #fff; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .portal-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; min-width: 0; }
+#submissions-dispatch-tools[hidden] { display: none; }
 .portal-history-toolbar > *, .portal-history-warning, .table-scroll { min-width: 0; }
 .portal-history-toolbar .small-text { margin: 0; }
 .portal-history-toolbar button { flex: 0 0 auto; min-height: 38px; }

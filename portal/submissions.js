@@ -13,6 +13,9 @@
   var employeeFilterWrap = document.getElementById("submissions-employee-filter");
   var employeeFilter = document.getElementById("submissions-employee");
   var refresh = document.getElementById("submissions-refresh");
+  var dispatchTools = document.getElementById("submissions-dispatch-tools");
+  var dispatchButton = document.getElementById("submissions-dispatch");
+  var dispatchStatus = document.getElementById("submissions-dispatch-status");
   var records = [];
   var realRecordCount = 0;
   var historyMeta = {};
@@ -964,6 +967,7 @@
       realRecordCount = realRecords.length;
       records = withExamples(realRecords);
       historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
+      if (dispatchTools) dispatchTools.hidden = historyMeta.is_admin !== true;
       populateEmployees(realRecords);
       var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";
       if (status) status.textContent = realRecordCount
@@ -989,6 +993,7 @@
       realRecordCount = 0;
       records = withExamples([]);
       historyMeta = {};
+      if (dispatchTools) dispatchTools.hidden = true;
       populateEmployees([]);
       if (status) status.textContent = error && error.message ? error.message : "Submitted documents could not be loaded. Please try again or contact Accounts.";
       render();
@@ -1008,6 +1013,20 @@
   if (payMonthFilter) payMonthFilter.addEventListener("change", function () { selected = -1; preferredSheetKey = ""; render(); });
   if (employeeFilter) employeeFilter.addEventListener("change", function () { selected = -1; preferredSheetKey = ""; render(); });
   if (refresh) refresh.addEventListener("click", load);
+  if (dispatchButton) dispatchButton.addEventListener("click", async function () {
+    if (historyMeta.is_admin !== true || !window.GMTPortalApi || typeof window.GMTPortalApi.dispatchCorrections !== "function") return;
+    dispatchButton.disabled = true;
+    if (dispatchStatus) dispatchStatus.textContent = "Sending due corrections to Accounts…";
+    try {
+      var result = await window.GMTPortalApi.dispatchCorrections(false);
+      if (dispatchStatus) dispatchStatus.textContent = (result.sent || 0) + " accepted by the outbound service; " + (result.failed || 0) + " failed; " + (result.skipped || 0) + " skipped. Check Power Automate and the target workbooks before treating these as filed.";
+      await load();
+    } catch (error) {
+      if (dispatchStatus) dispatchStatus.textContent = error && error.message ? error.message : "Correction dispatch could not be completed.";
+    } finally {
+      dispatchButton.disabled = false;
+    }
+  });
   document.addEventListener("gmt:history-record-deleted", function () {
     selected = -1;
     setTimeout(load, 0);

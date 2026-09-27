@@ -2098,6 +2098,15 @@ async function dispatchQueued(env, options = {}) {
   return summary;
 }
 
+async function adminDispatchQueued(env, identity, options = {}) {
+  if (!identity?.isAdmin) throw Object.assign(new Error('Correction replay is restricted to Accounts'), { status: 403 });
+  return dispatchQueued(env, {
+    dryRun: options.dryRun === true,
+    now: options.now,
+    fetchImpl: options.fetchImpl
+  });
+}
+
 function requireXeroAdmin(identity) {
   if (!identity?.isAdmin) throw Object.assign(new Error('Xero access is restricted to the Accounts administrator'), { status: 403 });
 }
@@ -2535,6 +2544,12 @@ async function handle(request, env) {
     return json({ ok: true, profile: await saveProfileSettings(env, identity, body) }, 200, origin || '');
   }
 
+  if (url.pathname === '/api/admin/dispatch-queue' && request.method === 'POST') {
+    if (!identity.isAdmin) throw Object.assign(new Error('Correction replay is restricted to Accounts'), { status: 403 });
+    const body = await readJson(request);
+    return json(await adminDispatchQueued(env, identity, { dryRun: body.dryRun === true }), 200, origin || '');
+  }
+
   if (url.pathname === '/api/history' && request.method === 'GET') {
     return json(await listRecords(request, env, identity), 200, origin || '');
   }
@@ -2624,6 +2639,7 @@ export default {
 };
 
 export {
+  adminDispatchQueued,
   normaliseInput,
   validateNoFutureWork,
   validatePayMonthCorrection,

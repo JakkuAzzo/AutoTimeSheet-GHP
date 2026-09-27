@@ -112,6 +112,10 @@
     });
   }
 
+  function dispatchCorrections(dryRun) {
+    return request('/api/admin/dispatch-queue', { method: 'POST', body: { dryRun: dryRun === true } });
+  }
+
   function xeroConnect() {
     return request("/api/xero/connect", { method: "POST", body: {} });
   }
@@ -148,6 +152,7 @@
     history: history,
     getProfile: getProfile,
     saveProfile: saveProfile,
+    dispatchCorrections: dispatchCorrections,
     xeroConnect: xeroConnect,
     xeroStatus: xeroStatus,
     xeroInvoices: xeroInvoices,
