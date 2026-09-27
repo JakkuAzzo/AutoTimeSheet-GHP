@@ -55,7 +55,7 @@ try {
   const byPath = (path) => links.find((link) => link.href && new URL(link.href).pathname === path);
   assert.equal(new URL(byPath('/timesheets/create.html').href).search, `?day=${day}`);
   assert.equal(new URL(byPath('/timesheets/create.html').href).hash, `#day-${day}`);
-  assert.equal(new URL(byPath('/portal/submissions').href).search, `?day=${day}`);
+  assert.equal(new URL(byPath('/portal/timesheets').href).search, `?day=${day}&month=${day.slice(0, 7)}`);
   assert.equal(new URL(byPath('/tasks/').href).search, `?date=${day}`);
   const timeOff = new URL(await page.locator('[data-calendar-action-time-off]').getAttribute('href'), page.url());
   assert.equal(timeOff.search, `?request=time-off&date=${day}`);

@@ -94,7 +94,7 @@
         '<a class="calendar-day-action" data-calendar-action-timesheet><strong>Create timesheet</strong><small>Open the daily entry for this pay month.</small></a>' +
         '<a class="calendar-day-action" data-calendar-action-edit-entry hidden><strong>Edit entry</strong><small>Open the permitted editor for this protected record.</small></a>' +
         '<button type="button" class="calendar-day-action calendar-day-action-danger" data-calendar-action-delete hidden><strong>Delete entry</strong><small>Remove this entry from active history and the calendar.</small></button>' +
-        '<a class="calendar-day-action" data-calendar-action-events><strong>View this day’s events</strong><small>Review submissions and shared calendar records.</small></a>' +
+        '<a class="calendar-day-action" data-calendar-action-events><strong>View this day’s events</strong><small>Review dated timesheets and calendar requests.</small></a>' +
         '<a class="calendar-day-action" data-calendar-action-task><strong>Create task</strong><small>Start a task with this date as its due date.</small></a>' +
         '<a class="calendar-day-action" data-calendar-action-time-off><strong>Request time off</strong><small>Open a dated absence or leave request.</small></a>' +
       '</div><p class="calendar-day-actions-status" data-calendar-action-status role="status" hidden></p></div><article class="calendar-day-actions-preview" data-calendar-action-preview aria-live="polite"><p class="portal-card-kicker">Entry preview</p><h3>No entry selected</h3><p class="small-text">Tap or click a dated entry to preview its details here.</p></article></div>';
@@ -286,7 +286,7 @@
       deleteEntryStatus.hidden = true;
       deleteEntryStatus.textContent = "";
     }
-    eventsLink.href = href("/portal/submissions", { day: day });
+    eventsLink.href = href("/portal/timesheets", { day: day, month: day.slice(0, 7) });
     taskLink.href = href("/tasks/", { date: day });
     timeOffLink.href = href("/portal/submissions", { request: "time-off", date: day });
     timesheetLink.classList.remove("is-disabled");

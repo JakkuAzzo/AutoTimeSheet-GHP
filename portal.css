@@ -260,7 +260,6 @@
 .calendar-more { display: block; margin-top: .2rem; color: var(--muted); font-size: .65rem; font-weight: 800; }
 .portal-calendar-empty { margin: .65rem 0 0; color: var(--muted); font-size: .9rem; }
 .portal-dashboard-help { grid-column: 1 / -1; margin: 0; }
-.submissions-calendar-panel { margin-bottom: 1rem; }
 .estimate-history-panel { container-type: inline-size; }
 @container (max-width: 1100px) {
   .portal-history-card .timesheet-history-layout,
@@ -858,7 +857,7 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 @media (min-width: 1101px) {
   .app-main.estimate-main { max-width: 1520px; }
   .portal-history-card .timesheet-history-layout { grid-template-columns: minmax(430px, .85fr) minmax(0, 1.65fr); }
-  .portal-calendar-preview, .submissions-calendar-panel { width: 100%; }
+  .portal-calendar-preview { width: 100%; }
   .portal-calendar-grid { gap: .35rem; }
   .portal-calendar-day { min-height: 6rem; }
 }
