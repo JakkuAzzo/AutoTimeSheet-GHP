@@ -55,6 +55,10 @@
   function workedMinutes(row, start, finish, pause) {
     var startMinutes = timeMinutes(start);
     var finishMinutes = timeMinutes(finish);
+    var absence = asText(field(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"])).trim();
+    // A corrected absence with no clocks supersedes any worked total cached
+    // on the earlier version of that day's row.
+    if (startMinutes === null && finishMinutes === null && /^(?:holiday|sick|absent|time off)$/i.test(absence)) return 0;
     var direct = asNumber(field(row, ["workedMinutes", "worked_minutes"]));
     var hours = asNumber(field(row, ["workedHours", "worked_hours", "hours", "totalHours", "Worked hours"]));
     if (startMinutes !== null && finishMinutes !== null) {
