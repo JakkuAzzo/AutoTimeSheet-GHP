@@ -708,13 +708,46 @@
     var xlsx = new File([excel.write(workbook, { bookType: "xlsx", type: "array" })], stem + ".xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     var csvText = prepared.dailyMatrix.map(function (row) { return row.map(function (value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }).join(","); }).join("\r\n");
     var csv = new File([csvText], stem + ".csv", { type: "text/csv" });
+    var changedDates = {};
+    (payload.rows || []).forEach(function (row) { var date = rowDate(row); if (date) changedDates[date] = true; });
+    var recordEnvelope = {
+      schemaVersion: 2,
+      mode: "replace-pay-month",
+      recordId: recordIdValue,
+      submissionId: recordIdValue,
+      employeeName: sheet.employeeName,
+      employeeEmail: sheet.employeeUpn,
+      employeeUpn: sheet.employeeUpn,
+      payMonth: sheet.payMonth,
+      weekStart: period.start,
+      weekEnd: period.end,
+      submittedAt: payload.editedAt || new Date().toISOString(),
+      editedBy: payload.editedBy || "",
+      deletedDays: (payload.deletedDays || []).slice(),
+      rows: prepared.data.dailyEntries.map(function (entry) {
+        var minutes = entry["Total hours"];
+        return {
+          recordId: recordIdValue + "|" + entry.Date,
+          date: entry.Date,
+          startTime: entry.Start,
+          finishTime: entry.Finish,
+          breakMinutes: entry.Break,
+          absenceReason: entry.Absence,
+          totalMinutes: minutes,
+          workedHours: minutes === "" ? "" : Number((minutes / 60).toFixed(4)),
+          note: entry.Notes,
+          changeNote: changedDates[entry.Date] ? "Edited by " + (payload.editedBy || "Accounts") + " at " + (payload.editedAt || "unknown time") : ""
+        };
+      })
+    };
+    var recordFile = new File([JSON.stringify(recordEnvelope)], "GMT Timesheet Record - " + String(sheet.employeeName || "Employee").replace(/[^a-z0-9]+/gi, "-") + " - Pay Month " + sheet.payMonth + ".json", { type: "application/json" });
     async function encode(file, fieldName) {
       var bytes = new Uint8Array(await file.arrayBuffer());
       var binary = "";
       for (var index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
       return { fieldName: fieldName, fileName: file.name, contentType: file.type, sizeBytes: file.size, contentBase64: btoa(binary) };
     }
-    return window.GMTPortalApi.queueAttachments(recordIdValue, await Promise.all([encode(xlsx, "attachment"), encode(csv, "attachment_csv")]));
+    return window.GMTPortalApi.queueAttachments(recordIdValue, await Promise.all([encode(xlsx, "attachment"), encode(csv, "attachment_csv"), encode(recordFile, "attachment_record")]));
   }
   function portalEditorLabel() {
     try {

@@ -85,8 +85,15 @@ try {
   await page.waitForFunction(() => Boolean(window.__queuedCorrection && window.__receipt));
   const queued = await page.evaluate(() => window.__queuedCorrection);
   assert.equal(queued.recordId, correction.recordId);
-  assert.deepEqual(queued.attachments.map((attachment) => attachment.fieldName).sort(), ['attachment', 'attachment_csv']);
+  assert.deepEqual(queued.attachments.map((attachment) => attachment.fieldName).sort(), ['attachment', 'attachment_csv', 'attachment_record']);
   assert.match(Buffer.from(queued.attachments.find((attachment) => attachment.fieldName === 'attachment_csv').contentBase64, 'base64').toString(), /2026-09-02/);
+  const filing = JSON.parse(Buffer.from(queued.attachments.find((attachment) => attachment.fieldName === 'attachment_record').contentBase64, 'base64').toString());
+  assert.equal(filing.mode, 'replace-pay-month');
+  assert.equal(filing.employeeEmail, 'matthew@gmt-services.co.uk');
+  assert.equal(filing.payMonth, '2026-09');
+  assert.deepEqual(filing.rows.map((row) => row.date), ['2026-08-31', '2026-09-02', '2026-09-03']);
+  assert.deepEqual(filing.deletedDays, ['2026-09-01']);
+  assert.equal(filing.rows.find((row) => row.date === '2026-09-02').breakMinutes, 30);
   const receipt = await page.evaluate(() => window.__receipt);
   assert.equal(receipt.gmt_employee_email, 'matthew@gmt-services.co.uk');
   assert.match(receipt._cc, /matthew@gmt-services.co.uk/);

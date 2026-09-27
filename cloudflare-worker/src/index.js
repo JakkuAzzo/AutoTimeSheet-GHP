@@ -1922,6 +1922,9 @@ function queueRecordAttachments(env, record, body) {
     return { queued: false, skipped: true, reason: 'synthetic-test-record' };
   }
   const attachments = parseQueuedAttachments(body);
+  if (record.action === 'pay_month_correction' && !attachments.some((attachment) => attachment.fieldName === 'attachment_record')) {
+    throw Object.assign(new Error('Pay-month corrections require a dated JSON record attachment for workbook filing'), { status: 400 });
+  }
   const timestamp = now();
   const statements = [
     env.DB.prepare('DELETE FROM record_attachments WHERE record_id = ?').bind(record.record_id),
@@ -2007,9 +2010,9 @@ function dispatchForm(record, attachments) {
   set('gmt_calendar_sync', 'requested');
   set('gmt_calendar_name', text(calendarSync.calendarName, 'GMT Operational Calendar', 240));
   set('gmt_calendar_event_count', events.length);
-  // The human-facing dispatch only needs the XLSX/CSV pair. Keep the
-  // machine-readable daily rows and calendar payload in bounded form fields so
-  // the filing flow can parse them without producing two opaque JSON files.
+  // Keep bounded daily rows and calendar payload in form fields for the email
+  // receipt. Pay-month corrections also carry a dated JSON attachment for the
+  // filing flow's existing attachment filter and Excel script input.
   set('gmt_daily_rows', JSON.stringify(Array.isArray(payload.rows) ? payload.rows : []));
   set('gmt_calendar_sync_payload', JSON.stringify(calendarSync));
   const attachmentManifest = attachments.map((attachment) => attachment.field_name || attachment.fieldName).map((fieldName) => ({
@@ -2081,6 +2084,9 @@ async function dispatchQueued(env, options = {}) {
       const attachments = attachmentsResult.results || [];
       if (!attachments.some((attachment) => attachment.field_name === 'attachment') || !attachments.some((attachment) => attachment.field_name === 'attachment_csv')) {
         throw new Error('Queued correction attachments are incomplete');
+      }
+      if (row.action === 'pay_month_correction' && !attachments.some((attachment) => attachment.field_name === 'attachment_record')) {
+        throw new Error('Queued pay-month correction is missing the dated JSON record attachment');
       }
       const response = await (options.fetchImpl || fetch)(endpoint, {
         method: 'POST',

@@ -98,6 +98,19 @@ assert.equal(sent.failed, 0);
 assert.equal(sentForm.get('gmt_record_id'), record.record_id);
 assert.ok(db.calls.some((call) => call.method === 'run' && /status = 'sent'/i.test(call.sql)), 'successful dispatch is marked sent');
 
+const incompletePayMonth = { ...record, action: 'pay_month_correction', record_id: 'gmt-paymonth-2026-09-queue-tester' };
+const incompleteDb = mockDb([{ ...incompletePayMonth, dispatch_status: 'queued', attempts: 0, next_attempt_at: '2026-09-11T17:00:00.000Z' }], attachments.filter((item) => item.fieldName === 'attachment' || item.fieldName === 'attachment_csv').map((item) => ({
+  field_name: item.fieldName, file_name: item.fileName, content_type: item.contentType, content_base64: item.contentBase64, size_bytes: item.sizeBytes
+})));
+let incompleteRequests = 0;
+const incompleteResult = await dispatchQueued({ ...enabled, FORM_SUBMIT_TIMESHEET_ENDPOINT: 'https://formsubmit.co/example', DB: incompleteDb }, {
+  now: '2026-09-11T17:00:00.000Z',
+  fetchImpl: async () => { incompleteRequests += 1; throw new Error('Incomplete correction must not be sent'); }
+});
+assert.equal(incompleteResult.failed, 1);
+assert.equal(incompleteRequests, 0, 'a two-file pay-month correction must not be delivered as if it could update Excel');
+assert.match(incompleteResult.records[0].error, /missing the dated JSON record attachment/);
+
 const dryRun = await dispatchQueued({ ...enabled, FORM_SUBMIT_TIMESHEET_ENDPOINT: 'https://formsubmit.co/example', DB: mockDb([{ ...record, dispatch_status: 'queued', attempts: 0, next_attempt_at: '2026-09-11T17:00:00.000Z' }], []) }, {
   now: '2026-09-11T17:00:00.000Z',
   dryRun: true
