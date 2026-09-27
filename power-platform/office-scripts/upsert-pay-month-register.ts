@@ -192,8 +192,8 @@ function write(workbook: ExcelScript.Workbook, rows: DailyRow[], month: string):
   daily.getRange("B:F").getFormat().setColumnWidth(90);
   daily.getRange("G:G").getFormat().setColumnWidth(330);
   weekly.getRange("A:C").getFormat().setColumnWidth(115);
-  daily.freezePanes.freezeRows(1);
-  weekly.freezePanes.freezeRows(1);
+  daily.getFreezePanes().freezeRows(1);
+  weekly.getFreezePanes().freezeRows(1);
   return total;
 }
 

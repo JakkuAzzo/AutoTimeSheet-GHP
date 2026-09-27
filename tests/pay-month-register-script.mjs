@@ -10,12 +10,14 @@ vm.runInNewContext(code + '\nthis.runScript = main;', context);
 function sheet(name, initial = []) {
   let cells = initial.map((row) => row.slice());
   const formulas = {};
+  const frozenRows = [];
   const noopFormat = { getFont: () => ({ setBold() {} }), setColumnWidth() {} };
   return {
     name,
     getName: () => name,
     rows: () => cells.map((row) => row.slice()),
     formulas: () => ({ ...formulas }),
+    frozenRows: () => frozenRows.slice(),
     getUsedRange() { return cells.length ? { getRowIndex: () => 0, getRowCount: () => cells.length, clear: () => { cells = []; } } : null; },
     getRange(ref) {
       const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(ref);
@@ -42,7 +44,7 @@ function sheet(name, initial = []) {
         });
       } };
     },
-    freezePanes: { freezeRows() {} }
+    getFreezePanes: () => ({ freezeRows(count) { frozenRows.push(count); } })
   };
 }
 function workbook(options = {}) {
@@ -62,6 +64,8 @@ const original = [
 const first = context.runScript(book, JSON.stringify(original));
 assert.equal(first.created, 2);
 assert.equal(first.monthTotalMinutes, 1170);
+assert.deepEqual(book.daily.frozenRows(), [1], 'the daily header is frozen through the Excel worksheet API');
+assert.deepEqual(book.weekly.frozenRows(), [1], 'the weekly header is frozen through the Excel worksheet API');
 assert.deepEqual(book.daily.rows().map((row) => dateCell(row[0])), ['Date', '2026-09-03', '2026-09-04', 'Pay month total']);
 assert.equal(book.daily.rows()[1][3], 30, 'Break stores numeric minutes');
 assert.equal(durationCell(book.daily.rows()[1][5]), 570);
