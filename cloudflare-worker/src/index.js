@@ -554,7 +554,28 @@ function validatePayMonthCorrection(body, nowDate = new Date()) {
     if (seen.has(key)) throw Object.assign(new Error('Each corrected date must be unique'), { status: 400 });
     seen.add(key);
   });
+  validateNoFutureWork('timesheets', 'pay_month_correction', payload, nowDate);
   return month;
+}
+
+function validateNoFutureWork(kind, action, payload, nowDate = new Date()) {
+  if (kind !== 'timesheets' && kind !== 'clock') return;
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(nowDate);
+  const value = (type) => String(parts.find((part) => part.type === type)?.value || '');
+  const today = `${value('year')}-${value('month')}-${value('day')}`;
+  if (kind === 'clock' && action === 'absent') return;
+  const rows = Array.isArray(payload.rows) ? payload.rows : Array.isArray(payload.dailyRows) ? payload.dailyRows : [];
+  for (const row of rows) {
+    const date = String(row?.date || '').slice(0, 10);
+    const absence = String(row?.absenceStatus || row?.absenceReason || row?.absence || 'NA').trim().toLowerCase();
+    if (date > today && !['sick', 'holiday', 'absent'].includes(absence)) {
+      throw Object.assign(new Error('Future dates can only be marked absent, sick or holiday; worked time cannot be entered early.'), { status: 400 });
+    }
+  }
+  const eventDate = String(payload.date || '').slice(0, 10);
+  if (kind === 'clock' && eventDate > today && action !== 'absent') {
+    throw Object.assign(new Error('Future clock and worked-time entries are not permitted.'), { status: 400 });
+  }
 }
 
 const isCurrentMonthRecord = isCurrentPayMonthRecord;
@@ -633,6 +654,7 @@ function normaliseInput(body, identity, existing = null, env = null) {
   // identity and cannot spoof another employee by editing this field.
   const syntheticTestName = /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
   const action = text(body.action || body.gmtAction || payload.action || (kind === 'clock' ? 'clock_event' : 'submission'), 'submission', 100);
+  validateNoFutureWork(kind, action, payload);
   const correctionOnBehalf = kind === 'timesheets' && action === 'pay_month_correction' && body.editMode === true && identity.isAdmin && !existing;
   const requestedUpn = text(body.employeeEmail || body.employee_upn, '', 320).toLowerCase();
   const rosterTarget = correctionOnBehalf ? directoryEntryFor(staffDirectory(env || {}), requestedEmployeeName, requestedUpn) : null;
@@ -862,6 +884,9 @@ function projectRow(row, includeDetails = true, env = null) {
           ? payload.daily_rows
           : [];
     const aligned = rawRows.length ? alignUpstreamDailyRows(rawRows, row.start_date, row.end_date) : { rows: rawRows, issue: '' };
+    // A deletion-only pay-month correction still needs its tombstones in the
+    // protected projection; otherwise the source rows reappear after reload.
+    if (row.action === 'pay_month_correction' && !rawRows.length) result.payload = payload;
     if (rawRows.length) {
       payload.rows = safePayloadValue(aligned.rows);
       result.payload = payload;
@@ -2647,6 +2672,7 @@ export default {
 
 export {
   normaliseInput,
+  validateNoFutureWork,
   validatePayMonthCorrection,
   dispatchEndpoint,
   dispatchForm,

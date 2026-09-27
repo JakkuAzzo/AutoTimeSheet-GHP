@@ -168,6 +168,22 @@ function isWeekendDate(value) {
   return !!date && !Number.isNaN(date.getTime()) && (date.getDay() === 0 || date.getDay() === 6);
 }
 
+function futureWorkDate(row) {
+  return typeof timesheetRowPolicy.futureWorkDate === 'function'
+    ? timesheetRowPolicy.futureWorkDate(row)
+    : Boolean(row?.date && row.date > isoDate(new Date()) && !['Sick', 'Holiday'].includes(row.absenceStatus));
+}
+
+function updateDayDateLimit(card) {
+  const dateInput = card.querySelector('[data-field="date"]');
+  const absence = card.querySelector('[data-field="absenceStatus"]')?.value || 'NA';
+  if (!dateInput) return;
+  if (absence === 'Sick' || absence === 'Holiday') dateInput.removeAttribute('max');
+  else dateInput.max = typeof timesheetRowPolicy.todayInLondon === 'function'
+    ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
+  card.classList.toggle('is-weekend', isWeekendDate(dateInput.value));
+}
+
 function isUntouchedWeekendRow(row) {
   if (typeof timesheetRowPolicy.isUntouchedWeekendRow === 'function') return timesheetRowPolicy.isUntouchedWeekendRow(row);
   if (!row || !isWeekendDate(row.date) || row.weekendEdited === true) return false;
@@ -474,6 +490,7 @@ function addDay(data = {}) {
   `;
   daysContainer.appendChild(card);
   applyAbsenceState(card);
+  updateDayDateLimit(card);
   syncCardCollapse(card);
 }
 
@@ -501,6 +518,7 @@ function applyAbsenceState(card) {
   card.classList.toggle('is-absence', status !== 'NA');
   card.classList.remove('absence-sick', 'absence-holiday', 'absence-time-off');
   if (status !== 'NA') card.classList.add(`absence-${status.toLowerCase().replace(/\s+/g, '-')}`);
+  updateDayDateLimit(card);
   ['start', 'finish', 'lunchHad'].forEach((field) => {
     const input = card.querySelector(`[data-field="${field}"]`);
     if (!input) return;
@@ -576,6 +594,9 @@ function splitSaturday(row) {
 function calculateRows(rows) {
   return rows.map((row) => {
     const day = dayName(row.date);
+    if (futureWorkDate(row)) {
+      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: `${row.date} is in the future. Only Sick or Holiday can be entered ahead of time.` };
+    }
     if (row.absenceStatus === 'Holiday') {
       return { ...row, dayName: day, workedActual: 0, total: HOLIDAY_PAID_MINUTES, basic: HOLIDAY_PAID_MINUTES, ot15: 0, ot20: 0, absent: true, note: 'Holiday counts as 8h basic.' };
     }
@@ -755,7 +776,8 @@ function generateDaysFromRange(preserveRows = false) {
       }
       return dates;
     })();
-  const rows = generatedDates.map((date, index) => {
+  const today = typeof timesheetRowPolicy.todayInLondon === 'function' ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
+  const rows = generatedDates.filter((date) => date <= today || ['Sick', 'Holiday'].includes(absenceForDate(date)) || existing.has(date)).map((date, index) => {
     const reason = absenceForDate(date);
     return { ...(existing.get(date) || {}), date, absenceStatus: reason, collapsed: index > 0 };
   });
@@ -1671,6 +1693,7 @@ form.addEventListener('change', (event) => {
       select.value = reason;
       applyAbsenceState(card);
     }
+    updateDayDateLimit(card);
   }
   scheduleRecalculate();
 });
@@ -1697,8 +1720,11 @@ absenceRangesEl.addEventListener('click', (event) => {
 });
 
 addDayBtn.addEventListener('click', () => {
+  const nextDate = defaultDateForNextDay();
+  const today = typeof timesheetRowPolicy.todayInLondon === 'function' ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
+  if (nextDate > today && !['Sick', 'Holiday'].includes(absenceForDate(nextDate))) return showError('Future worked days cannot be added. Mark an absence, sick day or holiday if needed.');
   daysContainer.querySelectorAll('.day-card').forEach((card) => toggleDayCard(card, true));
-  addDay({ date: defaultDateForNextDay(), collapsed: false });
+  addDay({ date: nextDate, collapsed: false });
   recalculate();
   daysContainer.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
@@ -1706,6 +1732,8 @@ addDayBtn.addEventListener('click', () => {
 addWeekendBtn?.addEventListener('click', () => {
   const date = nextWeekendDate();
   if (!date) return showError('No weekend date could be added.');
+  const today = typeof timesheetRowPolicy.todayInLondon === 'function' ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
+  if (date > today && !['Sick', 'Holiday'].includes(absenceForDate(date))) return showError('Future weekend work cannot be added. Mark an absence, sick day or holiday if needed.');
   daysContainer.querySelectorAll('.day-card').forEach((card) => toggleDayCard(card, true));
   addDay({ date, collapsed: false });
   recalculate();

@@ -1348,7 +1348,7 @@
       }).join('');
       var payMonthState = payMonthAccessState(payMonthKeyForDate(key));
       var dateActionEntry = entries.length === 1 ? entries[0] : null;
-      html += '<article class="calendar-day calendar-day-pay-' + safe(payMonthState) + (key === today ? ' calendar-day-today' : '') + '">' + calendarDayDateMarkup(day, key, dateActionEntry) + (labels || '<span class="timesheet-calendar-no-entry">No entry</span>') + '</article>';
+      html += '<article class="calendar-day calendar-day-pay-' + safe(payMonthState) + (new Date(key + 'T12:00:00Z').getUTCDay() % 6 === 0 ? ' is-weekend' : '') + (key === today ? ' calendar-day-today' : '') + '">' + calendarDayDateMarkup(day, key, dateActionEntry) + (labels || '<span class="timesheet-calendar-no-entry">No entry</span>') + '</article>';
     }
     list.innerHTML = html;
     if (typeof list.querySelectorAll === 'function') list.querySelectorAll('[data-history-index]').forEach(function (button) { button.addEventListener('click', function () { selectHistory(Number(button.getAttribute('data-history-index')), button.getAttribute('data-calendar-date') || ''); }); });

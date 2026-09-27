@@ -47,6 +47,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .timesheet-grid-heading { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 5rem 10.5rem 7.5rem 7.5rem 9rem 11rem 7rem; min-width: 57.5rem; gap: .55rem; align-items: center; padding: .65rem .75rem; color: #fff; background: var(--green); font-size: .78rem; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
 .days-container { display: grid; gap: 0; min-width: 57.5rem; }
 .day-card { display: grid; grid-template-columns: 5rem 1fr; background: #fff; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: .65rem .75rem; margin: 0; box-shadow: none; overflow: visible; }
+.day-card.is-weekend { background: #fff6e7; box-shadow: inset 4px 0 #b87819; }
+.day-card.is-weekend .day-mini-summary::before { content: 'Weekend · '; color: #75450b; font-weight: 900; }
 .day-card-header { display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center; }
 .day-card-header, .day-card-body, .day-grid { display: contents; }
 .day-card-header .collapse-day { grid-column: 1; grid-row: 1; }

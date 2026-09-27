@@ -36,6 +36,19 @@
     return day === 0 || day === 6;
   }
 
+  function todayInLondon(now) {
+    var parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now || new Date());
+    var part = function (type) { return parts.find(function (item) { return item.type === type; }).value; };
+    return part('year') + '-' + part('month') + '-' + part('day');
+  }
+
+  function futureWorkDate(row, now) {
+    var date = String(row && row.date || '').slice(0, 10);
+    if (!validDate(date) || date <= todayInLondon(now)) return false;
+    var absence = String(row.absenceStatus || row.absence || 'NA').trim().toLowerCase();
+    return absence !== 'sick' && absence !== 'holiday' && absence !== 'absent';
+  }
+
   function weekDates(start, includeWeekend) {
     var first = validDate(start);
     if (!first) return [];
@@ -76,6 +89,8 @@
   return {
     addDays: addDays,
     isWeekendDate: isWeekendDate,
+    todayInLondon: todayInLondon,
+    futureWorkDate: futureWorkDate,
     weekDates: weekDates,
     isUntouchedWeekendRow: isUntouchedWeekendRow,
     filterSubmittedRows: filterSubmittedRows,

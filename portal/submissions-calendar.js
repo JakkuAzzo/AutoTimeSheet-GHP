@@ -79,7 +79,7 @@
       var dateMarkup = isCurrentPayMonth(key)
         ? '<button type="button" class="portal-calendar-day-date" data-calendar-day="' + key + '" aria-label="Actions for ' + key + '">' + day + '</button>'
         : '<time datetime="' + key + '">' + day + '</time>';
-      html += '<span class="portal-calendar-day' + (key === today ? " is-today" : "") + '">' + dateMarkup + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";
+      html += '<span class="portal-calendar-day' + (new Date(key + 'T12:00:00Z').getUTCDay() % 6 === 0 ? ' is-weekend' : '') + (key === today ? " is-today" : "") + '">' + dateMarkup + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";
     }
     root.innerHTML = html + "</div>";
     root.querySelectorAll("[data-calendar-record-id]").forEach(function (button) {

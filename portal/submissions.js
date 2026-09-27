@@ -514,7 +514,8 @@
     var provisional = api && api.provisionalForRow && api.provisionalForRow(row);
     var totalLabel = totalMinutes === null ? "—" : displayHours(totalMinutes) + (provisional ? " · provisional" : breakValue === null ? " · break not recorded" : "");
     var disabled = editable ? "" : " disabled";
-    return '<tr data-sheet-row="' + index + '"' + (isNew ? ' data-new-row="true"' : '') + (editable ? '' : ' class="is-read-only"') + '>'
+    var weekend = date && [0, 6].indexOf(new Date(date + 'T12:00:00Z').getUTCDay()) !== -1;
+    return '<tr data-sheet-row="' + index + '"' + (isNew ? ' data-new-row="true"' : '') + ' class="' + (editable ? '' : 'is-read-only ') + (weekend ? 'is-weekend' : '') + '">'
       + '<td data-label="Date"><input data-sheet-field="date" type="date" value="' + safe(date) + '"' + disabled + '></td>'
       + '<td data-label="Start"><input data-sheet-field="start" type="time" value="' + safe(start) + '"' + disabled + '></td>'
       + '<td data-label="Finish"><input data-sheet-field="finish" type="time" value="' + safe(finish) + '"' + disabled + '></td>'
@@ -574,7 +575,13 @@
         if (footer) footer.textContent = displayHours(total);
       }
       form.addEventListener("input", function (event) { if (event.target.closest("[data-sheet-row]")) recalculate(); });
-      form.addEventListener("change", function (event) { if (event.target.closest("[data-sheet-row]")) recalculate(); });
+      form.addEventListener("change", function (event) {
+        var row = event.target.closest("[data-sheet-row]");
+        if (!row) return;
+        var date = rowInputValue(row, "date");
+        row.classList.toggle("is-weekend", /^\d{4}-\d{2}-\d{2}$/.test(date) && [0, 6].indexOf(new Date(date + 'T12:00:00Z').getUTCDay()) !== -1);
+        recalculate();
+      });
       form.addEventListener("click", function (event) {
         var remove = event.target.closest("[data-remove-day]");
         if (remove) {
@@ -794,6 +801,10 @@
         }
         var values = { date: rowInputValue(container, "date"), start: rowInputValue(container, "start"), finish: rowInputValue(container, "finish"), breakMinutes: rowInputValue(container, "break") === "" ? null : Number(rowInputValue(container, "break")), absence: rowInputValue(container, "absence") || "NA", note: rowInputValue(container, "note") };
         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date) || !window.GMTPayPeriods || window.GMTPayPeriods.payMonthKeyForDate(values.date) !== sheet.payMonth) throw new Error("Every date must belong to this pay month.");
+        var todayParts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+        var todayPart = function (type) { return todayParts.find(function (part) { return part.type === type; }).value; };
+        var today = todayPart('year') + '-' + todayPart('month') + '-' + todayPart('day');
+        if (values.date > today && ['Sick', 'Holiday', 'Absent'].indexOf(values.absence) === -1) throw new Error("Future dates can only be marked absent, sick or holiday; worked time cannot be entered early.");
         if (seen[values.date]) throw new Error("Each pay-month row must have a unique date.");
         seen[values.date] = true;
         var changed = isNew || oldDate !== values.date

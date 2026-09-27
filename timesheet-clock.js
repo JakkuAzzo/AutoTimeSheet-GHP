@@ -534,6 +534,10 @@
       showStatus(card, 'error', 'Enter your name first.');
       return;
     }
+    if (payload.action !== 'absent' && payload.date > localDate()) {
+      showStatus(card, 'error', 'A future day can only be marked absent. Clock and worked time must be recorded on or after that day.');
+      return;
+    }
     if (!endpoint) {
       showStatus(card, 'error', 'Clock submission email is not configured yet.');
       return;
