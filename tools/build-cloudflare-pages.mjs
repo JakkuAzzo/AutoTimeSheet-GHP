@@ -106,6 +106,8 @@ copyText('config.js', 'config.js', (contents) => {
   return result;
 });
 
-fs.writeFileSync(path.join(output, '_headers'), `/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: same-origin\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n\n/portal/*\n  Cache-Control: no-store\n\n/timesheets/*\n  Cache-Control: no-store\n\n/tools/*\n  Cache-Control: no-store\n\n/jobs/*\n  Cache-Control: no-store\n\n/tasks/*\n  Cache-Control: no-store\n\n/calendar/*\n  Cache-Control: no-store\n*/\n`);
+// The checked-in rules are authoritative; duplicating them here caused live
+// headers to drift from the source and broke third-party form receipts.
+copy('_headers');
 fs.writeFileSync(path.join(output, '_redirects'), '/calendar /portal/submissions 301\n/calendar/* /portal/submissions 301\n');
 console.log(JSON.stringify({ output, workerUrl: workerUrl || null, files: fs.readdirSync(output).length }));
