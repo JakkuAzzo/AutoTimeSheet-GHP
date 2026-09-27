@@ -23,6 +23,7 @@
   var payMonthSheets = [];
   var preferredSheetKey = "";
   var payMonthFilterInitialised = false;
+  var requestedSheetApplied = false;
   var busy = false;
 
   function payMonthWorkbookApi() {
@@ -33,6 +34,9 @@
 
   function requestedRecordId() {
     try { return new URLSearchParams(window.location.search).get("record") || ""; } catch (_) { return ""; }
+  }
+  function requestedDay() {
+    try { return new URLSearchParams(window.location.search).get("day") || ""; } catch (_) { return ""; }
   }
 
   function safe(value) {
@@ -547,6 +551,12 @@
     }
     preview.innerHTML = '<div class="pay-month-sheet-preview"><div class="timesheet-paper-header"><div><p class="portal-card-kicker">' + safe(monthLabel(sheet.payMonth)) + '</p><h2>' + safe(sheet.employeeName) + '</h2><p class="small-text">' + safe(sheet.employeeUpn) + ' · ' + sheet.rows.length + ' daily row' + (sheet.rows.length === 1 ? '' : 's') + '</p></div><span class="portal-status ' + (editable ? 'approved' : 'pending') + '">' + (editable ? 'Editable' : 'Read only') + '</span></div><div class="timesheet-paper-meta"><p><strong>Pay month:</strong> ' + safe(sheet.payMonth) + '</p><p><strong>Window:</strong> ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).start || '') + ' to ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).end || '') + '</p><p><strong>Month total hours:</strong> ' + safe(displayHours(sheet.totals.workedActual)) + '</p><p><strong>Updated:</strong> ' + safe(latest.updated_at || latest.submitted_at || 'Not recorded') + '</p></div>' + coverageNote + (editNotice ? '<p class="pay-month-edit-note"><strong>Change note:</strong> ' + safe(editNotice) + '</p>' : '') + (unrecordedBreaks ? '<p class="pay-month-edit-note">' + unrecordedBreaks + ' row(s) have no recorded break. ' + provisionalTotals + ' total(s) show elapsed time before any break deduction and need review.</p>' : '') + '<form data-pay-month-edit-form><div class="pay-month-table-scroll"><table class="timesheet-paper-rows pay-month-edit-table"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Total hours</th><th>Notes</th><th>Actions</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8">No daily rows are available.</td></tr>') + '</tbody></table></div><div class="pay-month-sheet-total"><span>Pay month total</span><strong data-pay-month-total-hours>' + safe(displayHours(sheet.totals.workedActual)) + '</strong></div><div class="pay-month-edit-actions">' + (editable ? '<button type="button" class="secondary" data-add-day>Add day</button><button type="submit">Save changes</button>' : '<span class="small-text">This pay month is read-only for your account.</span>') + '<a class="button button-link secondary" href="' + safe(canOpenFull) + '">Open full editor</a><button type="button" class="secondary pay-month-download" data-pay-month-download>Download full pay-month spreadsheet</button><span class="small-text pay-month-download-status" data-pay-month-download-status role="status"></span><span class="small-text" data-pay-month-save-status role="status"></span></div></form></div>';
     var form = preview.querySelector("[data-pay-month-edit-form]");
+    var targetDay = requestedDay();
+    if (targetDay && requestedRecordId() && sheet.records.some(function (record) { return recordId(record) === requestedRecordId(); })) {
+      form.querySelectorAll("[data-sheet-row]").forEach(function (row) {
+        if (rowInputValue(row, "date") === targetDay) row.classList.add("is-target-day");
+      });
+    }
     if (form && editable) form.addEventListener("submit", function (event) { savePayMonthSheet(event, sheet); });
     var downloadButton = preview.querySelector("[data-pay-month-download]");
     if (downloadButton) downloadButton.addEventListener("click", function () { downloadPayMonthSheet(sheet, preview.querySelector("[data-pay-month-download-status]"), downloadButton); });
@@ -918,7 +928,16 @@
   }
   function render() {
     buildPayMonthSheets();
+    var requested = !requestedSheetApplied && requestedRecordId();
+    var requestedSheet = requested && payMonthSheets.find(function (sheet) {
+      return sheet.records.some(function (record) { return recordId(record) === requested; });
+    });
     populatePayMonths();
+    if (requestedSheet && payMonthFilter) {
+      payMonthFilter.value = requestedSheet.payMonth;
+      preferredSheetKey = requestedSheet.key;
+      requestedSheetApplied = true;
+    }
     buildPayMonthSheets();
     if (currentTab === "timesheets") renderPayMonthList();
     else renderPayMonthList();

@@ -12,7 +12,8 @@ const browser = await chromium.launch({ headless: true, executablePath: '/Applic
 try {
   const page = await browser.newPage();
   const html = readFileSync(resolve(root, 'portal/submissions.html'), 'utf8').replace(/<script\b[^>]*><\/script>/g, '');
-  await page.setContent(html);
+  await page.route('https://gmt.test/**', (route) => route.fulfill({ status: 200, contentType: route.request().url().includes('/portal/submissions?') ? 'text/html' : 'text/css', body: route.request().url().includes('/portal/submissions?') ? html : '' }));
+  await page.goto('https://gmt.test/portal/submissions?record=matthew-local&day=2026-09-03');
   await page.locator('main').evaluate((main) => { main.hidden = false; });
   await page.evaluate(() => {
     window.GMT_APP_CONFIG = { timesheetFormSubmitEndpoint: 'https://formsubmit.co/example', formSubmitCc: 'acc.gmtelect@outlook.com' };
@@ -50,6 +51,8 @@ try {
   await page.addScriptTag({ path: resolve(root, 'portal/submissions.js') });
   await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
   await page.waitForFunction(() => document.querySelectorAll('[data-sheet-index]').length >= 3);
+  assert.match(await page.locator('#submissions-preview h2').textContent(), /Matthew/, 'the requested record opens its combined pay-month sheet');
+  assert.equal(await page.locator('[data-sheet-row].is-target-day [data-sheet-field="date"]').inputValue(), '2026-09-03');
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Lidia Alemayoh' }).count(), 1, 'the name-only source and unique signed-in mailbox share one pay-month sheet');
   assert.match(await page.locator('[data-sheet-index]').filter({ hasText: 'Lidia Alemayoh' }).innerText(), /lidiaa\.admin@gmt-services\.co\.uk/, 'the merged sheet has the employee address needed to save corrections');
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Canonical employee month workbook replay' }).count(), 0);

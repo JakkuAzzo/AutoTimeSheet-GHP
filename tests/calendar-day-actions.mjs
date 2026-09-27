@@ -71,6 +71,27 @@ try {
   assert.equal(saved.kind, 'calendar');
   assert.equal(saved.recordDate, day);
   assert.equal(saved.payload.notes, 'Test request');
+  await page.locator('dialog.calendar-request-dialog [data-calendar-request-close]').click();
+  await page.evaluate(() => {
+    const entry = document.createElement('button');
+    entry.type = 'button';
+    entry.dataset.calendarRecordId = 'weekly-matthew';
+    entry.dataset.calendarRecordKind = 'timesheets';
+    entry.dataset.calendarCanEdit = 'true';
+    entry.dataset.calendarCanDelete = 'true';
+    entry.dataset.calendarDate = '2026-09-03';
+    entry.textContent = 'Matthew';
+    document.body.appendChild(entry);
+    window.GMTPortalApi.deleteRecord = async () => { window.__deletedRecord = true; };
+  });
+  await page.locator('[data-calendar-record-id="weekly-matthew"]').click();
+  assert.match(await page.locator('[data-calendar-action-delete]').textContent(), /Remove day/);
+  await page.locator('[data-calendar-action-delete]').click();
+  await page.waitForURL(/\/portal\/submissions\?/);
+  const deletionTarget = new URL(page.url());
+  assert.equal(deletionTarget.searchParams.get('record'), 'weekly-matthew');
+  assert.equal(deletionTarget.searchParams.get('day'), '2026-09-03');
+  assert.equal(await page.evaluate(() => Boolean(window.__deletedRecord)), false);
   console.log(JSON.stringify({ day, links: links.map(({ href, ariaDisabled }) => ({ href, ariaDisabled })) }, null, 2));
 } finally {
   await browser?.close();

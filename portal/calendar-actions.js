@@ -70,6 +70,10 @@
     return "entry";
   }
 
+  function isDailyTimesheet(kind) {
+    return /timesheet|submission|clock|break|absence/i.test(String(kind || ""));
+  }
+
   function editHrefFor(kind, recordId, day) {
     var label = recordKindLabel(kind);
     if (!recordId) return "";
@@ -115,13 +119,17 @@
     });
     if (deleteEntryButton) deleteEntryButton.addEventListener("click", async function () {
       if (!activeRecord || !activeRecord.recordId || !activeRecord.canDelete) return;
+      if (isDailyTimesheet(activeRecord.recordKind)) {
+        window.location.assign(href("/portal/submissions", { record: activeRecord.recordId, day: activeRecord.day }));
+        return;
+      }
       var kindLabel = recordKindLabel(activeRecord.recordKind);
       if (!window.GMTPortalApi || typeof window.GMTPortalApi.deleteRecord !== "function") {
         if (deleteEntryStatus) { deleteEntryStatus.hidden = false; deleteEntryStatus.textContent = "Protected deletion is unavailable in this session."; }
         return;
       }
       var deleteTarget = activeRecord.day ? " for " + activeRecord.day : "";
-      if (typeof window.confirm === "function" && !window.confirm("Delete this " + kindLabel + deleteTarget + " from active history? Only the selected day will be removed.")) return;
+      if (typeof window.confirm === "function" && !window.confirm("Delete this " + kindLabel + deleteTarget + " from active history?")) return;
       deleteEntryButton.disabled = true;
       if (deleteEntryStatus) { deleteEntryStatus.hidden = false; deleteEntryStatus.textContent = "Deleting protected entry…"; }
       try {
@@ -279,8 +287,11 @@
       }
     }
     if (deleteEntryButton) {
-      deleteEntryButton.hidden = !canDelete;
+      deleteEntryButton.hidden = !canDelete || (isDailyTimesheet(recordKind) && !canEdit);
       deleteEntryButton.disabled = false;
+      deleteEntryButton.innerHTML = isDailyTimesheet(recordKind)
+        ? "<strong>Remove day</strong><small>Open this day in the pay-month sheet. Review and save the removal there.</small>"
+        : "<strong>Delete entry</strong><small>Remove this entry from active history and the calendar.</small>";
     }
     if (deleteEntryStatus) {
       deleteEntryStatus.hidden = true;
