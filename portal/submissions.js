@@ -651,6 +651,9 @@
   }
   function updatePayloadRow(row, values) {
     var next = Object.assign({}, row);
+    // A newly edited row has its own Date. Source-date override metadata
+    // belongs to the historical import and must not undo the user's change.
+    ["sourceDate", "source_date", "originalDate", "original_date", "legacyAlignedDate"].forEach(function (key) { delete next[key]; });
     next.date = values.date;
     next.start = values.start;
     next.finish = values.finish;

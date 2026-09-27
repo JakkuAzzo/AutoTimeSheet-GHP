@@ -872,9 +872,9 @@ function projectRow(row, includeDetails = true, env = null) {
   // Timesheet rows are needed by the calendar and spreadsheet preview. The
   // original D1 projection only exposed the header, which made Accounts
   // completion counts disagree with the day-level view. Keep the bounded
-  // payload on the protected projection and apply the same declared-week
-  // correction used for Microsoft 365 history rows so legacy app submissions
-  // remain readable without rewriting their source record.
+  // payload on the protected projection. Historical imports may have shifted
+  // explicit Date values into their declared week; restore the retained
+  // source Date for reporting without rewriting the stored audit record.
   if (row.kind === 'timesheets' || row.kind === 'clock') {
     const rawRows = Array.isArray(payload.rows)
       ? payload.rows
@@ -883,7 +883,7 @@ function projectRow(row, includeDetails = true, env = null) {
         : Array.isArray(payload.daily_rows)
           ? payload.daily_rows
           : [];
-    const aligned = rawRows.length ? alignUpstreamDailyRows(rawRows, row.start_date, row.end_date) : { rows: rawRows, issue: '' };
+    const aligned = rawRows.length ? preserveOriginalDailyDates(rawRows) : { rows: rawRows, issue: '' };
     // A deletion-only pay-month correction still needs its tombstones in the
     // protected projection; otherwise the source rows reappear after reload.
     if (row.action === 'pay_month_correction' && !rawRows.length) result.payload = payload;
@@ -1126,78 +1126,21 @@ function upstreamDailyRows(value) {
   });
 }
 
-function upstreamDayIndex(row, fallbackIndex) {
-  const label = text(upstreamObjectValue(row, ['label', 'dayLabel', 'day_label', 'Day', 'entry', 'entryLabel']), '', 80);
-  const match = label.match(/\b(?:day|entry)\s*#?\s*(\d+)\b/i);
-  if (!match) return fallbackIndex;
-  const index = Number(match[1]) - 1;
-  return Number.isInteger(index) && index >= 0 && index <= 6 ? index : fallbackIndex;
-}
-
-function upstreamDateDiffDays(from, to) {
-  const start = upstreamDateKey(from);
-  const end = upstreamDateKey(to);
-  if (!start || !end) return null;
-  const first = new Date(`${start}T12:00:00Z`);
-  const second = new Date(`${end}T12:00:00Z`);
-  const difference = Math.round((second.getTime() - first.getTime()) / 86400000);
-  return Number.isFinite(difference) ? difference : null;
-}
-
-function upstreamWeekdayName(value) {
-  const day = upstreamWeekday(value);
-  return day ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day % 7] : '';
-}
-
-function alignUpstreamDailyRows(rows, declaredStart, declaredEnd) {
+function preserveOriginalDailyDates(rows) {
   const sourceRows = Array.isArray(rows) ? rows : [];
-  const start = upstreamDateKey(declaredStart);
-  const end = upstreamDateKey(declaredEnd);
-  if (!sourceRows.length || !start || !end) return { rows: sourceRows, issue: '' };
-  const expected = sourceRows.map((row, index) => datePlusDays(start, upstreamDayIndex(row, index)));
-  if (expected.some((date) => !date || date > end)) return { rows: sourceRows, issue: '' };
-  const original = sourceRows.map((row) => upstreamDateKey(upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate'])) || '');
-  // The Date column is the employee's actual work date. A week-start field
-  // may describe when the form was generated or submitted, so never replace
-  // an explicit daily date to make it fit that range.
-  if (original.every(Boolean)) return { rows: sourceRows, issue: '' };
-  const labels = sourceRows.map((row, index) => upstreamDayIndex(row, index));
-  const hasSequentialLabels = sourceRows.length > 1
-    && labels.every((index, position) => index === position)
-    && new Set(labels).size === labels.length;
-  const rawWeekdaysMatch = sourceRows.every((row, index) => {
-    const weekday = text(upstreamObjectValue(row, ['weekday', 'Weekday', 'dayName', 'day_name']), '', 40).toLowerCase();
-    return !weekday || weekday === upstreamWeekdayName(expected[index]).toLowerCase();
-  });
-  const hasWeekdayValues = sourceRows.some((row) => text(upstreamObjectValue(row, ['weekday', 'Weekday', 'dayName', 'day_name']), '', 40));
-  const allOriginalDates = original.every(Boolean);
-  const allInsideDeclaredWeek = allOriginalDates && original.every((date) => date >= start && date <= end);
-  let shouldAlign = hasSequentialLabels && rawWeekdaysMatch && original.some((date, index) => date !== expected[index]);
-  if (!shouldAlign && allOriginalDates && !allInsideDeclaredWeek) {
-    const shift = upstreamDateDiffDays(original[0], expected[0]);
-    const shifted = shift !== null && original.every((date, index) => datePlusDays(date, shift) === expected[index]);
-    shouldAlign = shifted && rawWeekdaysMatch;
-    // Legacy XLSX/CSV parsers often omit the weekday and label columns while
-    // preserving the workbook row order. If at least one row falls outside
-    // the declared week, that ordered five/seven-day block is still enough to
-    // map rows to the declared Day 1..7 positions. Keep any supplied weekday
-    // values as a guard when they exist.
-    if (!shouldAlign && !hasWeekdayValues && sourceRows.length <= 7) {
-      shouldAlign = true;
-    }
-  }
-  if (!shouldAlign) return { rows: sourceRows, issue: '' };
-  let changed = false;
-  const aligned = sourceRows.map((row, index) => {
-    const sourceDate = original[index];
-    if (sourceDate === expected[index]) return row;
-    changed = true;
-    return { ...row, date: expected[index], sourceDate: sourceDate || undefined };
+  let restored = 0;
+  const dated = sourceRows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const date = upstreamDateKey(upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate']));
+    const sourceDate = upstreamDateKey(upstreamObjectValue(row, ['sourceDate', 'source_date', 'originalDate', 'original_date']));
+    if (!sourceDate || sourceDate === date) return row;
+    restored += 1;
+    return { ...row, date: sourceDate, legacyAlignedDate: date || undefined };
   });
   return {
-    rows: aligned,
-    issue: changed
-      ? `Daily attachment dates were aligned to the declared week ${start} to ${end}; original dates are retained on each row for audit.`
+    rows: dated,
+    issue: restored
+      ? `${restored} daily Date value(s) restored from the original source; previous week-aligned dates are retained for audit.`
       : ''
   };
 }
@@ -1325,8 +1268,10 @@ function booleanUpstreamValue(value) {
 
 function normaliseUpstreamDailyRow(row, defaults = {}) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
-  const date = text(upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate', 'day']), defaults.date || '', 80);
+  const explicitDate = upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate', 'day']);
+  const date = text(explicitDate || (defaults.allowRecordDate ? defaults.date : ''), '', 80);
   const sourceDate = text(upstreamObjectValue(row, ['sourceDate', 'source_date', 'originalDate', 'original_date']), '', 80);
+  const legacyAlignedDate = text(upstreamObjectValue(row, ['legacyAlignedDate']), '', 80);
   const start = text(upstreamObjectValue(row, ['start', 'startTime', 'start_time', 'clockIn', 'clock_in', 'dayStart', 'day_start', 'Start']), '', 40);
   const finish = text(upstreamObjectValue(row, ['finish', 'finishTime', 'finish_time', 'clockOut', 'clock_out', 'dayFinish', 'day_finish', 'Finish']), '', 40);
   const lunchStart = text(upstreamObjectValue(row, ['lunchStart', 'lunch_start', 'breakStart', 'break_start', 'Lunch start']), '', 40);
@@ -1362,6 +1307,7 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
   let workedMinutes = null;
   let calculationSource = 'unavailable';
   const validationIssues = [];
+  if (!date) validationIssues.push('Date missing');
   if (!/^(?:na|n\/a|none|no absence|not applicable)$/i.test(absenceStatus.trim())) {
     workedMinutes = reportedWorkedMinutes === null ? 0 : reportedWorkedMinutes;
     calculationSource = reportedWorkedMinutes === null ? 'absence' : 'reported absence total';
@@ -1385,6 +1331,7 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     submissionId: text(upstreamObjectValue(row, ['submissionId', 'submission_id']), defaults.sourceRecordId || '', MAX_RECORD_ID),
     date,
     sourceDate: sourceDate && sourceDate !== date ? sourceDate : '',
+    legacyAlignedDate,
     action: text(upstreamObjectValue(row, ['action', 'Action']), defaults.action || 'submission', 100),
     status,
     absenceStatus,
@@ -1520,13 +1467,14 @@ function normaliseUpstreamRecord(row, identity, env) {
     ? `history-${fallbackRecordSeed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_RECORD_ID - 8)}`
     : '';
   const sourceRecordId = text(sourceRecordValue || fallbackRecordId, '', MAX_RECORD_ID);
-  const alignedSource = alignUpstreamDailyRows(sourceData.rows, startDate, endDate);
+  const alignedSource = preserveOriginalDailyDates(sourceData.rows);
   if (alignedSource.issue) {
     const alignedFirstDate = upstreamDateKey(alignedSource.rows[0]?.date);
     if (alignedFirstDate) recordDate = alignedFirstDate;
   }
   const rows = alignedSource.rows.map((item) => normaliseUpstreamDailyRow(item, {
     date: recordDate || startDate,
+    allowRecordDate: kind === 'clock',
     status: kind === 'clock' ? 'Recorded' : status,
     action,
     submittedAt,
@@ -2644,6 +2592,11 @@ async function handle(request, env) {
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
     }
     if (request.method === 'DELETE') {
+      // The calendar passes ?day for a single-day action. The record-level
+      // soft delete below must never turn that request into a weekly delete.
+      if (url.searchParams.has('day') && (existing.kind === 'timesheets' || existing.kind === 'clock')) {
+        return json({ error: 'Single-day deletion is not available from the calendar yet. Remove the day in the pay-month sheet editor.' }, 409, origin || '');
+      }
       const result = await deleteRecord(env, existing, identity);
       return json({ ok: true, record_id: recordId, ...result }, 200, origin || '');
     }

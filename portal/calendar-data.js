@@ -52,75 +52,20 @@
     });
   }
 
-  function dateOnly(value) {
-    var match = text(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!match) return null;
-    var date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  function datePlusDays(value, offset) {
-    var date = dateOnly(value);
-    if (!date) return "";
-    date.setUTCDate(date.getUTCDate() + Number(offset || 0));
-    return key(date);
-  }
-
   function rowDateValue(row) {
     return key(objectValue(row, ["date", "record_date", "recordDate", "Date", "workDate"]));
   }
 
-  function rowDayIndex(row, fallbackIndex) {
-    var value = objectValue(row, ["dayIndex", "day_number", "dayNumber", "entryIndex", "entry_number", "day", "label", "dayLabel", "day_label", "entry", "entryLabel"]);
-    if (typeof value === "number" && Number.isInteger(value)) {
-      if (value >= 1 && value <= 7) return value - 1;
-      if (value >= 0 && value <= 6) return value;
-    }
-    var match = text(value).match(/\b(?:day|entry)\s*#?\s*(\d+)\b/i);
-    if (match) {
-      var index = Number(match[1]) - 1;
-      if (Number.isInteger(index) && index >= 0 && index <= 6) return index;
-    }
-    return fallbackIndex;
-  }
-
-  function alignDailyRows(rows, record) {
+  function alignDailyRows(rows) {
     var sourceRows = Array.isArray(rows) ? rows : [];
-    var start = key(record && (record.start_date || record.startDate || record.week_start || record.weekStart));
-    var end = key(record && (record.end_date || record.endDate || record.week_end || record.weekEnd));
-    if (!end && start) end = datePlusDays(start, 6);
-    if (!sourceRows.length || !dateOnly(start) || !dateOnly(end)) return sourceRows;
-    var indexes = sourceRows.map(function (row, index) { return rowDayIndex(row, index); });
-    var expected = indexes.map(function (index) { return datePlusDays(start, index); });
-    if (expected.some(function (date) { return !date || date > end; })) return sourceRows;
-    var original = sourceRows.map(rowDateValue);
-    var labelsSequential = sourceRows.length > 1 && indexes.every(function (index, position) { return index === position; }) && new Set(indexes).size === indexes.length;
-    var weekdayNames = sourceRows.map(function (row) { return text(objectValue(row, ["weekday", "Weekday", "dayName", "day_name"])).toLowerCase(); });
-    var weekdayValuesPresent = weekdayNames.some(Boolean);
-    var weekdayNamesMatch = weekdayNames.every(function (value, index) {
-      if (!value) return true;
-      var date = dateOnly(expected[index]);
-      if (!date) return false;
-      var weekday = new Intl.DateTimeFormat("en-GB", { weekday: "long", timeZone: "UTC" }).format(date).toLowerCase();
-      return value === weekday;
-    });
-    var allOriginalDates = original.every(Boolean);
-    var allInsideWeek = allOriginalDates && original.every(function (date) { return date >= start && date <= end; });
-    var shouldAlign = labelsSequential && weekdayNamesMatch && original.some(function (date, index) { return date !== expected[index]; });
-    if (!shouldAlign && allOriginalDates && !allInsideWeek) {
-      var firstOriginal = dateOnly(original[0]);
-      var firstExpected = dateOnly(expected[0]);
-      var shift = firstOriginal && firstExpected ? Math.round((firstExpected.getTime() - firstOriginal.getTime()) / 86400000) : null;
-      var shifted = Number.isFinite(shift) && original.every(function (date, index) { return datePlusDays(date, shift) === expected[index]; });
-      shouldAlign = (shifted && weekdayNamesMatch) || (!weekdayValuesPresent && sourceRows.length <= 7);
-    }
-    if (!shouldAlign) return sourceRows;
-    return sourceRows.map(function (row, index) {
-      var sourceDate = original[index];
-      if (sourceDate === expected[index]) return row;
-      var aligned = Object.assign({}, row, { date: expected[index] });
-      if (sourceDate) aligned.sourceDate = sourceDate;
-      return aligned;
+    // Historical imports kept the actual Date in sourceDate after moving the
+    // displayed date into the declared week. Restore the source Date without
+    // changing the saved record; a week heading never creates a missing day.
+    return sourceRows.map(function (row) {
+      var previousDate = rowDateValue(row);
+      var sourceDate = key(objectValue(row, ["sourceDate", "source_date", "originalDate", "original_date"]));
+      if (!sourceDate || sourceDate === previousDate) return row;
+      return Object.assign({}, row, { date: sourceDate, legacyAlignedDate: previousDate || undefined });
     });
   }
   function collectRows(value, depth, seen) {
@@ -254,7 +199,8 @@
   function recordId(record) { return text(record && (record.source_record_id || record.record_id || record.id)); }
   function rowEvent(record, row, index, options) {
     var aligned = alignDailyRows([row], record)[0] || row;
-    var date = rowDateValue(aligned) || key(record && (record.record_date || record.start_date));
+    var date = rowDateValue(aligned);
+    if (!date && kind(record) === "clock") date = key(record && record.record_date);
     if (!date) return null;
     var start = text(objectValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in", "dayStart", "day_start", "Start"]));
     var finish = text(objectValue(row, ["finish", "finishTime", "finish_time", "clockOut", "clock_out", "dayFinish", "day_finish", "Finish"]));

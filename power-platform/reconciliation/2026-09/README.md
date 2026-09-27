@@ -8,5 +8,5 @@ Selection rules:
 - Exact duplicate payloads are grouped in the source manifest.
 - Every materially different version is retained as a source variant.
 - Calendar and totals use the richest valid daily version; invalid intervals remain viewable for audit and are excluded from totals.
-- Dates are aligned to the declared week when row order and weekday evidence support the correction; each original date is retained as `sourceDate`.
+- This historical seed aligned some dates to the declared week. Each original Date column value was retained as `sourceDate`; current portal projections restore that value and preserve the old week-aligned date for audit. Do not use the declared week to invent or move a work date in a new reconciliation.
 - No values are fabricated for a header-only or missing source row.

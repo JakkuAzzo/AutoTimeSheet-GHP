@@ -409,65 +409,13 @@
     return String(objectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate']) || '').slice(0, 10);
   }
 
-  function datePlusDays(value, offset) {
-    var date = dateOnly(value);
-    if (!date) return '';
-    date.setUTCDate(date.getUTCDate() + Number(offset || 0));
-    return dateKey(date);
-  }
-
-  function rowDayIndex(row, fallbackIndex) {
-    var value = objectValue(row, ['dayIndex', 'day_number', 'dayNumber', 'entryIndex', 'entry_number', 'day', 'label', 'dayLabel', 'day_label', 'entry', 'entryLabel']);
-    if (typeof value === 'number' && Number.isInteger(value)) {
-      if (value >= 1 && value <= 7) return value - 1;
-      if (value >= 0 && value <= 6) return value;
-    }
-    var match = String(value || '').match(/\b(?:day|entry)\s*#?\s*(\d+)\b/i);
-    if (match) {
-      var index = Number(match[1]) - 1;
-      if (Number.isInteger(index) && index >= 0 && index <= 6) return index;
-    }
-    return fallbackIndex;
-  }
-
-  function alignTimesheetRows(rows, record) {
+  function alignTimesheetRows(rows) {
     var sourceRows = Array.isArray(rows) ? rows : [];
-    // The source Date column is the work date. Never rewrite it to the
-    // submission's week start/end, even when those headers are wrong.
-    if (sourceRows.some(function (row) { return !!rowDateValue(row); })) return sourceRows;
-    var start = String(record && (record.start_date || record.startDate || record.week_start || record.weekStart) || '').slice(0, 10);
-    var end = String(record && (record.end_date || record.endDate || record.week_end || record.weekEnd) || '').slice(0, 10);
-    if (!end && start) end = datePlusDays(start, 6);
-    if (!sourceRows.length || !dateOnly(start) || !dateOnly(end)) return sourceRows;
-    var indexes = sourceRows.map(function (row, index) { return rowDayIndex(row, index); });
-    var expected = indexes.map(function (index) { return datePlusDays(start, index); });
-    if (expected.some(function (date) { return !date || date > end; })) return sourceRows;
-    var original = sourceRows.map(rowDateValue);
-    var labelsSequential = sourceRows.length > 1 && indexes.every(function (index, position) { return index === position; }) && new Set(indexes).size === indexes.length;
-    var weekdayNames = sourceRows.map(function (row) { return String(objectValue(row, ['weekday', 'Weekday', 'dayName', 'day_name']) || '').trim().toLowerCase(); });
-    var weekdayValuesPresent = weekdayNames.some(Boolean);
-    var weekdayNamesMatch = weekdayNames.every(function (value, index) {
-      if (!value) return true;
-      var date = dateOnly(expected[index]);
-      if (!date) return false;
-      var weekday = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(date).toLowerCase();
-      return value === weekday;
-    });
-    var allOriginalDates = original.every(Boolean);
-    var allInsideWeek = allOriginalDates && original.every(function (date) { return date >= start && date <= end; });
-    var shouldAlign = labelsSequential && weekdayNamesMatch && original.some(function (date, index) { return date !== expected[index]; });
-    if (!shouldAlign && allOriginalDates && !allInsideWeek) {
-      var shift = dateOnly(original[0]) && dateOnly(expected[0]) ? Math.round((dateOnly(expected[0]).getTime() - dateOnly(original[0]).getTime()) / 86400000) : null;
-      var shifted = Number.isFinite(shift) && original.every(function (date, index) { return datePlusDays(date, shift) === expected[index]; });
-      shouldAlign = (shifted && weekdayNamesMatch) || (!weekdayValuesPresent && sourceRows.length <= 7);
-    }
-    if (!shouldAlign) return sourceRows;
-    return sourceRows.map(function (row, index) {
-      var sourceDate = original[index];
-      if (sourceDate === expected[index]) return row;
-      var aligned = Object.assign({}, row, { date: expected[index] });
-      if (sourceDate) aligned.sourceDate = sourceDate;
-      return aligned;
+    return sourceRows.map(function (row) {
+      var previousDate = rowDateValue(row);
+      var sourceDate = String(objectValue(row, ['sourceDate', 'source_date', 'originalDate', 'original_date']) || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate) || sourceDate === previousDate) return row;
+      return Object.assign({}, row, { date: sourceDate, legacyAlignedDate: previousDate || undefined });
     });
   }
 

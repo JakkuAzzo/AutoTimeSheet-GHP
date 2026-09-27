@@ -151,4 +151,43 @@ const localAinsley = projectRow({
 assert.equal(localAinsley.daily_rows_count, 5);
 assert.deepEqual(localAinsley.daily_dates, ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']);
 assert.equal(localAinsley.payload.rows[0].date, '2026-08-31');
+
+// The historical reconciliation seed shifted explicit July Date values into
+// Ainsley's declared August week. The original Date column, retained as
+// sourceDate, must govern calendar and pay-month rows on read-back.
+const legacyShiftedAinsley = projectRow({
+  kind: 'timesheets', employee_name: 'Ainsley', owner_upn: 'ainsley@gmt-services.co.uk',
+  start_date: '2026-08-24', end_date: '2026-08-28', record_date: '2026-08-24',
+  action: 'submission', status: 'Submitted', record_id: 'legacy-ainsley-august',
+  payload_json: JSON.stringify({ rows: [
+    { date: '2026-08-24', start: '08:00', finish: '17:00', lunchMinutes: 60 },
+    { date: '2026-08-25', sourceDate: '2026-07-28', start: '08:00', finish: '17:00', lunchMinutes: 60 }
+  ] })
+}, true, ainsleyDirectory);
+assert.deepEqual(legacyShiftedAinsley.daily_dates, ['2026-08-24', '2026-07-28']);
+assert.equal(legacyShiftedAinsley.payload.rows[1].date, '2026-07-28');
+assert.equal(legacyShiftedAinsley.payload.rows[1].legacyAlignedDate, '2026-08-25');
+const upstreamShiftedAinsley = normaliseUpstreamRecord({
+  Title: 'FW: [GMT][TIMESHEET][SUBMISSION] Ainsley | Week 2026-08-24',
+  EmployeeName: 'Ainsley', WeekStart: '2026-08-24', WeekEnd: '2026-08-28',
+  Issue: JSON.stringify({ rows: [
+    { date: '2026-08-25', sourceDate: '2026-07-28', startTime: '08:00', finishTime: '17:00', lunchMinutes: 60 }
+  ] })
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, ainsleyDirectory);
+assert.deepEqual(upstreamShiftedAinsley.daily_dates, ['2026-07-28']);
+assert.equal(upstreamShiftedAinsley.payload.rows[0].legacyAlignedDate, '2026-08-25');
+const undatedEntry = normaliseUpstreamRecord({
+  Title: '[GMT][TIMESHEET][SUBMISSION] Ainsley | Week 2026-08-24',
+  EmployeeName: 'Ainsley', WeekStart: '2026-08-24', WeekEnd: '2026-08-28',
+  Issue: JSON.stringify({ rows: [{ startTime: '08:00', finishTime: '17:00' }] })
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, ainsleyDirectory);
+assert.deepEqual(undatedEntry.daily_dates, []);
+assert.equal(undatedEntry.payload.rows[0].date, '');
+assert.match(undatedEntry.payload.rows[0].validationIssues.join(' '), /Date missing/);
+const datedClock = normaliseUpstreamRecord({
+  Title: '[GMT][CLOCK] Matthew', EmployeeName: 'Matthew', record_date: '2026-09-08',
+  Issue: JSON.stringify({ rows: [{ action: 'clock_in', time: '08:00' }] })
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, directory);
+assert.deepEqual(datedClock.daily_dates, ['2026-09-08'],
+  'a clock event may use its explicit record date when the nested event has no Date column');
 console.log('Upstream daily attachment: base64 decoding, stable submission IDs, breaks and metadata: PASS');
