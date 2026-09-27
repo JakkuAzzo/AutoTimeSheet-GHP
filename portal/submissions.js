@@ -1019,7 +1019,9 @@
     if (dispatchStatus) dispatchStatus.textContent = "Sending due corrections to Accounts…";
     try {
       var result = await window.GMTPortalApi.dispatchCorrections(false);
-      if (dispatchStatus) dispatchStatus.textContent = (result.sent || 0) + " accepted by the outbound service; " + (result.failed || 0) + " failed; " + (result.skipped || 0) + " skipped. Check Power Automate and the target workbooks before treating these as filed.";
+      if (dispatchStatus) dispatchStatus.textContent = result.status === "rate-limited"
+        ? "The outbound service rate-limited this batch. " + (result.failed || 0) + " attempt failed; " + (result.deferred || 0) + " remaining correction(s) were delayed until " + (result.retryAt || "the next retry window") + ". No SharePoint filing is confirmed."
+        : (result.sent || 0) + " accepted by the outbound service; " + (result.failed || 0) + " failed; " + (result.skipped || 0) + " skipped. Check Power Automate and the target workbooks before treating these as filed.";
       await load();
     } catch (error) {
       if (dispatchStatus) dispatchStatus.textContent = error && error.message ? error.message : "Correction dispatch could not be completed.";

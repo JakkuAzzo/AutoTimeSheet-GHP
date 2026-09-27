@@ -2037,6 +2037,15 @@ function retryAt(timestamp, attempts) {
   return new Date(new Date(timestamp).getTime() + delay).toISOString();
 }
 
+function rateLimitRetryAt(timestamp, retryAfter) {
+  const start = new Date(timestamp).getTime();
+  const value = String(retryAfter || '').trim();
+  const seconds = /^\d+$/.test(value) ? Number(value) : NaN;
+  const target = Number.isFinite(seconds) ? start + seconds * 1000 : Date.parse(value);
+  const delay = Number.isFinite(target) ? target - start : 60 * 60 * 1000;
+  return new Date(start + Math.max(5 * 60 * 1000, Math.min(delay, 24 * 60 * 60 * 1000))).toISOString();
+}
+
 async function dispatchQueued(env, options = {}) {
   const endpoint = dispatchEndpoint(env);
   if (!endpoint) return { status: 'not-configured', sent: 0, failed: 0, skipped: 0 };
@@ -2048,7 +2057,9 @@ async function dispatchQueued(env, options = {}) {
     WHERE q.status IN ('queued', 'failed') AND q.next_attempt_at <= ? AND r.status <> 'Deleted'
     ORDER BY q.queued_at ASC LIMIT ?`).bind(timestamp, limit).all();
   const summary = { status: 'complete', sent: 0, failed: 0, skipped: 0, dryRun: Boolean(options.dryRun), records: [] };
-  for (const row of result.results || []) {
+  const rows = result.results || [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
     const payload = payloadObject(row);
     if (options.dryRun) {
       summary.records.push({ recordId: row.record_id, status: syntheticRecord(row, payload) ? 'skipped-dry-run' : 'dry-run' });
@@ -2079,6 +2090,11 @@ async function dispatchQueued(env, options = {}) {
       const responseText = await response.text();
       let body = null;
       try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+      if (response.status === 429) {
+        throw Object.assign(new Error('FormSubmit rate-limited the correction (429)'), {
+          rateLimitedUntil: rateLimitRetryAt(timestamp, response.headers?.get?.('Retry-After'))
+        });
+      }
       if (!response.ok || (body && (body.success === false || body.success === 'false'))) {
         throw new Error(`FormSubmit rejected the correction (${response.status})`);
       }
@@ -2089,10 +2105,22 @@ async function dispatchQueued(env, options = {}) {
     } catch (error) {
       const attempts = Number(row.attempts || 0) + 1;
       const message = text(error?.message, 'Correction dispatch failed', 1000);
-      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'failed', updated_at = ?, next_attempt_at = ?, last_error = ? WHERE record_id = ?`).bind(timestamp, retryAt(timestamp, attempts), message, row.record_id).run();
+      const nextAttempt = error?.rateLimitedUntil || retryAt(timestamp, attempts);
+      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'failed', updated_at = ?, next_attempt_at = ?, last_error = ? WHERE record_id = ?`).bind(timestamp, nextAttempt, message, row.record_id).run();
       await env.DB.prepare("UPDATE records SET status = 'Delivery failed', issue = ?, updated_at = ? WHERE record_id = ?").bind(message, timestamp, row.record_id).run();
       summary.failed += 1;
       summary.records.push({ recordId: row.record_id, status: 'failed', error: message });
+      if (error?.rateLimitedUntil) {
+        summary.status = 'rate-limited';
+        summary.retryAt = nextAttempt;
+        summary.deferred = 0;
+        for (const remaining of rows.slice(index + 1)) {
+          const delayed = await env.DB.prepare("UPDATE dispatch_queue SET updated_at = ?, next_attempt_at = ? WHERE record_id = ? AND status IN ('queued', 'failed')")
+            .bind(timestamp, nextAttempt, remaining.record_id).run();
+          if (Number(delayed?.meta?.changes || 0) > 0) summary.deferred += 1;
+        }
+        break;
+      }
     }
   }
   return summary;

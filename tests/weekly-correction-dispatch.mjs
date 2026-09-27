@@ -117,4 +117,23 @@ const adminDryRun = await adminDispatchQueued(adminEnv, { isAdmin: true }, { dry
 assert.deepEqual(adminDryRun.records, [{ recordId: record.record_id, status: 'dry-run' }]);
 assert.equal(adminDb.calls.some((call) => call.method === 'run'), false, 'preview must not mutate the queue');
 
+const secondRecord = { ...record, record_id: 'timesheet-queue-tester-2026-09-08' };
+const limitedDb = mockDb([
+  { ...record, dispatch_status: 'queued', attempts: 0 },
+  { ...secondRecord, dispatch_status: 'queued', attempts: 0 }
+], attachments.map((item) => ({ field_name: item.fieldName, file_name: item.fileName, content_type: item.contentType, content_base64: item.contentBase64, size_bytes: item.sizeBytes })));
+let limitedRequests = 0;
+const rateLimited = await dispatchQueued({ ...enabled, FORM_SUBMIT_TIMESHEET_ENDPOINT: 'https://formsubmit.co/example', DB: limitedDb }, {
+  now: '2026-09-11T17:00:00.000Z',
+  fetchImpl: async () => {
+    limitedRequests += 1;
+    return { ok: false, status: 429, headers: { get: () => '1800' }, text: async () => '' };
+  }
+});
+assert.equal(rateLimited.status, 'rate-limited');
+assert.equal(rateLimited.failed, 1);
+assert.equal(rateLimited.deferred, 1);
+assert.equal(limitedRequests, 1, 'one provider rate limit must stop the batch');
+assert.ok(limitedDb.calls.some((call) => call.method === 'run' && call.args.includes(secondRecord.record_id) && call.args.includes('2026-09-11T17:30:00.000Z')), 'the untouched record is deferred without a send attempt');
+
 console.log('PASS: correction queue validates attachments, preserves record IDs, dispatches the FormSubmit envelope, and supports a no-send dry run.');

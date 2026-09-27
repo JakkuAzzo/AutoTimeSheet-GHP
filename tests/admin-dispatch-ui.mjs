@@ -20,7 +20,12 @@ try {
     window.GMTPortalApi = {
       enabled: () => true,
       history: async () => ({ records: [], meta: { is_admin: window.testAdmin } }),
-      dispatchCorrections: async () => { window.dispatchCalls += 1; return { sent: 3, failed: 0, skipped: 0 }; }
+      dispatchCorrections: async () => {
+        window.dispatchCalls += 1;
+        return window.dispatchCalls === 1
+          ? { sent: 3, failed: 0, skipped: 0 }
+          : { status: 'rate-limited', failed: 1, deferred: 2, retryAt: '2026-09-27T16:30:00.000Z' };
+      }
     };
   });
   await page.addScriptTag({ path: resolve(root, 'portal/submissions.js') });
@@ -34,6 +39,9 @@ try {
   await page.locator('#submissions-dispatch').click();
   await page.waitForFunction(() => window.dispatchCalls === 1);
   assert.match(await page.locator('#submissions-dispatch-status').innerText(), /3 accepted by the outbound service/);
+  await page.locator('#submissions-dispatch').click();
+  await page.waitForFunction(() => window.dispatchCalls === 2);
+  assert.match(await page.locator('#submissions-dispatch-status').innerText(), /1 attempt failed; 2 remaining correction/);
 } finally {
   await browser.close();
 }
