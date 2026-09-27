@@ -109,6 +109,15 @@ assert.deepEqual(candidate.daily.rows().map((row) => dateCell(row[0])), ['Date',
 assert.equal(durationCell(candidate.daily.rows()[3][5]), 0, 'a clockless Holiday with a blank cached total is retained as a zero-hour day');
 const companyNamed = workbook({ name: 'Matthew - Pay Month 2026-09.xlsx' });
 assert.equal(context.runScript(companyNamed, JSON.stringify(original)).created, 2, 'the company SharePoint filename is accepted');
+const weekendBook = workbook({ name: 'GMT Timesheet - Jason - Pay Month 2026-09.xlsx' });
+const weekendResult = context.runScript(weekendBook, JSON.stringify([{
+  recordId: 'source-jason|2026-08-29', employeeName: 'Jason', date: '2026-08-29',
+  startTime: '10:30', finishTime: '14:30', breakMinutes: 0
+}]));
+assert.equal(weekendResult.monthTotalMinutes, 240, 'the dated Saturday contributes four hours to the month');
+assert.equal(dateCell(weekendBook.weekly.rows()[1][1]), '2026-08-30', 'the first weekly interval includes its weekend');
+assert.equal(durationCell(weekendBook.weekly.rows()[1][2]), 240, 'Saturday hours appear in the same weekly total');
+assert.equal(dateCell(weekendBook.weekly.rows()[4][1]), '2026-09-18', 'the final interval ends at the pay-month boundary');
 const duplicatedDate = workbook({ dailyRows: [
   ['Date', 'Start', 'Finish', 'Break', 'Absence', 'Total hours', 'Notes'],
   [serial, 8 / 24, 17 / 24, 60, 'NA', 8 / 24, 'First source'],
