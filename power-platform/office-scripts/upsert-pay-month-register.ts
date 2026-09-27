@@ -193,7 +193,8 @@ function write(workbook: ExcelScript.Workbook, rows: DailyRow[], month: string):
 }
 
 function main(workbook: ExcelScript.Workbook, recordJson: string): Result {
-  const file = /^GMT Timesheet - (.+) - Pay Month (\d{4}-\d{2})\.xlsx$/i.exec(workbook.getName());
+  // Company SharePoint files omit the prefix used by portal downloads.
+  const file = /^(?:GMT Timesheet - )?(.+) - Pay Month (\d{4}-\d{2})\.xlsx$/i.exec(workbook.getName());
   if (!file) throw new Error("Destination must be a named employee pay-month workbook");
   const sheets = workbook.getWorksheets();
   const daily = sheets.find((sheet) => sheet.getName().toLowerCase() === DAILY.toLowerCase());

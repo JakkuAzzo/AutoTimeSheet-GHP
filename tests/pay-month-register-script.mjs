@@ -49,7 +49,7 @@ function workbook(options = {}) {
   const daily = sheet(options.lowercase ? 'Daily entries' : 'Daily Entries', options.dailyRows || [['Date', 'Start', 'Finish', 'Break', 'Absence', 'Total hours', 'Notes']]);
   const weekly = sheet(options.lowercase ? 'Weekly totals' : 'Weekly Totals', [['Week Start', 'Week End', 'Total hours']]);
   const sheets = [daily, weekly];
-  return { daily, weekly, getName: () => 'GMT Timesheet - Matthew - Pay Month 2026-09.xlsx', getWorksheets: () => sheets, getWorksheet: (name) => sheets.find((item) => item.name === name) };
+  return { daily, weekly, getName: () => options.name || 'GMT Timesheet - Matthew - Pay Month 2026-09.xlsx', getWorksheets: () => sheets, getWorksheet: (name) => sheets.find((item) => item.name === name) };
 }
 
 const book = workbook();
@@ -107,4 +107,6 @@ assert.equal(candidateResult.created, 1, 'typed Excel dates, clock serials and d
 assert.equal(candidateResult.monthTotalMinutes, 960);
 assert.deepEqual(candidate.daily.rows().map((row) => dateCell(row[0])), ['Date', '2026-08-24', '2026-08-25', '2026-08-28', 'Pay month total']);
 assert.equal(durationCell(candidate.daily.rows()[3][5]), 0, 'a clockless Holiday with a blank cached total is retained as a zero-hour day');
+const companyNamed = workbook({ name: 'Matthew - Pay Month 2026-09.xlsx' });
+assert.equal(context.runScript(companyNamed, JSON.stringify(original)).created, 2, 'the company SharePoint filename is accepted');
 console.log('PASS: two-tab Office Script replays dated originals, rejects conflicts, and replaces a full corrected pay month.');
