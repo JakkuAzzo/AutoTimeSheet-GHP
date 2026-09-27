@@ -93,6 +93,7 @@ try {
       window.__submittedRawForms.push(options.body);
       window.__submittedForms.push({
         action: url,
+        referrerPolicy: options.referrerPolicy,
         subject: fields._subject || '',
         cc: fields._cc || '',
         replyTo: fields._replyto || '',
@@ -144,6 +145,7 @@ try {
   assert.equal(config.legacyPersonalAccountsEmail, 'acc.gmtelect@outlook.com');
   assert.equal(config.formSubmitCc, 'acc.gmtelect@outlook.com');
   assert.equal(result.action, 'https://formsubmit.co/ajax/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(result.referrerPolicy, 'strict-origin-when-cross-origin');
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'acc.gmtelect@outlook.com,routing.tester@example.com');
   assert.match(result.fields.summary, /Routing Tester|2026-06-22/);

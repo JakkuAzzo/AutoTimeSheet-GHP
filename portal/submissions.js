@@ -738,7 +738,7 @@
     var remaining = window.GMTTimesheetCoverage ? window.GMTTimesheetCoverage.receiptText(coverage) : "Open Submitted documents to review your remaining days.";
     add("summary", "Updated dates: " + changedRows.map(function (item) { return item.values && item.values.date || ""; }).filter(Boolean).join(", ") + ". " + remaining);
     add("message", "Timesheet correction for " + employee + " by " + editor + ". " + remaining);
-    var response = await fetch(endpoint, { method: "POST", body: new FormData(form), headers: { Accept: "application/json" }, credentials: "omit" });
+    var response = await fetch(endpoint, { method: "POST", body: new FormData(form), headers: { Accept: "application/json" }, credentials: "omit", referrerPolicy: "strict-origin-when-cross-origin" });
     var body = null;
     try { body = await response.json(); } catch (_) {}
     if (!response.ok || (body && (body.success === false || body.success === "false"))) throw new Error("Timesheet was saved, but its email receipt was not accepted. Please retry notification from Accounts.");

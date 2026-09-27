@@ -48,6 +48,7 @@ try {
         const entries = [...body.entries()];
         window.__submittedForms.push({
           action: typeof input === 'string' ? input : input?.url || '',
+          referrerPolicy: init.referrerPolicy,
           subject: entries.find(([name]) => name === '_subject')?.[1] || '',
           fields: entries.filter(([, value]) => !(value instanceof File)).map(([name, value]) => [name, value]),
           files: entries.filter(([, value]) => value instanceof File).map(([name, value]) => ({ name, files: [value] }))
@@ -144,13 +145,14 @@ try {
         };
       }))
     })));
-    return { action: form.action, subject: form.subject, fields: form.fields, files };
+    return { action: form.action, referrerPolicy: form.referrerPolicy, subject: form.subject, fields: form.fields, files };
   })));
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
   assert.equal(beforeSubmit.iframes, 0, 'submit iframe should not exist before submit');
   assert.equal(beforeSubmit.hiddenForms, 0, 'hidden FormSubmit forms should not exist before submit');
   assert.equal(beforeSubmit.cards, 1, 'one quick record card should render');
+  assert.ok(result.every((entry) => entry.referrerPolicy === 'strict-origin-when-cross-origin'));
   assert.equal(beforeSubmit.employeeName, 'Clock Profile Tester', 'clock card should inherit portal profile name');
   assert.equal(beforeSubmit.employeeEmail, 'clock.tester@gmt-services.co.uk');
   assert.equal(beforeSubmit.action, 'clock_in');

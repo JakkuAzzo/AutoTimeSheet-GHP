@@ -16,7 +16,7 @@ try {
   await page.locator('main').evaluate((main) => { main.hidden = false; });
   await page.evaluate(() => {
     window.GMT_APP_CONFIG = { timesheetFormSubmitEndpoint: 'https://formsubmit.co/example', formSubmitCc: 'acc.gmtelect@outlook.com' };
-    window.fetch = async (_url, options) => { window.__receipt = Object.fromEntries(options.body.entries()); return { ok: true, json: async () => ({ success: true }) }; };
+    window.fetch = async (_url, options) => { window.__receipt = { ...Object.fromEntries(options.body.entries()), referrerPolicy: options.referrerPolicy }; return { ok: true, json: async () => ({ success: true }) }; };
     window.ensureXlsxLoaded = async () => ({
       utils: { book_new: () => ({ SheetNames: [] }), aoa_to_sheet: (matrix) => ({ matrix }), book_append_sheet: (book, _sheet, name) => book.SheetNames.push(name) },
       write: () => new Uint8Array([1, 2, 3]).buffer
@@ -86,6 +86,7 @@ try {
   const receipt = await page.evaluate(() => window.__receipt);
   assert.equal(receipt.gmt_employee_email, 'matthew@gmt-services.co.uk');
   assert.match(receipt._cc, /matthew@gmt-services.co.uk/);
+  assert.equal(receipt.referrerPolicy, 'strict-origin-when-cross-origin');
   await page.addScriptTag({ path: resolve(root, 'portal/calendar-data.js') });
   await page.evaluate(async () => {
     const prior = await window.GMTPortalApi.history();

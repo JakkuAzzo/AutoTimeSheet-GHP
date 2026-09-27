@@ -1280,7 +1280,10 @@ async function submitMultipartForm(emailForm) {
       method: 'POST',
       body: new FormData(emailForm),
       headers: { Accept: 'application/json' },
-      credentials: 'omit'
+      credentials: 'omit',
+      // FormSubmit rejects requests without a Referer. The site-wide policy
+      // suppresses it cross-origin, so send only our origin (never the path).
+      referrerPolicy: 'strict-origin-when-cross-origin'
     });
     const responseText = await response.text();
     let result = null;
@@ -1294,10 +1297,8 @@ async function submitMultipartForm(emailForm) {
     return result;
   } catch (error) {
     // Safari can reject a cross-origin multipart fetch after the attachments
-    // have been generated, even though the same FormSubmit route accepts a
-    // normal browser form post. Retry that transport through a hidden iframe;
-    // the load event means the provider accepted the request without exposing
-    // the response body cross-origin.
+    // have been generated. A native fallback must return to our success page
+    // before it can count as accepted; a generic iframe load can be an error.
     const action = String(emailForm.action || '');
     const message = String(error && error.message || '');
     const isFormSubmit = /^https:\/\/formsubmit\.co\//i.test(action);
@@ -1308,6 +1309,11 @@ async function submitMultipartForm(emailForm) {
     const previousAction = emailForm.action;
     const previousTarget = emailForm.target;
     const nativeAction = action.replace('https://formsubmit.co/ajax/', 'https://formsubmit.co/');
+    const next = document.createElement('input');
+    next.type = 'hidden';
+    next.name = '_next';
+    next.value = `${window.location.origin}/timesheets/submit-success.html?gmt_formsubmit=success`;
+    emailForm.appendChild(next);
     emailForm.action = nativeAction;
     emailForm.target = frame.name;
     try {
@@ -1322,7 +1328,14 @@ async function submitMultipartForm(emailForm) {
           frame.removeEventListener('error', onError);
           if (failure) reject(failure); else resolve();
         };
-        const onLoad = () => finish();
+        const onLoad = () => {
+          try {
+            const destination = new URL(frame.contentWindow.location.href);
+            if (destination.origin !== window.location.origin) return;
+            if (destination.pathname.endsWith('/timesheets/submit-success.html') && destination.searchParams.get('gmt_formsubmit') === 'success') finish();
+            else finish(new Error('Timesheet delivery was rejected. Please try again or contact Accounts.'));
+          } catch (_) { /* The provider may still be on its cross-origin response. */ }
+        };
         const onError = () => finish(new Error('Timesheet delivery failed. Please try again or contact Accounts.'));
         frame.addEventListener('load', onLoad);
         frame.addEventListener('error', onError);
@@ -1331,6 +1344,7 @@ async function submitMultipartForm(emailForm) {
     } finally {
       emailForm.action = previousAction;
       emailForm.target = previousTarget;
+      next.remove();
     }
     return { success: true, transport: 'native-form' };
   }

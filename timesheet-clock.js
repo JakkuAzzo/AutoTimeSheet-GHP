@@ -49,7 +49,8 @@
         method: 'POST',
         body: new FormData(form),
         headers: { Accept: 'application/json' },
-        credentials: 'omit'
+        credentials: 'omit',
+        referrerPolicy: 'strict-origin-when-cross-origin'
       });
       const responseText = await response.text();
       let result = null;
