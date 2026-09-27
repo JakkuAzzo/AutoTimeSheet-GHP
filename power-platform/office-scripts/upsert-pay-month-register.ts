@@ -60,7 +60,7 @@ function clockText(input: unknown): string {
 function clockMinutes(input: string): number | null {
   if (!input) return null;
   if (!/^\d{1,2}:\d{2}$/.test(input)) throw new Error("Invalid clock time: " + input);
-  const parts = input.split(":").map(Number);
+  const parts = input.split(":").map((part) => Number(part));
   if (parts[0] > 23 || parts[1] > 59) throw new Error("Invalid clock time: " + input);
   return parts[0] * 60 + parts[1];
 }
@@ -105,7 +105,7 @@ function normalize(row: InputRow, month: string, sourceInNotes = true): DailyRow
   }
   const changeNote = text(row.changeNote);
   const sourceId = text(value(row, ["recordId", "record_id"]));
-  const notes = [rawNote, changeNote, sourceInNotes && sourceId && !changeNote ? "Source " + sourceId : ""].filter(Boolean).join(" | ");
+  const notes = [rawNote, changeNote, sourceInNotes && sourceId && !changeNote ? "Source " + sourceId : ""].filter((part) => Boolean(part)).join(" | ");
   return { date, start, finish, breakMinutes: pause, absence, totalMinutes: total, notes };
 }
 function key(row: DailyRow): string { return [row.start, row.finish, row.breakMinutes === null ? "" : row.breakMinutes, row.absence, row.totalMinutes === null ? "" : row.totalMinutes].join("|"); }
@@ -129,7 +129,7 @@ function currentRows(sheet: ExcelScript.Worksheet, month: string): DailyRow[] {
   const used = sheet.getUsedRange(true);
   const count = used ? used.getRowIndex() + used.getRowCount() : 0;
   if (!count) return [];
-  const headers = sheet.getRange("A1:G1").getValues()[0].map(text);
+  const headers = sheet.getRange("A1:G1").getValues()[0].map((cell) => text(cell));
   if (headers.join("|") !== DAILY_HEADERS.join("|")) throw new Error("Daily Entries headings do not match the certified seven-column format");
   if (count < 2) return [];
   return sheet.getRange("A2:G" + count).getValues().filter((cells) => text(cells[0]) && text(cells[0]) !== "Pay month total").map((cells) => {
