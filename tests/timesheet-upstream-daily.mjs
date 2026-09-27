@@ -37,17 +37,26 @@ const mismatchedWindow = normaliseUpstreamRecord({
   ]),
   Modified: '2026-09-09T07:00:00Z'
 }, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, directory);
-assert.equal(mismatchedWindow.start_date, '2026-09-07');
-assert.equal(mismatchedWindow.end_date, '2026-09-13');
-assert.equal(mismatchedWindow.record_date, '2026-09-07');
-assert.deepEqual(mismatchedWindow.daily_dates, ['2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11']);
-assert.equal(mismatchedWindow.payload.rows[0].sourceDate, '2026-08-31');
-assert.match(mismatchedWindow.issue, /aligned to the declared week 2026-09-07 to 2026-09-13/);
+assert.equal(mismatchedWindow.start_date, '2026-08-31');
+assert.equal(mismatchedWindow.end_date, '2026-09-06');
+assert.equal(mismatchedWindow.record_date, '2026-08-31');
+assert.deepEqual(mismatchedWindow.daily_dates, ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']);
+assert.match(mismatchedWindow.issue, /differs from daily rows/);
+
+const csvHistory = normaliseUpstreamRecord({
+  Id: 22,
+  Title: '[GMT][TIMESHEET][SUBMISSION] Lidia Alemayoh | Week 2026-09-07',
+  EmployeeName: 'Lidia Alemayoh',
+  Issue: 'Status,Category,Week start,Week end,Day,Date,Weekday,Start,Finish,Break,Absence reason,Worked hours,Note\nRecorded,Weekday,2026-09-07,2026-09-11,Day 1,2026-09-03,Thursday,10:00,17:00,30 minutes,NA,6.5,"Workshop, Croydon"',
+  Modified: '2026-09-21T13:00:00Z'
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, directory);
+assert.deepEqual(csvHistory.daily_dates, ['2026-09-03']);
+assert.equal(csvHistory.payload.rows[0].note, 'Workshop, Croydon');
+assert.equal(csvHistory.synthetic, false);
 
 // Ainsley’s legacy email contained four files: two empty helper files and a
-// useful XLSX/CSV pair whose rows were stamped with the preceding week. The
-// declared week and row order are authoritative; preserve each raw date for
-// audit while exposing the corrected dates to the calendar and pay-month view.
+// useful XLSX/CSV pair with explicit daily dates. Those dates remain
+// authoritative even when the submitted week heading differs.
 const ainsleyDirectory = {
   STAFF_DIRECTORY_JSON: JSON.stringify([{ name: 'Ainsley', upn: 'ainsley@gmt-services.co.uk' }])
 };
@@ -75,11 +84,9 @@ const ainsleyLegacy = normaliseUpstreamRecord({
   Modified: '2026-09-15T07:00:00Z'
 }, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, ainsleyDirectory);
 assert.equal(ainsleyLegacy.daily_rows_count, 5);
-assert.deepEqual(ainsleyLegacy.daily_dates, ['2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11']);
-assert.equal(ainsleyLegacy.payload.rows[0].date, '2026-09-07');
-assert.equal(ainsleyLegacy.payload.rows[0].sourceDate, '2026-08-31');
-assert.equal(ainsleyLegacy.payload.rows[4].sourceDate, '2026-09-04');
-assert.match(ainsleyLegacy.date_correction_issue, /aligned to the declared week 2026-09-07 to 2026-09-13/);
+assert.deepEqual(ainsleyLegacy.daily_dates, ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']);
+assert.equal(ainsleyLegacy.payload.rows[0].date, '2026-08-31');
+assert.match(ainsleyLegacy.period_issue, /differs from daily rows/);
 
 const ainsleyAugust = normaliseUpstreamRecord({
   Id: 21,
@@ -96,8 +103,7 @@ const ainsleyAugust = normaliseUpstreamRecord({
   ] }),
   Modified: '2026-09-15T07:00:00Z'
 }, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, ainsleyDirectory);
-assert.deepEqual(ainsleyAugust.daily_dates, ['2026-08-24', '2026-08-25', '2026-08-26', '2026-08-27', '2026-08-28']);
-assert.equal(ainsleyAugust.payload.rows[1].sourceDate, '2026-07-28');
+assert.deepEqual(ainsleyAugust.daily_dates, ['2026-08-24', '2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31']);
 
 const sparseSubmission = normaliseUpstreamRecord({
   Title: 'FW: [GMT][TIMESHEET][SUBMISSION] Matthew | Week 2026-09-07',
@@ -143,8 +149,6 @@ const localAinsley = projectRow({
   payload_json: JSON.stringify({ rows: ainsleyRows })
 }, true, ainsleyDirectory);
 assert.equal(localAinsley.daily_rows_count, 5);
-assert.deepEqual(localAinsley.daily_dates, ['2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11']);
-assert.equal(localAinsley.payload.rows[0].date, '2026-09-07');
-assert.equal(localAinsley.payload.rows[0].sourceDate, '2026-08-31');
-assert.match(localAinsley.date_correction_issue, /aligned to the declared week 2026-09-07 to 2026-09-13/);
+assert.deepEqual(localAinsley.daily_dates, ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']);
+assert.equal(localAinsley.payload.rows[0].date, '2026-08-31');
 console.log('Upstream daily attachment: base64 decoding, stable submission IDs, breaks and metadata: PASS');

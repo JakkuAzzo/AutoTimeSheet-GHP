@@ -1,3 +1,5 @@
+import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
+
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
 const MAX_RECORD_ID = 180;
@@ -936,10 +938,43 @@ function upstreamScalar(value) {
 // string in Issue, and older runs expose the daily object itself. Keep the
 // normalisation at this boundary so the portal can render the same useful
 // day-level view for every source shape.
+function parseUpstreamCsv(value) {
+  const lines = String(value || '').split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2 || !/^status\s*,/i.test(lines[0])) return null;
+  function cells(line) {
+    const output = []; let current = ''; let quoted = false;
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      if (character === '"') {
+        if (quoted && line[index + 1] === '"') { current += '"'; index += 1; }
+        else quoted = !quoted;
+      } else if (character === ',' && !quoted) { output.push(current.trim()); current = ''; }
+      else current += character;
+    }
+    output.push(current.trim()); return output;
+  }
+  const headers = cells(lines[0]).map((heading) => heading.toLowerCase().replace(/[^a-z0-9]+/g, ''));
+  return lines.slice(1, 81).map((line) => {
+    const values = cells(line); const fields = {};
+    headers.forEach((heading, index) => { fields[heading] = values[index] || ''; });
+    return {
+      date: fields.date || '', start: fields.start || '', finish: fields.finish || '',
+      break: fields.break || '', absenceReason: fields.absencereason || '',
+      workedHours: fields.workedhours || '', basicHours: fields.basichours || '',
+      ot15Hours: fields.ot15hours || '', ot20Hours: fields.ot20hours || '',
+      status: fields.status || '', category: fields.category || '',
+      weekStart: fields.weekstart || '', weekEnd: fields.weekend || '',
+      payMonth: fields.paymonth || '', note: fields.note || ''
+    };
+  }).filter((row) => row.date || row.start || row.finish || row.absenceReason);
+}
+
 function parseUpstreamJson(value) {
   if (value && typeof value === 'object') return value;
   const raw = text(value, '', 120000).trim();
   if (!raw) return null;
+  const csvRows = parseUpstreamCsv(raw);
+  if (csvRows) return csvRows;
   if (/^[\[{]/.test(raw)) {
     try {
       return JSON.parse(raw);
@@ -1091,6 +1126,10 @@ function alignUpstreamDailyRows(rows, declaredStart, declaredEnd) {
   const expected = sourceRows.map((row, index) => datePlusDays(start, upstreamDayIndex(row, index)));
   if (expected.some((date) => !date || date > end)) return { rows: sourceRows, issue: '' };
   const original = sourceRows.map((row) => upstreamDateKey(upstreamObjectValue(row, ['date', 'record_date', 'recordDate', 'Date', 'workDate'])) || '');
+  // The Date column is the employee's actual work date. A week-start field
+  // may describe when the form was generated or submitted, so never replace
+  // an explicit daily date to make it fit that range.
+  if (original.every(Boolean)) return { rows: sourceRows, issue: '' };
   const labels = sourceRows.map((row, index) => upstreamDayIndex(row, index));
   const hasSequentialLabels = sourceRows.length > 1
     && labels.every((index, position) => index === position)
@@ -2431,19 +2470,19 @@ async function listRecords(request, env, identity) {
             const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
             upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
             const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
-            const localIds = new Set(records.map((row) => row.source_record_id));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
             upstreamRecordCount = visibleUpstreamRecords.length;
-            const seenHistoryFingerprints = new Set(records.map(historyRecordFingerprint).filter(Boolean));
-            const uniqueUpstreamRecords = [];
-            visibleUpstreamRecords.forEach((row) => {
-              if (row.source_record_id && localIds.has(row.source_record_id)) return;
+            // Merge corrected copies that share a source ID. A later partial
+            // correction must not erase valid days from an earlier copy.
+            const merged = deduplicateProviderRecords([...records, ...visibleUpstreamRecords])
+              .sort((left, right) => String(right.updated_at || right.submitted_at || '').localeCompare(String(left.updated_at || left.submitted_at || '')));
+            const fingerprints = new Set();
+            records = removeStaleAbsenceRows(merged.filter((row) => {
               const fingerprint = historyRecordFingerprint(row);
-              if (!fingerprint || seenHistoryFingerprints.has(fingerprint)) return;
-              seenHistoryFingerprints.add(fingerprint);
-              uniqueUpstreamRecords.push(row);
-            });
-            records = [...records, ...uniqueUpstreamRecords];
+              if (!fingerprint || fingerprints.has(fingerprint)) return false;
+              fingerprints.add(fingerprint);
+              return true;
+            }));
             upstream = 'ok';
           } else upstream = 'invalid-response';
         } else upstream = `http-${upstreamResponse.status}`;
