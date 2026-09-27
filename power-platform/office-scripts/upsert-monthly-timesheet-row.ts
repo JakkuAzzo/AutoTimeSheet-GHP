@@ -91,6 +91,22 @@ const FORM_FIELD_NAMES = [
   "clock_action", "clock_date", "clock_time", "absence_reason", "location", "note", "summary", "message"
 ];
 
+// Keep this cycle aligned with the portal's pay-periods.js. The Date value,
+// never the form's week label, determines the destination workbook.
+const PAY_MONTH_ANCHOR = Date.UTC(2026, 7, 24);
+const PAY_MONTH_CYCLE_DAYS = 28;
+const PAY_MONTH_END_OFFSET_DAYS = 25;
+
+function payMonthForDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return '';
+  const date = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (new Date(date).toISOString().slice(0, 10) !== value) return '';
+  const offset = Math.floor((date - PAY_MONTH_ANCHOR) / (PAY_MONTH_CYCLE_DAYS * 86400000));
+  const end = PAY_MONTH_ANCHOR + (offset * PAY_MONTH_CYCLE_DAYS + PAY_MONTH_END_OFFSET_DAYS) * 86400000;
+  return new Date(end).toISOString().slice(0, 7);
+}
+
 function text(value: unknown): string {
   return value == null ? "" : String(value);
 }
@@ -144,7 +160,7 @@ function parseFormSubmitBody(input: string): MonthlyTimesheetRecord[] {
   const employeeName = firstField(body, ["gmt_employee", "employee_name"]);
   const employeeEmail = firstField(body, ["gmt_employee_upn", "gmt_employee_email", "email"]);
   const action = firstField(body, ["gmt_action", "clock_action"]) || "submission";
-  const date = firstField(body, ["gmt_week_start", "gmt_clock_date", "clock_date"]);
+  const date = firstField(body, ["gmt_clock_date", "clock_date"]);
   const clockTime = firstField(body, ["gmt_clock_time", "clock_time"]);
   const recordId = firstField(body, ["gmt_record_id", "gmt_submission_id"]) ||
     [employeeEmail || employeeName, date, action, clockTime].join("|");
@@ -207,7 +223,6 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
   const nameMatch = /^GMT Timesheet - (.+?) - (\d{4}-\d{2}-\d{2})\.csv$/i.exec(fileName.trim());
   const employeeName = nameMatch ? nameMatch[1].trim() : '';
   const rows: MonthlyTimesheetRecord[] = [];
-  const toDay = (value: string): number => /^\d{4}-\d{2}-\d{2}$/.test(value) ? Date.parse(value + 'T00:00:00Z') : NaN;
   const weekStartValue = nameMatch ? nameMatch[2] : '';
   lines.slice(1).forEach((line, rowIndex) => {
     const cells = parseCsvLine(line);
@@ -215,17 +230,8 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
     const sourceDate = valueAt(cells, 'Date');
     const weekStart = valueAt(cells, 'Week start') || weekStartValue || sourceDate;
     const weekEnd = valueAt(cells, 'Week end') || weekStart;
-    if (!sourceDate && !weekStart) return;
-    let date = sourceDate || weekStart;
-    const startDay = toDay(weekStart);
-    const endDay = toDay(weekEnd);
-    // Several historical exports put the prior week's dates in a later
-    // submission. The declared week and row order are authoritative for the
-    // workbook day; retain the original value in the note for audit.
-    if (Number.isFinite(startDay) && Number.isFinite(endDay) &&
-      (!Number.isFinite(toDay(date)) || toDay(date) < startDay || toDay(date) > endDay)) {
-      date = new Date(startDay + rowIndex * 86400000).toISOString().slice(0, 10);
-    }
+    if (!sourceDate) return;
+    const date = sourceDate;
     // CSV exports do not always include an employee-email column. Derive the
     // same stable identity slug used by the portal's JSON/calendar payloads so
     // a CSV replay merges with an existing daily row instead of creating a
@@ -234,7 +240,6 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
     const identitySource = employeeEmail || ((employeeName || 'employee') + '@gmt-services.co.uk');
     const identity = identitySource.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const submissionId = 'timesheet-' + identity + '-' + weekStart;
-    const sourceNote = sourceDate && sourceDate !== date ? 'Source date corrected from ' + sourceDate : '';
     const submittedNote = valueAt(cells, 'Note');
     rows.push({
       recordId: submissionId + '|' + (date || weekStart),
@@ -252,7 +257,7 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
       basicHours: valueAt(cells, 'Basic hours'),
       ot15Hours: valueAt(cells, 'OT x1.5 hours'),
       ot20Hours: valueAt(cells, 'OT x2.0 hours'),
-      note: [submittedNote, sourceNote].filter((value) => Boolean(value)).join(' '),
+      note: submittedNote,
       submittedAt: ''
     });
     // The source row number is intentionally included in the note only when
@@ -306,7 +311,7 @@ function rowRecords(envelope: CalendarSyncEnvelope): MonthlyTimesheetRecord[] {
       for (const name of names) if (row[name] != null && text(row[name]).trim()) return text(row[name]).trim();
       return '';
     };
-    const date = value(['date', 'Date']) || text(envelope.weekStart);
+    const date = value(['date', 'Date']);
     return {
       recordId: value(['recordId', 'record_id']) || (submissionId ? submissionId + '|' + date : employeeName + '|' + date + '|' + index),
       employeeName: employeeName || value(['employeeName', 'employee_name']),
@@ -361,7 +366,7 @@ function isSyntheticOrAdminRecord(record: MonthlyTimesheetRecord): boolean {
 function recordValues(record: MonthlyTimesheetRecord): (string | number)[] {
   return [
     text(record.employeeName), text(record.employeeEmail), text(record.weekStart), text(record.weekEnd),
-    text(record.date || record.weekStart), text(record.action), text(record.status), text(record.absenceReason),
+    text(record.date), text(record.action), text(record.status), text(record.absenceReason),
     text(record.startTime), text(record.lunchStart), text(record.lunchEnd), text(record.finishTime),
     number(record.workedHours), number(record.basicHours), number(record.ot15Hours), number(record.ot20Hours),
     text(record.location), text(record.note), text(record.submittedAt), text(record.recordId),
@@ -481,16 +486,13 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
       skippedRecordIds: skippedRecords.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value))
     };
   }
-  const fileMatch = /^GMT Timesheet - (.+) - (\d{4}-\d{2})\.xlsx$/i.exec(workbook.getName());
+  const fileMatch = /^GMT Timesheet - (.+) - (?:Pay Month )?(\d{4}-\d{2})\.xlsx$/i.exec(workbook.getName());
   if (!fileMatch) throw new Error("The destination is not a named employee/month timesheet workbook.");
   records.forEach((record) => {
     if (text(record.employeeName).trim().toLowerCase() !== fileMatch[1].trim().toLowerCase()) {
       throw new Error("Employee does not match the destination workbook.");
     }
-    // A weekly submission is filed under its declared week-start/pay-month.
-    // This keeps cross-month weeks (for example 31 Aug–4 Sep) together while
-    // each daily row still retains its actual calendar date.
-    const recordMonth = text(record.weekStart || record.date).slice(0, 7);
+    const recordMonth = payMonthForDate(text(record.date).trim());
     if (recordMonth !== fileMatch[2]) throw new Error("Record month does not match the destination workbook.");
   });
   const sheet = getOrCreateSheet(workbook);
