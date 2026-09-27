@@ -374,7 +374,7 @@
     };
   }
 
-  function createEmailForm(payload, files) {
+  function createEmailForm(payload, files, coverage) {
     const frame = ensureSubmitFrame();
     const form = document.createElement('form');
     const subjectType = payload.action === 'full_day' || payload.action === 'absent' ? 'DAY' : 'CLOCK';
@@ -387,7 +387,7 @@
     hidden(form, '_template', 'box');
     hidden(form, '_captcha', 'false');
     hidden(form, '_url', window.location.href);
-    const recipients = [CONFIG.formSubmitCc, payload.notificationEmail]
+    const recipients = [CONFIG.formSubmitCc, payload.employeeEmail, payload.notificationEmail]
       .map(value => String(value || '').trim())
       .filter((value, index, values) => value && values.indexOf(value) === index)
       .join(',');
@@ -435,8 +435,12 @@
     hidden(form, 'absence_reason', payload.absenceReason);
     hidden(form, 'location', payload.location);
     hidden(form, 'note', payload.note);
-    hidden(form, 'summary', `${payload.employeeName} submitted ${payload.actionLabel.toLowerCase()} for ${payload.date}${payload.time ? ` at ${payload.time}` : ''}.`);
-    hidden(form, 'message', 'GMT timesheet quick-record submission. XLSX and CSV attachments are included for accounts and Power Automate filing.');
+    const details = `${payload.employeeName} submitted ${payload.actionLabel.toLowerCase()} for ${payload.date}${payload.time ? ` at ${payload.time}` : ''}${payload.action === 'full_day' ? `, ${payload.dayStart}–${payload.dayFinish}` : ''}${payload.absenceReason ? `, reason: ${payload.absenceReason}` : ''}.`;
+    const remaining = window.GMTTimesheetCoverage
+      ? window.GMTTimesheetCoverage.receiptText(coverage)
+      : 'Pay-month coverage could not be checked. Open Submitted documents to review your remaining days.';
+    hidden(form, 'summary', `${details} ${remaining}`);
+    hidden(form, 'message', `Timesheet receipt. ${details} ${remaining} XLSX and CSV attachments are included for Accounts filing.`);
     const record = {
       schemaVersion: 1,
       recordId,
@@ -555,7 +559,11 @@
           portalSyncIssue = portalError && portalError.message ? portalError.message : 'Portal history sync is pending.';
         }
       }
-      const form = createEmailForm(payload, files);
+      const coverage = window.GMTTimesheetCoverage && await window.GMTTimesheetCoverage.fromPortal(
+        window.GMTPortalApi, window.GMTPayPeriods, payMonthKeyForDate(payload.date), payload.employeeEmail,
+        [{ date: payload.date, start: files.row.Start, finish: files.row.Finish, absenceStatus: files.row['Absence reason'] }]
+      );
+      const form = createEmailForm(payload, files, coverage);
       await submitMultipartForm(form, endpoint);
       if (protectedRecord && protectedRecordSaved) {
         try {

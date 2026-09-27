@@ -65,6 +65,9 @@ try {
   await page.goto(`http://127.0.0.1:${port}/timesheets/`, { waitUntil: 'load' });
   await page.evaluate(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Clock Profile Tester', username: 'clock.tester@gmt-services.co.uk' })));
   await page.reload({ waitUntil: 'load' });
+  // This suite inspects the multipart contents. The native iframe fallback is
+  // covered separately; send through the fetch mock so no external mail fires.
+  await page.evaluate(() => { window.GMTClockTransport.shouldUseNativeFallback = () => false; });
 
   const beforeSubmit = await page.evaluate(() => {
     const card = document.querySelector('[data-clock-form]');
@@ -167,6 +170,9 @@ try {
     const csv = fileList.find((file) => file.name.endsWith('.csv'));
     assert.equal(form.action, 'https://formsubmit.co/ajax/7aa066a9c2d177d1c0702281ab88d0fe');
     assert.equal(form.subject, `[GMT][TIMESHEET][${entry.subjectKind}] Clock Tester | ${entry.label} | 2026-07-03${entry.time ? ` ${entry.time}` : ''}`);
+    assert.equal(fields.get('_cc'), 'acc.gmtelect@outlook.com,clock.tester@gmt-services.co.uk');
+    assert.match(fields.get('summary'), /Pay-month coverage could not be checked/);
+    assert.match(fields.get('summary'), /2026-07-03/);
     assert.equal(fields.get('gmt_schema_version'), '2');
     assert.equal(fields.get('gmt_type'), 'timesheet_clock');
     assert.equal(fields.get('gmt_action'), entry.action);

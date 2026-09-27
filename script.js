@@ -1484,6 +1484,9 @@ async function submitTimesheet(event) {
     field('gmtWeekStart').value = calendarSyncWithIds.weekStart;
     field('gmtWeekEnd').value = calendarSyncWithIds.weekEnd;
     const payMonth = calendarSyncWithIds.payMonth || payMonthKeyForWeek(calendarSyncWithIds.weekStart, calendarSyncWithIds.weekEnd);
+    const coverage = window.GMTTimesheetCoverage && await window.GMTTimesheetCoverage.fromPortal(
+      window.GMTPortalApi, window.GMTPayPeriods, payMonth, userEmail, calculated
+    );
     field('gmtPayMonth').value = payMonth;
     field('gmtYear').value = payMonth.slice(0, 4);
     field('gmtMonth').value = payMonth.slice(5, 7);
@@ -1517,8 +1520,12 @@ async function submitTimesheet(event) {
     field('gmtCalendarSyncPayload').value = JSON.stringify(calendarSyncWithIds);
     field('gmtAttachmentManifest').value = 'record-json,xlsx,csv,calendar-sync-json';
     field('gmtSubmittedAt').value = calendarSync.submittedAt;
-    field('summary').value = calculatedSummaryInput.value;
-    field('message').value = `Structured daily record, calendar-sync JSON, XLSX and CSV attachments are included. Calendar sync requested for ${calendarSyncWithIds.calendarName}: ${calendarSyncWithIds.events.length} event(s), including ${calendarSyncWithIds.events.filter((event) => event.type === 'absence').length} absence event(s).`;
+    const submittedDetails = calculated.map((row) => `${row.date}: ${row.absenceStatus && row.absenceStatus !== 'NA' ? row.absenceStatus : `${row.start || 'start missing'}–${row.finish || 'finish missing'}, ${normaliseBreakMinutes(row.lunchMinutes)} minute break`}`).join('; ');
+    const remainingDetails = window.GMTTimesheetCoverage
+      ? window.GMTTimesheetCoverage.receiptText(coverage)
+      : 'Pay-month coverage could not be checked. Open Submitted documents to review your remaining days.';
+    field('summary').value = `Submitted: ${submittedDetails}. ${remainingDetails}`;
+    field('message').value = `Timesheet receipt for ${employeeName.value.trim()}. ${field('summary').value} Structured daily record, calendar-sync JSON, XLSX and CSV attachments are included.`;
     emailForm.querySelectorAll('[data-daily-record]').forEach((input) => input.remove());
     setFileInputFiles(field('recordJson'), [recordFile]);
     setFileInputFiles(field('xlsx'), [xlsxFile]);

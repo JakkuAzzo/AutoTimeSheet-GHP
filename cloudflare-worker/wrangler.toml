@@ -28,9 +28,9 @@ ADMIN_GROUP_IDS = ""
 HISTORY_UPSTREAM_URL = "https://default8b182d6b6f344ca284ad50ca712b54.88.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/491610e0763f41269a645bde6346369d/triggers/manual/paths/invoke?api-version=1"
 # Protected history uses this approved portal roster to distinguish
 # a missing submission from an employee who has never submitted a record.
-STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"name":"Matthew","upn":"matthew@gmt-services.co.uk"},{"name":"Ainsley","upn":"ainsley@gmt-services.co.uk"},{"name":"Simon","upn":"simon@gmt-services.co.uk"},{"name":"Faith","upn":"faith.b@gmt-services.co.uk"},{"name":"Michelle","upn":"michelle@gmt-services.co.uk","workdays":[2,3]}]'
-# Verified historical sheets remain editable without changing today's roster.
-HISTORICAL_EMPLOYEE_ALIASES_JSON = '[{"name":"Lidia Alemayoh","upn":"lidiaa.admin@gmt-services.co.uk"}]'
+STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"name":"Matthew","upn":"matthew@gmt-services.co.uk"},{"name":"Ainsley","upn":"ainsley@gmt-services.co.uk"},{"name":"Simon","upn":"simon@gmt-services.co.uk"},{"name":"Faith","upn":"faith.b@gmt-services.co.uk"},{"name":"Michelle Reid","upn":"micheller.admin@gmt-services.co.uk","workdays":[2,3]},{"name":"Lidia Alemayoh","upn":"lidiaa.admin@gmt-services.co.uk","workdays":[1,4,5]}]'
+# Keep verified former aliases separate from the attendance roster when needed.
+HISTORICAL_EMPLOYEE_ALIASES_JSON = '[]'
 DISPATCH_ENABLED = "true"
 DISPATCH_WEEKDAY = "Friday"
 DISPATCH_HOUR = "18"

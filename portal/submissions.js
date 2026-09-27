@@ -236,6 +236,11 @@
       }
       recordRows(record).forEach(function (row, index) {
         var date = rowDate(row);
+        var scheduledDays = Array.isArray(record.schedule_weekdays) ? record.schedule_weekdays : [];
+        var weekday = date ? (new Date(date + "T12:00:00Z").getUTCDay() || 7) : 0;
+        // Keep generated off-roster cards in source history for audit, but
+        // show the same scheduled day set as the shared calendar.
+        if (row.scheduled === false || (scheduledDays.length && scheduledDays.indexOf(weekday) === -1)) return;
         var rowMonth = window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
           ? window.GMTPayPeriods.payMonthKeyForDate(date)
           : payMonthForRecord({ payload: { rows: [row] }, start_date: date });
@@ -688,7 +693,8 @@
     add("_template", "box");
     add("_captcha", "false");
     add("_url", window.location.href);
-    if (config.formSubmitCc) add("_cc", config.formSubmitCc);
+    var recipients = [config.formSubmitCc, record.employee_upn].map(function (value) { return String(value || "").trim(); }).filter(function (value, index, values) { return value && values.indexOf(value) === index; });
+    if (recipients.length) add("_cc", recipients.join(","));
     add("submission_type", "Timesheet update");
     add("gmt_type", "timesheet");
     add("gmt_action", "update");
