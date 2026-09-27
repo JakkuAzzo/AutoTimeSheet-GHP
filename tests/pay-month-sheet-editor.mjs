@@ -58,6 +58,7 @@ try {
   await page.locator('[data-sheet-index]').filter({ hasText: 'Matthew' }).click();
   const rows = page.locator('[data-pay-month-edit-form] [data-sheet-row]');
   assert.equal(await rows.count(), 3, 'the actual Date column places all Matthew days in the same pay month');
+  assert.match(await page.locator('[data-pay-month-coverage]').innerText(), /3 of 20 scheduled days recorded or explained/);
   for (let i = 0; i < 3; i++) assert.equal(await rows.nth(i).locator('[data-sheet-field="start"]').isEnabled(), true, `row ${i} is editable`);
   assert.equal(await page.getByRole('button', { name: /Add day/i }).count(), 1);
   assert.equal(await rows.first().getByRole('button', { name: /Remove day/i }).count(), 1);
@@ -86,6 +87,7 @@ try {
   const receipt = await page.evaluate(() => window.__receipt);
   assert.equal(receipt.gmt_employee_email, 'matthew@gmt-services.co.uk');
   assert.match(receipt._cc, /matthew@gmt-services.co.uk/);
+  assert.match(receipt.summary, /2026-08-31: 07:30–17:00, 60 minute break/);
   assert.equal(receipt.referrerPolicy, 'strict-origin-when-cross-origin');
   await page.addScriptTag({ path: resolve(root, 'portal/calendar-data.js') });
   await page.evaluate(async () => {
