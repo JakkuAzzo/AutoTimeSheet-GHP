@@ -155,7 +155,7 @@ try {
   assert.ok(result.files[0].files[0].name.includes('GMT Timesheet Record - Routing Tester - Pay Month 2026-06 - Week 2026-06-22.json'));
   assert.ok(result.files[0].files[0].size > 100);
   const recordEnvelope = JSON.parse(result.files[0].files[0].content);
-  assert.equal(recordEnvelope.recordId, 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22|2026-06-22');
+  assert.equal(recordEnvelope.recordId, 'timesheet-routing-tester-example-com-2026-06-22|2026-06-22');
   assert.equal(recordEnvelope.date, '2026-06-22');
   assert.equal(recordEnvelope.startTime, '08:00');
   assert.equal(recordEnvelope.finishTime, '16:00');
@@ -170,7 +170,7 @@ try {
   assert.equal(result.fields.gmt_type, 'timesheet');
   assert.equal(result.fields.gmt_action, 'submission');
   assert.equal(result.fields.gmt_schema_version, '1');
-  assert.equal(result.fields.gmt_record_id, 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22');
+  assert.equal(result.fields.gmt_record_id, 'timesheet-routing-tester-example-com-2026-06-22');
   assert.equal(result.fields.gmt_submission_id, result.fields.gmt_record_id);
   assert.equal(result.fields.gmt_workbook_key, 'timesheet-routing-tester-example-com-2026-06');
   assert.equal(result.fields.gmt_filing_mode, 'monthly-upsert');
@@ -226,7 +226,7 @@ try {
     startDate: '2026-06-22',
     endDateExclusive: '2026-06-23',
     isAllDay: true,
-    syncEventId: 'timesheet-profile-tester-gmt-services-co-uk-2026-06-22-sick-2026-06-22-2'
+    syncEventId: 'timesheet-routing-tester-example-com-2026-06-22-sick-2026-06-22-2'
   });
 
   console.log(JSON.stringify(result, null, 2));

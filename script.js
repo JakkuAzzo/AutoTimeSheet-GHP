@@ -1052,7 +1052,7 @@ function submissionKeyPart(value) {
 
 function buildTimesheetSubmissionId(calendarSync) {
   const profile = localPortalProfile();
-  const employeeIdentity = profile.username || employeeEmail.value.trim() || employeeName.value.trim();
+  const employeeIdentity = employeeEmail.value.trim() || profile.username || employeeName.value.trim();
   return `timesheet-${submissionKeyPart(employeeIdentity)}-${calendarSync.weekStart || 'unspecified'}`;
 }
 
