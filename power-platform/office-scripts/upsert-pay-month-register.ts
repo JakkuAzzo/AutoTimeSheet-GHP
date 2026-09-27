@@ -132,8 +132,11 @@ function currentRows(sheet: ExcelScript.Worksheet, month: string): DailyRow[] {
   const headers = sheet.getRange("A1:G1").getValues()[0].map((cell) => text(cell));
   if (headers.join("|") !== DAILY_HEADERS.join("|")) throw new Error("Daily Entries headings do not match the certified seven-column format");
   if (count < 2) return [];
+  const seenDates: { [date: string]: boolean } = {};
   return sheet.getRange("A2:G" + count).getValues().filter((cells) => text(cells[0]) && text(cells[0]) !== "Pay month total").map((cells) => {
     const row = normalize({ Date: isoDate(cells[0]), Start: cells[1], Finish: cells[2], Break: cells[3], Absence: cells[4], Notes: cells[6] }, month);
+    if (seenDates[row.date]) throw new Error("Duplicate existing Date: " + row.date);
+    seenDates[row.date] = true;
     // Existing review workbooks leave a clockless absence's calculated cell
     // blank. Its worked total is still zero, and the rewritten formula makes
     // that zero explicit without treating the day as missing.

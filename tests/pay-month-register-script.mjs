@@ -109,4 +109,16 @@ assert.deepEqual(candidate.daily.rows().map((row) => dateCell(row[0])), ['Date',
 assert.equal(durationCell(candidate.daily.rows()[3][5]), 0, 'a clockless Holiday with a blank cached total is retained as a zero-hour day');
 const companyNamed = workbook({ name: 'Matthew - Pay Month 2026-09.xlsx' });
 assert.equal(context.runScript(companyNamed, JSON.stringify(original)).created, 2, 'the company SharePoint filename is accepted');
+const duplicatedDate = workbook({ dailyRows: [
+  ['Date', 'Start', 'Finish', 'Break', 'Absence', 'Total hours', 'Notes'],
+  [serial, 8 / 24, 17 / 24, 60, 'NA', 8 / 24, 'First source'],
+  [serial, 8 / 24, 17 / 24, 60, 'NA', 8 / 24, 'Second source']
+] });
+const duplicatedBefore = duplicatedDate.daily.rows();
+assert.throws(
+  () => context.runScript(duplicatedDate, JSON.stringify([original[0]])),
+  /Duplicate existing Date: 2026-08-24/,
+  'a replay must stop before silently collapsing two existing rows for one day'
+);
+assert.deepEqual(duplicatedDate.daily.rows(), duplicatedBefore, 'a duplicate-date rejection leaves the destination untouched');
 console.log('PASS: two-tab Office Script replays dated originals, rejects conflicts, and replaces a full corrected pay month.');
