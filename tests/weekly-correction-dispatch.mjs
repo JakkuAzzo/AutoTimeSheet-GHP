@@ -39,8 +39,15 @@ const form = dispatchForm(record, attachments);
 assert.equal(form.get('gmt_record_id'), record.record_id);
 assert.equal(form.get('gmt_action'), 'correction');
 assert.equal(form.get('gmt_workbook_key'), 'timesheet-queue-tester-gmt-services-co-uk-2026-09');
+assert.equal(form.get('gmt_pay_month'), '2026-09');
 assert.equal(form.get('attachment').name, 'GMT Timesheet - Queue Tester - 2026-09-07.xlsx');
 assert.equal(form.get('attachment_csv').name, 'GMT Timesheet - Queue Tester - 2026-09-07.csv');
+
+const crossCalendarMonth = { ...record, start_date: '2026-08-24', end_date: '2026-09-18', payload_json: JSON.stringify({ ...JSON.parse(record.payload_json), weekStart: '2026-08-24', weekEnd: '2026-09-18', payMonth: '2026-09' }) };
+const crossMonthForm = dispatchForm(crossCalendarMonth, attachments);
+assert.equal(crossMonthForm.get('gmt_pay_month'), '2026-09', 'the payroll month is explicit even when the first day is in August');
+assert.equal(crossMonthForm.get('gmt_workbook_key'), 'timesheet-queue-tester-gmt-services-co-uk-2026-09');
+assert.equal(crossMonthForm.get('gmt_month'), '09');
 
 const spoofedRecord = { ...record, payload_json: JSON.stringify({ ...JSON.parse(record.payload_json), employeeEmail: 'other@example.invalid', employeeUpn: 'other@example.invalid' }) };
 const spoofedForm = dispatchForm(spoofedRecord, attachments);

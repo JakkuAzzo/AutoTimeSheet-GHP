@@ -15,9 +15,16 @@ try {
   await page.setContent(html);
   await page.locator('main').evaluate((main) => { main.hidden = false; });
   await page.evaluate(() => {
+    window.GMT_APP_CONFIG = { timesheetFormSubmitEndpoint: 'https://formsubmit.co/example', formSubmitCc: 'acc.gmtelect@outlook.com' };
+    window.fetch = async (_url, options) => { window.__receipt = Object.fromEntries(options.body.entries()); return { ok: true, json: async () => ({ success: true }) }; };
+    window.ensureXlsxLoaded = async () => ({
+      utils: { book_new: () => ({ SheetNames: [] }), aoa_to_sheet: (matrix) => ({ matrix }), book_append_sheet: (book, _sheet, name) => book.SheetNames.push(name) },
+      write: () => new Uint8Array([1, 2, 3]).buffer
+    });
     window.GMTPortalApi = {
       enabled: () => true,
       saveRecord: async (record) => { window.__savedCorrection = record; return { ok: true }; },
+      queueAttachments: async (recordId, attachments) => { window.__queuedCorrection = { recordId, attachments }; return { queued: true }; },
       updateRecord: async () => { throw new Error('Original source records must not be overwritten'); },
       history: async () => ({
         meta: { is_admin: true, editable_pay_months: ['2026-09', '2026-10'], completion: { employees: [
@@ -38,6 +45,7 @@ try {
     };
   });
   await page.addScriptTag({ path: resolve(root, 'pay-periods.js') });
+  await page.addScriptTag({ path: resolve(root, 'timesheet-coverage.js') });
   await page.addScriptTag({ path: resolve(root, 'portal/pay-month-workbook.js') });
   await page.addScriptTag({ path: resolve(root, 'portal/submissions.js') });
   await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
@@ -70,6 +78,14 @@ try {
   assert.equal(correction.payload.payMonth, '2026-09');
   assert.deepEqual(correction.payload.deletedDays, ['2026-09-01']);
   assert.deepEqual(correction.payload.rows.map((row) => row.date).sort(), ['2026-08-31', '2026-09-02']);
+  await page.waitForFunction(() => Boolean(window.__queuedCorrection && window.__receipt));
+  const queued = await page.evaluate(() => window.__queuedCorrection);
+  assert.equal(queued.recordId, correction.recordId);
+  assert.deepEqual(queued.attachments.map((attachment) => attachment.fieldName).sort(), ['attachment', 'attachment_csv']);
+  assert.match(Buffer.from(queued.attachments.find((attachment) => attachment.fieldName === 'attachment_csv').contentBase64, 'base64').toString(), /2026-09-02/);
+  const receipt = await page.evaluate(() => window.__receipt);
+  assert.equal(receipt.gmt_employee_email, 'matthew@gmt-services.co.uk');
+  assert.match(receipt._cc, /matthew@gmt-services.co.uk/);
   await page.addScriptTag({ path: resolve(root, 'portal/calendar-data.js') });
   await page.evaluate(async () => {
     const prior = await window.GMTPortalApi.history();

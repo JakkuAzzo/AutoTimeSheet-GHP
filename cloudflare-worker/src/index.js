@@ -1996,7 +1996,12 @@ function dispatchForm(record, attachments) {
   const employeeUpn = text(isSynthetic ? (payload.employeeUpn || record.owner_upn) : record.owner_upn, record.owner_upn, 320);
   const weekStart = text(payload.weekStart || record.start_date, '', 80);
   const weekEnd = text(payload.weekEnd || record.end_date || weekStart, weekStart, 80);
-  const month = weekStart.slice(0, 7) || 'unspecified';
+  // The first daily date may be in August while the pay month ends in
+  // September. Never use the form's week-start field as the workbook month.
+  const declaredMonth = text(payload.payMonth || payload.pay_month, '', 7);
+  const month = /^\d{4}-\d{2}$/.test(declaredMonth)
+    ? declaredMonth
+    : payCycleKeyForDate(weekStart) || 'unspecified';
   const workbookKey = `timesheet-${submissionKeyPart(employeeUpn || employeeEmail || employeeName)}-${month}`;
   const form = new FormData();
   const set = (name, value) => form.set(name, String(value == null ? '' : value));
@@ -2013,13 +2018,14 @@ function dispatchForm(record, attachments) {
   set('gmt_record_id', record.record_id);
   set('gmt_submission_id', record.record_id);
   set('gmt_workbook_key', workbookKey);
+  set('gmt_pay_month', month);
   set('gmt_filing_mode', 'monthly-upsert');
   set('gmt_employee', employeeName);
   set('gmt_employee_upn', employeeUpn);
   set('gmt_week_start', weekStart);
   set('gmt_week_end', weekEnd);
-  set('gmt_year', weekStart.slice(0, 4));
-  set('gmt_month', weekStart.slice(5, 7));
+  set('gmt_year', month.slice(0, 4));
+  set('gmt_month', month.slice(5, 7));
   set('gmt_worked_hours', hours(totals.workedActual));
   set('gmt_basic_hours', hours(totals.basic));
   set('gmt_ot15_hours', hours(totals.ot15));

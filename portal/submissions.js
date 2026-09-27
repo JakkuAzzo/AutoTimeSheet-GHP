@@ -654,8 +654,35 @@
     next.weightedHours = Number(((metrics.basic / 60) + (metrics.ot15 / 60) * 1.5 + (metrics.ot20 / 60) * 2).toFixed(2));
     return next;
   }
-  function nativeFormSubmitEndpoint(value) {
-    return String(value || "").trim().replace("/ajax/", "/");
+  function ajaxFormSubmitEndpoint(value) {
+    var endpoint = String(value || "").trim();
+    return /^https:\/\/formsubmit\.co\/ajax\//i.test(endpoint) ? endpoint : endpoint.replace(/^https:\/\/formsubmit\.co\//i, "https://formsubmit.co/ajax/");
+  }
+  async function queuePayMonthWorkbook(recordIdValue, sheet, payload, period) {
+    var api = payMonthWorkbookApi();
+    if (!api || !window.GMTPortalApi || typeof window.GMTPortalApi.queueAttachments !== "function") throw new Error("The Accounts workbook queue is unavailable.");
+    var excel = typeof window.ensureXlsxLoaded === "function" ? await window.ensureXlsxLoaded() : window.XLSX;
+    if (!excel || !excel.utils || typeof excel.write !== "function") throw new Error("The Excel generator is unavailable.");
+    var rowsByDate = {};
+    sheet.rows.forEach(function (item) { if (item && item.date) rowsByDate[item.date] = item.row; });
+    (payload.rows || []).forEach(function (row) { var date = rowDate(row); if (date) rowsByDate[date] = row; });
+    (payload.deletedDays || []).forEach(function (date) { delete rowsByDate[date]; });
+    var canonical = { rows: Object.keys(rowsByDate).sort().map(function (date) { return { row: rowsByDate[date] }; }) };
+    var prepared = api.toWorkbookMatrices(canonical, period);
+    var workbook = excel.utils.book_new();
+    excel.utils.book_append_sheet(workbook, excel.utils.aoa_to_sheet(prepared.dailyMatrix), "Daily Entries");
+    excel.utils.book_append_sheet(workbook, excel.utils.aoa_to_sheet(prepared.weeklyMatrix), "Weekly Totals");
+    var stem = "GMT Timesheet - " + String(sheet.employeeName || "Employee").replace(/[^a-z0-9]+/gi, "-") + " - Pay Month " + sheet.payMonth;
+    var xlsx = new File([excel.write(workbook, { bookType: "xlsx", type: "array" })], stem + ".xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    var csvText = prepared.dailyMatrix.map(function (row) { return row.map(function (value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }).join(","); }).join("\r\n");
+    var csv = new File([csvText], stem + ".csv", { type: "text/csv" });
+    async function encode(file, fieldName) {
+      var bytes = new Uint8Array(await file.arrayBuffer());
+      var binary = "";
+      for (var index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
+      return { fieldName: fieldName, fileName: file.name, contentType: file.type, sizeBytes: file.size, contentBase64: btoa(binary) };
+    }
+    return window.GMTPortalApi.queueAttachments(recordIdValue, await Promise.all([encode(xlsx, "attachment"), encode(csv, "attachment_csv")]));
   }
   function portalEditorLabel() {
     try {
@@ -663,22 +690,13 @@
       return String(profile.name || profile.username || profile.notificationEmail || "Signed-in GMT user").trim();
     } catch (_) { return "Signed-in GMT user"; }
   }
-  function queueTimesheetChangeEmail(record, payload, payMonth, changedRows) {
+  async function sendTimesheetChangeEmail(record, payload, payMonth, changedRows) {
     var config = window.GMT_APP_CONFIG || {};
-    var endpoint = nativeFormSubmitEndpoint(config.formSubmitEndpoint || config.fallbackFormSubmitEndpoint);
-    if (!endpoint || !record || !changedRows || !changedRows.length) return false;
-    var frameId = "timesheet-change-mail-frame-" + Date.now();
-    var frame = document.createElement("iframe");
-    frame.id = frameId;
-    frame.name = frameId;
-    frame.hidden = true;
-    document.body.appendChild(frame);
+    var endpoint = ajaxFormSubmitEndpoint(config.timesheetFormSubmitEndpoint || config.formSubmitTimesheetEndpoint || config.fallbackFormSubmitEndpoint);
+    if (!endpoint || !record || !changedRows || !changedRows.length) throw new Error("Timesheet update email is not configured.");
     var form = document.createElement("form");
     form.method = "POST";
     form.action = endpoint;
-    form.target = frameId;
-    form.enctype = "multipart/form-data";
-    form.hidden = true;
     var add = function (name, value) {
       var input = document.createElement("input");
       input.type = "hidden";
@@ -708,9 +726,22 @@
     add("gmt_edit_note", "Edited on behalf of " + employee + " by " + editor + ".");
     add("gmt_changed_rows", JSON.stringify(changedRows.map(function (item) { return item.values; })));
     add("updated_at", changedAt);
-    document.body.appendChild(form);
-    try { form.submit(); } catch (_) { form.remove(); frame.remove(); return false; }
-    window.setTimeout(function () { form.remove(); frame.remove(); }, 4000);
+    var roster = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
+    var employeeSchedule = roster.find(function (entry) { return String(entry.employee_upn || "").toLowerCase() === String(record.employee_upn || "").toLowerCase(); });
+    var coverage = window.GMTTimesheetCoverage && window.GMTTimesheetCoverage.summarize({
+      period: window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth(payMonth),
+      employeeEmail: record.employee_upn,
+      records: records,
+      submittedRows: payload.rows || [],
+      workdays: employeeSchedule && employeeSchedule.schedule_weekdays
+    });
+    var remaining = window.GMTTimesheetCoverage ? window.GMTTimesheetCoverage.receiptText(coverage) : "Open Submitted documents to review your remaining days.";
+    add("summary", "Updated dates: " + changedRows.map(function (item) { return item.values && item.values.date || ""; }).filter(Boolean).join(", ") + ". " + remaining);
+    add("message", "Timesheet correction for " + employee + " by " + editor + ". " + remaining);
+    var response = await fetch(endpoint, { method: "POST", body: new FormData(form), headers: { Accept: "application/json" }, credentials: "omit" });
+    var body = null;
+    try { body = await response.json(); } catch (_) {}
+    if (!response.ok || (body && (body.success === false || body.success === "false"))) throw new Error("Timesheet was saved, but its email receipt was not accepted. Please retry notification from Accounts.");
     return true;
   }
   function correctionRecordId(sheet) {
@@ -780,11 +811,17 @@
       if (feedback) feedback.textContent = "Saving this employee's pay-month changes…";
       await window.GMTPortalApi.saveRecord({ recordId: id, kind: "timesheets", action: "pay_month_correction", status: "Submitted", editMode: true, employeeName: sheet.employeeName, employeeEmail: sheet.employeeUpn, startDate: period.start, endDate: period.end, recordDate: changedAt.slice(0, 10), updatedAt: changedAt, payload: payload });
       var notificationRecord = { source_record_id: id, employee_name: sheet.employeeName, employee_upn: sheet.employeeUpn };
-      queueTimesheetChangeEmail(notificationRecord, payload, sheet.payMonth, changedRows);
+      var queueIssue = "";
+      try { await queuePayMonthWorkbook(id, sheet, payload, period); }
+      catch (error) { queueIssue = error && error.message || "Accounts workbook filing was not queued."; }
+      var emailIssue = "";
+      try { await sendTimesheetChangeEmail(notificationRecord, payload, sheet.payMonth, changedRows); }
+      catch (error) { emailIssue = error && error.message || "Email receipt was not confirmed."; }
       preferredSheetKey = sheet.key;
       document.dispatchEvent(new CustomEvent("gmt:history-record-updated", { detail: { sheetKey: sheet.key } }));
-      if (feedback) feedback.textContent = "Saved. The calendar and pay-month sheet will refresh from protected history.";
       await load();
+      var outcome = "Saved in the portal. " + (queueIssue || "Accounts workbook filing queued.") + " " + (emailIssue || "Email receipt accepted.");
+      if (status) status.textContent = outcome;
     } catch (error) {
       if (feedback) feedback.textContent = error && error.message ? error.message : "The pay-month changes could not be saved.";
       if (button) button.disabled = false;
