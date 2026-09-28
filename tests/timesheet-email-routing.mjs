@@ -123,7 +123,7 @@ try {
   await page.locator('[data-field="date"]').first().fill('2026-06-22');
   await page.locator('[data-field="start"]').first().fill('08:00');
   await page.locator('[data-field="finish"]').first().fill('16:00');
-  await page.locator('[data-field="lunchHad"]').first().selectOption('0');
+  await page.locator('[data-field="lunchHad"]').first().fill('0');
   await page.locator('#submit-btn').click();
   await page.waitForFunction(() => window.__submittedForms.length === 1, null, { timeout: 15000 });
 

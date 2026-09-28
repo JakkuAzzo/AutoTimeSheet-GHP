@@ -216,7 +216,7 @@ function parseTimeToMinutes(value) {
 
 function normaliseBreakMinutes(value) {
   const minutes = Number(value || 0);
-  return [0, 30, 60].includes(minutes) ? minutes : 0;
+  return Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440 ? minutes : 0;
 }
 
 function fmtMinutes(minutes) {
@@ -251,9 +251,7 @@ function isFullDayAbsence(row) {
 
 function breakLabel(minutes) {
   const value = normaliseBreakMinutes(minutes);
-  if (value === 30) return '30 minutes deducted';
-  if (value === 60) return '60 minutes deducted';
-  return 'No break';
+  return value ? `${value} minutes deducted` : 'No break';
 }
 
 function dateInRange(date, start, end) {
@@ -460,12 +458,8 @@ function addDay(data = {}) {
         <label>Finish
           <input type="time" name="day_${index}_finish" data-field="finish" value="${escapeHtml(finishValue)}">
         </label>
-        <label>Break
-          <select name="day_${index}_break" data-field="lunchHad">
-            <option value="0" ${breakMinutes === 0 ? 'selected' : ''}>No break</option>
-            <option value="30" ${breakMinutes === 30 ? 'selected' : ''}>30 minute break</option>
-            <option value="60" ${breakMinutes === 60 ? 'selected' : ''}>1 hour break</option>
-          </select>
+        <label>Break (minutes)
+          <input type="number" name="day_${index}_break" data-field="lunchHad" min="0" max="1440" step="1" inputmode="numeric" value="${breakMinutes}">
         </label>
         <label>Absence reason
           <select name="day_${index}_absence_status" data-field="absenceStatus">

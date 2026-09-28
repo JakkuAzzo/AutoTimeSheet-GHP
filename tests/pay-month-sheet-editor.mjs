@@ -73,7 +73,7 @@ try {
   await added.locator('[data-sheet-field="date"]').fill('2026-09-02');
   await added.locator('[data-sheet-field="start"]').fill('08:00');
   await added.locator('[data-sheet-field="finish"]').fill('17:00');
-  await added.locator('[data-sheet-field="break"]').selectOption('30');
+  await added.locator('[data-sheet-field="break"]').fill('120');
   await page.getByRole('button', { name: /Save changes/i }).click();
   await page.waitForFunction(() => Boolean(window.__savedCorrection));
   const correction = await page.evaluate(() => window.__savedCorrection);
@@ -93,7 +93,7 @@ try {
   assert.equal(filing.payMonth, '2026-09');
   assert.deepEqual(filing.rows.map((row) => row.date), ['2026-08-31', '2026-09-02', '2026-09-03']);
   assert.deepEqual(filing.deletedDays, ['2026-09-01']);
-  assert.equal(filing.rows.find((row) => row.date === '2026-09-02').breakMinutes, 30);
+  assert.equal(filing.rows.find((row) => row.date === '2026-09-02').breakMinutes, 120);
   const receipt = await page.evaluate(() => window.__receipt);
   assert.equal(receipt.gmt_employee_email, 'matthew@gmt-services.co.uk');
   assert.match(receipt._cc, /matthew@gmt-services.co.uk/);

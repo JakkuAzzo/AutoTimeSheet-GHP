@@ -526,7 +526,7 @@
       + '<td data-label="Date"><input data-sheet-field="date" type="date" value="' + safe(date) + '"' + disabled + '></td>'
       + '<td data-label="Start"><input data-sheet-field="start" type="time" value="' + safe(start) + '"' + disabled + '></td>'
       + '<td data-label="Finish"><input data-sheet-field="finish" type="time" value="' + safe(finish) + '"' + disabled + '></td>'
-      + '<td data-label="Break"><select data-sheet-field="break"' + disabled + '><option value=""' + (breakValue === null ? ' selected' : '') + '>Not recorded</option><option value="0"' + (breakValue === 0 ? ' selected' : '') + '>0 min</option><option value="30"' + (breakValue === 30 ? ' selected' : '') + '>30 min</option><option value="60"' + (breakValue === 60 ? ' selected' : '') + '>60 min</option></select></td>'
+      + '<td data-label="Break"><input data-sheet-field="break" type="number" min="0" max="1440" step="1" inputmode="numeric" aria-label="Break minutes" placeholder="—" value="' + (breakValue === null ? '' : safe(breakValue)) + '"' + disabled + '></td>'
       + '<td data-label="Absence"><select data-sheet-field="absence"' + disabled + '><option value="NA"' + (absence === 'NA' ? ' selected' : '') + '>NA</option><option value="Sick"' + (absence === 'Sick' ? ' selected' : '') + '>Sick</option><option value="Holiday"' + (absence === 'Holiday' ? ' selected' : '') + '>Holiday</option><option value="Time Off"' + (absence === 'Time Off' ? ' selected' : '') + '>Time Off</option></select></td>'
       + '<td data-label="Total hours"><span class="pay-month-row-hours">' + safe(totalLabel) + '</span></td>'
       + '<td data-label="Notes"><input data-sheet-field="note" type="text" value="' + safe(note) + '" placeholder="Optional note"' + disabled + '></td>'
@@ -849,6 +849,10 @@
           return;
         }
         var values = { date: rowInputValue(container, "date"), start: rowInputValue(container, "start"), finish: rowInputValue(container, "finish"), breakMinutes: rowInputValue(container, "break") === "" ? null : Number(rowInputValue(container, "break")), absence: rowInputValue(container, "absence") || "NA", note: rowInputValue(container, "note") };
+        if (values.breakMinutes !== null && (!Number.isInteger(values.breakMinutes) || values.breakMinutes < 0 || values.breakMinutes > 1440)) throw new Error("Break must be a whole number of minutes between 0 and 1440.");
+        var startMinutes = timeMinutes(values.start);
+        var finishMinutes = timeMinutes(values.finish);
+        if (values.breakMinutes !== null && startMinutes !== null && finishMinutes !== null && finishMinutes >= startMinutes && values.breakMinutes > finishMinutes - startMinutes) throw new Error("Break cannot exceed the time between Start and Finish.");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date) || !window.GMTPayPeriods || window.GMTPayPeriods.payMonthKeyForDate(values.date) !== sheet.payMonth) throw new Error("Every date must belong to this pay month.");
         var todayParts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
         var todayPart = function (type) { return todayParts.find(function (part) { return part.type === type; }).value; };
