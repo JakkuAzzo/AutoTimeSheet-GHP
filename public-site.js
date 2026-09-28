@@ -99,9 +99,11 @@
     map.attributionControl.setPrefix(false);
     window.gmtMap = map;
 
-    window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    // Use public street tiles without a browser-exposed API key. The former
+    // CARTO endpoint renders an API KEY placeholder when its key is missing.
+    window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+      attribution: 'Tiles &copy; Esri'
     }).addTo(map);
 
     var pinIcon = window.L.divIcon({
