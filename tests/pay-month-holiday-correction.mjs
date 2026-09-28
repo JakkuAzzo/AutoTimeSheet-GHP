@@ -16,12 +16,12 @@ const correctedHoliday = {
   workedHours: 9
 };
 
-assert.equal(workbook.workedMinutesForRow(correctedHoliday), 0);
+assert.equal(workbook.workedMinutesForRow(correctedHoliday), 480);
 const data = workbook.toWorkbookData(
   { rows: [{ row: correctedHoliday }] },
   { start: '2026-08-24', end: '2026-09-18' }
 );
-assert.equal(data.dailyEntries[0]['Total hours'], 0);
-assert.equal(data.weeklyTotals.at(-1)['Total hours'], 0);
+assert.equal(data.dailyEntries[0]['Total hours'], 480);
+assert.equal(data.weeklyTotals.at(-1)['Total hours'], 480);
 
 console.log('Holiday correction clears stale worked hours');

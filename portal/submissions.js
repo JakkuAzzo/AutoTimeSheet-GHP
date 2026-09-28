@@ -222,7 +222,7 @@
   function displayHours(minutes) { var value = Math.max(0, Math.round(Number(minutes) || 0)); var hours = Math.floor(value / 60); var rest = value % 60; return hours + "h" + (rest ? " " + rest + "m" : ""); }
   function rowMetrics(row) {
     var date = rowDate(row); var dateObj = date ? new Date(date + "T00:00:00Z") : null; var day = dateObj ? dateObj.getUTCDay() : 1; var absence = String(rowValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"], "NA")); var worked = rowWorkedMinutes(row); var result = { workedActual: worked, basic: 0, ot15: 0, ot20: 0, holiday: 0, sick: 0, timeOff: 0, absent: 0 };
-    if (/^holiday$/i.test(absence)) { result.basic = 480; result.holiday = 1; result.absent = 1; return result; }
+    if (/^holiday$/i.test(absence)) { result.workedActual = 480; result.basic = 480; result.holiday = 1; result.absent = 1; return result; }
     if (/^sick$/i.test(absence)) { result.sick = 1; result.absent = 1; return result; }
     if (/^time off$/i.test(absence)) { result.timeOff = 1; result.absent = 1; }
     if (day >= 1 && day <= 5) { result.basic = Math.min(480, worked); result.ot15 = Math.max(0, worked - 480); }
@@ -564,6 +564,7 @@
     var downloadButton = preview.querySelector("[data-pay-month-download]");
     if (downloadButton) downloadButton.addEventListener("click", function () { downloadPayMonthSheet(sheet, preview.querySelector("[data-pay-month-download-status]"), downloadButton); });
     if (form) {
+      var addDayButton = form.querySelector("[data-add-day]");
       function recalculate() {
         var total = 0;
         form.querySelectorAll("[data-sheet-row]").forEach(function (entry) {
@@ -595,6 +596,14 @@
         row.classList.toggle("is-weekend", /^\d{4}-\d{2}-\d{2}$/.test(date) && [0, 6].indexOf(new Date(date + 'T12:00:00Z').getUTCDay()) !== -1);
         recalculate();
       });
+      if (addDayButton) addDayButton.addEventListener("click", function () {
+        var tbody = form.querySelector("tbody");
+        var next = sheet.rows.length + form.querySelectorAll("[data-new-row]").length;
+        if (tbody.querySelector('td[colspan]')) tbody.innerHTML = "";
+        tbody.insertAdjacentHTML("beforeend", sheetRowMarkup({}, next, true, true));
+        var addedDate = tbody.lastElementChild.querySelector('[data-sheet-field="date"]');
+        if (addedDate) addedDate.focus();
+      });
       form.addEventListener("click", function (event) {
         var remove = event.target.closest("[data-remove-day]");
         if (remove) {
@@ -608,13 +617,6 @@
             remove.textContent = removed ? "Undo remove" : "Remove day";
           }
           recalculate();
-        }
-        if (event.target.closest("[data-add-day]")) {
-          var tbody = form.querySelector("tbody");
-          var next = sheet.rows.length + form.querySelectorAll("[data-new-row]").length;
-          if (tbody.querySelector('td[colspan]')) tbody.innerHTML = "";
-          tbody.insertAdjacentHTML("beforeend", sheetRowMarkup({}, next, true, true));
-          tbody.lastElementChild.querySelector('[data-sheet-field="date"]').focus();
         }
       });
     }

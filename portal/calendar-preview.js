@@ -17,6 +17,28 @@
   function dateKey(value) { return typeof helper.key === "function" ? helper.key(value) : String(value || "").slice(0, 10); }
   function eventDate(event) { return dateKey(event && (event.date || event.startDate || event.event_date || event.record_date)); }
   function eventType(event) { return String(event && event.type || "general").toLowerCase().replace(/[^a-z]+/g, "-"); }
+  function eventCategory(event) {
+    var kind = String(event && (event.type || event.kind || event.recordKind) || "").toLowerCase();
+    if (/timesheet|clock|absence|holiday|sick|time.?off/.test(kind)) return "timesheets";
+    if (/job.?card|jobcard/.test(kind)) return "jobcards";
+    if (/estimate|quote/.test(kind)) return "estimates";
+    if (/task/.test(kind)) return "tasks";
+    if (/enquir|contact/.test(kind)) return "enquiries";
+    if (/invoice/.test(kind)) return "invoices";
+    if (/calendar|event|training|meeting/.test(kind)) return "calendar";
+    return "other";
+  }
+  function eventVisible(event) {
+    var filterGroup = document.querySelector("[data-calendar-filters]");
+    if (!filterGroup) return true;
+    var input = filterGroup.querySelector('[data-calendar-filter="' + eventCategory(event) + '"]');
+    return !input || input.checked;
+  }
+  function payWeekBadge(key) {
+    var periods = window.GMTPayPeriods;
+    var period = periods && typeof periods.periodForDate === "function" ? periods.periodForDate(key) : null;
+    return period && period.start === key ? '<span class="calendar-week-badge">(W1)</span>' : "";
+  }
   function eventRecordId(event) { return String(event && (event.recordId || event.record_id || event.source_record_id || event.id) || ""); }
   function eventKind(event) { return String(event && (event.type || event.kind || "general") || ""); }
   function eventCanEdit(event) {
@@ -49,7 +71,7 @@
     var offset = (first.getDay() + 6) % 7;
     var days = new Date(year, month + 1, 0).getDate();
     var byDay = {};
-    events.forEach(function (event) { var key = eventDate(event); if (!byDay[key]) byDay[key] = []; byDay[key].push(event); });
+    events.filter(eventVisible).forEach(function (event) { var key = eventDate(event); if (!byDay[key]) byDay[key] = []; byDay[key].push(event); });
     var today = dateKey(new Date().toISOString());
     var html = '<div class="portal-calendar-grid">';
     ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach(function (day) { html += '<span class="portal-calendar-weekday">' + day + "</span>"; });
@@ -57,16 +79,16 @@
     for (var day = 1; day <= days; day += 1) {
       var key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
       var dayEvents = byDay[key] || [];
-      var labels = dayEvents.slice(0, 4).map(function (event) {
+      var labels = dayEvents.map(function (event, eventIndex) {
         var label = (event.title || event.type || "Event") + (event.detail ? " · " + event.detail : "");
         var content = "<strong>" + safe(event.title || event.type || "Event") + "</strong>" + (event.detail ? "<small>" + safe(event.detail) + "</small>" : "");
-        return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + '" data-calendar-record-id="' + safe(eventRecordId(event)) + '" data-calendar-record-kind="' + safe(eventKind(event)) + '" data-calendar-can-edit="' + String(eventCanEdit(event)) + '" data-calendar-can-delete="' + String(eventCanDelete(event)) + '" data-calendar-preview-title="' + safe(event.title || event.type || "Event") + '" data-calendar-preview="' + safe(event.detail || label) + '" data-calendar-preview-status="' + safe(event.status || "") + '" data-calendar-date="' + safe(key) + '" aria-label="' + safe(label) + '" title="' + safe(label) + '">' + content + "</button>";
+        return '<button type="button" class="calendar-event calendar-event-' + safe(eventType(event)) + (eventIndex > 3 ? ' is-overflow' : '') + '" data-calendar-record-id="' + safe(eventRecordId(event)) + '" data-calendar-record-kind="' + safe(eventKind(event)) + '" data-calendar-can-edit="' + String(eventCanEdit(event)) + '" data-calendar-can-delete="' + String(eventCanDelete(event)) + '" data-calendar-preview-title="' + safe(event.title || event.type || "Event") + '" data-calendar-preview="' + safe(event.detail || label) + '" data-calendar-preview-status="' + safe(event.status || "") + '" data-calendar-date="' + safe(key) + '" aria-label="' + safe(label) + '" title="' + safe(label) + '">' + content + "</button>";
       }).join("");
-      if (dayEvents.length > 4) labels += '<span class="calendar-more">+' + (dayEvents.length - 4) + " more</span>";
+      if (dayEvents.length > 4) labels += '<button type="button" class="calendar-more" data-calendar-open-day="' + key + '" aria-label="Show all ' + dayEvents.length + ' entries for ' + key + '">+' + (dayEvents.length - 4) + " more</button>";
       var dateMarkup = isCurrentPayMonth(key)
         ? '<button type="button" class="portal-calendar-day-date" data-calendar-day="' + key + '" aria-label="Actions for ' + key + '">' + day + '</button>'
         : '<time datetime="' + key + '">' + day + '</time>';
-      html += '<span class="portal-calendar-day' + (key === today ? " is-today" : "") + '">' + dateMarkup + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";
+      html += '<span class="portal-calendar-day' + (key === today ? " is-today" : "") + (payWeekBadge(key) ? " is-pay-week-start" : "") + '">' + dateMarkup + payWeekBadge(key) + (labels || '<span class="portal-calendar-no-entry">—</span>') + "</span>";
     }
     root.innerHTML = html + "</div>";
   }
@@ -115,6 +137,8 @@
     viewDate = new Date(Number(match[1]), Number(match[2]) - 1, 1);
     render();
   });
+  var filterGroup = document.querySelector("[data-calendar-filters]");
+  if (filterGroup) filterGroup.addEventListener("change", render);
   render();
   load();
 }());

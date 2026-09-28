@@ -142,7 +142,7 @@
     var result = rows.map(function (row, index) {
       var copy = Object.assign({}, row, { label: row.label || "Day " + (index + 1), dayName: dayName(row.date) });
       if (copy.absenceStatus === "Holiday") {
-        copy.workedActual = 0; copy.basic = 480; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 480; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 480; totals.holiday += 1;
+        copy.workedActual = 480; copy.basic = 480; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 480; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 480; totals.holiday += 1;
       } else if (copy.absenceStatus === "Sick") {
         copy.workedActual = 0; copy.basic = 0; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 0; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 0; totals.sick += 1;
       } else {

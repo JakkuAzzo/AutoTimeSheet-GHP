@@ -8,7 +8,7 @@ const shared = fs.readFileSync(new URL('../shared-data.js', import.meta.url), 'u
 
 assert.equal(view.includes('localStorage'), false, 'shared calendar view must not read browser-local events');
 assert.match(view, /publishedEvents\.filter/);
-assert.match(view, /No local requests are published here/);
+assert.match(view, /Shared feed is temporarily unavailable\. No local requests were found\./);
 assert.match(portal, /Calendar export is unavailable until the protected Microsoft 365 calendar feed is connected/);
 assert.match(page, /disabled title="Available after protected Microsoft 365 calendar publication is connected"/);
 assert.doesNotMatch(shared, /download-events-json/);

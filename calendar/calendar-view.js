@@ -23,6 +23,31 @@
     return String(event && (event.type || event.kind || 'general') || '');
   }
 
+  function eventCategory(event) {
+    const kind = String(event && (event.type || event.kind || event.recordKind) || '').toLowerCase();
+    if (/timesheet|clock|absence|holiday|sick|time.?off/.test(kind)) return 'timesheets';
+    if (/job.?card|jobcard/.test(kind)) return 'jobcards';
+    if (/estimate|quote/.test(kind)) return 'estimates';
+    if (/task/.test(kind)) return 'tasks';
+    if (/enquir|contact/.test(kind)) return 'enquiries';
+    if (/invoice/.test(kind)) return 'invoices';
+    if (/calendar|event|training|meeting/.test(kind)) return 'calendar';
+    return 'other';
+  }
+
+  function eventVisible(event) {
+    const filterGroup = $('[data-calendar-filters]');
+    if (!filterGroup) return true;
+    const input = filterGroup.querySelector(`[data-calendar-filter="${eventCategory(event)}"]`);
+    return !input || input.checked;
+  }
+
+  function payWeekBadge(key) {
+    const periods = window.GMTPayPeriods;
+    const period = periods && typeof periods.periodForDate === 'function' ? periods.periodForDate(key) : null;
+    return period && period.start === key ? '<span class="calendar-week-badge">(W1)</span>' : '';
+  }
+
   function eventCanEdit(event) {
     return !!(event && (event.can_edit === true || event.canEdit === true));
   }
@@ -80,7 +105,7 @@
     const firstDay = new Date(year, month, 1);
     const offset = (firstDay.getDay() + 6) % 7;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const eventsByDay = allEvents().reduce((map, event) => {
+    const eventsByDay = allEvents().filter(eventVisible).reduce((map, event) => {
       const key = dateKey(event.date || event.startDate);
       (map[key] ||= []).push(event);
       return map;
@@ -92,15 +117,16 @@
     for (let day = 1; day <= daysInMonth; day += 1) {
       const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const events = eventsByDay[key] || [];
-      const eventMarkup = events.slice(0, 3).map((event) => {
+      const eventMarkup = events.map((event, eventIndex) => {
         const label = `${event.title || event.type || 'Event'}${event.detail ? ` · ${event.detail}` : ''}`;
-        return `<button type="button" class="calendar-event calendar-event-${escapeHtml(String(event.type || 'general').toLowerCase().replace(/[^a-z]+/g, '-'))}" data-calendar-record-id="${escapeHtml(eventRecordId(event))}" data-calendar-record-kind="${escapeHtml(eventKind(event))}" data-calendar-can-edit="${String(eventCanEdit(event))}" data-calendar-can-delete="${String(eventCanDelete(event))}" data-calendar-preview-title="${escapeHtml(event.title || event.type || 'Event')}" data-calendar-preview="${escapeHtml(event.detail || label)}" data-calendar-preview-status="${escapeHtml(event.status || '')}" data-calendar-date="${escapeHtml(key)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${escapeHtml(event.title || event.type || 'Event')}</button>`;
+        return `<button type="button" class="calendar-event calendar-event-${escapeHtml(String(event.type || 'general').toLowerCase().replace(/[^a-z]+/g, '-'))}${eventIndex > 2 ? ' is-overflow' : ''}" data-calendar-record-id="${escapeHtml(eventRecordId(event))}" data-calendar-record-kind="${escapeHtml(eventKind(event))}" data-calendar-can-edit="${String(eventCanEdit(event))}" data-calendar-can-delete="${String(eventCanDelete(event))}" data-calendar-preview-title="${escapeHtml(event.title || event.type || 'Event')}" data-calendar-preview="${escapeHtml(event.detail || label)}" data-calendar-preview-status="${escapeHtml(event.status || '')}" data-calendar-date="${escapeHtml(key)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${escapeHtml(event.title || event.type || 'Event')}</button>`;
       }).join('');
-      const more = events.length > 3 ? `<span class="calendar-more">+${events.length - 3} more</span>` : '';
+      const more = events.length > 3 ? `<button type="button" class="calendar-more" data-calendar-open-day="${key}" aria-label="Show all ${events.length} entries for ${key}">+${events.length - 3} more</button>` : '';
       const dateMarkup = isCurrentPayMonth(key)
         ? `<button type="button" class="calendar-day-date" data-calendar-day="${key}" aria-label="Actions for ${key}">${day}</button>`
         : `<time datetime="${key}">${day}</time>`;
-      cells.push(`<article class="calendar-day${key === today ? ' calendar-day-today' : ''}">${dateMarkup}${eventMarkup}${more}</article>`);
+      const weekStart = payWeekBadge(key);
+      cells.push(`<article class="calendar-day${key === today ? ' calendar-day-today' : ''}${weekStart ? ' is-pay-week-start' : ''}">${dateMarkup}${weekStart}${eventMarkup}${more}</article>`);
     }
     grid.innerHTML = cells.join('');
   }
@@ -193,6 +219,7 @@
     }
     $('#calendar-previous')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1); renderMonth(); });
     $('#calendar-next')?.addEventListener('click', () => { viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1); renderMonth(); });
+    $('[data-calendar-filters]')?.addEventListener('change', renderMonth);
     $('#calendar-form')?.addEventListener('submit', () => setTimeout(renderMonth, 0));
     $('#calendar-list')?.addEventListener('click', () => setTimeout(renderMonth, 0));
     loadPublishedEvents().then(loadProtectedEvents);

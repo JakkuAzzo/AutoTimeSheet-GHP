@@ -2054,11 +2054,13 @@ async function dispatchQueued(env, options = {}) {
   if (!endpoint) return { status: 'not-configured', sent: 0, failed: 0, skipped: 0 };
   const timestamp = options.now || now();
   const limit = Math.min(Math.max(Number(options.limit || MAX_QUEUE_BATCH), 1), MAX_QUEUE_BATCH);
+  const targetRecordId = text(options.recordId, '', MAX_RECORD_ID);
   const result = await env.DB.prepare(`SELECT q.record_id, q.status AS dispatch_status, q.queued_at, q.updated_at AS dispatch_updated_at,
       q.attempts, q.next_attempt_at, q.last_sent_at, q.last_error, r.*
     FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id
     WHERE q.status IN ('queued', 'failed') AND q.next_attempt_at <= ? AND r.status <> 'Deleted'
-    ORDER BY q.queued_at ASC LIMIT ?`).bind(timestamp, limit).all();
+      AND (? = '' OR q.record_id = ?)
+    ORDER BY q.queued_at ASC LIMIT ?`).bind(timestamp, targetRecordId, targetRecordId, limit).all();
   const summary = { status: 'complete', sent: 0, failed: 0, skipped: 0, dryRun: Boolean(options.dryRun), records: [] };
   const rows = result.results || [];
   for (let index = 0; index < rows.length; index += 1) {
@@ -2557,7 +2559,7 @@ async function listRecords(request, env, identity) {
   };
 }
 
-async function handle(request, env) {
+async function handle(request, env, ctx) {
   const origin = allowedOrigin(request, env);
   if (origin === null) return json({ error: 'Origin is not allowed' }, 403);
   if (request.method === 'OPTIONS') {
@@ -2626,6 +2628,12 @@ async function handle(request, env) {
       await env.DB.prepare("UPDATE records SET status = 'Test - not sent', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, recordId).run();
       return json({ ok: true, record_id: recordId, ...result }, 200, origin || '');
     }
+    // Saving a correction should start delivery automatically. Keep this
+    // scoped to the just-saved record; provider-gated pay-month corrections
+    // remain queued until the Microsoft 365 route is certified.
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(dispatchQueued(env, { limit: 1, recordId }).catch(() => null));
+    }
     return json({ ok: true, record_id: recordId, ...result }, 202, origin || '');
   }
 
@@ -2663,9 +2671,9 @@ async function handle(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
-      return await handle(request, env);
+      return await handle(request, env, ctx);
     } catch (error) {
       const status = Number(error && error.status) || 500;
       const message = status >= 500 ? 'GMT portal service is temporarily unavailable' : (error.message || 'Request failed');

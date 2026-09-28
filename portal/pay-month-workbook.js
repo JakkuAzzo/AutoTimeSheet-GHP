@@ -56,9 +56,12 @@
     var startMinutes = timeMinutes(start);
     var finishMinutes = timeMinutes(finish);
     var absence = asText(field(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"])).trim();
+    // Paid holiday contributes one standard 8-hour day to the pay-month total,
+    // while sick/other absences remain zero unless the source has clocks.
+    if (startMinutes === null && finishMinutes === null && /^holiday$/i.test(absence)) return 480;
     // A corrected absence with no clocks supersedes any worked total cached
     // on the earlier version of that day's row.
-    if (startMinutes === null && finishMinutes === null && /^(?:holiday|sick|absent|time off)$/i.test(absence)) return 0;
+    if (startMinutes === null && finishMinutes === null && /^(?:sick|absent|time off)$/i.test(absence)) return 0;
     var direct = asNumber(field(row, ["workedMinutes", "worked_minutes"]));
     var hours = asNumber(field(row, ["workedHours", "worked_hours", "hours", "totalHours", "Worked hours"]));
     if (startMinutes !== null && finishMinutes !== null) {

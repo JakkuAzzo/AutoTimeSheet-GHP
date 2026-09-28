@@ -86,6 +86,88 @@
     return href("/portal/submissions", { record: recordId });
   }
 
+  function calendarEntryFromElement(element, day) {
+    var recordId = element.getAttribute("data-calendar-record-id") || "";
+    return {
+      recordId: recordId,
+      recordKind: element.getAttribute("data-calendar-record-kind") || "",
+      canEdit: element.getAttribute("data-calendar-can-edit") === "true",
+      canDelete: element.getAttribute("data-calendar-can-delete") === "true",
+      title: element.getAttribute("data-calendar-preview-title") || element.getAttribute("aria-label") || element.textContent.trim() || "Calendar entry",
+      detail: element.getAttribute("data-calendar-preview") || element.getAttribute("title") || element.textContent.trim() || "",
+      status: element.getAttribute("data-calendar-preview-status") || "",
+      day: day
+    };
+  }
+
+  function dayEntriesFor(trigger, day) {
+    var cell = trigger && trigger.closest && trigger.closest(".portal-calendar-day, .calendar-day");
+    if (!cell) return [];
+    return Array.prototype.map.call(cell.querySelectorAll(".calendar-event"), function (element) { return calendarEntryFromElement(element, day); });
+  }
+
+  function previewEntryFor(element, day) {
+    return calendarEntryFromElement(element, day);
+  }
+
+  function selectEntry(day, entry) {
+    entry = entry || {};
+    var recordId = String(entry.recordId || "");
+    var recordKind = String(entry.recordKind || "");
+    activeRecord = { recordId: recordId, recordKind: recordKind, canDelete: entry.canDelete === true && !!recordId, day: day };
+    var escapePreview = function (value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character];
+      });
+    };
+    if (previewPanel) {
+      var previewTitle = String(entry.title || (recordId ? recordKindLabel(recordKind) : "Calendar entry"));
+      var previewDetail = String(entry.detail || (recordId ? "Protected record " + recordId : "Shared calendar entry"));
+      var previewStatus = String(entry.status || "");
+      previewPanel.innerHTML = '<p class="portal-card-kicker">Entry preview</p><h3>' + escapePreview(previewTitle) + '</h3><p class="small-text"><strong>Date:</strong> ' + day + '</p>' + (recordKind ? '<p class="small-text"><strong>Type:</strong> ' + escapePreview(recordKindLabel(recordKind)) + '</p>' : '') + (previewStatus ? '<p class="small-text"><strong>Status:</strong> ' + escapePreview(previewStatus) + '</p>' : '') + '<p class="calendar-day-actions-preview-detail">' + escapePreview(previewDetail) + '</p>';
+    }
+    var canEdit = entry.canEdit === true && !!recordId;
+    if (editEntryLink) {
+      editEntryLink.hidden = !canEdit;
+      editEntryLink.textContent = "";
+      if (canEdit) {
+        var label = recordKindLabel(recordKind);
+        editEntryLink.innerHTML = "<strong>Edit " + label + "</strong><small>Open the permitted editor for this protected record.</small>";
+        editEntryLink.href = editHrefFor(recordKind, recordId, day);
+      }
+    }
+    if (deleteEntryButton) {
+      deleteEntryButton.hidden = !(entry.canDelete === true && !!recordId) || (isDailyTimesheet(recordKind) && !canEdit);
+      deleteEntryButton.disabled = false;
+      deleteEntryButton.innerHTML = isDailyTimesheet(recordKind)
+        ? "<strong>Remove day</strong><small>Open this day in the pay-month sheet. Review and save the removal there.</small>"
+        : "<strong>Delete entry</strong><small>Remove this entry from active history and the calendar.</small>";
+    }
+  }
+
+  function showDayEntries(day, entries) {
+    var escapePreview = function (value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character];
+      });
+    };
+    if (!previewPanel) return;
+    if (!entries.length) {
+      previewPanel.innerHTML = '<p class="portal-card-kicker">Day preview</p><h3>No entries yet</h3><p class="small-text">There are no shared or submitted entries for this date.</p>';
+      return;
+    }
+    previewPanel.innerHTML = '<p class="portal-card-kicker">All entries for this day</p><h3>' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') + '</h3><div class="calendar-day-entry-list">' + entries.map(function (entry, index) {
+      var detail = [recordKindLabel(entry.recordKind), entry.status, entry.detail].filter(Boolean).join(' · ');
+      return '<button type="button" class="calendar-day-entry-choice" data-day-entry-index="' + index + '"><strong>' + escapePreview(entry.title || 'Calendar entry') + '</strong><small>' + escapePreview(detail) + '</small></button>';
+    }).join('') + '</div>';
+    previewPanel.querySelectorAll('[data-day-entry-index]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        previewPanel.querySelectorAll('[data-day-entry-index]').forEach(function (item) { item.setAttribute('aria-pressed', String(item === button)); });
+        selectEntry(day, entries[Number(button.getAttribute('data-day-entry-index'))]);
+      });
+    });
+  }
+
   function ensureDialog() {
     if (dialog) return dialog;
     dialog = document.createElement("dialog");
@@ -252,11 +334,8 @@
   function open(day, options) {
     if (!validDay(day)) return;
     var target = ensureDialog();
-    var recordId = options && String(options.recordId || "") || "";
-    var recordKind = options && String(options.recordKind || options.kind || "") || "";
-    var canEdit = !!(options && options.canEdit === true && recordId);
-    var canDelete = !!(options && options.canDelete === true && recordId);
-    activeRecord = { recordId: recordId, recordKind: recordKind, canDelete: canDelete, day: day };
+    var selectedEntry = options && options.selectedEntry || null;
+    var entries = options && Array.isArray(options.entries) ? options.entries : [];
     var formatted = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "Europe/London" }).format(new Date(day + "T12:00:00Z"));
     dialogHeading.textContent = "Actions for " + formatted;
     dialogDate.textContent = day;
@@ -265,33 +344,13 @@
     dialogNote.textContent = period
       ? "Choose an action for this date. New timesheet entries are always accepted and filed to the " + period.key + " pay-month workbook (" + period.start + " to " + period.end + ")."
       : "Choose an action for this date. New timesheet entries are accepted and routed to the matching pay-month workbook automatically.";
-    if (previewPanel) {
-      var escapePreview = function (value) {
-        return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
-          return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character];
-        });
-      };
-      var previewTitle = String(options && options.previewTitle || (recordId ? recordKindLabel(recordKind) : "No entry selected"));
-      var previewDetail = String(options && options.previewDetail || (recordId ? "Protected record " + recordId : "No submitted entry is attached to this date."));
-      var previewStatus = String(options && options.previewStatus || "");
-      previewPanel.innerHTML = '<p class="portal-card-kicker">Entry preview</p><h3>' + escapePreview(previewTitle) + '</h3><p class="small-text"><strong>Date:</strong> ' + day + '</p>' + (recordKind ? '<p class="small-text"><strong>Type:</strong> ' + escapePreview(recordKindLabel(recordKind)) + '</p>' : '') + (previewStatus ? '<p class="small-text"><strong>Status:</strong> ' + escapePreview(previewStatus) + '</p>' : '') + '<p class="calendar-day-actions-preview-detail">' + escapePreview(previewDetail) + '</p>';
-    }
     timesheetLink.href = href("/timesheets/create.html", { day: day }, "#day-" + day);
-    if (editEntryLink) {
-      editEntryLink.hidden = !canEdit;
-      editEntryLink.textContent = "";
-      if (canEdit) {
-        var label = recordKindLabel(recordKind);
-        editEntryLink.innerHTML = "<strong>Edit " + label + "</strong><small>Open the permitted editor for this protected record.</small>";
-        editEntryLink.href = editHrefFor(recordKind, recordId, day);
-      }
-    }
-    if (deleteEntryButton) {
-      deleteEntryButton.hidden = !canDelete || (isDailyTimesheet(recordKind) && !canEdit);
-      deleteEntryButton.disabled = false;
-      deleteEntryButton.innerHTML = isDailyTimesheet(recordKind)
-        ? "<strong>Remove day</strong><small>Open this day in the pay-month sheet. Review and save the removal there.</small>"
-        : "<strong>Delete entry</strong><small>Remove this entry from active history and the calendar.</small>";
+    if (selectedEntry) selectEntry(day, selectedEntry);
+    else {
+      activeRecord = { recordId: "", recordKind: "", canDelete: false, day: day };
+      if (editEntryLink) editEntryLink.hidden = true;
+      if (deleteEntryButton) deleteEntryButton.hidden = true;
+      showDayEntries(day, entries);
     }
     if (deleteEntryStatus) {
       deleteEntryStatus.hidden = true;
@@ -312,25 +371,15 @@
     if (entry) {
       event.preventDefault();
       open(entry.getAttribute("data-calendar-date"), {
-        recordId: entry.getAttribute("data-calendar-record-id") || "",
-        recordKind: entry.getAttribute("data-calendar-record-kind") || entry.getAttribute("data-calendar-kind") || "",
-        canEdit: entry.getAttribute("data-calendar-can-edit") === "true",
-        canDelete: entry.getAttribute("data-calendar-can-delete") === "true",
-        previewTitle: entry.getAttribute("data-calendar-preview-title") || entry.getAttribute("aria-label") || "Entry",
-        previewDetail: entry.getAttribute("data-calendar-preview") || entry.getAttribute("title") || "Protected calendar entry",
-        previewStatus: entry.getAttribute("data-calendar-preview-status") || ""
+        selectedEntry: previewEntryFor(entry, entry.getAttribute("data-calendar-date"))
       });
       return;
     }
-    var trigger = event.target.closest && event.target.closest("[data-calendar-day]");
+    var trigger = event.target.closest && event.target.closest("[data-calendar-open-day], [data-calendar-day]");
     if (!trigger) return;
     event.preventDefault();
-    open(trigger.getAttribute("data-calendar-day"), {
-      recordId: trigger.getAttribute("data-calendar-record-id") || "",
-      recordKind: trigger.getAttribute("data-calendar-record-kind") || "",
-      canEdit: trigger.getAttribute("data-calendar-can-edit") === "true",
-      canDelete: trigger.getAttribute("data-calendar-can-delete") === "true"
-    });
+    var day = trigger.getAttribute("data-calendar-open-day") || trigger.getAttribute("data-calendar-day");
+    open(day, { entries: dayEntriesFor(trigger, day) });
   });
 
   document.addEventListener("DOMContentLoaded", function () {
