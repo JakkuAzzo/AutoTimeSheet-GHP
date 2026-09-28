@@ -95,11 +95,12 @@ function normalize(row: InputRow, month: string, sourceInNotes = true): DailyRow
   const from = clockMinutes(start);
   const to = clockMinutes(finish);
   let total: number | null = null;
-  if (from !== null && to !== null && pause !== null) {
+  if (absence !== "NA") total = 0;
+  else if (from !== null && to !== null && pause !== null) {
     const elapsed = to >= from ? to - from : to + 1440 - from;
     if (elapsed <= 0 || pause > elapsed) throw new Error("Invalid hours on " + date);
     total = elapsed - pause;
-  } else if (from === null && to === null && absence !== "NA") total = 0;
+  }
   if (row.totalMinutes !== undefined && row.totalMinutes !== null && row.totalMinutes !== "" && total !== null && Number(row.totalMinutes) !== total) {
     throw new Error("Clock total differs from supplied Total hours on " + date);
   }

@@ -133,6 +133,14 @@ assert.equal(weekendResult.monthTotalMinutes, 240, 'the dated Saturday contribut
 assert.equal(dateCell(weekendBook.weekly.rows()[1][1]), '2026-08-30', 'the first weekly interval includes its weekend');
 assert.equal(durationCell(weekendBook.weekly.rows()[1][2]), 240, 'Saturday hours appear in the same weekly total');
 assert.equal(dateCell(weekendBook.weekly.rows()[4][1]), '2026-09-18', 'the final interval ends at the pay-month boundary');
+const absentWithTemplateClocks = workbook();
+const absentResult = context.runScript(absentWithTemplateClocks, JSON.stringify([{
+  recordId: 'source-matthew|2026-08-24', employeeName: 'Matthew', date: '2026-08-24',
+  startTime: '08:00', finishTime: '17:00', breakMinutes: 60, absenceReason: 'Holiday'
+}]));
+assert.equal(absentResult.monthTotalMinutes, 0, 'an absence-marked day cannot contribute template clock hours to the month');
+assert.equal(durationCell(absentWithTemplateClocks.daily.rows()[1][5]), 0, 'the stored total agrees with the absence formula');
+assert.equal(durationCell(absentWithTemplateClocks.weekly.rows().at(-1)[2]), 0, 'weekly and month totals agree for an absence-marked day');
 const longBreakBook = workbook({ name: 'GMT Timesheet - Jason - Pay Month 2026-09.xlsx' });
 const longBreakResult = context.runScript(longBreakBook, JSON.stringify([{
   recordId: 'source-jason|2026-09-01', employeeName: 'Jason', date: '2026-09-01',
