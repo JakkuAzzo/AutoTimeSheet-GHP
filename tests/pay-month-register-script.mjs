@@ -132,7 +132,15 @@ const weekendResult = context.runScript(weekendBook, JSON.stringify([{
 assert.equal(weekendResult.monthTotalMinutes, 240, 'the dated Saturday contributes four hours to the month');
 assert.equal(dateCell(weekendBook.weekly.rows()[1][1]), '2026-08-30', 'the first weekly interval includes its weekend');
 assert.equal(durationCell(weekendBook.weekly.rows()[1][2]), 240, 'Saturday hours appear in the same weekly total');
-assert.equal(dateCell(weekendBook.weekly.rows()[4][1]), '2026-09-18', 'the final interval ends at the pay-month boundary');
+assert.equal(dateCell(weekendBook.weekly.rows()[4][1]), '2026-09-20', 'the final weekly interval includes the trailing weekend in this pay cycle');
+const finalWeekendBook = workbook();
+const finalWeekendResult = context.runScript(finalWeekendBook, JSON.stringify([{
+  recordId: 'source-matthew|2026-09-19', employeeName: 'Matthew', date: '2026-09-19',
+  startTime: '08:00', finishTime: '17:00', breakMinutes: 0, absenceReason: 'NA'
+}]));
+assert.equal(finalWeekendResult.monthTotalMinutes, 540, 'the weekend after payroll Friday stays in the September cycle');
+assert.equal(durationCell(finalWeekendBook.weekly.rows()[4][2]), 540, 'the fourth weekly total includes its Saturday');
+assert.equal(dateCell(finalWeekendBook.weekly.rows()[4][1]), '2026-09-20', 'the weekly interval ends on Sunday');
 const absentWithTemplateClocks = workbook();
 const absentResult = context.runScript(absentWithTemplateClocks, JSON.stringify([{
   recordId: 'source-matthew|2026-08-24', employeeName: 'Matthew', date: '2026-08-24',

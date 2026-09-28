@@ -117,8 +117,8 @@ function monday(date: string): string {
 }
 function excelDate(date: string): number { return Date.parse(date + "T00:00:00Z") / DAY_MS + 25569; }
 function excelTime(time: string): number | string { const minutes = clockMinutes(time); return minutes === null ? "" : minutes / 1440; }
-function weekEnd(date: string, finalWeek: boolean): string {
-  return new Date(Date.parse(date + "T00:00:00Z") + (finalWeek ? 4 : 6) * DAY_MS).toISOString().slice(0, 10);
+function weekEnd(date: string): string {
+  return new Date(Date.parse(date + "T00:00:00Z") + 6 * DAY_MS).toISOString().slice(0, 10);
 }
 function monthWeeks(month: string): string[] {
   const anchor = new Date(PAY_MONTH_ANCHOR);
@@ -158,8 +158,8 @@ function write(workbook: ExcelScript.Workbook, rows: DailyRow[], month: string):
   const dailyValues: (string | number)[][] = [DAILY_HEADERS].concat(rows.map((row) => [excelDate(row.date), excelTime(row.start), excelTime(row.finish), row.breakMinutes === null ? "" : row.breakMinutes, row.absence, row.totalMinutes === null ? "" : row.totalMinutes / 1440, row.notes]));
   dailyValues.push(["Pay month total", "", "", "", "", total / 1440, ""]);
   const weeklyValues: (string | number)[][] = [WEEKLY_HEADERS];
-  monthWeeks(month).forEach((start, index) => {
-    const end = weekEnd(start, index === 3);
+  monthWeeks(month).forEach((start) => {
+    const end = weekEnd(start);
     const relevant = rows.filter((row) => row.date >= start && row.date <= end);
     weeklyValues.push([excelDate(start), excelDate(end), relevant.reduce((sum, row) => sum + (row.totalMinutes || 0), 0) / 1440]);
   });
