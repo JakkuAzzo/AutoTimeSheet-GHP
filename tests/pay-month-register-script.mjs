@@ -74,6 +74,17 @@ assert.match(book.daily.formulas()['F2:F3'][0][0], /MOD\(C2-B2,1\)-D2\/1440/, 'E
 assert.match(book.weekly.formulas()['C2:C5'][0][0], /SUMIFS/, 'weekly totals derive from dated daily rows');
 assert.equal(context.runScript(book, JSON.stringify(original)).unchanged, 2, 'exact replay is idempotent');
 
+const auditedBook = workbook();
+context.runScript(auditedBook, JSON.stringify([original[0]]));
+context.runScript(auditedBook, JSON.stringify({
+  mode: 'replace-pay-month', employeeName: 'Matthew', payMonth: '2026-09',
+  rows: [{ date: '2026-09-03', startTime: '08:00', finishTime: '18:00', breakMinutes: 30,
+    absenceReason: 'NA', changeNote: 'Edited on behalf of Matthew by Accounts at 2026-09-27T19:00:00Z' }]
+}));
+assert.match(auditedBook.daily.rows()[1][6], /Edited on behalf of Matthew/, 'the saved correction has an audit note');
+assert.equal(context.runScript(auditedBook, JSON.stringify([original[0]])).unchanged, 1, 'the original replay is an unchanged dated row');
+assert.match(auditedBook.daily.rows()[1][6], /Edited on behalf of Matthew/, 'an unchanged source replay must not erase a later correction note');
+
 assert.throws(() => context.runScript(book, JSON.stringify([{ ...original[0], finishTime: '17:00' }])), /Conflicting submitted version/, 'a competing original does not silently rewrite payroll');
 assert.equal(durationCell(book.daily.rows()[1][5]), 570, 'failed replay leaves workbook values intact');
 

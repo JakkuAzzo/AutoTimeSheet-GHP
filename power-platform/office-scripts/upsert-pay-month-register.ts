@@ -226,7 +226,10 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): Result {
     seen[row.date] = true;
     const old = existing.find((item) => item.date === row.date);
     if (!old) created++;
-    else if (key(old) === key(row)) unchanged++;
+    else if (key(old) === key(row)) {
+      unchanged++;
+      if (!snapshot) return;
+    }
     else if (snapshot) updated++;
     else throw new Error("Conflicting submitted version for " + row.date + "; review source before changing payroll");
     byDate[row.date] = row;
