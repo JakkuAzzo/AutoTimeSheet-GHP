@@ -13,9 +13,11 @@
   var employeeFilterWrap = document.getElementById("submissions-employee-filter");
   var employeeFilter = document.getElementById("submissions-employee");
   var refresh = document.getElementById("submissions-refresh");
-  var dispatchTools = document.getElementById("submissions-dispatch-tools");
-  var dispatchButton = document.getElementById("submissions-dispatch");
-  var dispatchStatus = document.getElementById("submissions-dispatch-status");
+  var deliveryTrigger = document.getElementById("submissions-delivery-trigger");
+  var deliveryDialog = document.getElementById("submissions-delivery-dialog");
+  var deliveryDetails = document.getElementById("submissions-delivery-details");
+  var downloadAllButton = document.getElementById("download-all-sheets");
+  var downloadAllStatus = document.getElementById("download-all-sheets-status");
   var records = [];
   var realRecordCount = 0;
   var historyMeta = {};
@@ -147,12 +149,18 @@
     return Number.isFinite(time) ? time : 0;
   }
   function currentPayMonth() {
-    if (window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function") return window.GMTPayPeriods.payMonthKeyForDate(new Date().toISOString().slice(0, 10));
+    var parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    var part = function (type) { return String((parts.find(function (entry) { return entry.type === type; }) || {}).value || ""); };
+    var today = part("year") + "-" + part("month") + "-" + part("day");
+    if (window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function") return window.GMTPayPeriods.payMonthKeyForDate(today);
     return new Date().toISOString().slice(0, 7);
   }
   function monthLabel(month) {
-    var period = window.GMTPayPeriods && typeof window.GMTPayPeriods.periodForMonth === "function" ? window.GMTPayPeriods.periodForMonth(month) : null;
-    return period ? "Pay month " + month + " · " + period.start + " to " + period.end : "Pay month " + month;
+    var match = String(month || "").match(/^(\d{4})-(\d{2})$/);
+    if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return "Pay month " + month;
+    var date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+    var label = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
+    return month === currentPayMonth() ? "Current · " + label : label;
   }
   function sheetEmployeeKey(record) {
     var upn = String(record && (record.employee_upn || record.employee_email || "")).trim().toLowerCase();
@@ -336,7 +344,7 @@
     var months = Array.from(new Set(payMonthSheets.map(function (sheet) { return sheet.payMonth; }).filter(Boolean)));
     var editable = historyMeta && Array.isArray(historyMeta.editable_pay_months) ? historyMeta.editable_pay_months : [];
     months = months.concat(editable).filter(function (value, index, values) { return /^\d{4}-\d{2}$/.test(value) && values.indexOf(value) === index; }).sort(function (left, right) { return right.localeCompare(left); });
-    payMonthFilter.innerHTML = '<option value="">All pay months</option>' + months.map(function (month) { return '<option value="' + safe(month) + '">' + safe(monthLabel(month)) + (editable.indexOf(month) !== -1 ? ' · editable' : '') + '</option>'; }).join("");
+    payMonthFilter.innerHTML = '<option value="">All pay months</option>' + months.map(function (month) { return '<option value="' + safe(month) + '">' + safe(monthLabel(month)) + '</option>'; }).join("");
     if (payMonthFilterInitialised && (previous === "" || months.indexOf(previous) !== -1)) payMonthFilter.value = previous;
     else {
       var current = currentPayMonth();
@@ -622,46 +630,81 @@
     }
   }
 
+  function safeFilePart(value, fallback) {
+    return String(value || fallback || "Employee").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || fallback || "Employee";
+  }
+  async function createPayMonthWorkbook(sheet, excel) {
+    var api = payMonthWorkbookApi();
+    if (!api) throw new Error("The full workbook exporter is unavailable. Refresh and try again.");
+    if (!excel || !excel.utils || typeof excel.write !== "function") throw new Error("The Excel generator could not be loaded.");
+    var period = window.GMTPayPeriods && typeof window.GMTPayPeriods.periodForMonth === "function"
+      ? window.GMTPayPeriods.periodForMonth(sheet.payMonth) : null;
+    var prepared = api.toWorkbookMatrices(sheet, period);
+    var workbook = excel.utils.book_new();
+    function workbookSheet(matrix, widths) {
+      var result = excel.utils.aoa_to_sheet(matrix);
+      result["!cols"] = widths.map(function (width) { return { wch: width }; });
+      result["!autofilter"] = { ref: "A1:" + excel.utils.encode_cell({ r: Math.max(0, matrix.length - 1), c: matrix[0].length - 1 }) };
+      return result;
+    }
+    excel.utils.book_append_sheet(workbook, workbookSheet(prepared.dailyMatrix, [14, 9, 9, 10, 14, 13, 60]), "Daily Entries");
+    excel.utils.book_append_sheet(workbook, workbookSheet(prepared.weeklyMatrix, [16, 16, 15]), "Weekly Totals");
+    var array = excel.write(workbook, { bookType: "xlsx", type: "array" });
+    var fileName = "GMT Timesheet - " + safeFilePart(sheet.employeeName, "Employee") + " - Pay Month " + (sheet.payMonth || "unspecified") + ".xlsx";
+    return { array: array, fileName: fileName, rowCount: prepared.data.dailyEntries.length };
+  }
+  function triggerDownload(data, mimeType) {
+    var link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([data], { type: mimeType }));
+    return link;
+  }
+  function saveDownload(data, fileName, mimeType) {
+    var link = triggerDownload(data, mimeType);
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+  }
   async function downloadPayMonthSheet(sheet, feedback, button) {
     if (!sheet) return;
-    var api = payMonthWorkbookApi();
-    if (!api) {
-      if (feedback) feedback.textContent = "The full workbook exporter is unavailable. Refresh and try again.";
-      return;
-    }
     if (button) button.disabled = true;
     if (feedback) feedback.textContent = "Preparing the full authorised pay-month workbook…";
     try {
       var excel = typeof window.ensureXlsxLoaded === "function" ? await window.ensureXlsxLoaded() : window.XLSX;
-      if (!excel || !excel.utils || typeof excel.write !== "function") throw new Error("The Excel generator could not be loaded.");
-      var period = window.GMTPayPeriods && typeof window.GMTPayPeriods.periodForMonth === "function"
-        ? window.GMTPayPeriods.periodForMonth(sheet.payMonth) : null;
-      var prepared = api.toWorkbookMatrices(sheet, period);
-      var data = prepared.data;
-      var workbook = excel.utils.book_new();
-      var dailyMatrix = prepared.dailyMatrix;
-      var weeklyMatrix = prepared.weeklyMatrix;
-      function workbookSheet(matrix, widths) {
-        var result = excel.utils.aoa_to_sheet(matrix);
-        result["!cols"] = widths.map(function (width) { return { wch: width }; });
-        result["!autofilter"] = { ref: "A1:" + excel.utils.encode_cell({ r: Math.max(0, matrix.length - 1), c: matrix[0].length - 1 }) };
-        return result;
-      }
-      excel.utils.book_append_sheet(workbook, workbookSheet(dailyMatrix, [14, 9, 9, 10, 14, 13, 60]), "Daily Entries");
-      excel.utils.book_append_sheet(workbook, workbookSheet(weeklyMatrix, [16, 16, 15]), "Weekly Totals");
-      var array = excel.write(workbook, { bookType: "xlsx", type: "array" });
-      var safeEmployee = String(sheet.employeeName || "Employee").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "Employee";
-      var fileName = "GMT Timesheet - " + safeEmployee + " - Pay Month " + (sheet.payMonth || "unspecified") + ".xlsx";
-      var link = document.createElement("a");
-      link.href = URL.createObjectURL(new Blob([array], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(link.href);
-      if (feedback) feedback.textContent = "Full workbook downloaded: " + data.dailyEntries.length + " authorised daily row" + (data.dailyEntries.length === 1 ? "" : "s") + ".";
+      var prepared = await createPayMonthWorkbook(sheet, excel);
+      saveDownload(prepared.array, prepared.fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      if (feedback) feedback.textContent = "Full workbook downloaded: " + prepared.rowCount + " authorised daily row" + (prepared.rowCount === 1 ? "" : "s") + ".";
     } catch (error) {
       if (feedback) feedback.textContent = error && error.message ? error.message : "The full workbook could not be downloaded.";
     } finally {
       if (button) button.disabled = false;
+    }
+  }
+  async function downloadAllPayMonthSheets(button) {
+    var sheets = filteredSheets();
+    if (!sheets.length) return;
+    if (!window.GMTZipStore || typeof window.GMTZipStore.createZip !== "function") {
+      if (downloadAllStatus) downloadAllStatus.textContent = "ZIP downloads are unavailable. Refresh and try again.";
+      return;
+    }
+    button.disabled = true;
+    if (downloadAllStatus) downloadAllStatus.textContent = "Preparing " + sheets.length + " authorised workbook" + (sheets.length === 1 ? "" : "s") + "…";
+    try {
+      var excel = typeof window.ensureXlsxLoaded === "function" ? await window.ensureXlsxLoaded() : window.XLSX;
+      var files = [];
+      for (var i = 0; i < sheets.length; i += 1) {
+        var prepared = await createPayMonthWorkbook(sheets[i], excel);
+        files.push({ name: prepared.fileName, data: prepared.array });
+      }
+      var zip = window.GMTZipStore.createZip(files);
+      var archiveName = "GMT Timesheets - " + (payMonthFilter && payMonthFilter.value ? payMonthFilter.value : "All Pay Months") + ".zip";
+      saveDownload(zip, archiveName, "application/zip");
+      if (downloadAllStatus) downloadAllStatus.textContent = sheets.length + " authorised workbook" + (sheets.length === 1 ? "" : "s") + " downloaded in one ZIP.";
+    } catch (error) {
+      if (downloadAllStatus) downloadAllStatus.textContent = error && error.message ? error.message : "The workbook ZIP could not be downloaded.";
+    } finally {
+      button.disabled = false;
     }
   }
   function updatePayloadRow(row, values) {
@@ -941,6 +984,8 @@
   }
   function renderPayMonthList() {
     var sheets = filteredSheets();
+    if (downloadAllButton) downloadAllButton.hidden = currentTab !== "timesheets" || sheets.length === 0;
+    if (downloadAllStatus && currentTab !== "timesheets") downloadAllStatus.textContent = "";
     if (listTitle) listTitle.textContent = currentTab === "timesheets" ? "Available sheets" : (currentTab === "all" ? "All authorised records" : typeLabel({ kind: currentTab }));
     if (listKicker) listKicker.textContent = currentTab === "timesheets" ? "Pay month list" : "Record list";
     if (!list) return;
@@ -984,6 +1029,92 @@
     if (currentTab === "timesheets") renderPayMonthList();
     else renderPayMonthList();
   }
+  function deliveryRecords() {
+    return records.filter(function (record) { return record && !record.is_demo && record.dispatch && record.dispatch.status; });
+  }
+  function updateDeliveryIndicator(freshCounts) {
+    if (!deliveryTrigger) return;
+    deliveryTrigger.hidden = historyMeta.is_admin !== true;
+    if (historyMeta.is_admin !== true) return;
+    var items = deliveryRecords();
+    var count = function (state) {
+      return freshCounts && Number.isFinite(Number(freshCounts[state]))
+        ? Number(freshCounts[state])
+        : items.filter(function (record) { return String(record.dispatch.status).toLowerCase() === state; }).length;
+    };
+    var queued = count("queued");
+    var failed = count("failed");
+    var sending = count("sending");
+    var label = "Correction delivery status";
+    var trackedCount = freshCounts ? ["queued", "sending", "failed", "sent", "skipped"].reduce(function (total, key) { return total + count(key); }, 0) : items.length;
+    if (trackedCount) {
+      label += " · " + queued + " queued · " + failed + " failed";
+      if (sending) label += " · " + sending + " sending";
+    }
+    deliveryTrigger.textContent = label;
+    deliveryTrigger.setAttribute("aria-label", label);
+  }
+  function showDeliveryStatus(data) {
+    if (!deliveryDetails || historyMeta.is_admin !== true) return;
+    var items = Array.isArray(data && data.records) ? data.records : deliveryRecords().map(function (record) {
+      var dispatch = record.dispatch || {};
+      return {
+        employeeName: record.employee_name || record.employee_upn || "Timesheet correction",
+        date: compactDate(record),
+        status: dispatch.status,
+        attempts: dispatch.attempts,
+        queuedAt: dispatch.queued_at,
+        sentAt: dispatch.sent_at,
+        updatedAt: record.updated_at || record.submitted_at,
+        error: dispatch.error
+      };
+    });
+    var states = ["queued", "sending", "failed", "sent", "skipped"];
+    var labels = { queued: "Waiting", sending: "In progress", failed: "Failed", sent: "Email accepted", skipped: "Skipped" };
+    var counts = data && data.counts || {};
+    var summary = states.map(function (state) {
+      var count = Number(counts[state] || 0);
+      return count ? '<li><strong>' + safe(labels[state]) + ':</strong> ' + count + '</li>' : "";
+    }).join("");
+    var details = items.slice(0, 100).map(function (record) {
+      var state = String(record.status || "unknown").toLowerCase();
+      var label = labels[state] || state.replace(/[_-]/g, " ");
+      var updated = record.sentAt || record.queuedAt || record.updatedAt || "";
+      return '<li class="submissions-delivery-item"><div><strong>' + safe(record.employeeName || record.employee_name || "Timesheet correction") + '</strong><span class="portal-status ' + (state === "failed" ? "pending" : state === "sent" ? "approved" : "") + '">' + safe(label) + '</span></div><p>' + safe(record.date || "Date not recorded") + (record.attempts ? ' · ' + safe(record.attempts) + ' attempt' + (Number(record.attempts) === 1 ? "" : "s") : "") + (updated ? ' · ' + safe(updated) : "") + '</p>' + (record.error ? '<p class="submissions-delivery-error"><strong>Details:</strong> ' + safe(record.error) + '</p>' : "") + '</li>';
+    }).join("");
+    var providerCopy = data && data.providerStatus === "not-configured"
+      ? "The outbound email route is not configured, so queued corrections have not been handed off."
+      : data && data.providerStatus === "awaiting-workbook-route"
+        ? "The Microsoft 365 workbook route is still being verified. Pay-month corrections are being held in the queue."
+        : data && data.providerStatus === "ready"
+          ? "The configured outbound route is available. A sent status means only that the email service accepted the message."
+          : "The provider route state is unavailable. Refresh the queue status to try again.";
+    deliveryDetails.innerHTML = '<p class="small-text submissions-delivery-provider">' + safe(providerCopy) + '</p>' + (items.length
+      ? '<ul class="submissions-delivery-summary">' + (summary || '<li>No queued delivery states were returned.</li>') + '</ul><p class="small-text submissions-delivery-note">“Email accepted” does not confirm that Power Automate ran or that a SharePoint workbook was updated.</p><h3>Recent correction records</h3><ul class="submissions-delivery-list">' + details + '</ul>' + (data && (data.truncated || items.length > 100) ? '<p class="small-text">Showing the latest 100 tracked corrections.</p>' : "")
+      : '<p class="portal-history-empty">No correction records are currently in the delivery queue.</p><p class="small-text submissions-delivery-note">This status view does not claim that a SharePoint workbook was updated.</p>');
+  }
+  async function openDeliveryStatus() {
+    if (!deliveryDetails || historyMeta.is_admin !== true) return;
+    if (deliveryDialog && typeof deliveryDialog.showModal === "function") deliveryDialog.showModal();
+    else if (deliveryDialog) deliveryDialog.setAttribute("open", "");
+    deliveryDetails.innerHTML = '<p class="small-text" role="status">Checking the current correction queue…</p>';
+    try {
+      if (!window.GMTPortalApi || typeof window.GMTPortalApi.correctionQueueStatus !== "function") throw new Error("Queue status is not connected.");
+      var result = await window.GMTPortalApi.correctionQueueStatus();
+      showDeliveryStatus(result);
+      updateDeliveryIndicator(result && result.counts);
+    } catch (error) {
+      showDeliveryStatus({ providerStatus: "unknown", records: deliveryRecords().map(function (record) {
+        var dispatch = record.dispatch || {};
+        return { employeeName: record.employee_name || record.employee_upn, date: compactDate(record), status: dispatch.status, attempts: dispatch.attempts, queuedAt: dispatch.queued_at, sentAt: dispatch.sent_at, error: dispatch.error };
+      }), counts: deliveryRecords().reduce(function (counts, record) {
+        var state = String(record.dispatch.status || "").toLowerCase();
+        if (Object.hasOwn(counts, state)) counts[state] += 1;
+        return counts;
+      }, { queued: 0, sending: 0, failed: 0, sent: 0, skipped: 0 }) });
+      deliveryDetails.insertAdjacentHTML("afterbegin", '<p class="portal-history-warning">Live queue status could not be refreshed: ' + safe(error && error.message || "unknown error") + '. Showing the latest authorised history data.</p>');
+    }
+  }
   async function load() {
     if (busy) return;
     busy = true;
@@ -992,6 +1123,7 @@
       realRecordCount = 0;
       records = withExamples([]);
       historyMeta = {};
+      updateDeliveryIndicator();
       populateEmployees([]);
       if (status) status.textContent = "Protected submission history is not connected yet. Showing labelled examples so the document views remain discoverable.";
       render();
@@ -1006,7 +1138,7 @@
       realRecordCount = realRecords.length;
       records = withExamples(realRecords);
       historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
-      if (dispatchTools) dispatchTools.hidden = historyMeta.is_admin !== true;
+      updateDeliveryIndicator();
       populateEmployees(realRecords);
       var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";
       if (status) status.textContent = realRecordCount
@@ -1032,7 +1164,7 @@
       realRecordCount = 0;
       records = withExamples([]);
       historyMeta = {};
-      if (dispatchTools) dispatchTools.hidden = true;
+      updateDeliveryIndicator();
       populateEmployees([]);
       if (status) status.textContent = error && error.message ? error.message : "Submitted documents could not be loaded. Please try again or contact Accounts.";
       render();
@@ -1052,24 +1184,14 @@
   if (payMonthFilter) payMonthFilter.addEventListener("change", function () { selected = -1; preferredSheetKey = ""; render(); });
   if (employeeFilter) employeeFilter.addEventListener("change", function () { selected = -1; preferredSheetKey = ""; render(); });
   if (refresh) refresh.addEventListener("click", load);
-  if (dispatchButton) dispatchButton.addEventListener("click", async function () {
-    if (historyMeta.is_admin !== true || !window.GMTPortalApi || typeof window.GMTPortalApi.dispatchCorrections !== "function") return;
-    dispatchButton.disabled = true;
-    if (dispatchStatus) dispatchStatus.textContent = "Sending due corrections to Accounts…";
-    try {
-      var result = await window.GMTPortalApi.dispatchCorrections(false);
-      if (dispatchStatus) dispatchStatus.textContent = result.status === "rate-limited"
-        ? "The outbound service rate-limited this batch. " + (result.failed || 0) + " attempt failed; " + (result.deferred || 0) + " remaining correction(s) were delayed until " + (result.retryAt || "the next retry window") + ". No SharePoint filing is confirmed."
-        : result.status === "awaiting-provider"
-          ? (result.deferred || 0) + " pay-month correction(s) remain queued while the Microsoft 365 workbook route is being verified. Nothing was sent or filed."
-          : (result.sent || 0) + " accepted by the outbound service; " + (result.failed || 0) + " failed; " + (result.skipped || 0) + " skipped. Check Power Automate and the target workbooks before treating these as filed.";
-      await load();
-    } catch (error) {
-      if (dispatchStatus) dispatchStatus.textContent = error && error.message ? error.message : "Correction dispatch could not be completed.";
-    } finally {
-      dispatchButton.disabled = false;
-    }
+  if (deliveryTrigger) deliveryTrigger.addEventListener("click", openDeliveryStatus);
+  if (deliveryDialog) deliveryDialog.querySelectorAll("[data-delivery-close]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      if (typeof deliveryDialog.close === "function") deliveryDialog.close();
+      else deliveryDialog.removeAttribute("open");
+    });
   });
+  if (downloadAllButton) downloadAllButton.addEventListener("click", function () { downloadAllPayMonthSheets(downloadAllButton); });
   document.addEventListener("gmt:history-record-deleted", function () {
     selected = -1;
     setTimeout(load, 0);

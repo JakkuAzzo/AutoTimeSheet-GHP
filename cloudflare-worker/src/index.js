@@ -2152,6 +2152,39 @@ async function adminDispatchQueued(env, identity, options = {}) {
   });
 }
 
+async function adminQueueStatus(env, identity) {
+  if (!identity?.isAdmin) throw Object.assign(new Error('Correction queue status is restricted to Accounts'), { status: 403 });
+  const result = await env.DB.prepare('SELECT q.record_id, q.status, q.attempts, q.queued_at, q.last_sent_at AS sent_at, q.updated_at, q.last_error AS error, r.employee_name, r.owner_upn, r.record_date, r.payload_json FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id WHERE r.status <> \'Deleted\' ORDER BY q.updated_at DESC LIMIT 200').all();
+  const rows = result.results || [];
+  const counts = { queued: 0, sending: 0, failed: 0, sent: 0, skipped: 0 };
+  const records = rows.map((row) => {
+    const state = text(row.status, 'unknown', 40).toLowerCase();
+    if (Object.hasOwn(counts, state)) counts[state] += 1;
+    const payload = payloadObject(row);
+    const dates = Array.isArray(payload.rows) ? payload.rows.map((entry) => text(entry?.date, '', 10)).filter(Boolean) : [];
+    if (!dates.length && Array.isArray(payload.deletedDays)) dates.push(...payload.deletedDays.map((date) => text(date, '', 10)).filter(Boolean));
+    if (!dates.length && row.record_date) dates.push(text(row.record_date, '', 10));
+    return {
+      recordId: text(row.record_id, '', MAX_RECORD_ID),
+      employeeName: text(row.employee_name || row.owner_upn, 'Timesheet correction', 240),
+      date: dates.join(', '),
+      status: state,
+      attempts: Number(row.attempts || 0),
+      queuedAt: text(row.queued_at, '', 80),
+      sentAt: text(row.sent_at, '', 80),
+      updatedAt: text(row.updated_at, '', 80),
+      error: text(row.error, '', 1000)
+    };
+  });
+  const endpointConfigured = Boolean(dispatchEndpoint(env));
+  return {
+    providerStatus: !endpointConfigured ? 'not-configured' : (env.PAY_MONTH_REPLAY_READY === 'true' ? 'ready' : 'awaiting-workbook-route'),
+    counts,
+    records,
+    truncated: rows.length === 200
+  };
+}
+
 function requireXeroAdmin(identity) {
   if (!identity?.isAdmin) throw Object.assign(new Error('Xero access is restricted to the Accounts administrator'), { status: 403 });
 }
@@ -2594,6 +2627,9 @@ async function handle(request, env, ctx) {
     const body = await readJson(request);
     return json(await adminDispatchQueued(env, identity, { dryRun: body.dryRun === true }), 200, origin || '');
   }
+  if (url.pathname === '/api/admin/dispatch-queue' && request.method === 'GET') {
+    return json(await adminQueueStatus(env, identity), 200, origin || '');
+  }
 
   if (url.pathname === '/api/history' && request.method === 'GET') {
     return json(await listRecords(request, env, identity), 200, origin || '');
@@ -2691,6 +2727,7 @@ export default {
 
 export {
   adminDispatchQueued,
+  adminQueueStatus,
   normaliseInput,
   validateNoFutureWork,
   validatePayMonthCorrection,

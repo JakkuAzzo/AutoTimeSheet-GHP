@@ -116,6 +116,10 @@
     return request('/api/admin/dispatch-queue', { method: 'POST', body: { dryRun: dryRun === true } });
   }
 
+  function correctionQueueStatus() {
+    return request('/api/admin/dispatch-queue', { method: 'GET' });
+  }
+
   function xeroConnect() {
     return request("/api/xero/connect", { method: "POST", body: {} });
   }
@@ -153,6 +157,7 @@
     getProfile: getProfile,
     saveProfile: saveProfile,
     dispatchCorrections: dispatchCorrections,
+    correctionQueueStatus: correctionQueueStatus,
     xeroConnect: xeroConnect,
     xeroStatus: xeroStatus,
     xeroInvoices: xeroInvoices,
