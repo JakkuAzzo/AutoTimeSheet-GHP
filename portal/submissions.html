@@ -7,7 +7,7 @@
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/brand/gmt-icon-256.png?v=gmt-logo-favicon-20260901">
 <title>Submitted documents | GMT Staff Portal</title>
 <link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=paymonth-calendar-20260928a">
+<link rel="stylesheet" href="../portal.css?v=paymonth-status-bulk-20260928">
   <link rel="stylesheet" href="../tools/estimates.css?v=break-minutes-20260928">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
@@ -21,9 +21,8 @@
 <main class="app-main estimate-main" hidden>
   <section class="estimate-intro card submissions-intro"><div><p class="portal-card-kicker">Identity-filtered workspace</p><h2>Shared work history</h2><p>Choose a pay month or record type below. Access and edit actions follow your signed-in GMT permissions.</p></div><span class="estimate-status-chip">Protected history</span></section>
   <section class="card estimate-history-panel pay-month-workspace" aria-labelledby="submissions-title">
-    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Pay month workspace</p><h2 id="submissions-title">Timesheets and records</h2></div><button type="button" id="submissions-refresh" class="secondary">Refresh</button></div>
+    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Pay month workspace</p><h2 id="submissions-title">Timesheets and records</h2></div><div class="submissions-toolbar-actions"><button type="button" id="submissions-delivery-trigger" class="secondary" aria-haspopup="dialog" aria-controls="submissions-delivery-dialog" hidden>Correction delivery status</button><button type="button" id="submissions-refresh" class="secondary">Refresh</button></div></div>
     <div class="portal-history-toolbar"><p id="submissions-status" class="small-text" role="status">Loading authorised records…</p></div>
-    <div id="submissions-dispatch-tools" class="portal-history-toolbar" hidden><button type="button" id="submissions-dispatch" class="secondary">Retry queued corrections</button><p id="submissions-dispatch-status" class="small-text" role="status">Saving changes starts delivery automatically when the provider route is enabled. Retry is for items still waiting; accepted mail does not prove the SharePoint workbook was updated.</p></div>
     <p id="submissions-admin-timesheet-notice" class="portal-history-warning" hidden></p>
     <div class="submission-type-tabs" role="tablist" aria-label="Record type">
       <button type="button" role="tab" aria-selected="true" data-submission-tab="timesheets">Timesheets</button>
@@ -43,17 +42,23 @@
       <section class="pay-month-list-panel" aria-label="Pay month list">
         <div class="pay-month-list-heading"><div><p class="portal-card-kicker" data-pay-month-list-kicker>Pay month list</p><h3 id="pay-month-list-title">Available sheets</h3></div><span id="pay-month-list-count" class="small-text"></span></div>
         <div id="submissions-list" class="estimate-history-list submissions-record-list pay-month-list" aria-label="Pay month and record list" aria-live="polite"></div>
+        <div class="pay-month-bulk-download"><button type="button" id="download-all-sheets" class="secondary" data-download-all-sheets hidden>Download All Sheets</button><span class="small-text">Includes all sheets matching the filters above.</span><span id="download-all-sheets-status" class="small-text" role="status"></span></div>
       </section>
       <article id="submissions-preview" class="estimate-paper estimate-history-preview pay-month-preview" aria-live="polite"><p class="small-text">Select a pay month to preview its combined daily rows.</p></article>
     </div>
   </section>
 </main>
-<script defer src="../portal-api.js?v=accounts-correction-replay-20260927"></script>
+<dialog id="submissions-delivery-dialog" class="submissions-delivery-dialog" aria-labelledby="submissions-delivery-title">
+  <div class="submissions-delivery-dialog-heading"><div><p class="portal-card-kicker">Accounts delivery status</p><h2 id="submissions-delivery-title">Correction delivery details</h2></div><button type="button" class="secondary" data-delivery-close aria-label="Close delivery status">Close</button></div>
+  <div id="submissions-delivery-details"></div>
+</dialog>
+<script defer src="../portal-api.js?v=correction-queue-readonly-20260928"></script>
 <script defer src="../pay-periods.js?v=gmt-pay-periods-20260921c"></script>
 <script defer src="../timesheet-coverage.js?v=gmt-timesheet-coverage-20260927"></script>
 <script defer src="../lazy-xlsx.js?v=excel-generator-20260922a"></script>
 <script defer src="pay-month-workbook.js?v=paymonth-calendar-20260928a"></script>
-<script defer src="submissions.js?v=paymonth-calendar-20260928a"></script>
+<script defer src="zip-store.js?v=paymonth-bulk-download-20260928"></script>
+<script defer src="submissions.js?v=paymonth-status-bulk-20260928"></script>
 <script defer src="calendar-data.js?v=source-date-20260927"></script>
 <script defer src="calendar-actions.js?v=paymonth-calendar-20260928a"></script>
 </body>

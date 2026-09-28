@@ -19,8 +19,12 @@ assert.match(html, /data-submission-tab="estimates"/);
 assert.match(html, /data-submission-tab="invoices"/);
 assert.doesNotMatch(html, /submissions-admin-timesheet-summary/, 'the removed completion dashboard must not return');
 assert.match(scripts, /data-pay-month-download/, 'selected pay-month sheets can be downloaded');
-assert.match(html, /Saving changes starts delivery automatically/);
-assert.match(html, /Retry queued corrections/);
+assert.match(html, /data-download-all-sheets/, 'the pay-month list has a bulk-download control');
+assert.match(scripts, /GMTZipStore/, 'bulk downloads are packaged as a ZIP');
+assert.match(scripts, /Current · /, 'current pay month labels are readable');
+assert.match(html, /Correction delivery status/);
+assert.doesNotMatch(html, /Retry queued corrections/);
+assert.match(html, /submissions-delivery-dialog/, 'delivery details open in a dialog');
 assert.match(workbook, /absence\)\) return 480/, 'paid holiday rows count as eight hours');
 
 console.log('PASS: Submitted Documents keeps the pay-month workspace, filters, downloads, and correction delivery guidance.');
