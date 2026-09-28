@@ -79,6 +79,12 @@ deployment action. Review the generated zip before running it.
 The concrete non-production flow build order, shared-calendar access gate and
 Timesheet Intake attachment extension are recorded in
 [`operational-readiness-build.md`](operational-readiness-build.md).
+The current observed-vs-target intake repair contract is
+[`timesheet-monthly-upsert-flow-spec.json`](timesheet-monthly-upsert-flow-spec.json).
+It documents the 28 September live flow mismatch and is not a claim that the
+target routing or replay has been deployed. The local
+[`intake-record-routing.mjs`](intake-record-routing.mjs) validator exercises
+legacy and correction attachment shapes against Date-column pay months.
 
 The optional `tools/GmtDataverseBootstrap` project is a controlled, local
 metadata bootstrap for a fresh developer environment. It was **not** used to
