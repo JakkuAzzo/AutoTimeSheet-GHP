@@ -1,82 +1,63 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "GMT monthly timesheet upsert flow specification",
-  "version": "1",
-  "status": "repair-required-live-trigger-unverified",
+  "title": "GMT dated pay-month intake and correction contract",
+  "version": "2",
+  "status": "target-contract-not-live",
+  "observedLiveOn": "2026-09-28",
   "ownership": {
-    "mailbox": "GMT-owned shared mailbox",
-    "storage": "GMT-owned SharePoint document library",
-    "index": "Microsoft List: Timesheet Submissions",
-    "flow": "GMT Portal - Timesheet Intake"
+    "flow": "GMT Portal - Timesheet Intake",
+    "storage": "GMT Web-App SharePoint / Shared Documents / Timesheets",
+    "index": "Timesheet Submissions Microsoft List"
   },
-  "trigger": {
-    "connector": "Office 365 Outlook",
-    "event": "When a new email arrives in a shared mailbox (V2)",
-    "mailbox": "accounts8765@gmtelectservsltd.onmicrosoft.com",
-    "folder": "Inbox",
-    "optionalRecipientRoute": "acc.gmtelect+timesheets@outlook.com",
-    "routingRule": "Read back on 2026-09-27: enabled legacy Outlook rule GMTWebApp-Timesheets-Demo matches acc.gmtelect+timesheets@outlook.com, forwards to accounts8765@gmtelectservsltd.onmicrosoft.com, moves the original into Timesheets, and stops processing further rules. Delivery to the forwarded address has not been proved.",
-    "validatedMailboxEvidence": "Read back on 2026-09-27: the saved flow monitors accounts8765@gmtelectservsltd.onmicrosoft.com / Inbox with a shared-mailbox V2 trigger. Exchange admin center's seven loaded mailboxes show accounts@gmt-services.co.uk as a user mailbox and gmt-portal@gmt-services.co.uk as a shared mailbox; no accounts8765 mailbox was listed. The flow details page warns of a trigger problem, and a previously inspected run reported an invalid requested shared-mailbox user. Flow checker showing zero errors does not prove delivery. Resolve the recipient, connection and trigger type, then correlate a new run and workbook write before replaying payroll corrections.",
-    "legacyRoute": {
-      "mailbox": "acc.gmtelect@outlook.com",
-      "folder": "Timesheets",
-      "plusAddress": "acc.gmtelect+timesheets@outlook.com",
-      "preserveExistingSubmissionRoute": true
-    }
+  "observedLive": {
+    "trigger": "Shared mailbox V2 on accounts8765@gmtelectservsltd.onmicrosoft.com / Inbox; this address is absent from the loaded Exchange mailbox list and the trigger has reported ErrorInvalidUser",
+    "connection": "Amanda.BB@gmt-services.co.uk Outlook connection",
+    "recordFilter": "Only non-inline application/json attachments whose name contains GMT Timesheet Record -",
+    "script": "GMT monthly timesheet upsert v2",
+    "file": "Hard-coded /Timesheets/2026/09/{employee-from-subject}/GMT Timesheet - {employee-from-subject} - Pay Month 2026-09.xlsx",
+    "indexOrdering": "Create item precedes attachment validation and Excel Run script; source ID is Outlook message ID",
+    "heldCorrections": "Michelle, Matthew and Simon protected queue entries currently have XLSX and CSV only, so this JSON filter cannot run their workbook update"
   },
-  "acceptedEnvelope": {
-    "types": ["timesheet", "timesheet_clock"],
-    "filingMode": "monthly-upsert",
-    "required": [
-      "gmt_record_id",
-      "gmt_workbook_key",
-      "gmt_employee",
-      "gmt_year",
-      "gmt_month",
-      "gmt_attachment_manifest"
-    ],
-    "monthFormat": "MM",
-    "acceptedAttachments": [".xlsx", ".csv", "GMT Timesheet Record - *.json", "GMT Calendar Sync - *.json"],
-    "rejectedAttachmentPolicy": "quarantine"
+  "requiredTrigger": {
+    "recipient": "accounts@gmt-services.co.uk",
+    "legacyCopy": "acc.gmtelect@outlook.com",
+    "rule": "Choose a connector/connection that demonstrably has Full Access to the real Accounts mailbox, or a verified GMT-owned shared mailbox route. Do not point a shared-mailbox trigger at the nonexistent legacy address. Prove an actual new run before replay."
   },
-  "testIsolation": {
-    "policy": "Synthetic and admin-account submissions are retained only as raw intake evidence and never filed into payroll or employee history.",
-    "syntheticRecordIdPrefix": "TEST-",
-    "adminAccountMarkers": ["acc.gmtelect", "Amanda"],
-    "expectedOfficeScriptResult": "skipped",
-    "employeeHistoryExclusion": true
-  },
-  "storage": {
-    "root": "GMT Web-App/Timesheets",
-    "monthlyFolder": "{year}/{month}/{employee}",
-    "workbookName": "GMT Timesheet - {employee} - {year}-{month}.xlsx",
-    "rawEventFolder": "{year}/{month}/{employee}/Raw Events/{record-id}",
-    "template": "GMT Timesheet Monthly Template.xlsx"
-  },
-  "idempotency": {
-    "eventKey": "gmt_record_id",
-    "workbookKey": "gmt_workbook_key",
-    "listKey": "Record ID",
-    "duplicateBehavior": "update-existing-row-and-list-item"
-  },
-  "actions": [
-    "validate-envelope-and-attachments",
-    "get-or-create-monthly-folder",
-    "get-or-create-workbook-from-approved-template",
-    "save-controlled-record-json-xlsx-csv-and-calendar-sync-if-absent",
-    "run-office-script-upsert-monthly-timesheet-row",
-    "create-or-update-timesheet-submissions-list-item",
-    "move-email-to-Processed-after-success"
+  "acceptedRecordJson": [
+    "One legacy dated row object",
+    "An array of legacy dated row objects",
+    "One schemaVersion 2 replace-pay-month envelope with rows and stable recordId"
   ],
-  "failurePolicy": {
-    "folder": "GMT Portal/Failed - Needs Review",
-    "retainSourceEmail": true,
-    "doNotMarkProcessedBefore": ["workbook-upsert", "raw-file-save", "list-upsert"]
+  "routing": {
+    "authority": "The Date field of every daily row; weekStart, weekEnd, subject and receive date are not payroll dates",
+    "periodPolicy": "Use pay-periods.js: four-week cycles anchored 2026-08-24, labelled by the Friday in week four. The displayed 2026-09 payroll Friday is 2026-09-18; the immediately following weekend remains in that cycle until payroll policy says otherwise.",
+    "mixedPayMonths": "Partition a legacy attachment into one per-pay-month row array. Never rewrite its Date values to fit the named week. Replacement snapshots must belong to exactly one declared pay month.",
+    "folder": "/Timesheets/{payYear}/{payMonthNumber}/{employeeName}",
+    "workbook": "GMT Timesheet - {employeeName} - Pay Month {payMonth}.xlsx",
+    "referenceValidator": "power-platform/intake-record-routing.mjs",
+    "checksBeforeExcel": [
+      "Parse controlled record JSON and require one verified employee identity and a stable source record ID",
+      "Reject inconsistent employee names/emails, invalid or duplicate Date values, and declared months that disagree with Date",
+      "Hold future worked days and off-roster default worked rows for source review; do not infer absence",
+      "Ensure the exact company workbook exists and contains only Daily Entries and Weekly Totals"
+    ]
   },
-  "locationPolicy": {
-    "sourceField": "gmt_location",
-    "permissionDenied": "Location unavailable",
-    "manualSiteValue": "accepted",
-    "coordinates": "store only when the user explicitly requested location capture"
+  "writeOrder": [
+    "Validate the source attachment and partition by dated pay month",
+    "Run the tested pay-month register v3 Office Script against each exact company workbook",
+    "Check each script result and read back the dated rows and weekly/month totals",
+    "Upsert the protected list/history item using the stable source record ID after the workbook update succeeds",
+    "Mark the message processed only after all partitions and index writes succeed"
+  ],
+  "corrections": {
+    "mode": "replace-pay-month",
+    "queueRequirement": "Regenerate each held correction with the controlled GMT Timesheet Record JSON attachment before delivery; the existing XLSX/CSV pair alone is insufficient",
+    "idempotency": "Reuse the original stable record ID or an explicit correction ID linked to it; do not create another independent active employee month",
+    "audit": "Keep editor identity, edit time, affected Date values, and source message/run ID in the protected record; notify the employee and both Accounts recipients"
+  },
+  "certification": {
+    "perSource": "Source message and attachment hash -> new successful trigger/run -> Run script workbook path and created/updated/unchanged counts -> downloaded SharePoint workbook cell comparison -> portal history projection",
+    "perEmployee": "One active company workbook, two required tabs, all evidenced dated rows, accurate numeric break and total hours, weekly/month totals, resolved or explicitly provisional source conflicts",
+    "holdUntil": "Do not release the three protected corrections or send reviewer workbooks before the trigger, route, script and one isolated test replay are proven"
   }
 }
