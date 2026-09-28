@@ -122,6 +122,13 @@ assert.equal(weekendResult.monthTotalMinutes, 240, 'the dated Saturday contribut
 assert.equal(dateCell(weekendBook.weekly.rows()[1][1]), '2026-08-30', 'the first weekly interval includes its weekend');
 assert.equal(durationCell(weekendBook.weekly.rows()[1][2]), 240, 'Saturday hours appear in the same weekly total');
 assert.equal(dateCell(weekendBook.weekly.rows()[4][1]), '2026-09-18', 'the final interval ends at the pay-month boundary');
+const longBreakBook = workbook({ name: 'GMT Timesheet - Jason - Pay Month 2026-09.xlsx' });
+const longBreakResult = context.runScript(longBreakBook, JSON.stringify([{
+  recordId: 'source-jason|2026-09-01', employeeName: 'Jason', date: '2026-09-01',
+  startTime: '00:00', finishTime: '23:00', breakMinutes: 780
+}]));
+assert.equal(longBreakBook.daily.rows()[1][3], 780, 'the workbook accepts the same minute range as the portal editor');
+assert.equal(longBreakResult.monthTotalMinutes, 600, 'a valid long break is deducted from elapsed hours');
 const duplicatedDate = workbook({ dailyRows: [
   ['Date', 'Start', 'Finish', 'Break', 'Absence', 'Total hours', 'Notes'],
   [serial, 8 / 24, 17 / 24, 60, 'NA', 8 / 24, 'First source'],

@@ -68,7 +68,7 @@ function breakMinutes(row: InputRow, note: string): number | null {
   const supplied = value(row, ["breakMinutes", "Break", "lunchMinutes"]);
   if (supplied !== "") {
     const minutes = Number(supplied);
-    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 720) throw new Error("Invalid break minutes");
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) throw new Error("Invalid break minutes");
     return minutes;
   }
   if (/\bBreak:\s*(?:No break|0\s*(?:minute|min))/i.test(note)) return 0;
