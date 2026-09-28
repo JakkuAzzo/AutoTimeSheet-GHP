@@ -39,7 +39,7 @@ for (const file of [
   'timesheet-mobile-fixes.js', 'timesheet-preflight.js', 'timesheet-status-labels.js',
   // The custom domain serves the public company site at /. Keep its scripts
   // and media in the same Pages bundle as the protected portal.
-  'public-site.css', 'public-site.js'
+  'public-site.css', 'public-site-mapfix-20260928.js'
 ]) copy(file);
 copy('portal/profile.js', 'profile.js');
 copy('assets');

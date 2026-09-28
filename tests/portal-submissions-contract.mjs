@@ -24,7 +24,7 @@ assert.match(script, /signed-in GMT identity/);
 assert.match(script, /withExamples/);
 assert.match(script, /connect-history=1/);
 for (const value of ['demo-job-card', 'demo-estimate', 'demo-task', 'Example only', 'enquiry-thread', 'Open inbox thread']) assert.match(script, new RegExp(value));
-assert.match(fs.readFileSync(new URL('../public-site.js', import.meta.url), 'utf8'), /gmt_enquiry_id/);
+assert.match(fs.readFileSync(new URL('../public-site-mapfix-20260928.js', import.meta.url), 'utf8'), /gmt_enquiry_id/);
 assert.match(dashboard, /href="\/portal\/submissions"/);
 assert.match(dashboard, /Open timesheet calendar/);
 assert.match(dashboard, /Submitted documents/);

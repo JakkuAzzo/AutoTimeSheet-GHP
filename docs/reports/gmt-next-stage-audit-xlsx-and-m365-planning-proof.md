@@ -49,7 +49,7 @@ AUDIT_ZIP_PATH=/tmp/codex-remote-attachments/019f039e-fc5f-76c1-8bd0-c3139147a1e
 npm run test:timesheets:daily-calculation
 npm run test:timesheets:email-routing
 npm run test:jobs:email-routing
-node --check public-site.js
+node --check public-site-mapfix-20260928.js
 Playwright local homepage run: 390x844, 844x390, 390x844 after rotation, and 1366x900
 git diff --check
 ```
