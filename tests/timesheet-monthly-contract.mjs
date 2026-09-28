@@ -30,13 +30,13 @@ assert.match(upsertScript, /Source record ID/);
 assert.match(upsertScript, /existingById/);
 assert.match(upsertScript, /getUsedRange\(true\)/);
 assert.match(filingContract, /one employee\/month workbook/);
-assert.equal(flowSpec.acceptedEnvelope.filingMode, 'monthly-upsert');
-assert.equal(flowSpec.acceptedEnvelope.monthFormat, 'MM');
-assert.ok(flowSpec.acceptedEnvelope.acceptedAttachments.includes('GMT Timesheet Record - *.json'));
-assert.ok(flowSpec.acceptedEnvelope.acceptedAttachments.includes('GMT Calendar Sync - *.json'));
-assert.equal(flowSpec.idempotency.eventKey, 'gmt_record_id');
-assert.equal(flowSpec.idempotency.workbookKey, 'gmt_workbook_key');
-assert.ok(flowSpec.actions.includes('run-office-script-upsert-monthly-timesheet-row'));
+assert.equal(flowSpec.status, 'target-contract-not-live');
+assert.ok(flowSpec.acceptedRecordJson.includes('One schemaVersion 2 replace-pay-month envelope with rows and stable recordId'));
+assert.match(flowSpec.routing.authority, /Date field of every daily row/);
+assert.equal(flowSpec.routing.folder, '/Timesheets/{payYear}/{payMonthNumber}/{employeeName}');
+assert.equal(flowSpec.routing.workbook, 'GMT Timesheet - {employeeName} - Pay Month {payMonth}.xlsx');
+assert.ok(flowSpec.writeOrder.some((step) => step.includes('pay-month register v3 Office Script')));
+assert.match(flowSpec.corrections.audit, /editor identity, edit time, affected Date values/);
 
 console.log(JSON.stringify({
   filingMode: contract.timesheet.filingMode,
