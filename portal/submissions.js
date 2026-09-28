@@ -357,11 +357,11 @@
     var key = actionKey(record);
     return key === "job-cards" ? "../jobs/" : key === "estimates" ? "../tools/estimates.html" : key === "invoices" ? "../tools/invoices.html" : key === "tasks" ? "../tasks/" : key === "calendar" ? "submissions?tab=calendar" : key === "enquiries" ? "../#workshop-enquiry" : "timesheets.html";
   }
-  function timesheetHref(record, day) {
+  function timesheetHref(record, day, payMonth) {
     var params = [];
     var recordId = record && (record.source_record_id || record.record_id || record.id);
     var employee = record && (record.employee_upn || record.employee_name);
-    var month = String(record && (record.end_date || record.endDate || record.start_date || record.startDate || record.record_date || record.recordDate) || '').slice(0, 7);
+    var month = String(payMonth || record && (record.end_date || record.endDate || record.start_date || record.startDate || record.record_date || record.recordDate) || '').slice(0, 7);
     if (recordId && !record.is_demo) params.push('record=' + encodeURIComponent(recordId));
     if (employee && !record.is_demo) params.push('employee=' + encodeURIComponent(employee));
     if (/^\d{4}-\d{2}$/.test(month) && !record.is_demo) params.push('month=' + month);
@@ -542,7 +542,7 @@
     var unrecordedBreaks = sheet.rows.filter(function (item) { return breakMinutes(item.row) === null && rowTotalMinutes(item.row) !== null; }).length;
     var provisionalTotals = sheet.rows.filter(function (item) { var api = payMonthWorkbookApi(); return api && api.provisionalForRow && api.provisionalForRow(item.row); }).length;
     var rows = sheet.rows.map(function (item, index) { return sheetRowMarkup(item.row, index, editable, false); }).join("");
-    var canOpenFull = sheet.records.length ? timesheetHref(sheet.records[0]) : "timesheets.html";
+    var canOpenFull = sheet.records.length ? timesheetHref(sheet.records[0], "", sheet.payMonth) : "timesheets.html";
     var roster = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
     var employeeSchedule = roster.find(function (entry) { return String(entry.employee_upn || "").toLowerCase() === String(sheet.employeeUpn || "").toLowerCase(); });
     var coverage = window.GMTTimesheetCoverage && window.GMTTimesheetCoverage.summarize({ period: window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth(sheet.payMonth), employeeEmail: sheet.employeeUpn, records: [], submittedRows: sheet.rows.map(function (item) { return item.row; }), workdays: employeeSchedule && employeeSchedule.schedule_weekdays });

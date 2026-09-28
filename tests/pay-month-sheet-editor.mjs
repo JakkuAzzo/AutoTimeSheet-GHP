@@ -58,6 +58,8 @@ try {
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Canonical employee month workbook replay' }).count(), 0);
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'ARCHIVE REAL' }).count(), 0);
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Faith' }).count(), 1, 'Accounts can start an empty roster employee sheet');
+  await page.locator('[data-sheet-index]').filter({ hasText: 'Ainsley' }).click();
+  assert.match(await page.getByRole('link', { name: 'Open full editor' }).getAttribute('href'), /month=2026-09/, 'an August-dated source opens its September pay-month editor');
   await page.locator('[data-sheet-index]').filter({ hasText: 'Matthew' }).click();
   const rows = page.locator('[data-pay-month-edit-form] [data-sheet-row]');
   assert.equal(await rows.count(), 3, 'the actual Date column places all Matthew days in the same pay month');
