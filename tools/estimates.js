@@ -213,6 +213,21 @@
     selectedHistory = index;
     historyList.querySelectorAll('[data-history-index]').forEach((button) => { button.setAttribute('aria-current', String(Number(button.dataset.historyIndex) === index)); });
     historyPreview.innerHTML = documentHtml(historyRecords[index]);
+    loadEstimateInvoiceLinks(historyRecords[index]);
+  }
+
+  async function loadEstimateInvoiceLinks(record) {
+    const panel = $('estimate-invoice-links');
+    if (!panel || !record?.recordId || !window.GMTPortalApi?.recordInvoiceLinks) return;
+    panel.innerHTML = '<p class="small-text">Loading linked invoices…</p>';
+    try {
+      const body = await window.GMTPortalApi.recordInvoiceLinks('estimates', record.recordId);
+      const invoices = Array.isArray(body?.invoices) ? body.invoices : [];
+      const list = invoices.map((invoice) => `<li><strong>${esc(invoice.invoice_number || invoice.invoice_id || 'Invoice')}</strong> · ${esc(invoice.display_status || invoice.status || 'Unknown')} · ${esc(invoice.amount_due == null ? 'Amount due unavailable' : money(invoice.amount_due))}${invoice.url ? ` · <a href="${esc(invoice.url)}" target="_blank" rel="noopener">Open in Xero ↗</a>` : ''}</li>`).join('');
+      panel.innerHTML = `<div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Linked billing</p><h3>Invoices</h3></div><span class="small-text">${invoices.length} linked</span></div>${list ? `<ul class="record-invoice-list">${list}</ul>` : '<p class="small-text">No Xero invoice is linked yet.</p>'}<div class="record-invoice-link-form"><label>Link invoice number<input data-estimate-invoice-number placeholder="e.g. INV-0001"></label><button type="button" class="secondary" data-estimate-invoice-link="${esc(record.recordId)}">Find and link invoice</button><span class="small-text" data-estimate-invoice-feedback></span></div>`;
+    } catch (error) {
+      panel.innerHTML = `<p class="small-text">Invoice links are unavailable: ${esc(error?.message || 'Please try again.')}</p>`;
+    }
   }
 
   async function loadEstimateHistory() {
@@ -280,6 +295,21 @@
   $('print-estimate').addEventListener('click', () => { render(); window.print(); });
   $('send-estimate').addEventListener('click', sendToClient);
   if (historyRefresh) historyRefresh.addEventListener('click', loadEstimateHistory);
+  $('estimate-invoice-links')?.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-estimate-invoice-link]');
+    if (!button || !window.GMTPortalApi?.xeroLookupInvoice) return;
+    const panel = $('estimate-invoice-links');
+    const feedback = panel.querySelector('[data-estimate-invoice-feedback]');
+    const number = panel.querySelector('[data-estimate-invoice-number]')?.value.trim() || '';
+    if (!number) { feedback.textContent = 'Enter an invoice number first.'; return; }
+    button.disabled = true; feedback.textContent = 'Finding invoice in Xero…';
+    try {
+      const found = await window.GMTPortalApi.xeroLookupInvoice(number, '');
+      if (!found?.invoice?.invoice_id) throw new Error('No Xero invoice matched that number.');
+      await window.GMTPortalApi.xeroLinkInvoice(found.invoice.invoice_id, [button.dataset.estimateInvoiceLink], '');
+      await loadEstimateInvoiceLinks(historyRecords[selectedHistory]);
+    } catch (error) { feedback.textContent = error.message || 'Invoice could not be linked.'; button.disabled = false; }
+  });
   $('clear-estimate').addEventListener('click', () => { if (confirm('Clear this estimate?')) { lines.innerHTML = ''; addLine(); status.textContent = 'Estimate cleared.'; } });
   document.querySelectorAll('#estimate-form input, #estimate-form textarea').forEach((input) => input.addEventListener('input', render));
   addLine({ description:'', quantity:1, unit:0 });
