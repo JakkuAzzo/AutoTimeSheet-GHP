@@ -19,6 +19,11 @@
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const id = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const money = (value, currency = 'GBP') => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 'Amount unavailable';
+    try { return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(number); } catch (_) { return `${currency} ${number.toFixed(2)}`; }
+  };
   const safeJobEmailUrl = (value) => {
     try {
       const raw = String(value || '').trim();
@@ -326,6 +331,20 @@
       <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${job.xeroInvoiceStatus ? ` · Xero status ${safe(job.xeroInvoiceStatus)}` : ''}${job.xeroLastSyncedAt ? ` · Synced ${safe(job.xeroLastSyncedAt)}` : ''}</p>
       <div class="portal-item-actions"><button type="button" class="secondary" data-job-revise="${safe(job.id)}">Create revision</button></div>
       ${accountFields}`;
+    loadRecordInvoiceLinks('job-cards', job.id, $('#job-card-invoice-links'), canUseXero);
+  }
+
+  async function loadRecordInvoiceLinks(kind, recordId, container, canManage) {
+    if (!container || !window.GMTPortalApi?.recordInvoiceLinks) return;
+    container.innerHTML = '<p class="small-text">Loading linked invoices…</p>';
+    try {
+      const body = await window.GMTPortalApi.recordInvoiceLinks(kind, recordId);
+      const invoices = Array.isArray(body?.invoices) ? body.invoices : [];
+      const cards = invoices.map((invoice) => `<li><strong>${safe(invoice.invoice_number || invoice.invoice_id || 'Invoice')}</strong> · ${safe(invoice.display_status || invoice.status || 'Unknown')} · ${safe(invoice.amount_due == null ? 'Amount due unavailable' : money(invoice.amount_due, invoice.currency))}${invoice.url ? ` · <a href="${safe(invoice.url)}" target="_blank" rel="noopener">Open in Xero ↗</a>` : ''}</li>`).join('');
+      container.innerHTML = `<div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Linked billing</p><h3>Invoices</h3></div><span class="small-text">${invoices.length} linked</span></div>${cards ? `<ul class="record-invoice-list">${cards}</ul>` : '<p class="small-text">No Xero invoice is linked yet.</p>'}${canManage ? `<div class="record-invoice-link-form"><label>Link invoice number<input data-record-invoice-number placeholder="e.g. INV-0001"></label><button type="button" class="secondary" data-record-invoice-link="${safe(recordId)}">Find and link invoice</button><span class="small-text" data-record-invoice-feedback></span></div>` : ''}`;
+    } catch (error) {
+      container.innerHTML = `<p class="small-text">Invoice links are unavailable: ${safe(error?.message || 'Please try again.')}</p>`;
+    }
   }
 
   function selectJobHistory(jobId) {
@@ -752,6 +771,23 @@
           if (feedback) feedback.textContent = error.message || 'Xero invoice lookup failed.';
           xeroButton.disabled = false;
         }
+        return;
+      }
+      const linkButton = event.target.closest('[data-record-invoice-link]');
+      if (linkButton && portalApiEnabled()) {
+        const card = linkButton.closest('.record-invoice-links');
+        const feedback = card?.querySelector('[data-record-invoice-feedback]');
+        const invoiceNumber = card?.querySelector('[data-record-invoice-number]')?.value.trim() || '';
+        if (!invoiceNumber) { if (feedback) feedback.textContent = 'Enter an invoice number first.'; return; }
+        linkButton.disabled = true;
+        if (feedback) feedback.textContent = 'Finding invoice in Xero…';
+        try {
+          const found = await window.GMTPortalApi.xeroLookupInvoice(invoiceNumber, $('#xero-tenant-select')?.value || '');
+          if (!found?.invoice?.invoice_id) throw new Error('No Xero invoice matched that number.');
+          await window.GMTPortalApi.xeroLinkInvoice(found.invoice.invoice_id, [linkButton.dataset.recordInvoiceLink], $('#xero-tenant-select')?.value || '');
+          if (feedback) feedback.textContent = 'Invoice linked.';
+          await loadRecordInvoiceLinks('job-cards', linkButton.dataset.recordInvoiceLink, card, true);
+        } catch (error) { if (feedback) feedback.textContent = error.message || 'Invoice could not be linked.'; linkButton.disabled = false; }
         return;
       }
       const button = event.target.closest('[data-job-account-save]');

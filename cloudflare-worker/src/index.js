@@ -2564,6 +2564,44 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
   }, 200, origin || '');
 }
 
+async function xeroInvoiceLinksEndpoint(request, env, identity, origin, invoiceId) {
+  requireXeroAdmin(identity);
+  const url = new URL(request.url);
+  const current = await getXeroInvoice(env, url.searchParams.get('tenantId') || '', invoiceId);
+  const links = await env.DB.prepare(`SELECT record_id, record_kind, linked_by_upn, linked_at
+    FROM xero_invoice_links WHERE tenant_id = ? AND invoice_id = ? ORDER BY linked_at DESC`)
+    .bind(current.connection.tenant_id, invoiceId).all();
+  const audit = await env.DB.prepare(`SELECT action, before_status, after_status, actor_upn, occurred_at
+    FROM xero_invoice_audit WHERE tenant_id = ? AND invoice_id = ? ORDER BY occurred_at DESC LIMIT 20`)
+    .bind(current.connection.tenant_id, invoiceId).all();
+  return json({
+    invoice: xeroInvoiceProjection(current.invoice),
+    links: links.results || [],
+    audit: audit.results || []
+  }, 200, origin || '');
+}
+
+async function recordInvoiceLinksEndpoint(request, env, identity, origin, kind, recordId) {
+  if (!['estimates', 'job-cards'].includes(kind)) return json({ error: 'Invoice links are available for estimates and job cards only' }, 400, origin || '');
+  const record = await env.DB.prepare('SELECT record_id, kind, status FROM records WHERE record_id = ?').bind(recordId).first();
+  if (!record) return json({ error: 'Record not found' }, 404, origin || '');
+  if (record.kind !== kind) return json({ error: 'Record type does not match the requested link type' }, 400, origin || '');
+  if (!canAccessRecord(identity, record)) throw Object.assign(new Error('You are not allowed to view this record'), { status: 403 });
+  const linked = await env.DB.prepare(`SELECT tenant_id, invoice_id, record_kind, linked_by_upn, linked_at
+    FROM xero_invoice_links WHERE record_id = ? AND record_kind = ? ORDER BY linked_at DESC`)
+    .bind(recordId, kind).all();
+  const invoices = [];
+  for (const link of linked.results || []) {
+    try {
+      const current = await getXeroInvoice(env, link.tenant_id, link.invoice_id);
+      invoices.push({ ...xeroInvoiceProjection(current.invoice), linked_by_upn: link.linked_by_upn, linked_at: link.linked_at });
+    } catch (_) {
+      invoices.push({ invoice_id: link.invoice_id, status: 'UNAVAILABLE', display_status: 'Unavailable', linked_by_upn: link.linked_by_upn, linked_at: link.linked_at });
+    }
+  }
+  return json({ invoices, links: linked.results || [] }, 200, origin || '');
+}
+
 async function xeroSetupDataEndpoint(request, env, identity, origin) {
   requireXeroAdmin(identity);
   const url = new URL(request.url);
@@ -2868,6 +2906,8 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'POST') return createXeroInvoice(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices/lookup' && request.method === 'POST') return lookupXeroInvoiceEndpoint(request, env, identity, origin || '');
+  const xeroInvoiceLinksMatch = url.pathname.match(/^\/api\/xero\/invoices\/([^/]+)\/links$/);
+  if (xeroInvoiceLinksMatch && request.method === 'GET') return xeroInvoiceLinksEndpoint(request, env, identity, origin || '', decodeURIComponent(xeroInvoiceLinksMatch[1]));
   const xeroInvoiceActionMatch = url.pathname.match(/^\/api\/xero\/invoices\/([^/]+)\/(send|delete|links)$/);
   if (xeroInvoiceActionMatch && request.method === 'POST') {
     const invoiceId = decodeURIComponent(xeroInvoiceActionMatch[1]);
@@ -2878,6 +2918,8 @@ async function handle(request, env, ctx) {
   const xeroInvoiceMatch = url.pathname.match(/^\/api\/xero\/invoices\/([^/]+)$/);
   if (xeroInvoiceMatch && request.method === 'GET') return xeroInvoiceDetailEndpoint(request, env, identity, origin || '', decodeURIComponent(xeroInvoiceMatch[1]));
   if (xeroInvoiceMatch && request.method === 'PATCH') return updateXeroInvoice(request, env, identity, origin || '', decodeURIComponent(xeroInvoiceMatch[1]));
+  const recordInvoiceLinksMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/([^/]+)\/invoices$/);
+  if (recordInvoiceLinksMatch && request.method === 'GET') return recordInvoiceLinksEndpoint(request, env, identity, origin || '', decodeURIComponent(recordInvoiceLinksMatch[1]), decodeURIComponent(recordInvoiceLinksMatch[2]));
   const xeroJobSyncMatch = url.pathname.match(/^\/api\/xero\/job-cards\/([^/]+)\/sync$/);
   if (xeroJobSyncMatch && request.method === 'POST') return syncXeroJobCard(request, env, identity, origin || '', decodeURIComponent(xeroJobSyncMatch[1]));
 

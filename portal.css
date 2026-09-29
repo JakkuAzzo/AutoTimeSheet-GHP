@@ -687,6 +687,16 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .timesheet-pay-month-rows tr.is-selected-day td:first-child { border-left: 3px solid var(--green); }
 .portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; overflow-wrap: anywhere; }
 .xero-invoice-panel { display: grid; gap: .8rem; margin-top: 1rem; }
+.xero-invoice-workspace { overflow: hidden; }
+.xero-invoice-workspace .table-scroll { max-height: 34rem; overflow: auto; }
+.xero-invoice-workspace tr.is-selected { outline: 2px solid var(--accent); outline-offset: -2px; background: #f3faef; }
+.xero-invoice-links-chips { display: flex; flex-wrap: wrap; gap: .4rem; min-height: 1.8rem; }
+.xero-invoice-link-chip { display: inline-flex; max-width: 100%; padding: .35rem .55rem; border: 1px solid var(--line); border-radius: 999px; background: #f3faef; color: var(--ink); font-size: .82rem; font-weight: 750; }
+.record-invoice-links { display: grid; gap: .65rem; margin-top: 1rem; padding: .9rem; }
+.record-invoice-list { display: grid; gap: .45rem; margin: 0; padding-left: 1.2rem; }
+.record-invoice-link-form { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; }
+.record-invoice-link-form label { display: grid; flex: 1 1 15rem; gap: .25rem; color: var(--muted); font-weight: 800; }
+.record-invoice-link-form input { min-height: 40px; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: .55rem; font: inherit; }
 .xero-invoice-editor { display: grid; gap: 1rem; }
 .xero-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
 .xero-invoice-editor label { display: grid; gap: .35rem; min-width: 0; color: var(--ink); font-weight: 750; }
