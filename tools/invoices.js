@@ -2,21 +2,36 @@
   "use strict";
 
   var api = window.GMTPortalApi || {};
-  var card = document.getElementById("xero-invoices-card");
-  var chip = document.getElementById("xero-connection-chip");
-  var status = document.getElementById("xero-status");
-  var connections = document.getElementById("xero-connections");
-  var connect = document.getElementById("xero-connect");
-  var refresh = document.getElementById("xero-refresh");
-  var loadButton = document.getElementById("xero-invoice-load");
-  var listStatus = document.getElementById("xero-invoice-status-message");
-  var table = document.getElementById("xero-invoice-table");
-  var lookupForm = document.getElementById("xero-invoice-lookup");
-  var lookupStatus = document.getElementById("xero-invoice-lookup-status");
-  var lookupResult = document.getElementById("xero-invoice-result");
-  var statusFilter = document.getElementById("xero-invoice-status");
+  var $ = function (id) { return document.getElementById(id); };
+  var invoiceMain = $("xero-invoice-main");
+  var accessGate = $("xero-access-gate");
+  var chip = $("xero-connection-chip");
+  var status = $("xero-status");
+  var connections = $("xero-connections");
+  var connect = $("xero-connect");
+  var refresh = $("xero-refresh");
+  var loadButton = $("xero-invoice-load");
+  var listStatus = $("xero-invoice-status-message");
+  var table = $("xero-invoice-table");
+  var lookupForm = $("xero-invoice-lookup");
+  var lookupStatus = $("xero-invoice-lookup-status");
+  var lookupResult = $("xero-invoice-result");
+  var statusFilter = $("xero-invoice-status");
+  var editor = $("xero-invoice-editor");
+  var editorStatus = $("xero-invoice-editor-status");
+  var lines = $("xero-invoice-lines");
+  var contactSelect = $("xero-contact");
+  var recordSelect = $("xero-invoice-links");
+  var saveButton = $("xero-create-invoice");
+  var sendButton = $("xero-send-invoice");
+  var deleteButton = $("xero-delete-invoice");
+  var saveLinksButton = $("xero-save-invoice-links");
+  var auditPanel = $("xero-invoice-audit");
   var tenantId = "";
   var xeroBody = null;
+  var setupData = null;
+  var editingInvoiceId = "";
+  var lookupsPromise = Promise.resolve();
 
   function safe(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
@@ -30,10 +45,7 @@
     try { return new Intl.NumberFormat("en-GB", { style: "currency", currency: currency || "GBP" }).format(number); } catch (_) { return (currency || "GBP") + " " + number.toFixed(2); }
   }
 
-  function connectionList() {
-    return xeroBody && Array.isArray(xeroBody.connections) ? xeroBody.connections : [];
-  }
-
+  function connectionList() { return xeroBody && Array.isArray(xeroBody.connections) ? xeroBody.connections : []; }
   function selectedTenant() {
     var select = connections && connections.querySelector("select");
     return String(select && select.value || tenantId || "");
@@ -44,37 +56,35 @@
     if (list.length && !tenantId) tenantId = String(list[0].tenant_id || "");
     if (chip) chip.textContent = list.length ? "Connected · " + (list.length === 1 ? String(list[0].tenant_name || "Xero organisation") : list.length + " organisations") : (xeroBody && xeroBody.configured ? "Not connected" : "Not configured");
     if (status) status.textContent = xeroBody && xeroBody.configured
-      ? (list.length ? "The Accounts Xero connection is ready. It is retained by the portal service and refreshed when needed." : "Xero is configured but no organisation is connected yet. Connect once to make the Accounts register available.")
+      ? (list.length ? "The Accounts Xero connection is ready. Invoices are managed in Xero and linked GMT records are logged here." : "Xero is configured but no organisation is connected yet. Connect once to enable Accounts invoice management.")
       : "Xero is not configured on the portal service yet.";
     if (!connections) return;
-    if (!list.length) {
-      connections.innerHTML = '<p class="portal-history-empty">No Xero organisation is connected.</p>';
-      return;
-    }
+    if (!list.length) { connections.innerHTML = '<p class="portal-history-empty">No Xero organisation is connected.</p>'; return; }
     connections.innerHTML = list.length === 1
       ? '<p><strong>' + safe(list[0].tenant_name || "Xero organisation") + '</strong><br><span class="small-text">Connected ' + safe(list[0].connected_at || "") + (list[0].last_error ? ' · ' + safe(list[0].last_error) : '') + '</span></p>'
       : '<label>Organisation<select aria-label="Choose Xero organisation">' + list.map(function (item) { return '<option value="' + safe(item.tenant_id) + '"' + (String(item.tenant_id) === tenantId ? ' selected' : '') + '>' + safe(item.tenant_name || item.tenant_id) + '</option>'; }).join("") + '</select></label>';
     var select = connections.querySelector("select");
-    if (select) select.addEventListener("change", function () { tenantId = select.value; loadInvoices(); });
+    if (select) select.addEventListener("change", function () { tenantId = select.value; refreshTenantData(); });
   }
 
   function renderInvoices(invoices) {
     if (!table) return;
     var body = Array.isArray(invoices) ? invoices : [];
-    table.innerHTML = '<thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Date</th><th>Due</th><th>Total</th><th>Amount due</th></tr></thead><tbody>' + (body.length ? body.map(function (invoice) {
+    table.innerHTML = '<thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Date</th><th>Due</th><th>Total</th><th>Amount due</th><th>Actions</th></tr></thead><tbody>' + (body.length ? body.map(function (invoice) {
       var reference = invoice.url ? '<a href="' + safe(invoice.url) + '" target="_blank" rel="noopener">' + safe(invoice.invoice_number || invoice.invoice_id || "View invoice") + ' ↗</a>' : safe(invoice.invoice_number || invoice.invoice_id || "Not numbered");
-      return '<tr><td data-label="Invoice"><strong>' + reference + '</strong></td><td data-label="Customer">' + safe(invoice.contact_name || "Not recorded") + '</td><td data-label="Status"><span class="portal-status">' + safe(invoice.status || "Not recorded") + '</span></td><td data-label="Date">' + safe(invoice.date || "Not recorded") + '</td><td data-label="Due">' + safe(invoice.due_date || "Not recorded") + '</td><td data-label="Total">' + safe(money(invoice.total, invoice.currency)) + '</td><td data-label="Amount due">' + safe(money(invoice.amount_due, invoice.currency)) + '</td></tr>';
-    }).join("") : '<tr><td colspan="7">No invoices matched this filter.</td></tr>') + '</tbody>';
+      var state = safe(invoice.display_status || invoice.status || "Not recorded") + '<br><small>' + safe(invoice.delivery_status || "") + ' · ' + safe(invoice.payment_status || "") + '</small>';
+      var manage = '<button type="button" class="secondary xero-invoice-action-button" data-xero-manage="' + safe(invoice.invoice_id) + '">Manage</button>';
+      return '<tr><td data-label="Invoice"><strong>' + reference + '</strong></td><td data-label="Customer">' + safe(invoice.contact_name || "Not recorded") + '</td><td data-label="Status"><span class="portal-status">' + state + '</span></td><td data-label="Date">' + safe(invoice.date || "Not recorded") + '</td><td data-label="Due">' + safe(invoice.due_date || "Not recorded") + '</td><td data-label="Total">' + safe(money(invoice.total, invoice.currency)) + '</td><td data-label="Amount due">' + safe(money(invoice.amount_due, invoice.currency)) + '</td><td data-label="Actions">' + manage + '</td></tr>';
+    }).join("") : '<tr><td colspan="8">No invoices matched this filter.</td></tr>') + '</tbody>';
+    table.querySelectorAll("[data-xero-manage]").forEach(function (button) {
+      button.addEventListener("click", function () { openInvoice(button.getAttribute("data-xero-manage")); });
+    });
   }
 
   async function loadInvoices() {
     if (!loadButton || !api.xeroInvoices) return;
     var list = connectionList();
-    if (!list.length) {
-      renderInvoices([]);
-      if (listStatus) listStatus.textContent = "Connect Xero to load the invoice register.";
-      return;
-    }
+    if (!list.length) { renderInvoices([]); if (listStatus) listStatus.textContent = "Connect Xero to load the invoice register."; return; }
     tenantId = selectedTenant() || tenantId || String(list[0].tenant_id || "");
     loadButton.disabled = true;
     if (listStatus) listStatus.textContent = "Loading invoices from Xero…";
@@ -83,66 +93,231 @@
       renderInvoices(result && result.invoices || []);
       if (listStatus) listStatus.textContent = (result && result.invoices ? result.invoices.length : 0) + " invoice" + ((result && result.invoices && result.invoices.length === 1) ? "" : "s") + " loaded from " + safe(result && result.tenant && result.tenant.tenant_name || "Xero") + ".";
     } catch (error) {
-      renderInvoices([]);
-      if (listStatus) listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
+      renderInvoices([]); if (listStatus) listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
     } finally { loadButton.disabled = false; }
+  }
+
+  async function refreshTenantData() {
+    lookupsPromise = loadLookups();
+    await lookupsPromise;
+    await loadInvoices();
+  }
+
+  function accountOptions(selected) {
+    var accounts = setupData && Array.isArray(setupData.accounts) ? setupData.accounts : [];
+    return '<option value="">Choose account</option>' + accounts.map(function (account) { return '<option value="' + safe(account.code) + '"' + (account.code === selected ? ' selected' : '') + '>' + safe(account.code + " · " + account.name) + '</option>'; }).join("");
+  }
+
+  function taxOptions(selected) {
+    var rates = setupData && Array.isArray(setupData.tax_rates) ? setupData.tax_rates : [];
+    return '<option value="">Choose tax</option>' + rates.map(function (rate) { return '<option value="' + safe(rate.type) + '"' + (rate.type === selected ? ' selected' : '') + '>' + safe(rate.name + " · " + rate.rate + "%") + '</option>'; }).join("");
+  }
+
+  function addLine(line) {
+    if (!lines) return;
+    var item = line || {};
+    var row = document.createElement("div");
+    row.className = "xero-invoice-line";
+    row.innerHTML = '<label>Description<input data-line="description" required maxlength="4000" value="' + safe(item.description || "") + '"></label>' +
+      '<label>Quantity<input data-line="quantity" type="number" min="0.01" step="0.01" required value="' + safe(item.quantity || 1) + '"></label>' +
+      '<label>Unit price<input data-line="unit" type="number" min="0" step="0.01" required value="' + safe(item.unit_amount == null ? "" : item.unit_amount) + '"></label>' +
+      '<label>Account<select data-line="account" required>' + accountOptions(item.account_code || "") + '</select></label>' +
+      '<label>Tax<select data-line="tax" required>' + taxOptions(item.tax_type || "") + '</select></label>' +
+      '<button type="button" class="secondary" data-remove-line>Remove</button>';
+    row.querySelector("[data-remove-line]").addEventListener("click", function () { if (lines.children.length > 1) row.remove(); });
+    lines.appendChild(row);
+  }
+
+  function selectedRecordIds() {
+    return recordSelect ? Array.prototype.slice.call(recordSelect.selectedOptions).map(function (option) { return option.value; }).filter(Boolean) : [];
+  }
+
+  function invoiceInput() {
+    return {
+      contactId: contactSelect && contactSelect.value,
+      invoiceNumber: $("xero-number") && $("xero-number").value.trim(),
+      date: $("xero-date") && $("xero-date").value,
+      dueDate: $("xero-due-date") && $("xero-due-date").value,
+      reference: $("xero-reference") && $("xero-reference").value.trim(),
+      lineAmountTypes: $("xero-line-amount-types") && $("xero-line-amount-types").value,
+      lineItems: lines ? Array.prototype.slice.call(lines.querySelectorAll(".xero-invoice-line")).map(function (row) {
+        return { description: row.querySelector('[data-line="description"]').value.trim(), quantity: Number(row.querySelector('[data-line="quantity"]').value), unitAmount: Number(row.querySelector('[data-line="unit"]').value), accountCode: row.querySelector('[data-line="account"]').value, taxType: row.querySelector('[data-line="tax"]').value };
+      }) : []
+    };
+  }
+
+  async function loadLookups() {
+    if (!api.xeroSetupData || !api.xeroRecords) return;
+    try {
+      var results = await Promise.all([api.xeroSetupData(selectedTenant()), api.xeroRecords()]);
+      setupData = results[0];
+      var contacts = setupData.contacts || [];
+      if (contactSelect) contactSelect.innerHTML = '<option value="">Choose a customer</option>' + contacts.map(function (contact) { return '<option value="' + safe(contact.id) + '">' + safe(contact.name + (contact.email ? " · " + contact.email : "")) + '</option>'; }).join("");
+      var records = results[1].records || [];
+      if (recordSelect) recordSelect.innerHTML = records.map(function (record) { return '<option value="' + safe(record.record_id) + '">' + safe((record.kind === "estimates" ? "Estimate" : "Job card") + " · " + record.title + (record.customer ? " · " + record.customer : "") + (record.total == null ? "" : " · " + money(record.total, "GBP"))) + '</option>'; }).join("") || '<option value="">No active estimates or job cards</option>';
+      if (editingInvoiceId && lines) {
+        lines.querySelectorAll(".xero-invoice-line").forEach(function (row) {
+          var account = row.querySelector('[data-line="account"]'); var tax = row.querySelector('[data-line="tax"]');
+          if (account) { var accountValue = account.value; account.innerHTML = accountOptions(accountValue); }
+          if (tax) { var taxValue = tax.value; tax.innerHTML = taxOptions(taxValue); }
+        });
+      }
+    } catch (error) {
+      if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Customers and GMT records could not be loaded from Xero.";
+    }
+  }
+
+  function setEditorEditable(editable) {
+    if (!editor) return;
+    editor.querySelectorAll("input,select,#xero-add-invoice-line").forEach(function (field) { field.disabled = !editable; });
+    if (recordSelect) recordSelect.disabled = false;
+    if (saveButton) saveButton.hidden = !editable;
+  }
+
+  function resetEditor() {
+    editingInvoiceId = "";
+    if (editor) editor.reset();
+    if (lines) lines.innerHTML = "";
+    addLine();
+    if ($("xero-date")) $("xero-date").value = new Date().toISOString().slice(0, 10);
+    if (saveButton) { saveButton.textContent = "Save draft invoice"; saveButton.hidden = false; }
+    if (sendButton) sendButton.hidden = true;
+    if (deleteButton) deleteButton.hidden = true;
+    if (saveLinksButton) saveLinksButton.hidden = true;
+    if (auditPanel) { auditPanel.hidden = true; auditPanel.innerHTML = ""; }
+    setEditorEditable(true);
+    if (editorStatus) editorStatus.textContent = "Choose a customer and add at least one line. New invoices are saved as drafts in Xero.";
+  }
+
+  async function openInvoice(invoiceId) {
+    if (!api.xeroInvoice) return;
+    if (editorStatus) editorStatus.textContent = "Loading invoice from Xero…";
+    try {
+      await lookupsPromise;
+      var result = await api.xeroInvoice(invoiceId, selectedTenant());
+      var detail = result || {};
+      var invoice = detail.invoice || {};
+      editingInvoiceId = invoiceId;
+      if (contactSelect) contactSelect.value = detail.contact_id || "";
+      $("xero-number").value = invoice.invoice_number || "";
+      $("xero-date").value = (invoice.date || "").slice(0, 10);
+      $("xero-due-date").value = (invoice.due_date || "").slice(0, 10);
+      $("xero-reference").value = detail.reference || "";
+      $("xero-line-amount-types").value = detail.line_amount_types || "Exclusive";
+      if (lines) lines.innerHTML = "";
+      (detail.line_items || []).forEach(addLine);
+      if (!detail.line_items || !detail.line_items.length) addLine();
+      if (recordSelect) Array.prototype.forEach.call(recordSelect.options, function (option) { option.selected = (detail.links || []).some(function (link) { return link.record_id === option.value; }); });
+      setEditorEditable(!!detail.policy?.canEdit);
+      if (saveLinksButton) saveLinksButton.hidden = false;
+      if (auditPanel) {
+        var linkSummary = (detail.links || []).map(function (link) { return safe(link.record_kind === "estimates" ? "Estimate" : "Job card") + " · " + safe(link.record_id); }).join("<br>") || "No GMT estimate or job card linked.";
+        var auditSummary = (detail.audit || []).map(function (item) { return safe(item.occurred_at) + " · " + safe(item.action) + " · " + safe(item.actor_upn) + (item.before_status || item.after_status ? " · " + safe(item.before_status) + " → " + safe(item.after_status) : ""); }).join("<br>") || "No GMT invoice actions recorded yet.";
+        auditPanel.hidden = false;
+        auditPanel.innerHTML = "<strong>Linked records</strong><p>" + linkSummary + "</p><strong>Recent GMT actions</strong><p>" + auditSummary + "</p>";
+      }
+      if (saveButton) saveButton.textContent = "Save invoice changes";
+      if (sendButton) { sendButton.hidden = !detail.policy?.canSend; sendButton.textContent = invoice.status === "AUTHORISED" ? "Send invoice" : "Approve and send"; }
+      if (deleteButton) { deleteButton.hidden = !detail.policy?.canDelete; deleteButton.textContent = detail.policy?.deleteAction === "void" ? "Void unpaid invoice" : "Delete draft"; }
+      if (editorStatus) editorStatus.textContent = "Editing " + (invoice.invoice_number || invoice.invoice_id) + " · " + (invoice.display_status || invoice.status) + ". Xero remains the financial source of truth.";
+      editor.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice could not be loaded."; }
   }
 
   function renderLookup(invoice) {
     if (!lookupResult) return;
     if (!invoice) { lookupResult.hidden = true; lookupResult.innerHTML = ""; return; }
     lookupResult.hidden = false;
-    lookupResult.innerHTML = '<div class="timesheet-paper-meta"><p><strong>Invoice:</strong> ' + safe(invoice.invoice_number || invoice.invoice_id || "Not numbered") + '</p><p><strong>Customer:</strong> ' + safe(invoice.contact_name || "Not recorded") + '</p><p><strong>Status:</strong> ' + safe(invoice.status || "Not recorded") + '</p><p><strong>Date:</strong> ' + safe(invoice.date || "Not recorded") + '</p><p><strong>Due:</strong> ' + safe(invoice.due_date || "Not recorded") + '</p><p><strong>Total:</strong> ' + safe(money(invoice.total, invoice.currency)) + '</p><p><strong>Amount due:</strong> ' + safe(money(invoice.amount_due, invoice.currency)) + '</p></div>' + (invoice.url ? '<p><a class="portal-text-link" href="' + safe(invoice.url) + '" target="_blank" rel="noopener">Open this invoice in Xero ↗</a></p>' : "");
+    lookupResult.innerHTML = '<div class="timesheet-paper-meta"><p><strong>Invoice:</strong> ' + safe(invoice.invoice_number || invoice.invoice_id || "Not numbered") + '</p><p><strong>Customer:</strong> ' + safe(invoice.contact_name || "Not recorded") + '</p><p><strong>Status:</strong> ' + safe(invoice.display_status || invoice.status || "Not recorded") + '</p><p><strong>Delivery:</strong> ' + safe(invoice.delivery_status || "Not recorded") + '</p><p><strong>Payment:</strong> ' + safe(invoice.payment_status || "Not recorded") + '</p><p><strong>Date:</strong> ' + safe(invoice.date || "Not recorded") + '</p><p><strong>Due:</strong> ' + safe(invoice.due_date || "Not recorded") + '</p><p><strong>Total:</strong> ' + safe(money(invoice.total, invoice.currency)) + '</p><p><strong>Amount due:</strong> ' + safe(money(invoice.amount_due, invoice.currency)) + '</p></div>' + (invoice.url ? '<p><a class="portal-text-link" href="' + safe(invoice.url) + '" target="_blank" rel="noopener">Open this invoice in Xero ↗</a></p>' : "");
   }
 
   async function loadStatus() {
-    if (!api.xeroStatus) return;
+    if (!api.xeroStatus) {
+      if (accessGate) accessGate.textContent = "The protected Xero service is unavailable. Invoices are restricted to authenticated Accounts administrators.";
+      return;
+    }
     try {
       xeroBody = await api.xeroStatus();
-      if (card) { card.hidden = false; card.setAttribute("aria-hidden", "false"); }
+      if (invoiceMain) { invoiceMain.hidden = false; invoiceMain.removeAttribute("aria-hidden"); }
+      if (accessGate) accessGate.hidden = true;
       renderConnections();
-      await loadInvoices();
+      await refreshTenantData();
     } catch (error) {
-      // A 403 is the deliberate Accounts-only boundary. Keep the Tools card
-      // hidden for every other signed-in account and explain direct-page access
-      // without exposing connection details.
-      if (card) { card.hidden = true; card.setAttribute("aria-hidden", "true"); }
-      if (status) status.textContent = error && error.status === 403 ? "This page is restricted to the Accounts administrator." : (error && error.message ? error.message : "Xero status could not be loaded.");
+      if (invoiceMain) { invoiceMain.hidden = true; invoiceMain.setAttribute("aria-hidden", "true"); }
+      if (accessGate) accessGate.textContent = error && error.status === 403
+        ? "This page is restricted to authenticated Accounts administrators."
+        : "Accounts access could not be verified. " + (error && error.message ? error.message : "Xero status could not be loaded.");
       if (chip) chip.textContent = error && error.status === 403 ? "Accounts only" : "Unavailable";
       if (connect) connect.disabled = true;
       if (loadButton) loadButton.disabled = true;
+      if (saveButton) saveButton.disabled = true;
     }
   }
 
   if (connect) connect.addEventListener("click", async function () {
     connect.disabled = true;
     if (status) status.textContent = "Opening Xero authorisation…";
-    try {
-      var result = await api.xeroConnect();
-      if (result && result.authorization_url) window.location.assign(result.authorization_url);
-      else if (status) status.textContent = "Xero authorisation URL was not returned.";
-    } catch (error) {
-      if (status) status.textContent = error && error.message ? error.message : "Xero could not be connected.";
-      connect.disabled = false;
-    }
+    try { var result = await api.xeroConnect(); if (result && result.authorization_url) window.location.assign(result.authorization_url); else if (status) status.textContent = "Xero authorisation URL was not returned."; }
+    catch (error) { if (status) status.textContent = error && error.message ? error.message : "Xero could not be connected."; connect.disabled = false; }
   });
   if (refresh) refresh.addEventListener("click", loadStatus);
   if (loadButton) loadButton.addEventListener("click", loadInvoices);
   if (statusFilter) statusFilter.addEventListener("change", loadInvoices);
+  if ($("xero-add-invoice-line")) $("xero-add-invoice-line").addEventListener("click", function () { addLine(); });
+  if ($("xero-invoice-reset")) $("xero-invoice-reset").addEventListener("click", resetEditor);
+
+  if (editor) editor.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    if (!editor.reportValidity()) return;
+    saveButton.disabled = true;
+    if (editorStatus) editorStatus.textContent = editingInvoiceId ? "Saving invoice changes to Xero…" : "Creating draft invoice in Xero…";
+    var requestBody = { tenantId: selectedTenant(), invoice: invoiceInput(), recordIds: selectedRecordIds() };
+    try {
+      var result = editingInvoiceId ? await api.xeroUpdateInvoice(editingInvoiceId, requestBody) : await api.xeroCreateInvoice(requestBody);
+      editingInvoiceId = result && result.invoice ? result.invoice.invoice_id : editingInvoiceId;
+      if (editorStatus) editorStatus.textContent = "Draft saved in Xero. The GMT audit trail has been updated.";
+      await loadInvoices();
+      if (editingInvoiceId) await openInvoice(editingInvoiceId);
+    } catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice could not be saved to Xero."; }
+    finally { if (saveButton) saveButton.disabled = false; }
+  });
+
+  if (sendButton) sendButton.addEventListener("click", async function () {
+    if (!editingInvoiceId || !window.confirm("Approve this draft invoice if needed and send it to the customer using Xero?")) return;
+    sendButton.disabled = true;
+    if (editorStatus) editorStatus.textContent = "Approving and sending through Xero…";
+    try { await api.xeroSendInvoice(editingInvoiceId, selectedTenant()); if (editorStatus) editorStatus.textContent = "Invoice sent through Xero."; await loadInvoices(); await openInvoice(editingInvoiceId); }
+    catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice was not sent."; }
+    finally { sendButton.disabled = false; }
+  });
+
+  if (saveLinksButton) saveLinksButton.addEventListener("click", async function () {
+    if (!editingInvoiceId || !api.xeroLinkInvoice) return;
+    saveLinksButton.disabled = true;
+    if (editorStatus) editorStatus.textContent = "Saving estimate and job card links…";
+    try { await api.xeroLinkInvoice(editingInvoiceId, selectedRecordIds(), selectedTenant()); if (editorStatus) editorStatus.textContent = "Linked GMT records saved."; await openInvoice(editingInvoiceId); }
+    catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Linked records could not be saved."; }
+    finally { saveLinksButton.disabled = false; }
+  });
+
+  if (deleteButton) deleteButton.addEventListener("click", async function () {
+    if (!editingInvoiceId || !window.confirm("Delete this draft invoice in Xero? Authorised invoices are voided instead. Paid or part-paid invoices are protected.")) return;
+    deleteButton.disabled = true;
+    if (editorStatus) editorStatus.textContent = "Updating invoice in Xero…";
+    try { await api.xeroDeleteInvoice(editingInvoiceId, selectedTenant()); if (editorStatus) editorStatus.textContent = "Invoice removal recorded in Xero and GMT."; resetEditor(); await loadInvoices(); }
+    catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice could not be removed."; }
+    finally { deleteButton.disabled = false; }
+  });
+
   if (lookupForm) lookupForm.addEventListener("submit", async function (event) {
     event.preventDefault();
-    var input = document.getElementById("xero-invoice-number");
-    var number = String(input && input.value || "").trim();
+    var input = $("xero-invoice-number"); var number = String(input && input.value || "").trim();
     if (!number || !api.xeroLookupInvoice) return;
     if (lookupStatus) lookupStatus.textContent = "Searching Xero…";
-    try {
-      var result = await api.xeroLookupInvoice(number, selectedTenant() || tenantId);
-      renderLookup(result && result.invoice);
-      if (lookupStatus) lookupStatus.textContent = result && result.invoice ? "Invoice found in Xero." : "No invoice matched that number.";
-    } catch (error) {
-      renderLookup(null);
-      if (lookupStatus) lookupStatus.textContent = error && error.message ? error.message : "The invoice lookup failed.";
-    }
+    try { var result = await api.xeroLookupInvoice(number, selectedTenant() || tenantId); renderLookup(result && result.invoice); if (lookupStatus) lookupStatus.textContent = result && result.invoice ? "Invoice found in Xero." : "No invoice matched that number."; }
+    catch (error) { renderLookup(null); if (lookupStatus) lookupStatus.textContent = error && error.message ? error.message : "The invoice lookup failed."; }
   });
+
+  resetEditor();
   loadStatus();
 }());

@@ -271,7 +271,7 @@ const XERO_DEFAULT_AUTH_URL = 'https://login.xero.com/identity/connect/authorize
 const XERO_DEFAULT_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_DEFAULT_API_URL = 'https://api.xero.com';
 const XERO_DEFAULT_RETURN_URL = 'https://gmt-services.co.uk/jobs/?xero=connected';
-const XERO_DEFAULT_SCOPES = 'openid profile email offline_access accounting.invoices.read';
+const XERO_DEFAULT_SCOPES = 'openid profile email offline_access accounting.invoices accounting.contacts accounting.settings';
 
 function xeroSettings(env) {
   const clientId = text(env.XERO_CLIENT_ID, '', 240);
@@ -375,10 +375,19 @@ function xeroInvoiceProjection(invoice) {
   const contact = invoice && invoice.Contact && typeof invoice.Contact === 'object' ? invoice.Contact : {};
   const total = Number(invoice?.Total);
   const amountDue = Number(invoice?.AmountDue);
+  const status = text(invoice?.Status, '', 80).toUpperCase();
+  const sent = invoice?.SentToContact === true;
+  const paid = status === 'PAID' || (Number.isFinite(amountDue) && amountDue <= 0 && Number(invoice?.AmountPaid) > 0);
+  const deleted = status === 'DELETED';
+  const displayStatus = deleted ? 'Deleted' : (status === 'DRAFT' ? 'Draft' : (status === 'VOIDED' ? 'Voided' : (paid ? 'Paid' : (sent ? 'Sent' : 'Unpaid'))));
   return {
     invoice_id: text(invoice?.InvoiceID, '', 100),
     invoice_number: text(invoice?.InvoiceNumber, '', 255),
-    status: text(invoice?.Status, '', 80),
+    status,
+    display_status: displayStatus,
+    delivery_status: deleted ? 'Deleted' : (sent ? 'Sent' : 'Unsent'),
+    payment_status: deleted || status === 'VOIDED' ? 'Not applicable' : (paid ? 'Paid' : (Number(invoice?.AmountPaid) > 0 ? 'Part-paid' : 'Unpaid')),
+    sent_to_contact: sent,
     type: text(invoice?.Type, '', 40),
     contact_name: text(contact?.Name, '', 500),
     date: text(invoice?.DateString || invoice?.Date, '', 80),
@@ -388,6 +397,62 @@ function xeroInvoiceProjection(invoice) {
     currency: text(invoice?.CurrencyCode, '', 20),
     url: httpUrl(invoice?.Url, 2000)
   };
+}
+
+function xeroInvoiceDeliveryStatus(invoice) {
+  return String(invoice?.Status || '').toUpperCase() === 'DELETED' ? 'Deleted' : (invoice?.SentToContact === true ? 'Sent' : 'Unsent');
+}
+
+function xeroInvoicePaymentStatus(invoice) {
+  const status = String(invoice?.Status || '').toUpperCase();
+  if (status === 'DELETED' || status === 'VOIDED') return 'Not applicable';
+  if (status === 'PAID' || (Number(invoice?.AmountDue) <= 0 && Number(invoice?.AmountPaid) > 0)) return 'Paid';
+  if (Number(invoice?.AmountPaid) > 0) return 'Part-paid';
+  return 'Unpaid';
+}
+
+function xeroInvoiceMutationPolicy(invoice) {
+  const status = String(invoice?.Status || '').toUpperCase();
+  const amountPaid = Number(invoice?.AmountPaid) || 0;
+  const eligible = amountPaid <= 0 && ['DRAFT', 'AUTHORISED'].includes(status);
+  return {
+    canEdit: status === 'DRAFT' && amountPaid <= 0,
+    canSend: ['DRAFT', 'AUTHORISED'].includes(status) && invoice?.SentToContact !== true && amountPaid <= 0,
+    canDelete: eligible,
+    deleteAction: status === 'AUTHORISED' ? 'void' : 'delete'
+  };
+}
+
+function xeroInvoicePayload(input, invoiceId = '') {
+  const body = input && typeof input === 'object' ? input : {};
+  const contactId = text(body.contactId || body.contact_id, '', 100);
+  const date = text(body.date, '', 10);
+  const dueDate = text(body.dueDate || body.due_date, '', 10);
+  const invoiceNumber = text(body.invoiceNumber || body.invoice_number, '', 255);
+  const reference = text(body.reference, '', 255);
+  const lineAmountTypes = ['Exclusive', 'Inclusive', 'NoTax'].includes(body.lineAmountTypes) ? body.lineAmountTypes : 'Exclusive';
+  const supplied = Array.isArray(body.lineItems) ? body.lineItems : (Array.isArray(body.line_items) ? body.line_items : []);
+  if (!contactId) throw Object.assign(new Error('Choose a Xero customer before saving the invoice'), { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) throw Object.assign(new Error('Invoice and due dates must use YYYY-MM-DD'), { status: 400 });
+  if (!supplied.length || supplied.length > 100) throw Object.assign(new Error('An invoice must have between 1 and 100 line items'), { status: 400 });
+  const LineItems = supplied.map((item) => {
+    const quantity = Number(item?.quantity);
+    const unitAmount = Number(item?.unitAmount ?? item?.unit_amount);
+    const description = text(item?.description, '', 4000);
+    const accountCode = text(item?.accountCode || item?.account_code, '', 40);
+    const taxType = text(item?.taxType || item?.tax_type, '', 80);
+    if (!description || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitAmount) || unitAmount < 0 || !accountCode || !taxType) {
+      throw Object.assign(new Error('Each invoice line needs a description, positive quantity, valid unit price, account code, and tax type'), { status: 400 });
+    }
+    return { Description: description, Quantity: quantity, UnitAmount: unitAmount, AccountCode: accountCode, TaxType: taxType };
+  });
+  const invoice = { Type: 'ACCREC', Contact: { ContactID: contactId }, Date: date, LineAmountTypes: lineAmountTypes, LineItems };
+  if (dueDate) invoice.DueDate = dueDate;
+  if (invoiceNumber) invoice.InvoiceNumber = invoiceNumber;
+  if (reference) invoice.Reference = reference;
+  if (invoiceId) invoice.InvoiceID = text(invoiceId, '', 100);
+  else invoice.Status = 'DRAFT';
+  return invoice;
 }
 
 function xeroTokenExpiry(expiresIn) {
@@ -2320,11 +2385,11 @@ async function xeroStatus(env, identity, origin) {
   }, 200, origin || '');
 }
 
-async function refreshXeroAccessToken(env, connection) {
+async function refreshXeroAccessToken(env, connection, fetchImpl = fetch) {
   const settings = xeroSettings(env);
   if (!settings.configured) throw Object.assign(new Error('Xero is not configured on the portal service'), { status: 503 });
   const refreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
-  const response = await fetch(settings.tokenUrl, {
+  const response = await fetchImpl(settings.tokenUrl, {
     method: 'POST',
     headers: { Authorization: xeroBasicAuth(settings), 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
@@ -2427,6 +2492,195 @@ async function listXeroInvoicesEndpoint(request, env, identity, origin) {
     page: url.searchParams.get('page') || 1,
     status: url.searchParams.get('status') || ''
   }), 200, origin || '');
+}
+
+function xeroInvoiceApiBase(settings) {
+  return `${settings.apiUrl}/api.xro/2.0`;
+}
+
+async function xeroAccountingRequest(env, connection, path, options = {}) {
+  const settings = xeroSettings(env);
+  const token = await refreshXeroAccessToken(env, connection, options.fetchImpl || fetch);
+  const response = await (options.fetchImpl || fetch)(`${xeroInvoiceApiBase(settings)}${path}`, {
+    method: options.method || 'GET',
+    headers: { ...xeroApiHeaders(token.accessToken, connection.tenant_id), ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+    ...(options.body ? { body: JSON.stringify(options.body) } : {})
+  });
+  const raw = await response.text();
+  let body = null;
+  try { body = raw ? JSON.parse(raw) : null; } catch (_) {}
+  const invoice = body?.Invoices?.[0];
+  const validation = Array.isArray(invoice?.ValidationErrors) ? invoice.ValidationErrors.map((item) => text(item?.Message, '', 250)).filter(Boolean).join('; ') : '';
+  if (!response.ok || validation || body?.Status === 'ERROR') {
+    throw Object.assign(new Error(xeroErrorMessage(body, validation || `Xero request failed (${response.status})`)), { status: response.status === 401 ? 502 : 422 });
+  }
+  return body;
+}
+
+async function getXeroInvoice(env, tenantId, invoiceId, options = {}) {
+  const connection = await selectXeroConnection(env, tenantId);
+  const body = await xeroAccountingRequest(env, connection, `/Invoices/${encodeURIComponent(invoiceId)}`, options);
+  const invoice = body?.Invoices?.[0];
+  if (!invoice?.InvoiceID) throw Object.assign(new Error('Invoice not found in the selected Xero organisation'), { status: 404 });
+  return { connection, invoice };
+}
+
+async function xeroInvoiceRecords(env, identity, origin) {
+  requireXeroAdmin(identity);
+  const result = await env.DB.prepare(`SELECT record_id, kind, status, employee_name, record_date, payload_json
+    FROM records WHERE kind IN ('estimates', 'job-cards') AND status <> 'Deleted'
+    ORDER BY updated_at DESC LIMIT 500`).all();
+  return json({ records: (result.results || []).map((row) => {
+    const payload = payloadObject(row);
+    return {
+      record_id: text(row.record_id, '', MAX_RECORD_ID),
+      kind: row.kind,
+      title: text(payload.estimateNumber || payload.number || payload.jobReference || payload.reference || row.record_id, '', 160),
+      customer: text(payload.company || payload.client || payload.customerName, '', 240),
+      date: text(row.record_date, '', 10),
+      total: Number.isFinite(Number(payload.total)) ? Number(payload.total) : null
+    };
+  }) }, 200, origin || '');
+}
+
+async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoiceId) {
+  requireXeroAdmin(identity);
+  const url = new URL(request.url);
+  const result = await getXeroInvoice(env, url.searchParams.get('tenantId') || '', invoiceId);
+  const links = await env.DB.prepare(`SELECT record_id, record_kind, linked_by_upn, linked_at FROM xero_invoice_links
+    WHERE tenant_id = ? AND invoice_id = ? ORDER BY linked_at DESC`).bind(result.connection.tenant_id, invoiceId).all();
+  const audit = await env.DB.prepare(`SELECT action, before_status, after_status, actor_upn, occurred_at FROM xero_invoice_audit
+    WHERE tenant_id = ? AND invoice_id = ? ORDER BY occurred_at DESC LIMIT 20`).bind(result.connection.tenant_id, invoiceId).all();
+  const invoice = result.invoice;
+  return json({
+    invoice: xeroInvoiceProjection(invoice),
+    line_items: (invoice.LineItems || []).map((line) => ({ description: text(line.Description, '', 4000), quantity: Number(line.Quantity) || 0, unit_amount: Number(line.UnitAmount) || 0, account_code: text(line.AccountCode, '', 40), tax_type: text(line.TaxType, '', 80) })),
+    contact_id: text(invoice.Contact?.ContactID, '', 100),
+    reference: text(invoice.Reference, '', 255),
+    line_amount_types: text(invoice.LineAmountTypes, 'Exclusive', 20),
+    links: links.results || [],
+    audit: audit.results || [],
+    policy: xeroInvoiceMutationPolicy(invoice)
+  }, 200, origin || '');
+}
+
+async function xeroSetupDataEndpoint(request, env, identity, origin) {
+  requireXeroAdmin(identity);
+  const url = new URL(request.url);
+  const connection = await selectXeroConnection(env, url.searchParams.get('tenantId') || '');
+  const settings = xeroSettings(env);
+  const contacts = await xeroAccountingRequest(env, connection, '/Contacts?page=1', {});
+  const accountsConnection = await selectXeroConnection(env, connection.tenant_id);
+  const accounts = await xeroAccountingRequest(env, accountsConnection, '/Accounts', {});
+  const taxConnection = await selectXeroConnection(env, connection.tenant_id);
+  const taxRates = await xeroAccountingRequest(env, taxConnection, '/TaxRates', {});
+  return json({
+    contacts: (contacts?.Contacts || []).filter((item) => item.ContactID && item.IsCustomer !== false).map((item) => ({ id: text(item.ContactID, '', 100), name: text(item.Name, '', 500), email: text(item.EmailAddress, '', 320) })),
+    accounts: (accounts?.Accounts || []).filter((item) => item.Code && item.Status !== 'ARCHIVED').map((item) => ({ code: text(item.Code, '', 40), name: text(item.Name, '', 500), type: text(item.Type, '', 80), status: text(item.Status, '', 40) })),
+    tax_rates: (taxRates?.TaxRates || []).filter((item) => item.TaxType && item.Status !== 'ARCHIVED').map((item) => ({ type: text(item.TaxType, '', 80), name: text(item.Name, '', 160), rate: Number(item.EffectiveRate) || 0 })),
+    tenant: { tenant_id: connection.tenant_id, tenant_name: connection.tenant_name },
+    api_base: `${settings.apiUrl}/api.xro/2.0`
+  }, 200, origin || '');
+}
+
+async function validateXeroRecordLinks(env, recordIds) {
+  const ids = [...new Set((Array.isArray(recordIds) ? recordIds : []).map((id) => text(id, '', MAX_RECORD_ID)).filter(Boolean))];
+  if (ids.length > 20) throw Object.assign(new Error('An invoice can link to at most 20 GMT records'), { status: 400 });
+  const records = [];
+  for (const id of ids) {
+    const row = await env.DB.prepare('SELECT record_id, kind, status FROM records WHERE record_id = ?').bind(id).first();
+    if (!row || row.status === 'Deleted' || !['estimates', 'job-cards'].includes(row.kind)) throw Object.assign(new Error('Choose an active estimate or job card to link'), { status: 400 });
+    records.push(row);
+  }
+  return records;
+}
+
+async function writeXeroInvoiceAudit(env, connection, invoiceId, action, beforeStatus, afterStatus, identity) {
+  await env.DB.prepare(`INSERT INTO xero_invoice_audit (audit_id, tenant_id, invoice_id, action, before_status, after_status, actor_upn, occurred_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(randomBase64Url(18), connection.tenant_id, invoiceId, action, beforeStatus || '', afterStatus || '', identity.upn, now()).run();
+}
+
+async function storeXeroInvoiceLinks(env, connection, invoiceId, records, identity) {
+  for (const record of records) {
+    await env.DB.prepare(`INSERT OR IGNORE INTO xero_invoice_links (tenant_id, invoice_id, record_id, record_kind, linked_by_upn, linked_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).bind(connection.tenant_id, invoiceId, record.record_id, record.kind, identity.upn, now()).run();
+  }
+}
+
+async function createXeroInvoice(request, env, identity, origin) {
+  requireXeroAdmin(identity);
+  const body = await readJson(request);
+  const records = await validateXeroRecordLinks(env, body.recordIds || body.record_ids || []);
+  const invoiceInput = xeroInvoicePayload(body.invoice || body);
+  const connection = await selectXeroConnection(env, body.tenantId || body.tenant_id || '');
+  const result = await xeroAccountingRequest(env, connection, '/Invoices', { method: 'POST', body: { Invoices: [invoiceInput] } });
+  const invoice = result?.Invoices?.[0];
+  if (!invoice?.InvoiceID) throw Object.assign(new Error('Xero did not return the created invoice'), { status: 502 });
+  await storeXeroInvoiceLinks(env, connection, invoice.InvoiceID, records, identity);
+  await writeXeroInvoiceAudit(env, connection, invoice.InvoiceID, 'created', '', invoice.Status || 'DRAFT', identity);
+  return json({ ok: true, invoice: xeroInvoiceProjection(invoice) }, 201, origin || '');
+}
+
+async function updateXeroInvoice(request, env, identity, origin, invoiceId) {
+  requireXeroAdmin(identity);
+  const body = await readJson(request);
+  const tenantId = body.tenantId || body.tenant_id || new URL(request.url).searchParams.get('tenantId') || '';
+  const current = await getXeroInvoice(env, tenantId, invoiceId);
+  const policy = xeroInvoiceMutationPolicy(current.invoice);
+  if (!policy.canEdit) return json({ error: 'Only unpaid draft invoices can be edited here. Change authorised invoices in Xero.' }, 409, origin || '');
+  const invoiceInput = xeroInvoicePayload(body.invoice || body, invoiceId);
+  const records = await validateXeroRecordLinks(env, body.recordIds || body.record_ids || []);
+  const result = await xeroAccountingRequest(env, current.connection, '/Invoices', { method: 'POST', body: { Invoices: [invoiceInput] } });
+  const invoice = result?.Invoices?.[0];
+  if (!invoice?.InvoiceID) throw Object.assign(new Error('Xero did not return the updated invoice'), { status: 502 });
+  await env.DB.prepare('DELETE FROM xero_invoice_links WHERE tenant_id = ? AND invoice_id = ?').bind(current.connection.tenant_id, invoiceId).run();
+  await storeXeroInvoiceLinks(env, current.connection, invoiceId, records, identity);
+  await writeXeroInvoiceAudit(env, current.connection, invoiceId, 'edited', current.invoice.Status || '', invoice.Status || '', identity);
+  return json({ ok: true, invoice: xeroInvoiceProjection(invoice) }, 200, origin || '');
+}
+
+async function sendXeroInvoice(request, env, identity, origin, invoiceId) {
+  requireXeroAdmin(identity);
+  const body = await readJson(request);
+  const current = await getXeroInvoice(env, body.tenantId || body.tenant_id || '', invoiceId);
+  if (!xeroInvoiceMutationPolicy(current.invoice).canSend) return json({ error: 'Only unpaid draft or authorised invoices that have not already been sent can be emailed from here' }, 409, origin || '');
+  let beforeStatus = current.invoice.Status || '';
+  if (beforeStatus !== 'AUTHORISED') {
+    const approved = await xeroAccountingRequest(env, current.connection, '/Invoices', { method: 'POST', body: { Invoices: [{ InvoiceID: invoiceId, Status: 'AUTHORISED' }] } });
+    const approvedInvoice = approved?.Invoices?.[0];
+    if (!approvedInvoice || approvedInvoice.Status !== 'AUTHORISED') throw Object.assign(new Error('Xero did not authorise this invoice; check its validation errors in Xero'), { status: 422 });
+    await writeXeroInvoiceAudit(env, current.connection, invoiceId, 'approved-for-send', beforeStatus, approvedInvoice.Status, identity);
+    beforeStatus = approvedInvoice.Status;
+  }
+  const sendConnection = await selectXeroConnection(env, current.connection.tenant_id);
+  const result = await xeroAccountingRequest(env, sendConnection, `/Invoices/${encodeURIComponent(invoiceId)}/Email`, { method: 'POST', body: {} });
+  const refreshed = await getXeroInvoice(env, sendConnection.tenant_id, invoiceId);
+  await writeXeroInvoiceAudit(env, sendConnection, invoiceId, 'sent', beforeStatus, refreshed.invoice.Status || '', identity);
+  return json({ ok: true, result, invoice: xeroInvoiceProjection(refreshed.invoice) }, 200, origin || '');
+}
+
+async function deleteXeroInvoice(request, env, identity, origin, invoiceId) {
+  requireXeroAdmin(identity);
+  const body = await readJson(request);
+  const current = await getXeroInvoice(env, body.tenantId || body.tenant_id || '', invoiceId);
+  const policy = xeroInvoiceMutationPolicy(current.invoice);
+  if (!policy.canDelete) return json({ error: 'Paid, part-paid, voided, or deleted invoices cannot be removed here. Correct those in Xero.' }, 409, origin || '');
+  const status = policy.deleteAction === 'void' ? 'VOIDED' : 'DELETED';
+  const result = await xeroAccountingRequest(env, current.connection, `/Invoices/${encodeURIComponent(invoiceId)}`, { method: 'POST', body: { InvoiceID: invoiceId, Status: status } });
+  const invoice = result?.Invoices?.[0] || { ...current.invoice, Status: status };
+  await writeXeroInvoiceAudit(env, current.connection, invoiceId, status === 'VOIDED' ? 'voided' : 'deleted', current.invoice.Status || '', status, identity);
+  return json({ ok: true, invoice: xeroInvoiceProjection(invoice) }, 200, origin || '');
+}
+
+async function linkXeroInvoice(request, env, identity, origin, invoiceId) {
+  requireXeroAdmin(identity);
+  const body = await readJson(request);
+  const current = await getXeroInvoice(env, body.tenantId || body.tenant_id || '', invoiceId);
+  const records = await validateXeroRecordLinks(env, body.recordIds || body.record_ids || (body.recordId ? [body.recordId] : []));
+  await env.DB.prepare('DELETE FROM xero_invoice_links WHERE tenant_id = ? AND invoice_id = ?').bind(current.connection.tenant_id, invoiceId).run();
+  await storeXeroInvoiceLinks(env, current.connection, invoiceId, records, identity);
+  await writeXeroInvoiceAudit(env, current.connection, invoiceId, 'links-updated', current.invoice.Status || '', current.invoice.Status || '', identity);
+  return json({ ok: true, linked_count: records.length }, 200, origin || '');
 }
 
 async function syncXeroJobCard(request, env, identity, origin, recordId) {
@@ -2609,8 +2863,21 @@ async function handle(request, env, ctx) {
 
   if (url.pathname === '/api/xero/connect' && request.method === 'POST') return startXeroConnection(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
+  if (url.pathname === '/api/xero/setup-data' && request.method === 'GET') return xeroSetupDataEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/xero/invoices' && request.method === 'POST') return createXeroInvoice(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices/lookup' && request.method === 'POST') return lookupXeroInvoiceEndpoint(request, env, identity, origin || '');
+  const xeroInvoiceActionMatch = url.pathname.match(/^\/api\/xero\/invoices\/([^/]+)\/(send|delete|links)$/);
+  if (xeroInvoiceActionMatch && request.method === 'POST') {
+    const invoiceId = decodeURIComponent(xeroInvoiceActionMatch[1]);
+    if (xeroInvoiceActionMatch[2] === 'send') return sendXeroInvoice(request, env, identity, origin || '', invoiceId);
+    if (xeroInvoiceActionMatch[2] === 'delete') return deleteXeroInvoice(request, env, identity, origin || '', invoiceId);
+    return linkXeroInvoice(request, env, identity, origin || '', invoiceId);
+  }
+  const xeroInvoiceMatch = url.pathname.match(/^\/api\/xero\/invoices\/([^/]+)$/);
+  if (xeroInvoiceMatch && request.method === 'GET') return xeroInvoiceDetailEndpoint(request, env, identity, origin || '', decodeURIComponent(xeroInvoiceMatch[1]));
+  if (xeroInvoiceMatch && request.method === 'PATCH') return updateXeroInvoice(request, env, identity, origin || '', decodeURIComponent(xeroInvoiceMatch[1]));
   const xeroJobSyncMatch = url.pathname.match(/^\/api\/xero\/job-cards\/([^/]+)\/sync$/);
   if (xeroJobSyncMatch && request.method === 'POST') return syncXeroJobCard(request, env, identity, origin || '', decodeURIComponent(xeroJobSyncMatch[1]));
 
@@ -2756,6 +3023,11 @@ export {
   saveProfileSettings,
   xeroSettings,
   xeroInvoiceProjection,
+  xeroInvoicePayload,
+  xeroInvoiceDeliveryStatus,
+  xeroInvoicePaymentStatus,
+  xeroInvoiceMutationPolicy,
+  xeroAccountingRequest,
   listXeroInvoices,
   encryptXeroSecret,
   decryptXeroSecret

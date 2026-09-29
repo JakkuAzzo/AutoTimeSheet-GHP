@@ -14,7 +14,7 @@
     authReadyResolve({});
     profileReadyResolve({});
     var unavailableMain = document.querySelector("main");
-    if (unavailableMain) unavailableMain.hidden = false;
+    if (unavailableMain && !unavailableMain.hasAttribute("data-xero-accounts-gated")) unavailableMain.hidden = false;
     return;
   }
 
@@ -47,7 +47,7 @@
 
   function revealApplication() {
     document.documentElement.dataset.gmtAuthenticated = "true";
-    if (appMain) {
+    if (appMain && !appMain.hasAttribute("data-xero-accounts-gated")) {
       // Safari can retain the initial hidden layout after an Entra redirect.
       appMain.hidden = false;
       appMain.removeAttribute("hidden");

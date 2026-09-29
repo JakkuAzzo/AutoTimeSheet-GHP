@@ -137,6 +137,42 @@
     return request("/api/xero/invoices" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
   }
 
+  function xeroSetupData(tenantId) {
+    var params = new URLSearchParams();
+    if (tenantId) params.set("tenantId", tenantId);
+    return request("/api/xero/setup-data" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
+  }
+
+  function xeroRecords() {
+    return request("/api/xero/records", { method: "GET" });
+  }
+
+  function xeroInvoice(invoiceId, tenantId) {
+    var params = new URLSearchParams();
+    if (tenantId) params.set("tenantId", tenantId);
+    return request("/api/xero/invoices/" + encodeURIComponent(invoiceId) + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
+  }
+
+  function xeroCreateInvoice(body) {
+    return request("/api/xero/invoices", { method: "POST", body: body || {} });
+  }
+
+  function xeroUpdateInvoice(invoiceId, body) {
+    return request("/api/xero/invoices/" + encodeURIComponent(invoiceId), { method: "PATCH", body: body || {} });
+  }
+
+  function xeroSendInvoice(invoiceId, tenantId) {
+    return request("/api/xero/invoices/" + encodeURIComponent(invoiceId) + "/send", { method: "POST", body: { tenantId: tenantId || "" } });
+  }
+
+  function xeroDeleteInvoice(invoiceId, tenantId) {
+    return request("/api/xero/invoices/" + encodeURIComponent(invoiceId) + "/delete", { method: "POST", body: { tenantId: tenantId || "" } });
+  }
+
+  function xeroLinkInvoice(invoiceId, recordIds, tenantId) {
+    return request("/api/xero/invoices/" + encodeURIComponent(invoiceId) + "/links", { method: "POST", body: { tenantId: tenantId || "", recordIds: Array.isArray(recordIds) ? recordIds : [] } });
+  }
+
   function xeroLookupInvoice(invoiceNumber, tenantId) {
     return request("/api/xero/invoices/lookup", { method: "POST", body: { invoiceNumber: invoiceNumber, tenantId: tenantId || "" } });
   }
@@ -161,6 +197,14 @@
     xeroConnect: xeroConnect,
     xeroStatus: xeroStatus,
     xeroInvoices: xeroInvoices,
+    xeroSetupData: xeroSetupData,
+    xeroRecords: xeroRecords,
+    xeroInvoice: xeroInvoice,
+    xeroCreateInvoice: xeroCreateInvoice,
+    xeroUpdateInvoice: xeroUpdateInvoice,
+    xeroSendInvoice: xeroSendInvoice,
+    xeroDeleteInvoice: xeroDeleteInvoice,
+    xeroLinkInvoice: xeroLinkInvoice,
     xeroLookupInvoice: xeroLookupInvoice,
     xeroSyncJobCard: xeroSyncJobCard
   };
