@@ -204,7 +204,9 @@
     }
     historyList.innerHTML = historyRecords.map((record, index) => `<button type="button" class="estimate-history-item" data-history-index="${index}" aria-current="${index === 0 ? 'true' : 'false'}"><strong>${esc(record.number || 'Estimate')}</strong><span>${esc(record.company || 'Client company')}</span><small>${esc(record.date || 'No date')} · ${esc(record.status || 'Sent')}</small></button>`).join('');
     historyList.querySelectorAll('[data-history-index]').forEach((button) => button.addEventListener('click', () => selectHistory(Number(button.dataset.historyIndex))));
-    selectHistory(selectedHistory >= 0 && selectedHistory < historyRecords.length ? selectedHistory : 0);
+    const requestedRecord = new URLSearchParams(window.location.search || '').get('record') || '';
+    const requestedIndex = requestedRecord ? historyRecords.findIndex((record) => String(record.recordId) === requestedRecord) : -1;
+    selectHistory(requestedIndex >= 0 ? requestedIndex : (selectedHistory >= 0 && selectedHistory < historyRecords.length ? selectedHistory : 0));
     if (historyStatus && source) historyStatus.textContent = `Showing ${historyRecords.length} estimate${historyRecords.length === 1 ? '' : 's'} from ${source}.`;
   }
 

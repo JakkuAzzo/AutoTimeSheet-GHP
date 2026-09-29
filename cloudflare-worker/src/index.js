@@ -2547,8 +2547,10 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
   requireXeroAdmin(identity);
   const url = new URL(request.url);
   const result = await getXeroInvoice(env, url.searchParams.get('tenantId') || '', invoiceId);
-  const links = await env.DB.prepare(`SELECT record_id, record_kind, linked_by_upn, linked_at FROM xero_invoice_links
-    WHERE tenant_id = ? AND invoice_id = ? ORDER BY linked_at DESC`).bind(result.connection.tenant_id, invoiceId).all();
+  const links = await env.DB.prepare(`SELECT l.record_id, l.record_kind, l.linked_by_upn, l.linked_at,
+    r.status AS record_status, r.record_date, r.payload_json
+    FROM xero_invoice_links l LEFT JOIN records r ON r.record_id = l.record_id
+    WHERE l.tenant_id = ? AND l.invoice_id = ? ORDER BY l.linked_at DESC`).bind(result.connection.tenant_id, invoiceId).all();
   const audit = await env.DB.prepare(`SELECT action, before_status, after_status, actor_upn, occurred_at FROM xero_invoice_audit
     WHERE tenant_id = ? AND invoice_id = ? ORDER BY occurred_at DESC LIMIT 20`).bind(result.connection.tenant_id, invoiceId).all();
   const invoice = result.invoice;
@@ -2558,7 +2560,23 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
     contact_id: text(invoice.Contact?.ContactID, '', 100),
     reference: text(invoice.Reference, '', 255),
     line_amount_types: text(invoice.LineAmountTypes, 'Exclusive', 20),
-    links: links.results || [],
+    links: (links.results || []).map((link) => {
+      const payload = payloadObject(link);
+      const kind = link.record_kind === 'estimates' ? 'estimate' : 'job-card';
+      return {
+        record_id: text(link.record_id, '', MAX_RECORD_ID),
+        record_kind: link.record_kind,
+        record_title: text(payload.estimateNumber || payload.number || payload.jobReference || payload.reference || link.record_id, link.record_id, 255),
+        customer: text(payload.company || payload.client || payload.customerName || payload.client_company || payload.clientCompany, '', 240),
+        record_date: text(link.record_date || payload.date || payload.estimateDate || payload.estimate_date || payload.plannedDate || payload.planned_date, '', 40),
+        record_status: text(link.record_status, '', 80),
+        email_url: text(payload.jobEmailUrl || payload.job_email_url || payload.emailUrl || payload.email_url, '', 2000),
+        email_message_id: text(payload.jobEmailMessageId || payload.job_email_message_id || payload.emailMessageId || payload.email_message_id, '', 255),
+        history_url: kind === 'estimate' ? `../tools/estimates.html?record=${encodeURIComponent(link.record_id)}` : `../jobs/?record=${encodeURIComponent(link.record_id)}`,
+        linked_by_upn: text(link.linked_by_upn, '', 320),
+        linked_at: text(link.linked_at, '', 80)
+      };
+    }),
     audit: audit.results || [],
     policy: xeroInvoiceMutationPolicy(invoice)
   }, 200, origin || '');
