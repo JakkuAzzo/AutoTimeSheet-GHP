@@ -66,7 +66,7 @@
     if (!connections) return;
     if (!list.length) { connections.innerHTML = '<p class="portal-history-empty">No Xero organisation is connected.</p>'; return; }
     connections.innerHTML = list.length === 1
-      ? '<p><strong>' + safe(list[0].tenant_name || "Xero organisation") + '</strong><br><span class="small-text">Connected ' + safe(list[0].connected_at || "") + (list[0].last_error ? ' · ' + safe(list[0].last_error) : '') + '</span></p>'
+      ? '<p><strong>' + safe(list[0].tenant_name || "Xero organisation") + '</strong><br><span class="small-text">' + safe(list[0].connected_at || "") + (list[0].last_error ? ' · ' + safe(list[0].last_error) : '') + '</span></p>'
       : '<label>Organisation<select aria-label="Choose Xero organisation">' + list.map(function (item) { return '<option value="' + safe(item.tenant_id) + '"' + (String(item.tenant_id) === tenantId ? ' selected' : '') + '>' + safe(item.tenant_name || item.tenant_id) + '</option>'; }).join("") + '</select></label>';
     var select = connections.querySelector("select");
     if (select) select.addEventListener("change", function () { tenantId = select.value; refreshTenantData(); });
