@@ -137,9 +137,12 @@
     Array.prototype.forEach.call(recordSelect.options, function (option) { option.hidden = Boolean(query && option.textContent.toLowerCase().indexOf(query) < 0); });
   }
 
-  function renderRelatedRecords(links) {
+  function renderRelatedRecords(links, detail) {
     var records = Array.isArray(links) ? links : [];
-    if (!records.length) return '<strong>Related GMT records</strong><p class="small-text">No estimate or job card is linked to this invoice yet.</p>';
+    var estimates = Array.isArray(detail && detail.related_estimates) ? detail.related_estimates : [];
+    var jobCards = Array.isArray(detail && detail.related_job_cards) ? detail.related_job_cards : [];
+    var emailThreads = Array.isArray(detail && detail.email_threads) ? detail.email_threads : [];
+    if (!records.length && !estimates.length && !jobCards.length && !emailThreads.length) return '<strong>Related GMT records</strong><p class="small-text">No estimate, job card, or estimate email is linked to this invoice yet.</p>';
     var cards = records.map(function (link) {
       var kind = link.record_kind === "estimates" ? "Estimate" : "Job card";
       var title = link.record_title || link.record_id || kind;
@@ -147,7 +150,10 @@
       var email = link.email_url ? ' <a href="' + safe(link.email_url) + '" target="_blank" rel="noopener">Open job email ↗</a>' : '';
       return '<li><strong>' + safe(kind) + ' · ' + safe(title) + '</strong>' + (context ? '<span class="small-text">' + safe(context) + '</span>' : '') + '<span class="small-text"><a href="' + safe(link.history_url || '#') + '">Open record in GMT ↗</a>' + email + '</span></li>';
     }).join("");
-    return '<strong>Related GMT records</strong><p class="small-text">These records may share the same work even when Xero invoice numbers change or more than one invoice is used.</p><ul class="xero-related-record-list">' + cards + '</ul><p class="small-text">Saved job-email links are shown when the original job card included one. Full mailbox search needs a separate Microsoft 365 mail connection.</p>';
+    var estimateCards = estimates.map(function (item) { return '<li><strong>Estimate · ' + safe(item.estimate_number || item.canonical_id) + '</strong><span class="small-text">' + safe([item.client, item.estimate_date, item.reference, item.correlation_rule].filter(Boolean).join(' · ')) + '</span><span class="small-text">' + (item.history_url ? '<a href="' + safe(item.history_url) + '">Open estimate in GMT ↗</a>' : '') + (item.outlook_url ? ' · <a href="' + safe(item.outlook_url) + '" target="_blank" rel="noopener">Open estimate email ↗</a>' : '') + '</span></li>'; }).join('');
+    var jobCardCards = jobCards.map(function (item) { return '<li><strong>Job card · ' + safe(item.record_id) + '</strong><span class="small-text"><a href="' + safe(item.history_url || '#') + '">Open job card in GMT ↗</a></span></li>'; }).join('');
+    var emails = emailThreads.map(function (item) { return '<li><strong>Estimate email · ' + safe(item.subject || item.canonical_id) + '</strong><span class="small-text">' + safe(item.match_status || 'related') + (item.outlook_url ? ' · <a href="' + safe(item.outlook_url) + '" target="_blank" rel="noopener">Open in Outlook ↗</a>' : '') + '</span></li>'; }).join('');
+    return '<strong>Related GMT records</strong><p class="small-text">These records may share the same work even when Xero invoice numbers change or more than one invoice is used.</p><ul class="xero-related-record-list">' + cards + estimateCards + jobCardCards + emails + '</ul>';
   }
 
   async function loadInvoices() {
@@ -347,7 +353,7 @@
       if (auditPanel) {
         var auditSummary = (detail.audit || []).map(function (item) { return safe(item.occurred_at) + " · " + safe(item.action) + " · " + safe(item.actor_upn) + (item.before_status || item.after_status ? " · " + safe(item.before_status) + " → " + safe(item.after_status) : ""); }).join("<br>") || "No GMT invoice actions recorded yet.";
         auditPanel.hidden = false;
-        auditPanel.innerHTML = renderRelatedRecords(detail.links) + "<strong>Recent GMT actions</strong><p>" + auditSummary + "</p>";
+        auditPanel.innerHTML = renderRelatedRecords(detail.links, detail) + "<strong>Recent GMT actions</strong><p>" + auditSummary + "</p>";
       }
       if (saveButton) saveButton.textContent = "Save invoice changes";
       if (sendButton) { sendButton.hidden = !detail.policy?.canSend; sendButton.textContent = invoice.status === "AUTHORISED" ? "Send invoice" : "Approve and send"; }
