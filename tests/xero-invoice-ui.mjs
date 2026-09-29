@@ -25,6 +25,7 @@ assert.match(page, /id="xero-record-search"/);
 assert.match(ui, /function filterInvoiceRows/);
 assert.match(ui, /data-xero-selected/);
 assert.match(ui, /xero-invoice-links-chips/);
+assert.match(ui, /sessionStorage/);
 assert.match(ui, /invoiceNumber/);
 assert.doesNotMatch(ui, /delivery_status.*payment_status/);
 assert.match(css, /\.xero-invoice-workspace/);
