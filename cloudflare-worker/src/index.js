@@ -2547,10 +2547,19 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
   requireXeroAdmin(identity);
   const url = new URL(request.url);
   const result = await getXeroInvoice(env, url.searchParams.get('tenantId') || '', invoiceId);
-  const links = await env.DB.prepare(`SELECT l.record_id, l.record_kind, l.linked_by_upn, l.linked_at,
-    r.status AS record_status, r.record_date, r.payload_json
-    FROM xero_invoice_links l LEFT JOIN records r ON r.record_id = l.record_id
-    WHERE l.tenant_id = ? AND l.invoice_id = ? ORDER BY l.linked_at DESC`).bind(result.connection.tenant_id, invoiceId).all();
+  // Keep the link lookup independent from the records projection. Older
+  // installations can have the link table populated before every records
+  // column is present, and a failed join would make the whole invoice detail
+  // panel unavailable. The small follow-up lookup is bounded by the number of
+  // links on this invoice and preserves the same enriched response shape.
+  const links = await env.DB.prepare(`SELECT record_id, record_kind, linked_by_upn, linked_at
+    FROM xero_invoice_links WHERE tenant_id = ? AND invoice_id = ? ORDER BY linked_at DESC`).bind(result.connection.tenant_id, invoiceId).all();
+  const linkedRecords = new Map();
+  for (const link of links.results || []) {
+    const record = await env.DB.prepare(`SELECT status AS record_status, record_date, payload_json
+      FROM records WHERE record_id = ?`).bind(link.record_id).first();
+    linkedRecords.set(link.record_id, record || {});
+  }
   const audit = await env.DB.prepare(`SELECT action, before_status, after_status, actor_upn, occurred_at FROM xero_invoice_audit
     WHERE tenant_id = ? AND invoice_id = ? ORDER BY occurred_at DESC LIMIT 20`).bind(result.connection.tenant_id, invoiceId).all();
   const invoice = result.invoice;
@@ -2561,15 +2570,16 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
     reference: text(invoice.Reference, '', 255),
     line_amount_types: text(invoice.LineAmountTypes, 'Exclusive', 20),
     links: (links.results || []).map((link) => {
-      const payload = payloadObject(link);
+      const record = linkedRecords.get(link.record_id) || {};
+      const payload = payloadObject(record);
       const kind = link.record_kind === 'estimates' ? 'estimate' : 'job-card';
       return {
         record_id: text(link.record_id, '', MAX_RECORD_ID),
         record_kind: link.record_kind,
         record_title: text(payload.estimateNumber || payload.number || payload.jobReference || payload.reference || link.record_id, link.record_id, 255),
         customer: text(payload.company || payload.client || payload.customerName || payload.client_company || payload.clientCompany, '', 240),
-        record_date: text(link.record_date || payload.date || payload.estimateDate || payload.estimate_date || payload.plannedDate || payload.planned_date, '', 40),
-        record_status: text(link.record_status, '', 80),
+        record_date: text(record.record_date || payload.date || payload.estimateDate || payload.estimate_date || payload.plannedDate || payload.planned_date, '', 40),
+        record_status: text(record.record_status, '', 80),
         email_url: text(payload.jobEmailUrl || payload.job_email_url || payload.emailUrl || payload.email_url, '', 2000),
         email_message_id: text(payload.jobEmailMessageId || payload.job_email_message_id || payload.emailMessageId || payload.email_message_id, '', 255),
         history_url: kind === 'estimate' ? `../tools/estimates.html?record=${encodeURIComponent(link.record_id)}` : `../jobs/?record=${encodeURIComponent(link.record_id)}`,

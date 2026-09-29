@@ -180,7 +180,16 @@
       writeInvoiceCache(all, result && result.tenant && result.tenant.tenant_name || "Xero");
       if (listStatus) listStatus.textContent = all.length + " invoice" + (all.length === 1 ? "" : "s") + " loaded from " + safe(result && result.tenant && result.tenant.tenant_name || "Xero") + ".";
     } catch (error) {
-      renderInvoices([]); if (listStatus) listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
+      // Keep the pages already received visible. Xero can throttle a long
+      // all-time walk, and clearing the register makes a recoverable partial
+      // result look like a portal failure.
+      renderInvoices(invoiceRows);
+      if (invoiceRows.length) {
+        writeInvoiceCache(invoiceRows, "Xero");
+        if (listStatus) listStatus.textContent = invoiceRows.length + " invoices loaded; more could not be fetched right now. Try Refresh to continue.";
+      } else if (listStatus) {
+        listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
+      }
       if (progress) progress.hidden = true;
     } finally { loadButton.disabled = false; }
   }
