@@ -12,10 +12,13 @@
   var refresh = $("xero-refresh");
   var loadButton = $("xero-invoice-load");
   var listStatus = $("xero-invoice-status-message");
+  var progress = $("xero-invoice-progress");
   var table = $("xero-invoice-table");
   var invoiceSearch = $("xero-invoice-search");
   var customerFilter = $("xero-invoice-customer");
   var statusFilter = $("xero-invoice-status");
+  var fromFilter = $("xero-invoice-from");
+  var toFilter = $("xero-invoice-to");
   var editor = $("xero-invoice-editor");
   var editorStatus = $("xero-invoice-editor-status");
   var lines = $("xero-invoice-lines");
@@ -76,9 +79,12 @@
     var query = String(invoiceSearch && invoiceSearch.value || "").trim().toLowerCase();
     var customer = String(customerFilter && customerFilter.value || "");
     var statusValue = String(statusFilter && statusFilter.value || "");
+    var from = String(fromFilter && fromFilter.value || "");
+    var to = String(toFilter && toFilter.value || "");
     return (Array.isArray(invoices) ? invoices : []).filter(function (invoice) {
       var haystack = [invoice.invoice_number, invoice.contact_name].join(" ").toLowerCase();
-      return (!query || haystack.indexOf(query) >= 0) && (!customer || String(invoice.contact_name || "") === customer) && (!statusValue || String(invoice.status || "") === statusValue);
+      var date = String(invoice.date || "").slice(0, 10);
+      return (!query || haystack.indexOf(query) >= 0) && (!customer || String(invoice.contact_name || "") === customer) && (!statusValue || String(invoice.status || "") === statusValue) && (!from || date >= from) && (!to || date <= to);
     });
   }
 
@@ -128,13 +134,25 @@
     if (!list.length) { renderInvoices([]); if (listStatus) listStatus.textContent = "Connect Xero to load the invoice register."; return; }
     tenantId = selectedTenant() || tenantId || String(list[0].tenant_id || "");
     loadButton.disabled = true;
-    if (listStatus) listStatus.textContent = "Loading invoices from Xero…";
+    if (progress) { progress.hidden = false; progress.removeAttribute("value"); }
+    if (listStatus) listStatus.textContent = "Loading all invoices from Xero…";
     try {
-      var result = await api.xeroInvoices(tenantId, 100, 1, "");
-      renderInvoices(result && result.invoices || []);
-      if (listStatus) listStatus.textContent = (result && result.invoices ? result.invoices.length : 0) + " invoice" + ((result && result.invoices && result.invoices.length === 1) ? "" : "s") + " loaded from " + safe(result && result.tenant && result.tenant.tenant_name || "Xero") + ".";
+      var all = [], page = 1, batch = [];
+      do {
+        var result = await api.xeroInvoices(tenantId, 100, page, "");
+        batch = result && Array.isArray(result.invoices) ? result.invoices : [];
+        all = all.concat(batch);
+        invoiceRows = all;
+        renderInvoices(all);
+        if (progress) progress.value = page;
+        if (listStatus) listStatus.textContent = all.length + " invoice" + (all.length === 1 ? "" : "s") + " loaded…";
+        page += 1;
+      } while (batch.length === 100 && page <= 1000);
+      if (progress) { progress.hidden = true; progress.removeAttribute("value"); }
+      if (listStatus) listStatus.textContent = all.length + " invoice" + (all.length === 1 ? "" : "s") + " loaded from " + safe(result && result.tenant && result.tenant.tenant_name || "Xero") + ".";
     } catch (error) {
       renderInvoices([]); if (listStatus) listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
+      if (progress) progress.hidden = true;
     } finally { loadButton.disabled = false; }
   }
 
@@ -325,6 +343,8 @@
   if (statusFilter) statusFilter.addEventListener("change", loadInvoices);
   if (invoiceSearch) invoiceSearch.addEventListener("input", function () { renderInvoices(invoiceRows); });
   if (customerFilter) customerFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
+  if (fromFilter) fromFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
+  if (toFilter) toFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (recordSearch) recordSearch.addEventListener("input", filterRecordRows);
   if (recordSelect) recordSelect.addEventListener("change", renderRecordChips);
   if (editor) editor.addEventListener("input", renderInvoicePreview);
