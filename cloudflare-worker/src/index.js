@@ -1,4 +1,5 @@
 import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
+import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
@@ -765,6 +766,33 @@ function payloadObject(row) {
   } catch (_) {
     return {};
   }
+}
+
+function estimateIndexStore(env) {
+  if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
+  return createEstimateIndexStore(env.DB);
+}
+
+async function upsertEstimateIndex(env, identity, input) {
+  requireXeroAdmin(identity);
+  return estimateIndexStore(env).upsert(input);
+}
+
+async function listEstimateIndex(env, identity, query = {}) {
+  requireXeroAdmin(identity);
+  return estimateIndexStore(env).list(query.limit || 500);
+}
+
+async function estimateIndexUpsertEndpoint(request, env, identity, origin) {
+  const body = await readJson(request);
+  const row = await upsertEstimateIndex(env, identity, body);
+  return json({ ok: true, estimate: row }, 200, origin || '');
+}
+
+async function estimateIndexListEndpoint(request, env, identity, origin) {
+  const url = new URL(request.url);
+  const estimates = await listEstimateIndex(env, identity, { limit: url.searchParams.get('limit') || 500 });
+  return json({ estimates }, 200, origin || '');
 }
 
 function estimateProjection(row, payload) {
@@ -2929,6 +2957,8 @@ async function handle(request, env, ctx) {
 
   if (url.pathname === '/api/xero/connect' && request.method === 'POST') return startXeroConnection(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
+  if (url.pathname === '/api/estimates/index' && request.method === 'GET') return estimateIndexListEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/estimates/index' && request.method === 'POST') return estimateIndexUpsertEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/setup-data' && request.method === 'GET') return xeroSetupDataEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
@@ -3099,6 +3129,10 @@ export {
   xeroInvoiceMutationPolicy,
   xeroAccountingRequest,
   listXeroInvoices,
+  canonicalEstimateInput,
+  correlateEstimateRecords,
+  upsertEstimateIndex,
+  listEstimateIndex,
   encryptXeroSecret,
   decryptXeroSecret
 };

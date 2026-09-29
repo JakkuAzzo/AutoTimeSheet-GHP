@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { createEstimateIndexStore, canonicalEstimateInput, correlateEstimateRecords } from '../cloudflare-worker/src/estimate-index.js';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+const workerSource = await readFile(resolve(new URL('..', import.meta.url).pathname, 'cloudflare-worker/src/index.js'), 'utf8');
 
 const rows = [];
 const db = {
@@ -40,4 +43,7 @@ assert.deepEqual(correlateEstimateRecords([
   candidates: [],
   explanation: 'Matched by estimate-number-alias'
 });
+assert.match(workerSource, /estimateIndexUpsertEndpoint/);
+assert.match(workerSource, /estimateIndexListEndpoint/);
+assert.match(workerSource, /\/api\/estimates\/index/);
 console.log('Estimate index contract: PASS');
