@@ -688,6 +688,8 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .portal-history-warning { margin: .45rem 0 0; color: #7a3f00; font-weight: 800; overflow-wrap: anywhere; }
 .xero-invoice-panel { display: grid; gap: .8rem; margin-top: 1rem; }
 .xero-invoice-intro { align-items: center; display: flex; gap: 1rem; justify-content: space-between; }
+.xero-connection-summary { align-items: center; display: flex; flex-wrap: wrap; gap: .55rem; justify-content: flex-end; }
+.xero-connection-summary .xero-connections { font-size: .82rem; }
 .xero-connection-controls { align-items: center; display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: .45rem; justify-content: flex-end; }
 .xero-connection-controls .button, .xero-connection-controls .secondary { min-height: 34px; padding: .35rem .6rem; }
 .xero-editor-layout { align-items: start; display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); }
@@ -935,6 +937,7 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 }
 @media (max-width: 700px) {
   .xero-invoice-intro { align-items: stretch; flex-direction: column; }
+  .xero-connection-summary { justify-content: flex-start; }
   .xero-connection-controls { justify-content: flex-start; }
   .xero-editor-layout { grid-template-columns: 1fr; }
   .xero-invoice-preview { position: static; }
