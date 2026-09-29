@@ -265,13 +265,24 @@
   async function loadLookups() {
     if (!api.xeroSetupData || !api.xeroRecords) return;
     try {
-      var results = await Promise.all([api.xeroSetupData(selectedTenant()), api.xeroRecords()]);
-      setupData = results[0];
-      var contacts = setupData.contacts || [];
-      if (contactSelect) contactSelect.innerHTML = '<option value="">Choose a customer</option>' + contacts.map(function (contact) { return '<option value="' + safe(contact.id) + '">' + safe(contact.name + (contact.email ? " · " + contact.email : "")) + '</option>'; }).join("");
-      var records = results[1].records || [];
-      recordRows = records;
-      if (recordSelect) recordSelect.innerHTML = records.map(function (record) { return '<option value="' + safe(record.record_id) + '">' + safe((record.kind === "estimates" ? "Estimate" : "Job card") + " · " + record.title + (record.customer ? " · " + record.customer : "") + (record.total == null ? "" : " · " + money(record.total, "GBP"))) + '</option>'; }).join("") || '<option value="">No active estimates or job cards</option>';
+      var results = await Promise.allSettled([api.xeroSetupData(selectedTenant()), api.xeroRecords()]);
+      var errors = [];
+      if (results[0].status === "fulfilled") {
+        setupData = results[0].value || {};
+        var contacts = setupData.contacts || [];
+        if (contactSelect) contactSelect.innerHTML = '<option value="">Choose a customer</option>' + contacts.map(function (contact) { return '<option value="' + safe(contact.id) + '">' + safe(contact.name + (contact.email ? " · " + contact.email : "")) + '</option>'; }).join("");
+      } else {
+        errors.push(results[0].reason && results[0].reason.message || "Xero customers could not be loaded");
+        if (contactSelect) contactSelect.innerHTML = '<option value="">Xero customers unavailable — use Refresh</option>';
+      }
+      if (results[1].status === "fulfilled") {
+        var records = results[1].value && results[1].value.records || [];
+        recordRows = records;
+        if (recordSelect) recordSelect.innerHTML = records.map(function (record) { return '<option value="' + safe(record.record_id) + '">' + safe((record.kind === "estimates" ? "Estimate" : "Job card") + " · " + record.title + (record.customer ? " · " + record.customer : "") + (record.total == null ? "" : " · " + money(record.total, "GBP"))) + '</option>'; }).join("") || '<option value="">No active estimates or job cards</option>';
+      } else {
+        errors.push(results[1].reason && results[1].reason.message || "GMT records could not be loaded");
+        if (recordSelect) recordSelect.innerHTML = '<option value="">GMT records unavailable — use Refresh</option>';
+      }
       filterRecordRows();
       renderRecordChips();
       if (editingInvoiceId && lines) {
@@ -281,8 +292,9 @@
           if (tax) { var taxValue = tax.value; tax.innerHTML = taxOptions(taxValue); }
         });
       }
+      if (errors.length && editorStatus) editorStatus.textContent = errors.join(" · ") + ". Use Refresh to retry without losing your invoice edits.";
     } catch (error) {
-      if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Customers and GMT records could not be loaded from Xero.";
+      if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Customers and GMT records could not be loaded.";
     }
   }
 
