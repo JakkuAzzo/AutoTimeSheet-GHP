@@ -2591,6 +2591,48 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
   const audit = await env.DB.prepare(`SELECT action, before_status, after_status, actor_upn, occurred_at FROM xero_invoice_audit
     WHERE tenant_id = ? AND invoice_id = ? ORDER BY occurred_at DESC LIMIT 20`).bind(result.connection.tenant_id, invoiceId).all();
   const invoice = result.invoice;
+  // Correlate the invoice against the canonical estimate index as well as
+  // explicit links. The index is deliberately best-effort here so an older
+  // deployment without migration 0007 can still open invoice details.
+  let estimateCorrelation = { matches: [], candidates: [], explanation: 'Estimate index unavailable' };
+  let estimateRows = [];
+  try {
+    estimateRows = await listEstimateIndex(env, identity, { limit: 500 });
+    estimateCorrelation = correlateEstimateRecords(estimateRows, xeroInvoiceProjection(invoice), []);
+  } catch (_) {}
+  const indexedById = new Map(estimateRows.map((row) => [row.canonical_id, row]));
+  const relatedEstimates = estimateCorrelation.matches.map((match) => {
+    const row = indexedById.get(match.canonical_id) || {};
+    return {
+      canonical_id: text(row.canonical_id, '', 200),
+      estimate_number: text(row.estimate_number, '', 160),
+      client: text(row.client, '', 500),
+      estimate_date: text(row.estimate_date, '', 80),
+      reference: text(row.reference, '', 500),
+      source: text(row.source, '', 40),
+      correlation_rule: text(match.rule, '', 80),
+      outlook_url: httpUrl(row.outlook_url, 2000),
+      sharepoint_url: httpUrl(row.sharepoint_url, 2000),
+      attachment_url: httpUrl(row.attachment_url, 2000),
+      history_url: row.canonical_id ? `../tools/estimates.html?record=${encodeURIComponent(row.canonical_id)}` : ''
+    };
+  });
+  const emailThreads = estimateRows
+    .filter((row) => estimateCorrelation.matches.some((match) => match.canonical_id === row.canonical_id) || estimateCorrelation.candidates.some((candidate) => candidate.canonical_id === row.canonical_id))
+    .map((row) => ({
+      canonical_id: text(row.canonical_id, '', 200),
+      subject: text(row.estimate_number || row.reference || 'Estimate email', '', 255),
+      message_id: text(row.outlook_message_id, '', 255),
+      outlook_url: httpUrl(row.outlook_url, 2000),
+      attachment_url: httpUrl(row.attachment_url, 2000),
+      match_status: estimateCorrelation.matches.some((match) => match.canonical_id === row.canonical_id) ? 'matched' : 'candidate'
+    }));
+  const relatedJobCards = (links.results || []).filter((link) => link.record_kind === 'job-cards').map((link) => ({
+    record_id: text(link.record_id, '', MAX_RECORD_ID),
+    linked_by_upn: text(link.linked_by_upn, '', 320),
+    linked_at: text(link.linked_at, '', 80),
+    history_url: `../jobs/?record=${encodeURIComponent(link.record_id)}`
+  }));
   return json({
     invoice: xeroInvoiceProjection(invoice),
     line_items: (invoice.LineItems || []).map((line) => ({ description: text(line.Description, '', 4000), quantity: Number(line.Quantity) || 0, unit_amount: Number(line.UnitAmount) || 0, account_code: text(line.AccountCode, '', 40), tax_type: text(line.TaxType, '', 80) })),
@@ -2615,6 +2657,10 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
         linked_at: text(link.linked_at, '', 80)
       };
     }),
+    related_estimates: relatedEstimates,
+    related_job_cards: relatedJobCards,
+    email_threads: emailThreads,
+    correlation: estimateCorrelation,
     audit: audit.results || [],
     policy: xeroInvoiceMutationPolicy(invoice)
   }, 200, origin || '');

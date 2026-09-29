@@ -39,6 +39,8 @@ assert.match(worker, /xeroInvoiceActionMatch/);
 assert.match(worker, /xero_invoice_audit/);
 assert.match(worker, /xero_invoice_links/);
 assert.match(worker, /xeroInvoiceLinksEndpoint/);
+assert.match(worker, /related_estimates/);
+assert.match(worker, /email_threads/);
 assert.match(worker, /recordInvoiceLinksEndpoint/);
 assert.match(worker, /canAccessRecord\(identity, record\)/);
 assert.match(worker, /const xeroInvoiceLinksMatch/);

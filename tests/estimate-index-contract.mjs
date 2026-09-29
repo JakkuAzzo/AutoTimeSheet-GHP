@@ -46,4 +46,10 @@ assert.deepEqual(correlateEstimateRecords([
 assert.match(workerSource, /estimateIndexUpsertEndpoint/);
 assert.match(workerSource, /estimateIndexListEndpoint/);
 assert.match(workerSource, /\/api\/estimates\/index/);
+const ambiguous = correlateEstimateRecords([
+  { canonical_id: 'a', client: 'Artic Building Services Ltd' },
+  { canonical_id: 'b', client: 'Artic Building Services Ltd' }
+], { contact_name: 'Artic Building Services Ltd' }, []);
+assert.equal(ambiguous.matches.length, 0);
+assert.equal(ambiguous.candidates.length, 2);
 console.log('Estimate index contract: PASS');
