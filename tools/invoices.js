@@ -15,9 +15,6 @@
   var table = $("xero-invoice-table");
   var invoiceSearch = $("xero-invoice-search");
   var customerFilter = $("xero-invoice-customer");
-  var lookupForm = $("xero-invoice-lookup");
-  var lookupStatus = $("xero-invoice-lookup-status");
-  var lookupResult = $("xero-invoice-result");
   var statusFilter = $("xero-invoice-status");
   var editor = $("xero-invoice-editor");
   var editorStatus = $("xero-invoice-editor-status");
@@ -79,7 +76,7 @@
     var customer = String(customerFilter && customerFilter.value || "");
     var statusValue = String(statusFilter && statusFilter.value || "");
     return (Array.isArray(invoices) ? invoices : []).filter(function (invoice) {
-      var haystack = [invoice.invoice_number, invoice.invoice_id, invoice.contact_name].join(" ").toLowerCase();
+      var haystack = [invoice.invoice_number, invoice.contact_name].join(" ").toLowerCase();
       return (!query || haystack.indexOf(query) >= 0) && (!customer || String(invoice.contact_name || "") === customer) && (!statusValue || String(invoice.status || "") === statusValue);
     });
   }
@@ -96,10 +93,11 @@
     if (!table) return;
     invoiceRows = Array.isArray(invoices) ? invoices : [];
     renderCustomerFilter(invoiceRows);
-    var body = filterInvoiceRows(invoiceRows);
+    var body = filterInvoiceRows(invoiceRows).filter(function (invoice) { return !invoice.type || invoice.type === "ACCREC"; });
     table.innerHTML = '<thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Date</th><th>Due</th><th>Total</th><th>Amount due</th><th>Actions</th></tr></thead><tbody>' + (body.length ? body.map(function (invoice) {
-      var reference = invoice.url ? '<a href="' + safe(invoice.url) + '" target="_blank" rel="noopener">' + safe(invoice.invoice_number || invoice.invoice_id || "View invoice") + ' ↗</a>' : safe(invoice.invoice_number || invoice.invoice_id || "Not numbered");
-      var state = safe(invoice.display_status || invoice.status || "Not recorded") + '<br><small>' + safe(invoice.delivery_status || "") + ' · ' + safe(invoice.payment_status || "") + '</small>';
+      var invoiceNumber = String(invoice.invoice_number || "").trim();
+      var reference = invoice.url && invoiceNumber ? '<a href="' + safe(invoice.url) + '" target="_blank" rel="noopener">' + safe(invoiceNumber) + ' ↗</a>' : safe(invoiceNumber || "—");
+      var state = safe(invoice.display_status || invoice.status || "Not recorded");
       var manage = '<button type="button" class="secondary xero-invoice-action-button" data-xero-manage="' + safe(invoice.invoice_id) + '">Manage</button>';
       return '<tr data-xero-selected="' + safe(invoice.invoice_id) + '"><td data-label="Invoice"><strong>' + reference + '</strong></td><td data-label="Customer">' + safe(invoice.contact_name || "Not recorded") + '</td><td data-label="Status"><span class="portal-status">' + state + '</span></td><td data-label="Date">' + safe(invoice.date || "Not recorded") + '</td><td data-label="Due">' + safe(invoice.due_date || "Not recorded") + '</td><td data-label="Total">' + safe(money(invoice.total, invoice.currency)) + '</td><td data-label="Amount due">' + safe(money(invoice.amount_due, invoice.currency)) + '</td><td data-label="Actions">' + manage + '</td></tr>';
     }).join("") : '<tr><td colspan="8">No invoices matched this filter.</td></tr>') + '</tbody>';
@@ -168,6 +166,25 @@
       '<button type="button" class="secondary" data-remove-line>Remove</button>';
     row.querySelector("[data-remove-line]").addEventListener("click", function () { if (lines.children.length > 1) row.remove(); });
     lines.appendChild(row);
+    renderInvoicePreview();
+  }
+
+  function renderInvoicePreview() {
+    var preview = $("xero-invoice-preview");
+    if (!preview) return;
+    var number = String($("xero-number") && $("xero-number").value || "").trim() || "New invoice";
+    var customer = contactSelect && contactSelect.selectedOptions[0] ? contactSelect.selectedOptions[0].textContent : "Choose a customer";
+    var rows = lines ? Array.prototype.slice.call(lines.querySelectorAll(".xero-invoice-line")).map(function (row) {
+      var description = row.querySelector('[data-line="description"]')?.value.trim() || "Invoice item";
+      var quantity = Number(row.querySelector('[data-line="quantity"]')?.value || 0);
+      var unit = Number(row.querySelector('[data-line="unit"]')?.value || 0);
+      return { description: description, quantity: quantity, total: quantity * unit };
+    }) : [];
+    var total = rows.reduce(function (sum, row) { return sum + row.total; }, 0);
+    $("xero-preview-number").textContent = number;
+    $("xero-preview-customer").textContent = customer;
+    $("xero-preview-lines").innerHTML = rows.length ? rows.map(function (row) { return '<div class="xero-preview-line"><span>' + safe(row.description) + ' × ' + safe(row.quantity) + '</span><strong>' + safe(money(row.total, "GBP")) + '</strong></div>'; }).join("") : '<p class="small-text">Add an invoice line to preview it here.</p>';
+    $("xero-preview-total").textContent = money(total, "GBP");
   }
 
   function selectedRecordIds() {
@@ -243,7 +260,7 @@
       var detail = result || {};
       var invoice = detail.invoice || {};
       editingInvoiceId = invoiceId;
-      if (selectedPanel) { selectedPanel.hidden = false; selectedPanel.innerHTML = '<strong>Selected invoice</strong><p>' + safe(invoice.invoice_number || invoice.invoice_id || "Not numbered") + ' · ' + safe(invoice.display_status || invoice.status || "Not recorded") + ' · ' + safe(money(invoice.total, invoice.currency)) + '</p>'; }
+      if (selectedPanel) { selectedPanel.hidden = false; selectedPanel.innerHTML = '<strong>Selected invoice</strong><p>' + safe(invoice.invoice_number || "—") + ' · ' + safe(invoice.display_status || invoice.status || "Not recorded") + ' · ' + safe(money(invoice.total, invoice.currency)) + '</p>'; }
       table.querySelectorAll("[data-xero-selected]").forEach(function (row) { row.classList.toggle("is-selected", row.getAttribute("data-xero-selected") === invoiceId); });
       if (contactSelect) contactSelect.value = detail.contact_id || "";
       $("xero-number").value = invoice.invoice_number || "";
@@ -268,15 +285,9 @@
       if (sendButton) { sendButton.hidden = !detail.policy?.canSend; sendButton.textContent = invoice.status === "AUTHORISED" ? "Send invoice" : "Approve and send"; }
       if (deleteButton) { deleteButton.hidden = !detail.policy?.canDelete; deleteButton.textContent = detail.policy?.deleteAction === "void" ? "Void unpaid invoice" : "Delete draft"; }
       if (editorStatus) editorStatus.textContent = "Editing " + (invoice.invoice_number || invoice.invoice_id) + " · " + (invoice.display_status || invoice.status) + ". Xero remains the financial source of truth.";
+      renderInvoicePreview();
       editor.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice could not be loaded."; }
-  }
-
-  function renderLookup(invoice) {
-    if (!lookupResult) return;
-    if (!invoice) { lookupResult.hidden = true; lookupResult.innerHTML = ""; return; }
-    lookupResult.hidden = false;
-    lookupResult.innerHTML = '<div class="timesheet-paper-meta"><p><strong>Invoice:</strong> ' + safe(invoice.invoice_number || invoice.invoice_id || "Not numbered") + '</p><p><strong>Customer:</strong> ' + safe(invoice.contact_name || "Not recorded") + '</p><p><strong>Status:</strong> ' + safe(invoice.display_status || invoice.status || "Not recorded") + '</p><p><strong>Delivery:</strong> ' + safe(invoice.delivery_status || "Not recorded") + '</p><p><strong>Payment:</strong> ' + safe(invoice.payment_status || "Not recorded") + '</p><p><strong>Date:</strong> ' + safe(invoice.date || "Not recorded") + '</p><p><strong>Due:</strong> ' + safe(invoice.due_date || "Not recorded") + '</p><p><strong>Total:</strong> ' + safe(money(invoice.total, invoice.currency)) + '</p><p><strong>Amount due:</strong> ' + safe(money(invoice.amount_due, invoice.currency)) + '</p></div>' + (invoice.url ? '<p><a class="portal-text-link" href="' + safe(invoice.url) + '" target="_blank" rel="noopener">Open this invoice in Xero ↗</a></p>' : "");
   }
 
   async function loadStatus() {
@@ -315,6 +326,8 @@
   if (customerFilter) customerFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (recordSearch) recordSearch.addEventListener("input", filterRecordRows);
   if (recordSelect) recordSelect.addEventListener("change", renderRecordChips);
+  if (editor) editor.addEventListener("input", renderInvoicePreview);
+  if (editor) editor.addEventListener("change", renderInvoicePreview);
   if ($("xero-add-invoice-line")) $("xero-add-invoice-line").addEventListener("click", function () { addLine(); });
   if ($("xero-invoice-reset")) $("xero-invoice-reset").addEventListener("click", resetEditor);
 
@@ -361,14 +374,7 @@
     finally { deleteButton.disabled = false; }
   });
 
-  if (lookupForm) lookupForm.addEventListener("submit", async function (event) {
-    event.preventDefault();
-    var input = $("xero-invoice-number"); var number = String(input && input.value || "").trim();
-    if (!number || !api.xeroLookupInvoice) return;
-    if (lookupStatus) lookupStatus.textContent = "Searching Xero…";
-    try { var result = await api.xeroLookupInvoice(number, selectedTenant() || tenantId); renderLookup(result && result.invoice); if (lookupStatus) lookupStatus.textContent = result && result.invoice ? "Invoice found in Xero." : "No invoice matched that number."; }
-    catch (error) { renderLookup(null); if (lookupStatus) lookupStatus.textContent = error && error.message ? error.message : "The invoice lookup failed."; }
-  });
+
 
   resetEditor();
   loadStatus();

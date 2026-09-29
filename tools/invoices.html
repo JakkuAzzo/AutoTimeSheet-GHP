@@ -19,14 +19,7 @@
 </header>
 <p id="xero-access-gate" class="portal-auth-status" role="status">Checking authenticated Accounts access…</p>
 <main id="xero-invoice-main" class="app-main estimate-main" hidden aria-hidden="true" data-xero-accounts-gated>
-  <section class="estimate-intro card"><div><p class="portal-card-kicker">Accounts-only workflow</p><h2>Invoices in Xero</h2><p>This page uses the organisation connection held by GMT Accounts. The connection is shared across the Accounts aliases and refreshes securely when Xero access tokens rotate.</p></div><span id="xero-connection-chip" class="estimate-status-chip">Checking connection…</span></section>
-  <section id="xero-access-panel" class="card xero-invoice-panel" aria-labelledby="xero-access-title">
-    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">1 · Connection</p><h2 id="xero-access-title">Xero organisation</h2></div><button type="button" id="xero-refresh" class="secondary">Refresh</button></div>
-    <p id="xero-status" class="small-text" role="status">Checking the protected Xero connection…</p>
-    <div id="xero-connections" class="xero-connections"></div>
-    <button type="button" id="xero-connect" class="button button-link">Connect Xero once</button>
-    <p class="small-text">Only the Accounts administrator can connect or read invoices. Once connected, the encrypted organisation token is retained by the portal service for future Accounts sessions.</p>
-  </section>
+  <section class="estimate-intro card xero-invoice-intro"><div><p class="portal-card-kicker">Accounts-only workflow</p><h2>Invoices in Xero</h2><p>This page uses the organisation connection held by GMT Accounts. The connection is shared across the Accounts aliases and refreshes securely when Xero access tokens rotate.</p><div id="xero-connections" class="xero-connections"></div><p id="xero-status" class="small-text" role="status">Checking the protected Xero connection…</p></div><div class="xero-connection-controls"><span id="xero-connection-chip" class="estimate-status-chip">Checking connection…</span><button type="button" id="xero-refresh" class="secondary">Refresh</button><button type="button" id="xero-connect" class="button button-link">Connect Xero once</button></div></section>
   <section class="card xero-invoice-panel xero-invoice-workspace" aria-labelledby="invoice-list-title">
     <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">2 · Register</p><h2 id="invoice-list-title">Invoice register</h2></div><div class="xero-invoice-actions"><label>Search invoices<input id="xero-invoice-search" type="search" placeholder="Number or customer" autocomplete="off"></label><label>Customer<select id="xero-invoice-customer"><option value="">All customers</option></select></label><label>Status<select id="xero-invoice-status"><option value="">All statuses</option><option value="DRAFT">Draft</option><option value="SUBMITTED">Awaiting approval</option><option value="AUTHORISED">Authorised</option><option value="PAID">Paid</option><option value="DELETED">Deleted</option><option value="VOIDED">Voided</option></select></label><button type="button" id="xero-invoice-load" class="secondary">Load invoices</button></div></div>
     <p id="xero-invoice-status-message" class="small-text" role="status">Connect Xero to load the invoice register.</p>
@@ -37,7 +30,7 @@
     <p id="xero-invoice-editor-status" class="small-text" role="status">Choose a customer and add at least one line. New invoices are saved as drafts in Xero.</p>
     <div id="xero-invoice-selected" class="xero-invoice-result" hidden aria-live="polite"></div>
     <div id="xero-invoice-audit" class="xero-invoice-result" hidden></div>
-    <form id="xero-invoice-editor" class="xero-invoice-editor">
+    <div class="xero-editor-layout"><form id="xero-invoice-editor" class="xero-invoice-editor">
       <div class="xero-editor-grid">
         <label>Customer<select id="xero-contact" required><option value="">Connect Xero to load customers</option></select></label>
         <label>Invoice number<input id="xero-number" maxlength="255" placeholder="Leave blank for Xero to assign"></label>
@@ -52,13 +45,7 @@
       <label>Link estimates or job cards<select id="xero-invoice-links" multiple size="5" aria-describedby="xero-invoice-link-help"><option value="">Connect Xero to load GMT records</option></select></label>
       <p id="xero-invoice-link-help" class="small-text">Linked records remain in the GMT portal and are recorded alongside the Xero invoice.</p>
       <div class="xero-invoice-editor-actions"><button type="submit" id="xero-create-invoice" class="button button-link">Save draft invoice</button><button type="button" id="xero-save-invoice-links" class="secondary" hidden>Save linked records</button><button type="button" id="xero-send-invoice" class="secondary" hidden>Approve and send</button><button type="button" id="xero-delete-invoice" class="secondary danger-button" hidden>Delete draft</button></div>
-    </form>
-  </section>
-  <section class="card xero-invoice-panel" aria-labelledby="invoice-lookup-title">
-    <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">4 · Tracking</p><h2 id="invoice-lookup-title">Find an invoice</h2></div></div>
-    <form id="xero-invoice-lookup" class="xero-invoice-lookup"><label>Invoice number<input id="xero-invoice-number" required placeholder="e.g. INV-0001"></label><button type="submit" class="secondary">Find in Xero</button></form>
-    <p id="xero-invoice-lookup-status" class="small-text" role="status"></p>
-    <article id="xero-invoice-result" class="xero-invoice-result" hidden></article>
+    </form><aside id="xero-invoice-preview" class="xero-invoice-preview" aria-label="Invoice preview"><p class="portal-card-kicker">Preview</p><h3 id="xero-preview-number">New invoice</h3><p id="xero-preview-customer" class="small-text">Choose a customer</p><hr><div id="xero-preview-lines" class="xero-preview-lines"><p class="small-text">Add an invoice line to preview it here.</p></div><div class="xero-preview-total"><span>Total</span><strong id="xero-preview-total">£0.00</strong></div></aside></div>
   </section>
 </main>
 <script defer src="../portal-api.js?v=xero-invoice-management-20260929"></script>
