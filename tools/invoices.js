@@ -39,6 +39,15 @@
   var lookupsPromise = Promise.resolve();
   var invoiceRows = [];
   var recordRows = [];
+  var invoiceCacheKey = function () { return "gmt-xero-invoice-index:" + selectedTenant(); };
+
+  function readInvoiceCache() {
+    try { var raw = sessionStorage.getItem(invoiceCacheKey()); var parsed = raw ? JSON.parse(raw) : null; return parsed && Array.isArray(parsed.invoices) ? parsed : null; } catch (_) { return null; }
+  }
+
+  function writeInvoiceCache(invoices, tenant) {
+    try { sessionStorage.setItem(invoiceCacheKey(), JSON.stringify({ cached_at: new Date().toISOString(), tenant: tenant || "Xero", invoices: invoices })); } catch (_) {}
+  }
 
   function safe(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
@@ -134,6 +143,12 @@
     if (!list.length) { renderInvoices([]); if (listStatus) listStatus.textContent = "Connect Xero to load the invoice register."; return; }
     tenantId = selectedTenant() || tenantId || String(list[0].tenant_id || "");
     loadButton.disabled = true;
+    var cached = readInvoiceCache();
+    if (cached) {
+      invoiceRows = cached.invoices;
+      renderInvoices(invoiceRows);
+      if (listStatus) listStatus.textContent = cached.invoices.length + " cached invoice" + (cached.invoices.length === 1 ? "" : "s") + " shown · refreshing from Xero…";
+    }
     if (progress) { progress.hidden = false; progress.removeAttribute("value"); }
     if (listStatus) listStatus.textContent = "Loading all invoices from Xero…";
     try {
@@ -149,6 +164,7 @@
         page += 1;
       } while (batch.length === 100 && page <= 1000);
       if (progress) { progress.hidden = true; progress.removeAttribute("value"); }
+      writeInvoiceCache(all, result && result.tenant && result.tenant.tenant_name || "Xero");
       if (listStatus) listStatus.textContent = all.length + " invoice" + (all.length === 1 ? "" : "s") + " loaded from " + safe(result && result.tenant && result.tenant.tenant_name || "Xero") + ".";
     } catch (error) {
       renderInvoices([]); if (listStatus) listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
@@ -338,7 +354,7 @@
     try { var result = await api.xeroConnect(); if (result && result.authorization_url) window.location.assign(result.authorization_url); else if (status) status.textContent = "Xero authorisation URL was not returned."; }
     catch (error) { if (status) status.textContent = error && error.message ? error.message : "Xero could not be connected."; connect.disabled = false; }
   });
-  if (refresh) refresh.addEventListener("click", loadStatus);
+  if (refresh) refresh.addEventListener("click", function () { try { sessionStorage.removeItem(invoiceCacheKey()); } catch (_) {} loadStatus(); });
   if (loadButton) loadButton.addEventListener("click", loadInvoices);
   if (statusFilter) statusFilter.addEventListener("change", loadInvoices);
   if (invoiceSearch) invoiceSearch.addEventListener("input", function () { renderInvoices(invoiceRows); });
