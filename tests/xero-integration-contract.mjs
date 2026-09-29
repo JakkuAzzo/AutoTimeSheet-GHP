@@ -40,6 +40,7 @@ assert.match(worker, /xero_invoice_audit/);
 assert.match(worker, /xero_invoice_links/);
 assert.match(worker, /xeroInvoiceLinksEndpoint/);
 assert.match(worker, /recordInvoiceLinksEndpoint/);
+assert.match(worker, /canAccessRecord\(identity, record\)/);
 assert.match(worker, /const xeroInvoiceLinksMatch/);
 assert.match(worker, /const recordInvoiceLinksMatch/);
 assert.match(migration, /CREATE TABLE IF NOT EXISTS xero_oauth_states/);
