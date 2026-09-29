@@ -173,6 +173,16 @@
     return request("/api/xero/invoices/" + encodeURIComponent(invoiceId) + "/links", { method: "POST", body: { tenantId: tenantId || "", recordIds: Array.isArray(recordIds) ? recordIds : [] } });
   }
 
+  function xeroInvoiceLinks(invoiceId, tenantId) {
+    var params = new URLSearchParams();
+    if (tenantId) params.set("tenantId", tenantId);
+    return request("/api/xero/invoices/" + encodeURIComponent(invoiceId) + "/links" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
+  }
+
+  function recordInvoiceLinks(kind, recordId) {
+    return request("/api/records/" + encodeURIComponent(kind) + "/" + encodeURIComponent(recordId) + "/invoices", { method: "GET" });
+  }
+
   function xeroLookupInvoice(invoiceNumber, tenantId) {
     return request("/api/xero/invoices/lookup", { method: "POST", body: { invoiceNumber: invoiceNumber, tenantId: tenantId || "" } });
   }
@@ -205,6 +215,8 @@
     xeroSendInvoice: xeroSendInvoice,
     xeroDeleteInvoice: xeroDeleteInvoice,
     xeroLinkInvoice: xeroLinkInvoice,
+    xeroInvoiceLinks: xeroInvoiceLinks,
+    recordInvoiceLinks: recordInvoiceLinks,
     xeroLookupInvoice: xeroLookupInvoice,
     xeroSyncJobCard: xeroSyncJobCard
   };
