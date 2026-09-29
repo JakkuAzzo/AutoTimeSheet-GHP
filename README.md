@@ -114,6 +114,15 @@ Build the Pages upload from a hydrated checkout with:
 node tools/build-cloudflare-pages.mjs /tmp/gmt-pages-build
 ```
 
+Production Pages deployments run from GitHub Actions after changes reach
+`main`. The workflow builds and checks the bundle, then deploys it to the
+`gmt-timesheets` Cloudflare Pages project. Configure repository Actions secret
+`CLOUDFLARE_API_TOKEN` with a custom token scoped to the GMT account and the
+Cloudflare Pages: Edit permission. Configure the repository Actions variable
+`CLOUDFLARE_ACCOUNT_ID` with the GMT Cloudflare account ID. Do not put the API
+token in repository files or workflow variables. You can also start a
+production deployment with the workflow's manual dispatch on `main`.
+
 Set `GMT_WORKER_URL` when building the production bundle so the protected API
 origin is written into `config.js`. Existing intake flows still own attachment
 filing into SharePoint/Excel; the Worker provides the durable protected history
