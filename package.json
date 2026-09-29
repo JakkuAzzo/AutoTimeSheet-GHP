@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "test:audit:jason-zip": "node tests/audit-jason-zip-regression.mjs",
     "test:audit:fixtures": "node tests/audit-fixture-matrix.mjs",
+    "test:pages:deployment-workflow": "node tests/cloudflare-pages-deployment-workflow.mjs",
     "test:calendar:protected-boundary": "node tests/calendar-protected-boundary.mjs",
     "test:calendar:day-actions": "node tests/calendar-day-actions.mjs",
     "test:pages:public-root": "node tests/cloudflare-pages-public-root.mjs",
