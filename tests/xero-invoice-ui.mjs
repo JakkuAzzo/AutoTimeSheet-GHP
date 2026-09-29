@@ -20,6 +20,7 @@ assert.match(page, /id="xero-invoice-selected"/);
 assert.match(page, /id="xero-invoice-preview"/);
 assert.doesNotMatch(page, /4 · Tracking/);
 assert.doesNotMatch(page, /xero-invoice-lookup/);
+assert.doesNotMatch(page, /xero-status/);
 assert.match(page, /id="xero-record-search"/);
 assert.match(ui, /function filterInvoiceRows/);
 assert.match(ui, /data-xero-selected/);
