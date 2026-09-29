@@ -17,10 +17,15 @@ const [jobs, portal, estimates] = await Promise.all([
 assert.match(page, /id="xero-invoice-search"/);
 assert.match(page, /id="xero-invoice-customer"/);
 assert.match(page, /id="xero-invoice-selected"/);
+assert.match(page, /id="xero-invoice-preview"/);
+assert.doesNotMatch(page, /4 · Tracking/);
+assert.doesNotMatch(page, /xero-invoice-lookup/);
 assert.match(page, /id="xero-record-search"/);
 assert.match(ui, /function filterInvoiceRows/);
 assert.match(ui, /data-xero-selected/);
 assert.match(ui, /xero-invoice-links-chips/);
+assert.match(ui, /invoiceNumber/);
+assert.doesNotMatch(ui, /delivery_status.*payment_status/);
 assert.match(css, /\.xero-invoice-workspace/);
 assert.match(css, /@media[^{]*max-width/);
 assert.match(jobs, /id="job-card-invoice-links"/);
