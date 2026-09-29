@@ -1,4 +1,5 @@
 import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
+import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
@@ -765,6 +766,33 @@ function payloadObject(row) {
   } catch (_) {
     return {};
   }
+}
+
+function estimateIndexStore(env) {
+  if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
+  return createEstimateIndexStore(env.DB);
+}
+
+async function upsertEstimateIndex(env, identity, input) {
+  requireXeroAdmin(identity);
+  return estimateIndexStore(env).upsert(input);
+}
+
+async function listEstimateIndex(env, identity, query = {}) {
+  requireXeroAdmin(identity);
+  return estimateIndexStore(env).list(query.limit || 500);
+}
+
+async function estimateIndexUpsertEndpoint(request, env, identity, origin) {
+  const body = await readJson(request);
+  const row = await upsertEstimateIndex(env, identity, body);
+  return json({ ok: true, estimate: row }, 200, origin || '');
+}
+
+async function estimateIndexListEndpoint(request, env, identity, origin) {
+  const url = new URL(request.url);
+  const estimates = await listEstimateIndex(env, identity, { limit: url.searchParams.get('limit') || 500 });
+  return json({ estimates }, 200, origin || '');
 }
 
 function estimateProjection(row, payload) {
@@ -2563,6 +2591,48 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
   const audit = await env.DB.prepare(`SELECT action, before_status, after_status, actor_upn, occurred_at FROM xero_invoice_audit
     WHERE tenant_id = ? AND invoice_id = ? ORDER BY occurred_at DESC LIMIT 20`).bind(result.connection.tenant_id, invoiceId).all();
   const invoice = result.invoice;
+  // Correlate the invoice against the canonical estimate index as well as
+  // explicit links. The index is deliberately best-effort here so an older
+  // deployment without migration 0007 can still open invoice details.
+  let estimateCorrelation = { matches: [], candidates: [], explanation: 'Estimate index unavailable' };
+  let estimateRows = [];
+  try {
+    estimateRows = await listEstimateIndex(env, identity, { limit: 500 });
+    estimateCorrelation = correlateEstimateRecords(estimateRows, xeroInvoiceProjection(invoice), []);
+  } catch (_) {}
+  const indexedById = new Map(estimateRows.map((row) => [row.canonical_id, row]));
+  const relatedEstimates = estimateCorrelation.matches.map((match) => {
+    const row = indexedById.get(match.canonical_id) || {};
+    return {
+      canonical_id: text(row.canonical_id, '', 200),
+      estimate_number: text(row.estimate_number, '', 160),
+      client: text(row.client, '', 500),
+      estimate_date: text(row.estimate_date, '', 80),
+      reference: text(row.reference, '', 500),
+      source: text(row.source, '', 40),
+      correlation_rule: text(match.rule, '', 80),
+      outlook_url: httpUrl(row.outlook_url, 2000),
+      sharepoint_url: httpUrl(row.sharepoint_url, 2000),
+      attachment_url: httpUrl(row.attachment_url, 2000),
+      history_url: row.canonical_id ? `../tools/estimates.html?record=${encodeURIComponent(row.canonical_id)}` : ''
+    };
+  });
+  const emailThreads = estimateRows
+    .filter((row) => estimateCorrelation.matches.some((match) => match.canonical_id === row.canonical_id) || estimateCorrelation.candidates.some((candidate) => candidate.canonical_id === row.canonical_id))
+    .map((row) => ({
+      canonical_id: text(row.canonical_id, '', 200),
+      subject: text(row.estimate_number || row.reference || 'Estimate email', '', 255),
+      message_id: text(row.outlook_message_id, '', 255),
+      outlook_url: httpUrl(row.outlook_url, 2000),
+      attachment_url: httpUrl(row.attachment_url, 2000),
+      match_status: estimateCorrelation.matches.some((match) => match.canonical_id === row.canonical_id) ? 'matched' : 'candidate'
+    }));
+  const relatedJobCards = (links.results || []).filter((link) => link.record_kind === 'job-cards').map((link) => ({
+    record_id: text(link.record_id, '', MAX_RECORD_ID),
+    linked_by_upn: text(link.linked_by_upn, '', 320),
+    linked_at: text(link.linked_at, '', 80),
+    history_url: `../jobs/?record=${encodeURIComponent(link.record_id)}`
+  }));
   return json({
     invoice: xeroInvoiceProjection(invoice),
     line_items: (invoice.LineItems || []).map((line) => ({ description: text(line.Description, '', 4000), quantity: Number(line.Quantity) || 0, unit_amount: Number(line.UnitAmount) || 0, account_code: text(line.AccountCode, '', 40), tax_type: text(line.TaxType, '', 80) })),
@@ -2587,6 +2657,10 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
         linked_at: text(link.linked_at, '', 80)
       };
     }),
+    related_estimates: relatedEstimates,
+    related_job_cards: relatedJobCards,
+    email_threads: emailThreads,
+    correlation: estimateCorrelation,
     audit: audit.results || [],
     policy: xeroInvoiceMutationPolicy(invoice)
   }, 200, origin || '');
@@ -2929,6 +3003,8 @@ async function handle(request, env, ctx) {
 
   if (url.pathname === '/api/xero/connect' && request.method === 'POST') return startXeroConnection(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
+  if (url.pathname === '/api/estimates/index' && request.method === 'GET') return estimateIndexListEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/estimates/index' && request.method === 'POST') return estimateIndexUpsertEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/setup-data' && request.method === 'GET') return xeroSetupDataEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
@@ -3099,6 +3175,10 @@ export {
   xeroInvoiceMutationPolicy,
   xeroAccountingRequest,
   listXeroInvoices,
+  canonicalEstimateInput,
+  correlateEstimateRecords,
+  upsertEstimateIndex,
+  listEstimateIndex,
   encryptXeroSecret,
   decryptXeroSecret
 };

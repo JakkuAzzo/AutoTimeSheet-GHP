@@ -73,6 +73,20 @@
     };
   }
 
+  async function indexAppEstimate(d, recordId, status = 'created') {
+    if (!portalApiEnabled() || !window.GMTPortalApi.estimateIndexUpsert) return;
+    await window.GMTPortalApi.estimateIndexUpsert({
+      canonical_id: recordId || estimateRecordId(d),
+      estimate_number: d.number,
+      client: d.company,
+      client_email: d.email,
+      reference: d.reference,
+      estimate_date: d.date,
+      source: 'app',
+      correlation_status: status === 'sent' ? 'ready' : 'unmatched'
+    });
+  }
+
   function addLine(values = {}) {
     const row = document.createElement('div');
     row.className = 'estimate-line';
@@ -165,6 +179,7 @@
       if (portalApiEnabled()) {
         protectedRecord = protectedEstimateRecord(d);
         await window.GMTPortalApi.saveRecord(protectedRecord);
+        try { await indexAppEstimate(d, protectedRecord.recordId); } catch (_) { /* indexing must not block client delivery */ }
       }
       const response = await fetch(endpoint, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' }, credentials: 'omit' });
       const responseText = await response.text();
@@ -177,6 +192,7 @@
       historyRecords = [localRecord, ...historyRecords.filter((record) => record.recordId !== localRecord.recordId)];
       renderHistory(historyRecords, portalApiEnabled() ? 'protected portal history' : 'this browser');
       if (protectedRecord) await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Sent to client', issue: '', updatedAt: sentAt });
+      try { await indexAppEstimate(d, protectedRecord ? protectedRecord.recordId : localRecord.recordId, 'sent'); } catch (_) { /* mail delivery already succeeded */ }
       status.textContent = 'Estimate sent to the client and recorded for Accounts filing.';
     } catch (error) {
       if (protectedRecord) {

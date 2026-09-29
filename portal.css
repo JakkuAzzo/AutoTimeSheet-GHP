@@ -692,7 +692,8 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .xero-connection-summary .xero-connections { font-size: .82rem; }
 .xero-connection-controls { align-items: center; display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: .45rem; justify-content: flex-end; }
 .xero-connection-controls .button, .xero-connection-controls .secondary { min-height: 34px; padding: .35rem .6rem; }
-.xero-editor-layout { align-items: start; display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); }
+.xero-editor-layout { align-items: start; display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); min-width: 0; }
+.xero-editor-layout > * { min-width: 0; }
 .xero-invoice-preview { position: sticky; top: 1rem; min-height: 18rem; padding: 1rem; border: 1px solid var(--line); border-radius: .75rem; background: #fff; box-shadow: 0 8px 20px rgba(18, 61, 29, .08); }
 .xero-invoice-preview h3 { margin: .2rem 0 .35rem; color: var(--green); }
 .xero-invoice-preview hr { border: 0; border-top: 1px solid var(--line); margin: .8rem 0; }
@@ -716,7 +717,8 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .xero-invoice-editor input, .xero-invoice-editor select { box-sizing: border-box; width: 100%; min-height: 42px; padding: .55rem .65rem; border: 1px solid var(--line); border-radius: .55rem; background: #fff; color: var(--ink); font: inherit; }
 .xero-invoice-lines { display: grid; gap: .7rem; min-width: 0; margin: 0; padding: .8rem; border: 1px solid var(--line); border-radius: .7rem; }
 .xero-invoice-lines legend { padding: 0 .35rem; font-weight: 850; }
-.xero-invoice-line { display: grid; grid-template-columns: minmax(160px, 2fr) minmax(78px, .6fr) minmax(100px, .8fr) minmax(130px, 1fr) minmax(140px, 1fr) auto; align-items: end; gap: .5rem; padding: .7rem; border: 1px solid var(--line); border-radius: .6rem; }
+.xero-invoice-line { display: grid; grid-template-columns: minmax(160px, 2fr) minmax(78px, .6fr) minmax(100px, .8fr) minmax(130px, 1fr) minmax(140px, 1fr) auto; align-items: end; gap: .5rem; min-width: 0; padding: .7rem; border: 1px solid var(--line); border-radius: .6rem; }
+.xero-invoice-line > * { min-width: 0; }
 .xero-invoice-line button { min-height: 42px; }
 .xero-invoice-editor-actions { display: flex; flex-wrap: wrap; gap: .65rem; }
 .xero-invoice-editor select[multiple] { min-height: 135px; }

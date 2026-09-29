@@ -14,7 +14,7 @@ import {
 } from '../cloudflare-worker/src/index.js';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
-const [worker, migration, page, portal, api, readme, invoicesPage, invoicesUi, invoiceMigration, auth] = await Promise.all([
+const [worker, migration, page, portal, api, readme, invoicesPage, invoicesUi, invoiceMigration, auth, estimatesUi] = await Promise.all([
   readFile(resolve(root, 'cloudflare-worker/src/index.js'), 'utf8'),
   readFile(resolve(root, 'cloudflare-worker/migrations/0002_xero.sql'), 'utf8'),
   readFile(resolve(root, 'jobs/index.html'), 'utf8'),
@@ -24,7 +24,8 @@ const [worker, migration, page, portal, api, readme, invoicesPage, invoicesUi, i
   readFile(resolve(root, 'tools/invoices.html'), 'utf8'),
   readFile(resolve(root, 'tools/invoices.js'), 'utf8'),
   readFile(resolve(root, 'cloudflare-worker/migrations/0006_xero_invoice_management.sql'), 'utf8'),
-  readFile(resolve(root, 'auth.js'), 'utf8')
+  readFile(resolve(root, 'auth.js'), 'utf8'),
+  readFile(resolve(root, 'tools/estimates.js'), 'utf8')
 ]);
 
 assert.match(worker, /\/api\/xero\/connect/);
@@ -39,6 +40,8 @@ assert.match(worker, /xeroInvoiceActionMatch/);
 assert.match(worker, /xero_invoice_audit/);
 assert.match(worker, /xero_invoice_links/);
 assert.match(worker, /xeroInvoiceLinksEndpoint/);
+assert.match(worker, /related_estimates/);
+assert.match(worker, /email_threads/);
 assert.match(worker, /recordInvoiceLinksEndpoint/);
 assert.match(worker, /canAccessRecord\(identity, record\)/);
 assert.match(worker, /const xeroInvoiceLinksMatch/);
@@ -58,6 +61,8 @@ assert.match(api, /function xeroDeleteInvoice/);
 assert.match(api, /function xeroLinkInvoice/);
 assert.match(api, /function xeroInvoiceLinks/);
 assert.match(api, /function recordInvoiceLinks/);
+assert.match(api, /function estimateIndexUpsert/);
+assert.match(estimatesUi, /estimateIndexUpsert/);
 assert.match(invoicesPage, /id="xero-invoice-editor"/);
 assert.match(invoicesPage, /id="xero-create-invoice"/);
 assert.match(invoicesPage, /id="xero-invoice-links"/);
@@ -66,6 +71,8 @@ assert.match(invoicesPage, /id="xero-access-gate"/);
 assert.match(auth, /data-xero-accounts-gated/);
 assert.match(invoicesUi, /xero-invoice-main/);
 assert.match(invoicesUi, /Accounts administrator/);
+assert.match(invoicesUi, /related_estimates/);
+assert.match(invoicesUi, /email_threads/);
 for (const handler of [
   'startXeroConnection', 'xeroStatus', 'xeroSetupDataEndpoint', 'xeroInvoiceRecords',
   'listXeroInvoicesEndpoint', 'lookupXeroInvoiceEndpoint', 'xeroInvoiceDetailEndpoint',

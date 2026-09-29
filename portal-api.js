@@ -183,6 +183,10 @@
     return request("/api/records/" + encodeURIComponent(kind) + "/" + encodeURIComponent(recordId) + "/invoices", { method: "GET" });
   }
 
+  function estimateIndexUpsert(estimate) {
+    return request("/api/estimates/index", { method: "POST", body: estimate || {} });
+  }
+
   function xeroLookupInvoice(invoiceNumber, tenantId) {
     return request("/api/xero/invoices/lookup", { method: "POST", body: { invoiceNumber: invoiceNumber, tenantId: tenantId || "" } });
   }
@@ -217,6 +221,7 @@
     xeroLinkInvoice: xeroLinkInvoice,
     xeroInvoiceLinks: xeroInvoiceLinks,
     recordInvoiceLinks: recordInvoiceLinks,
+    estimateIndexUpsert: estimateIndexUpsert,
     xeroLookupInvoice: xeroLookupInvoice,
     xeroSyncJobCard: xeroSyncJobCard
   };
