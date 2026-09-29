@@ -21,7 +21,7 @@ assert.doesNotMatch(html, /submissions-admin-timesheet-summary/, 'the removed co
 assert.match(scripts, /data-pay-month-download/, 'selected pay-month sheets can be downloaded');
 assert.match(html, /data-download-all-sheets/, 'the pay-month list has a bulk-download control');
 assert.match(scripts, /GMTZipStore/, 'bulk downloads are packaged as a ZIP');
-assert.match(scripts, /Current · /, 'current pay month labels are readable');
+assert.match(scripts, /Current - /, 'current pay month labels are readable');
 assert.match(html, /Correction delivery status/);
 assert.doesNotMatch(html, /Retry queued corrections/);
 assert.match(html, /submissions-delivery-dialog/, 'delivery details open in a dialog');

@@ -78,7 +78,7 @@ try {
   assert.equal(await page.locator('#submissions-delivery-trigger').isVisible(), true);
   assert.match(await page.locator('#submissions-delivery-trigger').innerText(), /1 queued.*1 failed/i);
   assert.equal(await page.locator('#submissions-pay-month option[value="2026-09"]').innerText(), 'September 2026');
-  assert.equal(await page.locator('#submissions-pay-month option[value="2026-10"]').innerText(), 'Current · October 2026');
+  assert.equal(await page.locator('#submissions-pay-month option[value="2026-10"]').innerText(), 'Current - October 2026');
   await page.locator('#submissions-delivery-trigger').click();
   await page.waitForFunction(() => window.statusCalls === 1);
   assert.equal(await page.locator('#submissions-delivery-dialog').isVisible(), true);

@@ -160,7 +160,7 @@
     if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return "Pay month " + month;
     var date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
     var label = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
-    return month === currentPayMonth() ? "Current · " + label : label;
+    return month === currentPayMonth() ? "Current - " + label : label;
   }
   function sheetEmployeeKey(record) {
     var upn = String(record && (record.employee_upn || record.employee_email || "")).trim().toLowerCase();
