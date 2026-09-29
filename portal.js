@@ -378,6 +378,8 @@
     const historyStatus = $('#job-card-history-status');
     if (historyStatus) historyStatus.textContent = `Showing ${jobs.length} job card${jobs.length === 1 ? '' : 's'} in protected history.`;
     list.querySelectorAll('[data-job-select]').forEach((button) => button.addEventListener('click', () => selectJobHistory(button.dataset.jobSelect)));
+    const requestedRecord = new URLSearchParams(window.location.search || '').get('record') || '';
+    if (requestedRecord && jobCardIndex.has(requestedRecord)) selectedJobId = requestedRecord;
     if (!jobCardIndex.has(selectedJobId)) selectedJobId = String(jobs[0].id || '');
     selectJobHistory(selectedJobId);
   }

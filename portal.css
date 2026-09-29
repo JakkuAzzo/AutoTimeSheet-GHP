@@ -734,6 +734,10 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 .xero-invoice-lookup input { width: 100%; }
 .xero-invoice-result { padding: .8rem; border: 1px solid var(--line); border-radius: .7rem; background: #f8fbf6; }
 .xero-invoice-result .timesheet-paper-meta { margin: 0; }
+.xero-related-record-list { display: grid; gap: .65rem; margin: .65rem 0 1rem; padding: 0; list-style: none; }
+.xero-related-record-list li { display: grid; gap: .2rem; padding: .65rem .75rem; border: 1px solid var(--line); border-radius: .55rem; background: #fff; }
+.xero-related-record-list li .small-text { display: block; }
+.xero-related-record-list a { color: var(--green); font-weight: 800; }
 .portal-table { width: 100%; min-width: 640px; border-collapse: collapse; background: #fff; }
 .portal-table th, .portal-table td { padding: .55rem; border: 1px solid var(--line); vertical-align: top; text-align: left; }
 .portal-table th { background: #edf5e9; color: var(--green); font-size: .78rem; }
