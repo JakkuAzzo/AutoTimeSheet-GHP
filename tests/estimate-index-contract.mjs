@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import worker from '../cloudflare-worker/src/index.js';
 import { createEstimateIndexStore, canonicalEstimateInput, correlateEstimateRecords } from '../cloudflare-worker/src/estimate-index.js';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -52,4 +53,37 @@ const ambiguous = correlateEstimateRecords([
 ], { contact_name: 'Artic Building Services Ltd' }, []);
 assert.equal(ambiguous.matches.length, 0);
 assert.equal(ambiguous.candidates.length, 2);
+
+const archiveEnv = {
+  ARCHIVE_INGEST_KEY: 'test-only-archive-key',
+  DB: {
+    prepare(sql) {
+      return {
+        bind() {
+          return {
+            async first() { return null; },
+            async all() { return { results: [] }; },
+            async run() { return { success: true }; }
+          };
+        }
+      };
+    }
+  }
+};
+const archiveUrl = 'https://gmt-portal-api.example.workers.dev/api/archive/sync/estimates';
+const archivePayload = {
+  mailbox: 'info@gmt-services.co.uk',
+  outlook_message_id: 'outlook-message-123',
+  estimate_number: 'EST-2026-123',
+  client: 'Artic Building Services Ltd',
+  outlook_url: 'https://outlook.office.com/mail/id/outlook-message-123',
+  sharepoint_url: 'https://gmtelectservsltd.sharepoint.com/sites/GMTWeb-App/Shared%20Documents/Estimates/quote.pdf'
+};
+const unauthorizedArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(archivePayload) }), archiveEnv, {});
+assert.equal(unauthorizedArchive.status, 401, 'the archive ingest endpoint rejects callers without the dedicated key');
+const wrongMailboxArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ARCHIVE_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox: 'other@example.com' }) }), archiveEnv, {});
+assert.equal(wrongMailboxArchive.status, 403, 'the archive ingest endpoint is restricted to the approved info mailbox');
+const acceptedArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ARCHIVE_INGEST_KEY }, body: JSON.stringify(archivePayload) }), archiveEnv, {});
+assert.equal(acceptedArchive.status, 200, 'the approved mail archive payload is accepted with the dedicated key');
+assert.equal((await acceptedArchive.json()).estimate.canonical_id, 'email:outlook-message-123');
 console.log('Estimate index contract: PASS');

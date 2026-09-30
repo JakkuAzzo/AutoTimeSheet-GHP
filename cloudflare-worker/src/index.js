@@ -795,6 +795,25 @@ async function estimateIndexListEndpoint(request, env, identity, origin) {
   return json({ estimates }, 200, origin || '');
 }
 
+async function estimateArchiveIngestEndpoint(request, env, origin) {
+  const configuredKey = text(env.ARCHIVE_INGEST_KEY, '', 1000);
+  if (!configuredKey) throw Object.assign(new Error('Estimate archive ingestion is not configured'), { status: 503 });
+  const suppliedKey = request.headers.get('X-GMT-Archive-Key') || '';
+  if (!constantTimeEqual(suppliedKey, configuredKey)) throw Object.assign(new Error('Estimate archive key is invalid'), { status: 401 });
+  const body = await readJson(request);
+  const mailbox = text(body.mailbox || body.source_mailbox, '', 320).toLowerCase();
+  if (mailbox !== 'info@gmt-services.co.uk') throw Object.assign(new Error('Estimate mail archive is restricted to info@gmt-services.co.uk'), { status: 403 });
+  const outlookMessageId = text(body.outlook_message_id || body.outlookMessageId, '', 2000);
+  if (!outlookMessageId) throw Object.assign(new Error('outlook_message_id is required'), { status: 400 });
+  const estimate = await estimateIndexStore(env).upsert({
+    ...body,
+    canonical_id: `email:${outlookMessageId}`,
+    outlook_message_id: outlookMessageId,
+    source: 'email'
+  });
+  return json({ ok: true, estimate }, 200, origin || '');
+}
+
 function estimateProjection(row, payload) {
   const items = Array.isArray(payload.items) ? payload.items.slice(0, 80).map((item) => ({
     description: text(item && item.description, '', 500),
@@ -2997,6 +3016,9 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/xero/callback' && request.method === 'GET') {
     if (!env.DB) return xeroRedirectResponse(xeroSettings(env).returnUrl, 'error', 'storage-not-configured');
     return completeXeroConnection(request, env);
+  }
+  if (url.pathname === '/api/archive/sync/estimates' && request.method === 'POST') {
+    return estimateArchiveIngestEndpoint(request, env, origin || '');
   }
   const identity = await authenticate(request, env);
   if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
