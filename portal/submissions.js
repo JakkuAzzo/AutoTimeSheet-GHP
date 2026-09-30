@@ -6,6 +6,7 @@
   var preview = document.getElementById("submissions-preview");
   var filter = document.getElementById("submissions-filter");
   var payMonthFilter = document.getElementById("submissions-pay-month");
+  var dayFilter = document.getElementById("submissions-day");
   var tabButtons = Array.prototype.slice.call(document.querySelectorAll("[data-submission-tab]"));
   var listTitle = document.getElementById("pay-month-list-title");
   var listCount = document.getElementById("pay-month-list-count");
@@ -22,7 +23,8 @@
   var realRecordCount = 0;
   var historyMeta = {};
   var selected = -1;
-  var selectedDay = "";
+  var selectedDay = requestedDay();
+  if (dayFilter && /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)) dayFilter.value = selectedDay;
   var selectedSheet = null;
   var currentTab = "timesheets";
   var payMonthSheets = [];
@@ -310,6 +312,7 @@
       if (selectedType === "timesheets" ? !isTimesheetLike(record) : (selectedType && actionKey(record) !== selectedType)) return false;
       if (selectedEmployee && employeeKey(record) !== selectedEmployee) return false;
       if (selectedMonth && payMonthForRecord(record) !== selectedMonth) return false;
+      if (selectedDay && !recordRows(record).some(function (row) { return rowDate(row) === selectedDay; })) return false;
       return true;
     });
   }
@@ -376,18 +379,6 @@
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) && !record.is_demo) params.push('day=' + encodeURIComponent(day));
     return 'timesheets.html' + (params.length ? '?' + params.join('&') : '');
   }
-  function withExamples(realRecords) {
-    var result = Array.isArray(realRecords) ? realRecords.slice() : [];
-    var today = new Date().toISOString().slice(0, 10);
-    var examples = [
-      { record_id: "demo-job-card", kind: "job-cards", action: "job_card_example", demo_label: "Job card example", demo_name: "Example job card", status: "Example only", record_date: today, source: "GMT demonstration", payload: { jobReference: "GMT-DEMO-001", client: "Example client", site: "93-95 Gloucester Road, Croydon CR0 2DN", engineer: "Example engineer", plannedDate: today, description: "Example job card for review before a real job is submitted.", cardType: "EC", jobStatus: "Received", jobRevision: 1 } },
-      { record_id: "demo-estimate", kind: "estimates", action: "estimate_example", demo_label: "Estimate example", demo_name: "Example estimate", status: "Example only", record_date: today, source: "GMT demonstration", payload: { number: "GMT-EST-DEMO-001", date: today, attention: "Example contact", company: "Example client", email: "client@example.com", validity: "30", preparedBy: "GMT Accounts", vatRate: 20, reference: "Re: example motor service", opening: "Thank you for your enquiry. This labelled example shows the client-facing estimate layout.", terms: "All works quoted are subject to confirmation. This is demonstration data only.", items: [{ description: "Inspection and service", quantity: 1, unit: 250 }], subtotal: 250, vat: 50, total: 300 } },
-      { record_id: "demo-task", kind: "tasks", action: "task_example", demo_label: "Task example", demo_name: "Example task", status: "Example only", record_date: today, source: "GMT demonstration", payload: { title: "Example task", jobReference: "GMT-DEMO-001", assignee: "Example engineer", due: today, priority: "Normal", notes: "Example task for the GMT operational workflow." } }
-    ];
-    examples.forEach(function (example) { result.push(Object.assign({ is_demo: true }, example)); });
-    return result;
-  }
-
   function payloadFor(record) {
     return record && record.payload && typeof record.payload === "object" ? record.payload : {};
   }
@@ -549,7 +540,8 @@
     var editable = sheet.canEdit === true;
     var unrecordedBreaks = sheet.rows.filter(function (item) { return breakMinutes(item.row) === null && rowTotalMinutes(item.row) !== null; }).length;
     var provisionalTotals = sheet.rows.filter(function (item) { var api = payMonthWorkbookApi(); return api && api.provisionalForRow && api.provisionalForRow(item.row); }).length;
-    var rows = sheet.rows.map(function (item, index) { return sheetRowMarkup(item.row, index, editable, false); }).join("");
+    var visibleRows = selectedDay ? sheet.rows.filter(function (item) { return item.date === selectedDay; }) : sheet.rows;
+    var rows = visibleRows.map(function (item) { return sheetRowMarkup(item.row, sheet.rows.indexOf(item), editable, false); }).join("");
     var canOpenFull = sheet.records.length ? timesheetHref(sheet.records[0], "", sheet.payMonth) : "timesheets.html";
     var roster = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
     var employeeSchedule = roster.find(function (entry) { return String(entry.employee_upn || "").toLowerCase() === String(sheet.employeeUpn || "").toLowerCase(); });
@@ -560,7 +552,7 @@
       var outstanding = coverage.overdue.concat(coverage.upcoming);
       coverageNote = '<details class="pay-month-edit-note" data-pay-month-coverage><summary>' + completed + ' of ' + coverage.expected.length + ' scheduled days recorded or explained' + (outstanding.length ? ' · ' + outstanding.length + ' need attention' : ' · complete') + '</summary><p>' + (outstanding.length ? 'Still needing an entry or a user-entered absence reason: ' + safe(outstanding.join(', ')) + '. ' : '') + 'Missing days are never marked absent automatically.</p></details>';
     }
-    preview.innerHTML = '<div class="pay-month-sheet-preview"><div class="timesheet-paper-header"><div><p class="portal-card-kicker">' + safe(monthLabel(sheet.payMonth)) + '</p><h2>' + safe(sheet.employeeName) + '</h2><p class="small-text">' + safe(sheet.employeeUpn) + ' · ' + sheet.rows.length + ' daily row' + (sheet.rows.length === 1 ? '' : 's') + '</p></div><span class="portal-status ' + (editable ? 'approved' : 'pending') + '">' + (editable ? 'Editable' : 'Read only') + '</span></div><div class="timesheet-paper-meta"><p><strong>Pay month:</strong> ' + safe(sheet.payMonth) + '</p><p><strong>Window:</strong> ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).start || '') + ' to ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).end || '') + '</p><p><strong>Month total hours:</strong> ' + safe(displayHours(sheet.totals.workedActual)) + '</p><p><strong>Updated:</strong> ' + safe(latest.updated_at || latest.submitted_at || 'Not recorded') + '</p></div>' + coverageNote + (editNotice ? '<p class="pay-month-edit-note"><strong>Change note:</strong> ' + safe(editNotice) + '</p>' : '') + (unrecordedBreaks ? '<p class="pay-month-edit-note">' + unrecordedBreaks + ' row(s) have no recorded break. ' + provisionalTotals + ' total(s) show elapsed time before any break deduction and need review.</p>' : '') + '<form data-pay-month-edit-form><div class="pay-month-table-scroll"><table class="timesheet-paper-rows pay-month-edit-table"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Total hours</th><th>Notes</th><th>Actions</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8">No daily rows are available.</td></tr>') + '</tbody></table></div><div class="pay-month-sheet-total"><span>Pay month total</span><strong data-pay-month-total-hours>' + safe(displayHours(sheet.totals.workedActual)) + '</strong></div><div class="pay-month-edit-actions">' + (editable ? '<button type="button" class="secondary" data-add-day>Add day</button><button type="submit">Save changes</button>' : '<span class="small-text">This pay month is read-only for your account.</span>') + '<a class="button button-link secondary" href="' + safe(canOpenFull) + '">Open full editor</a><button type="button" class="secondary pay-month-download" data-pay-month-download>Download full pay-month spreadsheet</button><span class="small-text pay-month-download-status" data-pay-month-download-status role="status"></span><span class="small-text" data-pay-month-save-status role="status"></span></div></form></div>';
+    preview.innerHTML = '<div class="pay-month-sheet-preview"><div class="timesheet-paper-header"><div><p class="portal-card-kicker">' + safe(monthLabel(sheet.payMonth)) + '</p><h2>' + safe(sheet.employeeName) + '</h2><p class="small-text">' + safe(sheet.employeeUpn) + ' · ' + sheet.rows.length + ' daily row' + (sheet.rows.length === 1 ? '' : 's') + '</p></div><span class="portal-status ' + (editable ? 'approved' : 'pending') + '">' + (editable ? 'Editable' : 'Read only') + '</span></div><div class="timesheet-paper-meta"><p><strong>Pay month:</strong> ' + safe(sheet.payMonth) + '</p><p><strong>Window:</strong> ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).start || '') + ' to ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).end || '') + '</p><p><strong>Month total hours:</strong> ' + safe(displayHours(sheet.totals.workedActual)) + '</p><p><strong>Updated:</strong> ' + safe(latest.updated_at || latest.submitted_at || 'Not recorded') + '</p></div>' + (selectedDay ? '<p class="small-text">Showing entries for ' + safe(selectedDay) + '. Month total remains for the full pay month.</p>' : '') + coverageNote + (editNotice ? '<p class="pay-month-edit-note"><strong>Change note:</strong> ' + safe(editNotice) + '</p>' : '') + (unrecordedBreaks ? '<p class="pay-month-edit-note">' + unrecordedBreaks + ' row(s) have no recorded break. ' + provisionalTotals + ' total(s) show elapsed time before any break deduction and need review.</p>' : '') + '<form data-pay-month-edit-form><div class="pay-month-table-scroll"><table class="timesheet-paper-rows pay-month-edit-table"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Total hours</th><th>Notes</th><th>Actions</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8">' + (selectedDay ? 'No daily rows are available for this day.' : 'No daily rows are available.') + '</td></tr>') + '</tbody></table></div><div class="pay-month-sheet-total"><span>Pay month total</span><strong data-pay-month-total-hours>' + safe(displayHours(sheet.totals.workedActual)) + '</strong></div><div class="pay-month-edit-actions">' + (editable ? '<button type="button" class="secondary" data-add-day>Add day</button><button type="submit">Save changes</button>' : '<span class="small-text">This pay month is read-only for your account.</span>') + '<a class="button button-link secondary" href="' + safe(canOpenFull) + '">Open full editor</a><button type="button" class="secondary pay-month-download" data-pay-month-download>Download full pay-month spreadsheet</button><span class="small-text pay-month-download-status" data-pay-month-download-status role="status"></span><span class="small-text" data-pay-month-save-status role="status"></span></div></form></div>';
     var form = preview.querySelector("[data-pay-month-edit-form]");
     var targetDay = requestedDay();
     if (targetDay && requestedRecordId() && sheet.records.some(function (record) { return recordId(record) === requestedRecordId(); })) {
@@ -574,10 +566,14 @@
     if (form) {
       var addDayButton = form.querySelector("[data-add-day]");
       function recalculate() {
-        var total = 0;
+        var rowOverrides = Object.create(null);
         form.querySelectorAll("[data-sheet-row]").forEach(function (entry) {
-          if (entry.dataset.removed === "true") return;
-          var originalItem = sheet.rows[Number(entry.getAttribute("data-sheet-row"))];
+          var rowIndex = Number(entry.getAttribute("data-sheet-row"));
+          if (entry.dataset.removed === "true") {
+            rowOverrides[rowIndex] = null;
+            return;
+          }
+          var originalItem = sheet.rows[rowIndex];
           var original = originalItem && originalItem.row || {};
           var start = rowInputValue(entry, "start");
           var finish = rowInputValue(entry, "finish");
@@ -586,12 +582,31 @@
             && finish === String(rowValue(original, ["finish", "finishTime", "finish_time", "clockOut", "clock_out"], ""))
             && (pause === "" ? null : Number(pause)) === breakMinutes(original);
           var live = unchanged ? original : { start: start, finish: finish, lunchMinutes: pause === "" ? null : Number(pause) };
+          rowOverrides[rowIndex] = live;
           var minutes = rowTotalMinutes(live);
-          if (minutes !== null) total += minutes;
           var api = payMonthWorkbookApi();
           var provisional = api && api.provisionalForRow && api.provisionalForRow(live);
           var hours = entry.querySelector(".pay-month-row-hours");
           if (hours) hours.textContent = minutes === null ? "—" : displayHours(minutes) + (provisional ? " · provisional" : breakMinutes(live) === null ? " · break not recorded" : "");
+        });
+        var total = 0;
+        sheet.rows.forEach(function (item, index) {
+          var live = Object.prototype.hasOwnProperty.call(rowOverrides, index) ? rowOverrides[index] : item.row;
+          if (!live) return;
+          var minutes = rowTotalMinutes(live);
+          if (minutes !== null) total += minutes;
+        });
+        form.querySelectorAll("[data-new-row]").forEach(function (entry) {
+          if (entry.dataset.removed === "true") return;
+          var live = {
+            start: rowInputValue(entry, "start"),
+            finish: rowInputValue(entry, "finish"),
+            lunchMinutes: rowInputValue(entry, "break") === "" ? null : Number(rowInputValue(entry, "break"))
+          };
+          var minutes = rowTotalMinutes(live);
+          if (minutes !== null) total += minutes;
+          var hours = entry.querySelector(".pay-month-row-hours");
+          if (hours) hours.textContent = minutes === null ? "—" : displayHours(minutes) + (breakMinutes(live) === null ? " · break not recorded" : "");
         });
         var footer = form.querySelector("[data-pay-month-total-hours]");
         if (footer) footer.textContent = displayHours(total);
@@ -1121,11 +1136,11 @@
     if (refresh) refresh.disabled = true;
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== "function" || !window.GMTPortalApi.enabled()) {
       realRecordCount = 0;
-      records = withExamples([]);
+      records = [];
       historyMeta = {};
       updateDeliveryIndicator();
       populateEmployees([]);
-      if (status) status.textContent = "Protected submission history is not connected yet. Showing labelled examples so the document views remain discoverable.";
+      if (status) status.textContent = "Protected submission history is not connected yet. Retry Refresh or contact Accounts.";
       render();
       if (refresh) refresh.disabled = false;
       busy = false;
@@ -1136,14 +1151,14 @@
       var body = await window.GMTPortalApi.history("all");
       var realRecords = body && Array.isArray(body.records) ? body.records.filter(function (record) { return !emptyHistoricalDemo(record); }) : [];
       realRecordCount = realRecords.length;
-      records = withExamples(realRecords);
+      records = realRecords;
       historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
       updateDeliveryIndicator();
       populateEmployees(realRecords);
       var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";
       if (status) status.textContent = realRecordCount
-        ? "Showing " + realRecordCount + " submitted document" + (realRecordCount === 1 ? "" : "s") + " authorised for your signed-in GMT identity, plus labelled examples." + scope
-        : "No submitted documents are currently available for this account. Labelled examples are shown below." + scope;
+        ? realRecordCount + " authorised record" + (realRecordCount === 1 ? "" : "s") + " loaded." + scope
+        : "No submitted documents are currently available for this account." + scope;
       var adminNotice = document.getElementById("submissions-admin-timesheet-notice");
       if (adminNotice) {
         var hasTimesheet = realRecords.some(function (record) { return actionKey(record) === "timesheets" || actionKey(record) === "clock"; });
@@ -1162,7 +1177,7 @@
       render();
     } catch (error) {
       realRecordCount = 0;
-      records = withExamples([]);
+      records = [];
       historyMeta = {};
       updateDeliveryIndicator();
       populateEmployees([]);
@@ -1183,6 +1198,7 @@
   });
   if (payMonthFilter) payMonthFilter.addEventListener("change", function () { selected = -1; preferredSheetKey = ""; render(); });
   if (employeeFilter) employeeFilter.addEventListener("change", function () { selected = -1; preferredSheetKey = ""; render(); });
+  if (dayFilter) dayFilter.addEventListener("change", function () { selectedDay = /^\d{4}-\d{2}-\d{2}$/.test(dayFilter.value) ? dayFilter.value : ""; selected = -1; render(); });
   if (refresh) refresh.addEventListener("click", load);
   if (deliveryTrigger) deliveryTrigger.addEventListener("click", openDeliveryStatus);
   if (deliveryDialog) deliveryDialog.querySelectorAll("[data-delivery-close]").forEach(function (button) {
@@ -1202,7 +1218,21 @@
   document.addEventListener("gmt:calendar-select", function (event) {
     var detail = event && event.detail || {};
     var recordId = String(detail.recordId || "");
-    if (!recordId) return;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(detail.day || ""))) {
+      selectedDay = String(detail.day);
+      if (dayFilter) dayFilter.value = selectedDay;
+    }
+    if (!recordId) {
+      if (!selectedDay) return;
+      selected = -1;
+      currentTab = "timesheets";
+      preferredSheetKey = "";
+      tabButtons.forEach(function (button) { button.setAttribute("aria-selected", String(button.getAttribute("data-submission-tab") === "timesheets")); });
+      render();
+      var dayIndex = filteredSheets().findIndex(function (candidate) { return candidate.rows.some(function (row) { return row.date === selectedDay; }); });
+      if (dayIndex >= 0) selectSheet(dayIndex);
+      return;
+    }
     var sheet = payMonthSheets.find(function (candidate) {
       return candidate.records.some(function (record) { return recordId === String(record && (record.source_record_id || record.record_id || record.id) || ""); });
     });

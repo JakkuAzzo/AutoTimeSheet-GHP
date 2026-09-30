@@ -626,7 +626,8 @@
 .submissions-delivery-item p { margin: .3rem 0 0; overflow-wrap: anywhere; }
 .submissions-delivery-item .submissions-delivery-error { color: #7e2617; }
 .portal-history-filter { display: inline-flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .9rem; font-weight: 800; }
-.portal-history-filter select { min-height: 38px; padding: .35rem 2rem .35rem .65rem; border: 1px solid var(--line); border-radius: .65rem; background: #fff; color: var(--ink); font: inherit; }
+.portal-history-filter select,
+.portal-history-filter input[type="date"] { min-height: 38px; padding: .35rem .65rem; border: 1px solid var(--line); border-radius: .65rem; background: #fff; color: var(--ink); font: inherit; }
 .portal-history-frame { display: block; width: 100%; min-height: 360px; margin-top: .8rem; border: 1px solid var(--line); border-radius: .85rem; background: #fff; }
 .portal-history-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }
 .portal-primary-link { background: var(--green); color: #fff; border-radius: 999px; font-weight: 900; }
@@ -1003,7 +1004,8 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-history-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: .55rem; width: 100%; }
   .portal-history-toolbar .small-text { width: 100%; min-width: 0; }
   .portal-history-filter { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; width: 100%; min-width: 0; }
-  .portal-history-filter select { width: 100%; min-width: 0; }
+  .portal-history-filter select,
+  .portal-history-filter input[type="date"] { width: 100%; min-width: 0; }
   .xero-editor-grid { grid-template-columns: 1fr; }
   .xero-invoice-line { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .xero-invoice-line label:first-child, .xero-invoice-line button { grid-column: 1 / -1; }
