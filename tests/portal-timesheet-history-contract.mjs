@@ -25,7 +25,7 @@ assert.match(html, /estimate-history-layout/);
 assert.match(html, /estimates\.css\?v=timesheet-estimate-layout-20260914/);
 assert.match(html, /All submissions/);
 assert.match(html, /portal-history-employee/);
-assert.match(html, /timesheet-completion/);
+assert.doesNotMatch(html, /Accounts completion|Current pay-month status|Employee timesheet coverage|timesheet-completion/i, 'the separate accounts completion table was removed from this page');
 assert.match(page, /cache:\s*["']no-store["']/);
 assert.match(page, /credentials:\s*["']include["']/);
 assert.match(page, /Authorization/);

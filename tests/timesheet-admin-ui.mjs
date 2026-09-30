@@ -6,8 +6,7 @@ const source = fs.readFileSync(new URL('../portal/timesheets.js', import.meta.ur
 const ids = [
   'timesheet-history-status', 'timesheet-history-scope', 'timesheet-history-edit-policy',
   'portal-history-filter', 'portal-history-employee-filter', 'portal-history-employee',
-  'timesheet-completion', 'timesheet-completion-status', 'timesheet-completion-note',
-  'timesheet-completion-table', 'timesheet-history-refresh', 'portal-history-frame'
+  'timesheet-history-refresh', 'portal-history-frame'
 ];
 function element(id) {
   return {
@@ -47,18 +46,12 @@ messageListener({
 });
 assert.equal(elements['portal-history-employee-filter'].hidden, false);
 assert.match(elements['portal-history-employee'].innerHTML, /Jason/);
-assert.equal(elements['timesheet-completion'].hidden, false);
-assert.match(elements['timesheet-completion-table'].innerHTML, /Matthew/);
-assert.match(elements['timesheet-completion-table'].innerHTML, /Missing/);
-assert.match(elements['timesheet-completion-note'].textContent, /Microsoft 365 history source is not connected/);
-assert.match(elements['timesheet-history-edit-policy'].textContent, /All employee timesheets are viewable/);
+assert.match(elements['timesheet-history-edit-policy'].textContent, /All pay months remain viewable/);
 
 elements['portal-history-employee'].value = 'matthew@gmt-services.co.uk';
 elements['portal-history-employee'].listeners.change();
-assert.match(elements['timesheet-completion-table'].innerHTML, /Matthew/);
-assert.doesNotMatch(elements['timesheet-completion-table'].innerHTML, /Jason/);
+assert.equal(elements['portal-history-employee'].value, 'matthew@gmt-services.co.uk');
 
 messageListener({ origin: 'https://gmt.test', data: { type: 'gmt:history-records', records: [], meta: { is_admin: true, completion } } });
-assert.equal(elements['timesheet-completion'].hidden, false);
 
-console.log('Accounts timesheet filter and completion UI: PASS');
+console.log('Accounts timesheet staff filter without completion table: PASS');
