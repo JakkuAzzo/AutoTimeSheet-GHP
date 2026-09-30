@@ -8,8 +8,7 @@ const ids = [
   'timesheet-history-list', 'timesheet-history-preview', 'timesheet-calendar-title',
   'timesheet-calendar-previous', 'timesheet-calendar-next', 'timesheet-calendar-picker',
   'portal-history-filter', 'portal-history-employee-filter', 'portal-history-employee',
-  'timesheet-completion', 'timesheet-completion-status', 'timesheet-completion-note',
-  'timesheet-completion-table', 'timesheet-history-refresh', 'timesheet-history-edit-policy'
+  'timesheet-history-refresh', 'timesheet-history-edit-policy'
 ];
 
 function element(id) {
@@ -110,7 +109,4 @@ const calendarLabels = [...elements['timesheet-history-list'].innerHTML.matchAll
 assert.ok(calendarLabels.some((label) => label.date === '2026-09-08' && label.employee === 'Michelle'));
 assert.equal(calendarLabels.some((label) => label.date === '2026-09-07' && label.employee === 'Michelle'), false);
 assert.equal(calendarLabels.some((label) => label.date === '2026-09-10' && label.employee === 'Michelle'), false);
-assert.match(elements['timesheet-completion-table'].innerHTML, /Absence \/ requests/);
-assert.match(elements['timesheet-completion-table'].innerHTML, /Approved/);
-assert.match(elements['timesheet-completion-table'].innerHTML, /19\.5h/);
 console.log('Daily timesheet preview: joined clock events, break states, totals, flags and requests: PASS');

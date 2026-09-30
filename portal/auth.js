@@ -352,11 +352,13 @@
             // allowed by the browser when an interactive token request is needed.
             var code = String(error && error.errorCode || "").toLowerCase();
             var message = String(error && (error.errorMessage || error.message) || "").toLowerCase();
-            var needsConsent = code === "invalid_grant" || message.indexOf("aadsts65001") !== -1 || message.indexOf("consent") !== -1;
-            if (!needsConsent && code !== "interaction_required" && code !== "consent_required" && code !== "login_required") throw error;
-            var interactiveRequest = Object.assign({}, request, { prompt: "consent" });
+            if (code !== "invalid_grant" && code !== "interaction_required" && code !== "consent_required" && code !== "login_required"
+              && message.indexOf("aadsts65001") === -1 && message.indexOf("consent") === -1) throw error;
             sessionStorage.setItem(postSignInKey, window.location.pathname + window.location.search + window.location.hash);
-            return msalApp.acquireTokenRedirect(Object.assign({}, interactiveRequest, {
+            // Let Entra decide whether consent is needed. Forcing prompt=consent
+            // turns every recoverable interaction into a repeated permissions
+            // screen, even when the account has already granted access.
+            return msalApp.acquireTokenRedirect(Object.assign({}, request, {
               redirectStartPage: window.location.href
             }));
           })
