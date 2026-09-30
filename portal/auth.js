@@ -317,7 +317,6 @@
           await msalApp.acquireTokenRedirect({
             account: account,
             scopes: historyScopes,
-            prompt: "consent",
             redirectStartPage: cleanHistoryUrl.href
           });
           return;

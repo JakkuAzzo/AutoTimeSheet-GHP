@@ -317,7 +317,6 @@
           await msalApp.acquireTokenRedirect({
             account: account,
             scopes: historyScopes,
-            prompt: "consent",
             redirectStartPage: cleanHistoryUrl.href
           });
           return;
@@ -354,9 +353,8 @@
             var message = String(error && (error.errorMessage || error.message) || "").toLowerCase();
             var needsConsent = code === "invalid_grant" || message.indexOf("aadsts65001") !== -1 || message.indexOf("consent") !== -1;
             if (!needsConsent && code !== "interaction_required" && code !== "consent_required" && code !== "login_required") throw error;
-            var interactiveRequest = Object.assign({}, request, { prompt: "consent" });
             sessionStorage.setItem(postSignInKey, window.location.pathname + window.location.search + window.location.hash);
-            return msalApp.acquireTokenRedirect(Object.assign({}, interactiveRequest, {
+            return msalApp.acquireTokenRedirect(Object.assign({}, request, {
               redirectStartPage: window.location.href
             }));
           })
