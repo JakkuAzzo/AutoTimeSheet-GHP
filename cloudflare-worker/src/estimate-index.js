@@ -23,6 +23,9 @@ export function canonicalEstimateInput(input = {}) {
     reference: value(input.reference),
     estimate_date: value(input.estimate_date || input.estimateDate || input.date, '', 80),
     source,
+    mailbox: value(input.mailbox || input.source_mailbox, '').toLowerCase(),
+    internet_message_id: value(input.internet_message_id || input.internetMessageId, '', 1000),
+    mailbox_message_id: value(input.mailbox_message_id || input.mailboxMessageId || input.outlook_message_id || input.outlookMessageId, '', 255),
     outlook_message_id: value(input.outlook_message_id || input.outlookMessageId, '', 255),
     outlook_url: value(input.outlook_url || input.outlookUrl, '', 2000),
     sharepoint_url: value(input.sharepoint_url || input.sharepointUrl, '', 2000),
@@ -59,17 +62,37 @@ export function createEstimateIndexStore(db) {
         .bind(row.canonical_id, row.estimate_number, JSON.stringify(row.number_aliases), row.client, row.client_email,
           row.reference, row.estimate_date, row.source, row.outlook_message_id || null, row.outlook_url,
           row.sharepoint_url, row.attachment_url, row.correlation_status, null).run();
+      const mailboxMessageId = row.mailbox_message_id || row.outlook_message_id;
+      if (row.source === 'email' && row.mailbox && mailboxMessageId) {
+        await db.prepare(`INSERT INTO estimate_mail_sources
+          (canonical_id, mailbox, outlook_message_id, internet_message_id, outlook_url, created_at)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(mailbox, outlook_message_id) DO UPDATE SET canonical_id=excluded.canonical_id,
+          internet_message_id=excluded.internet_message_id, outlook_url=excluded.outlook_url`)
+          .bind(row.canonical_id, row.mailbox, mailboxMessageId, row.internet_message_id, row.outlook_url).run();
+      }
       return row;
     },
     async list(limit = 500) {
-      const result = await db.prepare('SELECT * FROM estimate_index ORDER BY updated_at DESC LIMIT ?').bind(Math.min(Math.max(Number(limit) || 500, 1), 500)).all();
-      return (result.results || []).map((row) => ({ ...row, number_aliases: aliasesFromJson(row.number_aliases_json) }));
+      const result = await db.prepare(`SELECT i.*,
+        COALESCE((SELECT json_group_array(json_object('mailbox', s.mailbox, 'outlook_message_id', s.outlook_message_id,
+          'internet_message_id', s.internet_message_id, 'outlook_url', s.outlook_url))
+          FROM estimate_mail_sources s WHERE s.canonical_id = i.canonical_id), '[]') AS mail_sources_json
+        FROM estimate_index i ORDER BY i.updated_at DESC LIMIT ?`).bind(Math.min(Math.max(Number(limit) || 500, 1), 500)).all();
+      return (result.results || []).map((row) => ({ ...row, number_aliases: aliasesFromJson(row.number_aliases_json), mail_sources: mailSourcesFromJson(row.mail_sources_json), source_mailboxes: [...new Set(mailSourcesFromJson(row.mail_sources_json).map((source) => source.mailbox).filter(Boolean))] }));
     }
   };
 }
 
 function aliasesFromJson(raw) {
   try { return aliases(JSON.parse(raw || '[]')); } catch (_) { return aliases(raw); }
+}
+
+function mailSourcesFromJson(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === 'object') : [];
+  } catch (_) { return []; }
 }
 
 function normaliseRow(row) {

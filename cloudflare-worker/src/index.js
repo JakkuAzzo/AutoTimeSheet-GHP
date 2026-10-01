@@ -815,11 +815,16 @@ async function estimateArchiveIngestEndpoint(request, env, origin) {
   // mailboxes, so prefer it for cross-mailbox duplicate detection. Fall back to the
   // mailbox-local message ID when the connector does not provide it.
   const internetMessageId = text(body.internet_message_id || body.internetMessageId, '', 1000);
-  const canonicalId = internetMessageId ? `email:${internetMessageId}` : `email:${outlookMessageId}`;
+  const canonicalId = internetMessageId ? `email:${internetMessageId}` : `email:${mailbox}:${outlookMessageId}`;
   const estimate = await estimateIndexStore(env).upsert({
     ...body,
     canonical_id: canonicalId,
-    outlook_message_id: outlookMessageId,
+    mailbox,
+    internet_message_id: internetMessageId,
+    mailbox_message_id: outlookMessageId,
+    // Message IDs are mailbox-local. Keep source IDs in estimate_mail_sources,
+    // where they are uniquely scoped to their mailbox.
+    outlook_message_id: '',
     source: 'email'
   });
   return json({ ok: true, estimate }, 200, origin || '');

@@ -29,6 +29,9 @@ const first = canonicalEstimateInput({ canonical_id: 'estimate-artic-001', estim
 assert.equal(first.canonical_id, 'estimate-artic-001');
 assert.deepEqual(first.number_aliases, []);
 assert.equal(first.source, 'email');
+const mailboxCopy = canonicalEstimateInput({ canonical_id: 'email:<one@outlook.example>', source: 'email', mailbox: 'accounts@gmt-services.co.uk', outlook_message_id: 'accounts-local-id', internet_message_id: '<one@outlook.example>' });
+assert.equal(mailboxCopy.mailbox, 'accounts@gmt-services.co.uk');
+assert.equal(mailboxCopy.internet_message_id, '<one@outlook.example>');
 
 const saved = await store.upsert(first);
 assert.equal(saved.canonical_id, 'estimate-artic-001');
@@ -100,6 +103,8 @@ assert.equal(wrongMailboxArchive.status, 403, 'the archive ingest endpoint rejec
 for (const mailbox of ['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk', 'acc.gmtelect@outlook.com']) {
   const acceptedArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ESTIMATE_MAIL_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox, outlook_message_id: `message-${mailbox}`, internet_message_id: '<same-message@outlook.example>' }) }), archiveEnv, {});
   assert.equal(acceptedArchive.status, 200, `the approved mail archive payload is accepted for ${mailbox}`);
-  assert.equal((await acceptedArchive.json()).estimate.canonical_id, 'email:<same-message@outlook.example>', 'duplicate copies across approved mailboxes share a canonical ID');
+  const acceptedBody = await acceptedArchive.json();
+  assert.equal(acceptedBody.estimate.canonical_id, 'email:<same-message@outlook.example>', 'duplicate copies across approved mailboxes share a canonical ID');
+  assert.equal(acceptedBody.estimate.mailbox, mailbox, 'the index retains the source mailbox for distinguishing copies');
 }
 console.log('Estimate index contract: PASS');
