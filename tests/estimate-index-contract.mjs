@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import worker from '../cloudflare-worker/src/index.js';
+import worker, { canAccessRecord, canViewRecord, listEstimateIndex, listRecords } from '../cloudflare-worker/src/index.js';
 import { createEstimateIndexStore, canonicalEstimateInput, correlateEstimateRecords } from '../cloudflare-worker/src/estimate-index.js';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -47,6 +47,17 @@ assert.deepEqual(correlateEstimateRecords([
 assert.match(workerSource, /estimateIndexUpsertEndpoint/);
 assert.match(workerSource, /estimateIndexListEndpoint/);
 assert.match(workerSource, /\/api\/estimates\/index/);
+const staffIdentity = { oid: 'staff-oid', upn: 'staff@gmt-services.co.uk', isAdmin: false, isOperationsAdmin: false, isJobCardAdmin: false };
+assert.equal((await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/estimates/index', { method: 'GET', headers: { authorization: 'Bearer invalid' } }), { DB: db }, {})).status, 401);
+await assert.doesNotReject(() => listEstimateIndex({ DB: db }, staffIdentity), 'authenticated staff identities can read the shared estimate index');
+assert.equal(canViewRecord(staffIdentity, { kind: 'estimates', owner_oid: 'other-oid' }), true);
+assert.equal(canViewRecord(staffIdentity, { kind: 'job-cards', owner_oid: 'other-oid' }), true);
+assert.equal(canViewRecord(staffIdentity, { kind: 'timesheets', owner_oid: 'other-oid' }), false);
+assert.equal(canAccessRecord(staffIdentity, { kind: 'job-cards', owner_oid: 'other-oid' }), false, 'shared read access does not grant edit access');
+let listingSql = '';
+const listDb = { prepare(sql) { listingSql = sql; return { bind() { return { async all() { return { results: [] }; } }; } }; } };
+await listRecords(new Request('https://gmt-portal-api.example.workers.dev/api/records'), { DB: listDb }, staffIdentity);
+assert.match(listingSql, /r\.kind IN \('estimates', 'job-cards', 'conversations', 'email-conversations'\)/, 'staff history includes shared business records alongside owned records');
 const ambiguous = correlateEstimateRecords([
   { canonical_id: 'a', client: 'Artic Building Services Ltd' },
   { canonical_id: 'b', client: 'Artic Building Services Ltd' }
@@ -55,7 +66,8 @@ assert.equal(ambiguous.matches.length, 0);
 assert.equal(ambiguous.candidates.length, 2);
 
 const archiveEnv = {
-  ARCHIVE_INGEST_KEY: 'test-only-archive-key',
+  ARCHIVE_INGEST_KEY: 'legacy-key-must-not-authorize-estimate-mail',
+  ESTIMATE_MAIL_INGEST_KEY: 'test-only-estimate-mail-key',
   DB: {
     prepare(sql) {
       return {
@@ -81,9 +93,13 @@ const archivePayload = {
 };
 const unauthorizedArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(archivePayload) }), archiveEnv, {});
 assert.equal(unauthorizedArchive.status, 401, 'the archive ingest endpoint rejects callers without the dedicated key');
-const wrongMailboxArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ARCHIVE_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox: 'other@example.com' }) }), archiveEnv, {});
-assert.equal(wrongMailboxArchive.status, 403, 'the archive ingest endpoint is restricted to the approved info mailbox');
-const acceptedArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ARCHIVE_INGEST_KEY }, body: JSON.stringify(archivePayload) }), archiveEnv, {});
-assert.equal(acceptedArchive.status, 200, 'the approved mail archive payload is accepted with the dedicated key');
-assert.equal((await acceptedArchive.json()).estimate.canonical_id, 'email:outlook-message-123');
+const legacyKeyArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ARCHIVE_INGEST_KEY }, body: JSON.stringify(archivePayload) }), archiveEnv, {});
+assert.equal(legacyKeyArchive.status, 401, 'the legacy archive key does not authorize estimate mail ingestion');
+const wrongMailboxArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ESTIMATE_MAIL_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox: 'other@example.com' }) }), archiveEnv, {});
+assert.equal(wrongMailboxArchive.status, 403, 'the archive ingest endpoint rejects unapproved mailboxes');
+for (const mailbox of ['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk', 'acc.gmtelect@outlook.com']) {
+  const acceptedArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ESTIMATE_MAIL_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox, outlook_message_id: `message-${mailbox}`, internet_message_id: '<same-message@outlook.example>' }) }), archiveEnv, {});
+  assert.equal(acceptedArchive.status, 200, `the approved mail archive payload is accepted for ${mailbox}`);
+  assert.equal((await acceptedArchive.json()).estimate.canonical_id, 'email:<same-message@outlook.example>', 'duplicate copies across approved mailboxes share a canonical ID');
+}
 console.log('Estimate index contract: PASS');

@@ -32,7 +32,7 @@ assert.equal(identityFromInfoToken.isAdmin, false);
 assert.equal(identityFromInfoToken.isOperationsAdmin, true);
 assert.equal(identityFromInfoToken.isJobCardAdmin, true);
 
-assert.equal(canViewAllRecords(employee, 'job-cards'), false);
+assert.equal(canViewAllRecords(employee, 'job-cards'), true, 'all authenticated portal users can read shared job cards');
 assert.equal(canViewAllRecords(jobCardAdmin, 'job-cards'), true);
 assert.equal(canViewAllRecords(jobCardAdmin, 'timesheets'), false);
 assert.equal(canViewAllRecords(identityFromInfoToken, 'estimates'), true);
@@ -95,8 +95,8 @@ let historyBindings = [];
 const historyDb = { prepare(sql) { historySql = sql; return { bind(...values) { historyBindings = values; return { all: async () => ({ results: [] }) }; } }; } };
 const operationsHistory = await listRecords(new Request('https://gmt.example/api/history?kind=all'), { DB: historyDb, STAFF_DIRECTORY_JSON: '[]' }, identityFromInfoToken);
 assert.equal(operationsHistory.records.length, 0);
-assert.match(historySql, /kind NOT IN \('timesheets', 'clock'\) OR r\.owner_oid = \?/);
-assert.deepEqual(historyBindings, ['info-oid', 200]);
+assert.match(historySql, /kind NOT IN \('timesheets', 'clock'\).*owner_oid = \?/);
+assert.deepEqual(historyBindings, ['info-oid', 'info@gmt-services.co.uk', 200]);
 assert.equal(operationsHistory.meta.is_operations_admin, true);
 
 console.log('Job-card access and projection policy: PASS');

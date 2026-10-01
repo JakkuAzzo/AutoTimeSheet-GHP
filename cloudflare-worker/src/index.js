@@ -155,11 +155,16 @@ function tokenIdentity(claims, env) {
 }
 
 function canViewAllRecords(identity, kind = '') {
-  return Boolean(identity?.isAdmin || (identity?.isOperationsAdmin && kind !== 'timesheets' && kind !== 'clock') || (kind === 'job-cards' && identity?.isJobCardAdmin));
+  const sharedKinds = new Set(['estimates', 'job-cards', 'conversations', 'email-conversations']);
+  return Boolean(identity && (sharedKinds.has(canonicalKind(kind)) || identity.isAdmin || (identity.isOperationsAdmin && kind !== 'timesheets' && kind !== 'clock') || (kind === 'job-cards' && identity.isJobCardAdmin)));
 }
 
 function canAccessRecord(identity, row) {
   return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (row.kind === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase()) || (identity.isOperationsAdmin && row.kind !== 'timesheets' && row.kind !== 'clock') || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
+}
+
+function canViewRecord(identity, row) {
+  return Boolean(identity && row && (canAccessRecord(identity, row) || canViewAllRecords(identity, row.kind)));
 }
 
 async function authenticateToken(token, env) {
@@ -779,7 +784,7 @@ async function upsertEstimateIndex(env, identity, input) {
 }
 
 async function listEstimateIndex(env, identity, query = {}) {
-  requireXeroAdmin(identity);
+  if (!identity) throw Object.assign(new Error('Authentication required'), { status: 401 });
   return estimateIndexStore(env).list(query.limit || 500);
 }
 
@@ -796,18 +801,24 @@ async function estimateIndexListEndpoint(request, env, identity, origin) {
 }
 
 async function estimateArchiveIngestEndpoint(request, env, origin) {
-  const configuredKey = text(env.ARCHIVE_INGEST_KEY, '', 1000);
+  const configuredKey = text(env.ESTIMATE_MAIL_INGEST_KEY, '', 1000);
   if (!configuredKey) throw Object.assign(new Error('Estimate archive ingestion is not configured'), { status: 503 });
   const suppliedKey = request.headers.get('X-GMT-Archive-Key') || '';
   if (!constantTimeEqual(suppliedKey, configuredKey)) throw Object.assign(new Error('Estimate archive key is invalid'), { status: 401 });
   const body = await readJson(request);
   const mailbox = text(body.mailbox || body.source_mailbox, '', 320).toLowerCase();
-  if (mailbox !== 'info@gmt-services.co.uk') throw Object.assign(new Error('Estimate mail archive is restricted to info@gmt-services.co.uk'), { status: 403 });
+  const allowedMailboxes = new Set(['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk', 'acc.gmtelect@outlook.com']);
+  if (!allowedMailboxes.has(mailbox)) throw Object.assign(new Error('Estimate mail archive is restricted to approved GMT mailboxes'), { status: 403 });
   const outlookMessageId = text(body.outlook_message_id || body.outlookMessageId, '', 2000);
   if (!outlookMessageId) throw Object.assign(new Error('outlook_message_id is required'), { status: 400 });
+  // Graph's InternetMessageId is shared by copies of the same message in different
+  // mailboxes, so prefer it for cross-mailbox duplicate detection. Fall back to the
+  // mailbox-local message ID when the connector does not provide it.
+  const internetMessageId = text(body.internet_message_id || body.internetMessageId, '', 1000);
+  const canonicalId = internetMessageId ? `email:${internetMessageId}` : `email:${outlookMessageId}`;
   const estimate = await estimateIndexStore(env).upsert({
     ...body,
-    canonical_id: `email:${outlookMessageId}`,
+    canonical_id: canonicalId,
     outlook_message_id: outlookMessageId,
     source: 'email'
   });
@@ -2900,6 +2911,7 @@ async function listRecords(request, env, identity) {
   const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
   const ownRecords = "(r.owner_oid = ? OR (r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND lower(r.owner_upn) = ?))";
+  const sharedRecordKinds = "r.kind IN ('estimates', 'job-cards', 'conversations', 'email-conversations')";
   const sql = identity.isAdmin
     ? (kind ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`)
     : operationsAdminAcrossKinds
@@ -2907,8 +2919,10 @@ async function listRecords(request, env, identity) {
     : viewAll
       ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`
     : jobCardAdminAcrossKinds
-        ? `${projection} WHERE r.status <> 'Deleted' AND (${ownRecords} OR r.kind = 'job-cards') ORDER BY r.updated_at DESC LIMIT ?`
-        : (kind ? `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
+        ? `${projection} WHERE r.status <> 'Deleted' AND (${ownRecords} OR ${sharedRecordKinds}) ORDER BY r.updated_at DESC LIMIT ?`
+        : (kind
+          ? (viewAll ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`)
+          : `${projection} WHERE (${ownRecords} OR ${sharedRecordKinds}) AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
   const bindings = identity.isAdmin
     ? (kind ? [kind, limit] : [limit])
     : operationsAdminAcrossKinds
@@ -2917,7 +2931,7 @@ async function listRecords(request, env, identity) {
       ? [kind || 'job-cards', limit]
       : jobCardAdminAcrossKinds
         ? [identity.oid, identity.upn, limit]
-        : (kind ? [identity.oid, identity.upn, kind, limit] : [identity.oid, identity.upn, limit]);
+        : (kind ? (viewAll ? [kind, limit] : [identity.oid, identity.upn, kind, limit]) : [identity.oid, identity.upn, limit]);
   const result = await env.DB.prepare(sql).bind(...bindings).all();
   const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
   const projectedLocalRecords = (result.results || []).map((row) => projectRow(row, true, env));
@@ -3089,7 +3103,7 @@ async function handle(request, env, ctx) {
     const recordId = decodeURIComponent(attachmentMatch[1]);
     const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
-    if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (request.method === 'GET' ? !canViewRecord(identity, existing) : !canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (existing.kind !== 'timesheets') return json({ error: 'Only timesheet corrections can be queued' }, 400, origin || '');
     const body = await readJson(request);
@@ -3184,6 +3198,7 @@ export {
   listRecords,
   projectRow,
   canViewAllRecords,
+  canViewRecord,
   canAccessRecord,
   tokenIdentity,
   profileView,
