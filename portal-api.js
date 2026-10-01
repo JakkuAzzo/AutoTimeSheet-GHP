@@ -100,6 +100,10 @@
     });
   }
 
+  function estimateIndexList() {
+    return request("/api/estimates/index?limit=500", { method: "GET" });
+  }
+
   function getProfile() {
     return request("/api/profile", { method: "GET" });
   }
@@ -204,6 +208,7 @@
     getRecord: getRecord,
     deleteRecord: deleteRecord,
     history: history,
+    estimateIndexList: estimateIndexList,
     getProfile: getProfile,
     saveProfile: saveProfile,
     dispatchCorrections: dispatchCorrections,

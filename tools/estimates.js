@@ -207,7 +207,39 @@
   function normaliseHistoryRecord(record) {
     if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
     const items = Array.isArray(record.items) ? record.items.map((item) => ({ description: item.description || item.Description || '', quantity: Number(item.quantity ?? item.Quantity) || 0, unit: Number(item.unit ?? item.Unit ?? item.unitPrice) || 0 })).filter((item) => item.description) : [];
-    return { number: record.estimate_number || record.estimateNumber || record.number || '', date: record.estimate_date || record.estimateDate || record.date || '', attention: record.client_contact || record.clientContact || record.attention || '', company: record.client_company || record.clientCompany || record.company || '', email: record.client_email || record.clientEmail || record.email || '', validity: record.validity || '30', preparedBy: record.prepared_by || record.preparedBy || '', vatRate: Number(record.vat_rate ?? record.vatRate) || 0, reference: record.reference || '', opening: record.opening || '', terms: record.terms || '', items, subtotal: Number(record.subtotal) || 0, vat: Number(record.vat) || 0, total: Number(record.total) || 0, sentAt: record.sent_at || record.sentAt || record.submitted_at || record.submittedAt || '', status: record.status || 'Sent', recordId: record.source_record_id || record.sourceRecordId || record.recordId || `${record.number || 'estimate'}|${record.sentAt || record.submittedAt || ''}` };
+    return { number: record.estimate_number || record.estimateNumber || record.number || '', date: record.estimate_date || record.estimateDate || record.date || '', attention: record.client_contact || record.clientContact || record.attention || '', company: record.client_company || record.clientCompany || record.client || record.company || '', email: record.client_email || record.clientEmail || record.email || '', validity: record.validity || '30', preparedBy: record.prepared_by || record.preparedBy || '', vatRate: Number(record.vat_rate ?? record.vatRate) || 0, reference: record.reference || '', opening: record.opening || '', terms: record.terms || '', items, subtotal: Number(record.subtotal) || 0, vat: Number(record.vat) || 0, total: Number(record.total) || 0, sentAt: record.sent_at || record.sentAt || record.submitted_at || record.submittedAt || '', status: record.status || record.correlation_status || 'Sent', source: record.source || '', sharepointUrl: record.sharepoint_url || record.sharepointUrl || '', attachmentUrl: record.attachment_url || record.attachmentUrl || '', outlookUrl: record.outlook_url || record.outlookUrl || '', recordId: record.canonical_id || record.source_record_id || record.sourceRecordId || record.recordId || `${record.number || 'estimate'}|${record.sentAt || record.submittedAt || ''}` };
+  }
+
+  function mergeSharedEstimateIndex(records, estimates) {
+    const byId = new Map();
+    (Array.isArray(records) ? records : []).forEach((record) => {
+      const id = String(record?.canonical_id || record?.recordId || record?.source_record_id || record?.sourceRecordId || '').trim();
+      if (id) byId.set(id, { ...record, recordId: id });
+    });
+    (Array.isArray(estimates) ? estimates : []).forEach((estimate) => {
+      const id = String(estimate?.canonical_id || '').trim();
+      if (!id) return;
+      const current = byId.get(id) || {};
+      byId.set(id, {
+        ...current,
+        ...estimate,
+        canonical_id: id,
+        recordId: id,
+        estimate_number: estimate.estimate_number || current.estimate_number || current.estimateNumber || current.number || '',
+        client: estimate.client || current.client || current.client_company || current.clientCompany || current.company || '',
+        client_email: estimate.client_email || current.client_email || current.clientEmail || current.email || '',
+        reference: estimate.reference || current.reference || '',
+        estimate_date: estimate.estimate_date || current.estimate_date || current.estimateDate || current.date || '',
+        source: estimate.source || current.source || 'email'
+      });
+    });
+    return [...byId.values()];
+  }
+
+  async function includeSharedEstimateIndex(records) {
+    if (!portalApiEnabled() || typeof window.GMTPortalApi.estimateIndexList !== 'function') return records;
+    const body = await window.GMTPortalApi.estimateIndexList();
+    return mergeSharedEstimateIndex(records, body && body.estimates);
   }
 
   function renderHistory(records, source) {
@@ -230,7 +262,12 @@
     if (!historyRecords[index]) return;
     selectedHistory = index;
     historyList.querySelectorAll('[data-history-index]').forEach((button) => { button.setAttribute('aria-current', String(Number(button.dataset.historyIndex) === index)); });
-    historyPreview.innerHTML = documentHtml(historyRecords[index]);
+    const record = historyRecords[index];
+    const safeLink = (value) => /^https?:\/\//i.test(String(value || '')) ? esc(value) : '';
+    const sharepoint = safeLink(record.sharepointUrl || record.attachmentUrl);
+    const outlook = safeLink(record.outlookUrl);
+    const links = (sharepoint || outlook) ? `<div class="estimate-preview-toolbar"><strong>Archived source</strong><span>${sharepoint ? `<a href="${sharepoint}" target="_blank" rel="noopener">Open shared SharePoint file ↗</a>` : ''}${sharepoint && outlook ? ' · ' : ''}${outlook ? `<a href="${outlook}" target="_blank" rel="noopener">Open email in Outlook ↗</a>` : ''}</span></div>` : '';
+    historyPreview.innerHTML = documentHtml(record) + links;
     loadEstimateInvoiceLinks(historyRecords[index]);
   }
 
@@ -255,7 +292,8 @@
       historyStatus.textContent = 'Loading protected estimate history…';
       try {
         const body = await window.GMTPortalApi.history('estimates');
-        renderHistory(body && Array.isArray(body.records) ? body.records : [], 'protected portal history');
+        const records = await includeSharedEstimateIndex(body && Array.isArray(body.records) ? body.records : []);
+        renderHistory(records, 'shared portal history');
         return;
       } catch (_) {
         // The labelled local fallback below remains available during an outage.
@@ -289,7 +327,8 @@
       if (!response.ok) throw new Error('History request failed');
       const body = await response.json();
       if (!body || !Array.isArray(body.records)) throw new Error('History response was not valid');
-      renderHistory(body.records, 'protected Microsoft 365 history');
+      const records = await includeSharedEstimateIndex(body.records);
+      renderHistory(records, 'shared protected history');
     } catch (_) {
       if (localRecords.length) {
         renderHistory(localRecords, 'this browser; protected history could not be loaded');
