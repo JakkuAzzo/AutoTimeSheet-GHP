@@ -18,7 +18,7 @@ try {
   const publicRoot = fs.readFileSync(path.join(output, 'index.html'), 'utf8');
   const portalRoot = fs.readFileSync(path.join(output, 'portal', 'index.html'), 'utf8');
 
-  assert.match(publicRoot, /<title>GMT Electrical Services Ltd/);
+  assert.match(publicRoot, /<title>GMT Electrical Services \| Motor, Pump, Fan &amp; Gearbox Repairs Croydon<\/title>/);
   assert.match(publicRoot, /public-site\.css/);
   assert.doesNotMatch(publicRoot, /<title>GMT Staff Portal/);
   assert.doesNotMatch(publicRoot, /portal\/auth\.js|\.\/auth\.js/);

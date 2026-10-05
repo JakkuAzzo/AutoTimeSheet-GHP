@@ -1,5 +1,11 @@
 # bOnline WordPress Handover Plan
 
+> **Superseded for current public-site work (2026-10-05):** GMT's public site is
+> served from the static GitHub Pages and Cloudflare Pages setup. Marketing
+> pages belong in the repository root and must be included by
+> `tools/build-cloudflare-pages.mjs`. Treat the WordPress proposal below as a
+> historical handover option only; it is not the current implementation target.
+
 ## Decision
 
 The GitHub project remains the working reference and staff-portal prototype.
