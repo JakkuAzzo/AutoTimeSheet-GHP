@@ -28,7 +28,7 @@ function copyText(relativePath, destination, transform) {
 // Keep the original portal routes available for existing bookmarks and also
 // publish a flat Pages root so the Cloudflare project works at its root URL.
 copy('portal');
-for (const directory of ['timesheets', 'jobs', 'tasks', 'tools', 'training', 'audit']) copy(directory);
+for (const directory of ['timesheets', 'jobs', 'tasks', 'tools', 'training', 'audit', 'services', 'process']) copy(directory);
 fs.rmSync(path.join(output, 'tools', 'build-cloudflare-pages.mjs'), { force: true });
 
 for (const file of [
@@ -41,6 +41,8 @@ for (const file of [
   // and media in the same Pages bundle as the protected portal.
   'public-site.css', 'public-site-mapfix-20260928.js'
 ]) copy(file);
+copy('sitemap.xml');
+copy('robots.txt');
 copy('portal/profile.js', 'profile.js');
 copy('assets');
 copy('data/calendar/events.json');
