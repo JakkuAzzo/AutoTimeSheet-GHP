@@ -84,7 +84,7 @@ try {
     };
   });
   assert.match(periodUi.payMonth, /^[A-Z][a-z]+ \d{4}$/);
-  assert.equal(periodUi.period, 'Daily entries are generated automatically for the current pay month.');
+  assert.match(periodUi.period, /^Pay-period workbook: \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}\. You can submit any dated week; routing is automatic\.$/);
   assert.equal(periodUi.legacyAriaHidden, 'true');
   assert.equal(periodUi.legacyOpacity, '0');
   assert.equal(periodUi.legacyPointerEvents, 'none');
@@ -157,7 +157,7 @@ try {
     breaks[4].value = '0';
     const finishes = [...document.querySelectorAll('[data-field="finish"]')];
     finishes[3].value = '13:00';
-    finishes[4].value = '13:00';
+    finishes[4].value = '16:00';
     const absences = [...document.querySelectorAll('[data-field="absenceStatus"]')];
     absences[3].value = 'Time Off';
     breaks.forEach((select) => select.dispatchEvent(new Event('change', { bubbles: true })));
@@ -222,6 +222,8 @@ try {
     'OT x2.0 hours'
   ]);
 
+  await page.locator('.day-card[data-day-date="2026-06-27"] .remove-day').click();
+  await page.locator('.day-card[data-day-date="2026-06-28"] .remove-day').click();
   await page.locator('#week-start').fill('2026-06-22');
   await page.locator('#week-end').fill('2026-06-26');
   await page.locator('#generate-days-btn').click();

@@ -38,11 +38,11 @@
 - Consumes: `/timesheets/create.html`, its existing `.day-card` markup, and the existing Playwright installation.
 - Produces: `npm run test:timesheets:responsive-entry`, which launches the form with test authentication disabled and checks the layout at five viewport widths.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create five Playwright viewport cases (320, 375, 768, 1024, and 1440 pixels). Generate a five-day week and assert that `.timesheet-grid` and each `.day-card` have no horizontal overflow, every `[data-field]` input/select and action button stays within the viewport, labels remain visible, and the desktop date/time controls have at least 96 CSS pixels of width.
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run: `npm run test:timesheets:responsive-entry`
 
@@ -61,17 +61,17 @@ Expected: FAIL at 320 or 375 pixels because the existing 57.5rem grid exceeds th
 - Consumes: the `.day-card`, `.day-card-header`, `.day-card-body`, `.day-grid`, `.additional-fields`, `.day-result`, and `.days-container` structure created by `script.js`.
 - Produces: a full-width, one-day-per-row layout at desktop widths; a wrapping two-column controls grid on mobile; no horizontal scrolling on `.timesheet-grid` or `.days-container`.
 
-- [ ] **Step 1: Implement the minimum responsive CSS**
+- [x] **Step 1: Implement the minimum responsive CSS**
 
 Remove the 57.5rem minimum widths and horizontal overflow from the timesheet grid. Override the old `display: contents` layout so day-card header/body are actual grid children. Use one `.day-card` per `.days-container` row, with date/start/finish/break/absence controls on one desktop line where space allows. At 640 CSS pixels and below, place controls in two columns, switching to one column only when the available card width cannot fit two 40-pixel-high controls. Keep the result and optional notes on full-width rows.
 
-- [ ] **Step 2: Run the responsive browser test and confirm GREEN**
+- [x] **Step 2: Run the responsive browser test and confirm GREEN**
 
 Run: `npm run test:timesheets:responsive-entry`
 
 Expected: PASS at all five viewport widths with no horizontal overflow.
 
-- [ ] **Step 3: Run calculation, absence, break, and submission regressions**
+- [x] **Step 3: Run calculation, absence, break, and submission regressions**
 
 Run:
 
@@ -84,11 +84,11 @@ node tests/timesheet-email-routing.mjs
 
 Expected: all four scripts pass with the existing calculation totals and submission fields unchanged.
 
-- [ ] **Step 4: Review the page visually at all required widths**
+- [x] **Step 4: Review the page visually at all required widths**
 
 Capture the timesheet form at 320, 375, 768, 1024, and 1440 CSS pixels. Confirm labels, controls, status/result, collapse/remove actions, and totals are legible, aligned, and not clipped. Fix any defects and rerun the focused plus regression tests.
 
-- [ ] **Step 5: Commit the verified UI change**
+- [x] **Step 5: Commit the verified UI change**
 
 ```bash
 git add styles.css tests/timesheet-entry-responsive.mjs package.json

@@ -2,7 +2,7 @@
 
 ## Status
 
-Design approved by the user on 2026-10-06. Implementation plans are ready for review; no production code, SharePoint files, or provider configuration has been changed for this request.
+Design approved by the user on 2026-10-06. Timesheet implementation and visual checks are underway on an isolated branch; no SharePoint files or provider configuration have been changed for this request.
 
 ## User goals
 

@@ -1,4 +1,5 @@
 node_modules/
+output/playwright/
 *.db
 *.db-shm
 *.db-wal
