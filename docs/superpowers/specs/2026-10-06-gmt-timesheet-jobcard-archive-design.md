@@ -2,7 +2,7 @@
 
 ## Status
 
-Design approved by the user on 2026-10-06. Timesheet implementation and visual checks are underway on an isolated branch; no SharePoint files or provider configuration have been changed for this request.
+Design approved by the user on 2026-10-06. The responsive timesheet redesign is implemented and visually verified on an isolated branch. Job-card archive implementation is waiting for the reconciliation task's SharePoint archive changes to become reviewable and integrate. No SharePoint files or provider configuration have been changed for this request.
 
 ## User goals
 
