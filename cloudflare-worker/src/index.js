@@ -1,5 +1,6 @@
 import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
 import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
+import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
@@ -192,6 +193,47 @@ async function authenticateToken(token, env) {
 
 async function authenticate(request, env) {
   return authenticateToken(bearerToken(request), env);
+}
+
+async function authenticateFlowToken(request, env, portalIdentity) {
+  const token = bearerToken(request, 'X-GMT-Upstream-Authorization');
+  if (!token) throw Object.assign(new Error('A signed-in employee Flow Service token is required'), { status: 401 });
+  const pieces = token.split('.');
+  if (pieces.length !== 3) throw Object.assign(new Error('Invalid Flow Service token'), { status: 401 });
+  let header;
+  let claims;
+  try {
+    header = decodeJsonPart(pieces[0]);
+    claims = decodeJsonPart(pieces[1]);
+  } catch (_) {
+    throw Object.assign(new Error('Invalid Flow Service token'), { status: 401 });
+  }
+  if (header.alg !== 'RS256' || !header.kid) throw Object.assign(new Error('Unsupported Flow Service token'), { status: 401 });
+  let validSignature = false;
+  try {
+    const key = await signingKey(env.ENTRA_TENANT_ID, header.kid);
+    validSignature = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, base64UrlDecode(pieces[2]), new TextEncoder().encode(`${pieces[0]}.${pieces[1]}`));
+  } catch (_) {
+    validSignature = false;
+  }
+  if (!validSignature) throw Object.assign(new Error('Invalid Flow Service token'), { status: 401 });
+  const tenantId = String(env.ENTRA_TENANT_ID || '').trim().toLowerCase();
+  const tokenTenant = String(claims.tid || '').trim().toLowerCase();
+  if (!tenantId || tokenTenant !== tenantId) throw Object.assign(new Error('Flow Service token is from the wrong tenant'), { status: 403 });
+  if (String(claims.aud || '') !== 'https://service.flow.microsoft.com/') throw Object.assign(new Error('Flow Service token has the wrong audience'), { status: 403 });
+  const expectedIssuers = new Set([
+    `https://login.microsoftonline.com/${tenantId}/v2.0`,
+    `https://sts.windows.net/${tenantId}/`
+  ]);
+  if (!expectedIssuers.has(String(claims.iss || '').toLowerCase())) throw Object.assign(new Error('Flow Service token issuer is not permitted'), { status: 403 });
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(Number(claims.exp)) || Number(claims.exp) < nowSeconds - 60 || (claims.nbf && Number(claims.nbf) > nowSeconds + 60)) {
+    throw Object.assign(new Error('Flow Service token is not currently valid'), { status: 401 });
+  }
+  if (!claims.oid || String(claims.oid).toLowerCase() !== String(portalIdentity?.oid || '').toLowerCase()) {
+    throw Object.assign(new Error('Flow Service token must belong to the signed-in portal user'), { status: 403 });
+  }
+  return token;
 }
 
 function text(value, fallback = '', max = MAX_TEXT) {
@@ -797,7 +839,7 @@ async function estimateIndexUpsertEndpoint(request, env, identity, origin) {
 async function estimateIndexListEndpoint(request, env, identity, origin) {
   const url = new URL(request.url);
   const estimates = await listEstimateIndex(env, identity, { limit: url.searchParams.get('limit') || 500 });
-  return json({ estimates }, 200, origin || '');
+  return json({ estimates: estimates.map(({ sharepoint_url, attachment_url, ...estimate }) => estimate) }, 200, origin || '');
 }
 
 async function estimateArchiveIngestEndpoint(request, env, origin) {
@@ -807,7 +849,7 @@ async function estimateArchiveIngestEndpoint(request, env, origin) {
   if (!constantTimeEqual(suppliedKey, configuredKey)) throw Object.assign(new Error('Estimate archive key is invalid'), { status: 401 });
   const body = await readJson(request);
   const mailbox = text(body.mailbox || body.source_mailbox, '', 320).toLowerCase();
-  const allowedMailboxes = new Set(['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk', 'acc.gmtelect@outlook.com']);
+  const allowedMailboxes = new Set(['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk']);
   if (!allowedMailboxes.has(mailbox)) throw Object.assign(new Error('Estimate mail archive is restricted to approved GMT mailboxes'), { status: 403 });
   const outlookMessageId = text(body.outlook_message_id || body.outlookMessageId, '', 2000);
   if (!outlookMessageId) throw Object.assign(new Error('outlook_message_id is required'), { status: 400 });
@@ -816,6 +858,46 @@ async function estimateArchiveIngestEndpoint(request, env, origin) {
   // mailbox-local message ID when the connector does not provide it.
   const internetMessageId = text(body.internet_message_id || body.internetMessageId, '', 1000);
   const canonicalId = internetMessageId ? `email:${internetMessageId}` : `email:${mailbox}:${outlookMessageId}`;
+  const emlItemId = text(body.sharepoint_eml_item_id || body.sharepointEmlItemId, '', 500);
+  if (!emlItemId) throw Object.assign(new Error('sharepoint_eml_item_id is required before an email can be indexed'), { status: 400 });
+  const attachmentRows = Array.isArray(body.attachments) ? body.attachments : [];
+  if (attachmentRows.length > 50) throw Object.assign(new Error('Estimate archive contains too many attachments'), { status: 413 });
+  let totalAttachmentBytes = 0;
+  const attachments = attachmentRows.map((attachment) => {
+    const sourceAttachmentId = text(attachment?.source_attachment_id || attachment?.sourceAttachmentId || attachment?.id, '', 1000);
+    const itemId = text(attachment?.sharepoint_item_id || attachment?.sharepointItemId, '', 500);
+    const fileName = archiveFilename(attachment?.file_name || attachment?.fileName);
+    const sizeBytes = Math.max(0, Number.parseInt(attachment?.size_bytes || attachment?.sizeBytes, 10) || 0);
+    if (!sourceAttachmentId || !itemId) throw Object.assign(new Error('Each archived attachment requires source and SharePoint identifiers'), { status: 400 });
+    totalAttachmentBytes += sizeBytes;
+    if (sizeBytes > 20 * 1024 * 1024 || totalAttachmentBytes > 100 * 1024 * 1024) throw Object.assign(new Error('Estimate archive attachments exceed the supported size'), { status: 413 });
+    return { sourceAttachmentId, itemId, fileName, sizeBytes, mimeType: text(attachment?.mime_type || attachment?.mimeType, 'application/octet-stream', 120), sha256: text(attachment?.sha256, '', 128) };
+  });
+  const associationRows = Array.isArray(body.associations) ? body.associations : [];
+  if (associationRows.length > 100) throw Object.assign(new Error('Estimate archive contains too many associations'), { status: 413 });
+  // Validate every relationship before writing the estimate index or archive row.
+  for (const association of associationRows) {
+    if (!association || typeof association !== 'object' || Array.isArray(association)) throw Object.assign(new Error('association is invalid'), { status: 400 });
+    const targetKind = text(association.target_kind || association.targetKind, '', 32);
+    const targetId = text(association.target_id || association.targetId, '', 300);
+    const confidence = Number(association.confidence);
+    const provenanceKind = text(association.provenance_kind || association.provenanceKind, '', 40);
+    const state = text(association.state, 'candidate', 24);
+    if (!['estimate', 'job-card', 'invoice'].includes(targetKind) || !targetId || !['candidate', 'confirmed', 'needs-review', 'rejected'].includes(state) || !['exact-reference', 'conversation-id', 'shared-customer-date', 'manual-review', 'app-link'].includes(provenanceKind) || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw Object.assign(new Error('association is invalid'), { status: 400 });
+    }
+  }
+  const archiveInput = normalizeEstimateArchiveRecord({
+    ...body, id: undefined, canonical_id: canonicalId,
+    source_kind: 'email', source_message_id: outlookMessageId, internet_message_id: internetMessageId,
+    mailbox, classification_state: body.classification_state || body.classificationState || 'candidate',
+    sender_email: body.sender_email || body.senderEmail || mailbox,
+    recipient_emails: body.recipient_emails || body.recipientEmails || [],
+    customer: body.client || body.customer || '', estimate_number: body.estimate_number || body.estimateNumber || '',
+    sharepoint_eml_item_id: emlItemId,
+    sharepoint_manifest_item_id: body.sharepoint_manifest_item_id || body.sharepointManifestItemId || '',
+    provenance: body.provenance || { source: 'power-automate-estimate-index', mailbox, source_message_id: outlookMessageId }
+  });
   const estimate = await estimateIndexStore(env).upsert({
     ...body,
     canonical_id: canonicalId,
@@ -825,9 +907,429 @@ async function estimateArchiveIngestEndpoint(request, env, origin) {
     // Message IDs are mailbox-local. Keep source IDs in estimate_mail_sources,
     // where they are uniquely scoped to their mailbox.
     outlook_message_id: '',
+    sharepoint_url: '',
+    attachment_url: '',
     source: 'email'
   });
-  return json({ ok: true, estimate }, 200, origin || '');
+  const archive = await upsertEstimateArchive(env, { ...archiveInput, provenance: JSON.parse(archiveInput.provenance_json) });
+  const savedAssociations = await deriveArchiveAssociations(env, archive.id, {
+    estimateNumber: archiveInput.estimate_number, reference: archiveInput.reference,
+    invoiceNumber: text(body.invoice_number || body.invoiceNumber, '', 500)
+  });
+  for (const association of associationRows) savedAssociations.push(await upsertEstimateAssociation(env, archive.id, association));
+  for (const attachment of attachments) {
+    await env.DB.prepare(`INSERT INTO archive_attachments
+      (id, message_id, source_attachment_id, file_name, mime_type, size_bytes, sha256, sharepoint_item_id, provenance_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(message_id, source_attachment_id) DO UPDATE SET
+        file_name=excluded.file_name, mime_type=excluded.mime_type, size_bytes=excluded.size_bytes,
+        sha256=excluded.sha256, sharepoint_item_id=excluded.sharepoint_item_id, provenance_json=excluded.provenance_json`)
+      .bind(crypto.randomUUID(), archive.id, attachment.sourceAttachmentId,
+        attachment.fileName, attachment.mimeType,
+        attachment.sizeBytes, attachment.sha256, attachment.itemId,
+        JSON.stringify({ source: 'power-automate-estimate-index', mailbox })).run();
+  }
+  return json({ ok: true, estimate, archive, associations: publicArchiveAssociations(savedAssociations) }, 200, origin || '');
+}
+
+async function sendClientEstimateEndpoint(request, env, identity, origin) {
+  const flowToken = await authenticateFlowToken(request, env, identity);
+  const flowUrl = text(env.ESTIMATE_SEND_FLOW_URL, '', 3000);
+  if (!flowUrl) throw Object.assign(new Error('The approved Accounts estimate-send flow is not configured'), { status: 503 });
+  let parsedUrl;
+  try { parsedUrl = new URL(flowUrl); } catch (_) { throw Object.assign(new Error('The approved Accounts estimate-send flow is not configured'), { status: 503 }); }
+  if (parsedUrl.protocol !== 'https:' || !/(?:\.environment\.api\.powerplatform\.com|\.logic\.azure\.com)$/i.test(parsedUrl.hostname)) {
+    throw Object.assign(new Error('The approved Accounts estimate-send flow has an invalid destination'), { status: 503 });
+  }
+  const body = await readJson(request);
+  const recordId = text(body.recordId || body.record_id, '', MAX_RECORD_ID);
+  const recipient = text(body.to || body.recipient, '', 320).toLowerCase();
+  if (!recordId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw Object.assign(new Error('Estimate record and client email are required'), { status: 400 });
+  const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
+  if (!existing || existing.kind !== 'estimates' || existing.owner_oid !== identity.oid) throw Object.assign(new Error('Estimate record not found'), { status: 404 });
+  const currentStatus = String(existing.status || '').toLowerCase();
+  if (['sent to client', 'sending to client', 'delivery status needs review'].includes(currentStatus)) throw Object.assign(new Error('This estimate is already sending, sent, or awaiting Accounts review'), { status: 409 });
+  const archive = await env.DB.prepare(`SELECT id FROM archive_messages WHERE source_kind='app'
+    AND json_extract(provenance_json, '$.source_record_id') = ? LIMIT 1`).bind(recordId).first();
+  if (!archive) throw Object.assign(new Error('Archive the estimate in the shared folder before sending'), { status: 409 });
+  const estimate = body.estimate && typeof body.estimate === 'object' && !Array.isArray(body.estimate) ? body.estimate : {};
+  const contentBase64 = String(body.contentBase64 || body.content_base64 || '');
+  if (!contentBase64 || contentBase64.length > 1_450_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(contentBase64)) throw Object.assign(new Error('Estimate attachment is missing or too large'), { status: 400 });
+  const fileName = archiveFilename(body.fileName || body.file_name || `${estimate.number || 'GMT-estimate'}.doc`);
+  const contentType = text(body.contentType || body.content_type, 'application/msword', 120).replace(/[\r\n;]/g, '');
+  const submittedAt = now();
+  const sendPayload = {
+    idempotencyKey: recordId,
+    recordId,
+    to: recipient,
+    bcc: 'accounts@gmt-services.co.uk',
+    subject: `[GMT] Estimate ${text(estimate.number, '', 160)} | ${text(estimate.company, '', 500)}`,
+    message: `Please find attached estimate ${text(estimate.number, '', 160)}.`,
+    number: text(estimate.number, '', 160), date: text(estimate.date, '', 80),
+    company: text(estimate.company, '', 500), attention: text(estimate.attention, '', 500),
+    reference: text(estimate.reference, '', 500), total: Number(estimate.total) || 0,
+    fileName, contentType, contentBase64,
+    requestedAt: submittedAt
+  };
+  await env.DB.prepare(`INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid)
+    VALUES (?, ?, ?, ?, ?)`)
+    .bind(existing.record_id, existing.owner_oid, JSON.stringify({
+      employee_name: existing.employee_name, kind: existing.kind, action: existing.action,
+      status: existing.status, start_date: existing.start_date, end_date: existing.end_date,
+      record_date: existing.record_date, submitted_at: existing.submitted_at,
+      updated_at: existing.updated_at, issue: existing.issue, payload: payloadObject(existing)
+    }), submittedAt, identity.oid).run();
+  const claim = await env.DB.prepare(`UPDATE records SET status='Sending to client', issue='', updated_at=?
+    WHERE record_id=? AND owner_oid=? AND lower(status) NOT IN ('sent to client','sending to client','delivery status needs review')`)
+    .bind(submittedAt, recordId, identity.oid).run();
+  if (!(claim.meta?.changes > 0)) throw Object.assign(new Error('This estimate is already sending, sent, or awaiting Accounts review'), { status: 409 });
+  let response;
+  try {
+    response = await fetch(flowUrl, {
+      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(90000),
+      headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${flowToken}` },
+      body: JSON.stringify(sendPayload)
+    });
+  } catch (_) {
+    await env.DB.prepare(`UPDATE records SET status='Delivery status needs review', issue=?, updated_at=? WHERE record_id=? AND owner_oid=?`)
+      .bind('The Accounts send flow did not return a delivery result; check its run history before retrying.', now(), recordId, identity.oid).run();
+    throw Object.assign(new Error('The Accounts send flow did not return a delivery result. Check its run history before retrying.'), { status: 502 });
+  }
+  if (response.status >= 300 && response.status < 400) {
+    await env.DB.prepare(`UPDATE records SET status='Delivery status needs review', issue=?, updated_at=? WHERE record_id=? AND owner_oid=?`)
+      .bind('The Accounts send flow returned an unexpected redirect; verify delivery in run history.', now(), recordId, identity.oid).run();
+    throw Object.assign(new Error('The Accounts send flow returned an unexpected redirect. Check its run history before retrying.'), { status: 502 });
+  }
+  const responseText = await response.text();
+  let result = null;
+  try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+  if (!response.ok || result?.success !== true) {
+    const message = text(result?.message, 'The Accounts send flow did not confirm delivery. Check its run history before retrying.', 500);
+    await env.DB.prepare(`UPDATE records SET status='Delivery status needs review', issue=?, updated_at=? WHERE record_id=? AND owner_oid=?`)
+      .bind(message, now(), recordId, identity.oid).run();
+    throw Object.assign(new Error(message), { status: 502 });
+  }
+  const sentAt = text(result.sentAt || result.sent_at, now(), 80);
+  const claimedRecord = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
+  const next = normaliseInput({
+    recordId, kind: 'estimates', action: claimedRecord.action || 'client_send',
+    status: 'Sent to client', issue: '', submittedAt: existing.submitted_at,
+    updatedAt: sentAt, recordDate: existing.record_date, payload: payloadObject(claimedRecord)
+  }, identity, claimedRecord, env);
+  await saveRecord(env, next, identity, claimedRecord);
+  try {
+    await estimateIndexStore(env).upsert({
+      canonical_id: recordId, estimate_number: text(estimate.number, '', 500),
+      client: text(estimate.company, '', 1000), client_email: recipient,
+      reference: text(estimate.reference, '', 500), estimate_date: text(estimate.date, '', 80),
+      source: 'app', correlation_status: 'ready'
+    });
+  } catch (_) { /* the protected record and shared archive remain authoritative */ }
+  return json({ ok: true, status: 'Sent to client', sent_at: sentAt, archive_id: archive.id }, 200, origin || '');
+}
+
+function correlationToken(value) {
+  return text(value, '', 500).trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+}
+
+function publicArchiveAssociations(associations) {
+  return associations.map((association) => association.target_kind === 'invoice'
+    ? (({ target_id: _privateTargetId, ...safe }) => safe)(association)
+    : association);
+}
+
+async function deriveArchiveAssociations(env, archiveId, { estimateNumber = '', reference = '', invoiceNumber = '', sourceRecordId = '' } = {}) {
+  const parsedById = new Map();
+  const loadExact = async (kind, value, fields) => {
+    const token = correlationToken(value);
+    if (!token) return [];
+    const jsonMatches = fields.map((field) => `lower(trim(CASE WHEN json_valid(payload_json) THEN COALESCE(json_extract(payload_json, '$.${field}'), '') ELSE '' END)) = ?`);
+    const sql = `SELECT record_id, kind, record_date, payload_json FROM records
+      WHERE kind = ? AND status <> 'Deleted' AND (lower(trim(record_id)) = ? OR ${jsonMatches.join(' OR ')})`;
+    const result = await env.DB.prepare(sql).bind(kind, token, ...fields.map(() => token)).all();
+    return result.results || [];
+  };
+  try {
+    if (sourceRecordId) {
+      const source = await env.DB.prepare(`SELECT record_id, kind, record_date, payload_json FROM records
+        WHERE record_id = ? AND kind = 'estimates' AND status <> 'Deleted'`).bind(sourceRecordId).first();
+      if (source) parsedById.set(source.record_id, source);
+    }
+    for (const row of await loadExact('job-cards', reference, ['jobReference', 'job_reference', 'reference'])) parsedById.set(row.record_id, row);
+    for (const row of await loadExact('estimates', estimateNumber, ['estimateNumber', 'number'])) parsedById.set(row.record_id, row);
+    for (const row of await loadExact('job-cards', invoiceNumber, ['invoiceNumber', 'xeroInvoiceNumber', 'xeroReference'])) parsedById.set(row.record_id, row);
+  } catch (_) { return []; }
+  const parsed = [...parsedById.values()].map((row) => {
+    let payload = {};
+    try { payload = JSON.parse(row.payload_json || '{}'); } catch (_) {}
+    return { ...row, payload };
+  });
+  const saved = [];
+  if (sourceRecordId) {
+    const source = parsed.find((row) => row.record_id === sourceRecordId && row.kind === 'estimates');
+    if (source) saved.push(await upsertEstimateAssociation(env, archiveId, {
+      target_kind: 'estimate', target_id: source.record_id,
+      target_reference: text(source.payload.estimateNumber || source.payload.number || estimateNumber, '', 500),
+      relationship: 'created-from', confidence: 1, state: 'confirmed', provenance_kind: 'app-link',
+      evidence: { field: 'source_record_id', record_id: source.record_id }
+    }));
+  }
+  const exactReference = correlationToken(reference);
+  if (exactReference) {
+    const matches = parsed.filter((row) => row.kind === 'job-cards' && [row.record_id, row.payload.jobReference, row.payload.job_reference, row.payload.reference]
+      .some((value) => correlationToken(value) === exactReference));
+    for (const row of matches) saved.push(await upsertEstimateAssociation(env, archiveId, {
+      target_kind: 'job-card', target_id: row.record_id,
+      target_reference: text(row.payload.jobReference || row.payload.reference || row.record_id, '', 500),
+      relationship: 'supports', confidence: matches.length === 1 ? 1 : 0.5,
+      state: matches.length === 1 ? 'confirmed' : 'needs-review',
+      provenance_kind: 'exact-reference', evidence: { field: 'reference', value: text(reference, '', 500) }
+    }));
+  }
+  const estimateToken = correlationToken(estimateNumber);
+  if (estimateToken) {
+    const matches = parsed.filter((row) => row.kind === 'estimates' && [row.record_id, row.payload.estimateNumber, row.payload.number]
+      .some((value) => correlationToken(value) === estimateToken));
+    for (const row of matches) saved.push(await upsertEstimateAssociation(env, archiveId, {
+      target_kind: 'estimate', target_id: row.record_id,
+      target_reference: text(row.payload.estimateNumber || row.payload.number || row.record_id, '', 500),
+      relationship: 'same-estimate', confidence: matches.length === 1 ? 1 : 0.5,
+      state: matches.length === 1 ? 'confirmed' : 'needs-review',
+      provenance_kind: 'exact-reference', evidence: { field: 'estimate_number', value: text(estimateNumber, '', 500) }
+    }));
+  }
+  const invoiceToken = correlationToken(invoiceNumber);
+  if (invoiceToken) {
+    const matches = parsed.filter((row) => row.kind === 'job-cards' && row.payload.xeroInvoiceId &&
+      [row.payload.invoiceNumber, row.payload.xeroInvoiceNumber, row.payload.xeroReference]
+        .some((value) => correlationToken(value) === invoiceToken));
+    for (const row of matches) saved.push(await upsertEstimateAssociation(env, archiveId, {
+      target_kind: 'invoice', target_id: text(row.payload.xeroInvoiceId, '', 300),
+      target_reference: text(row.payload.invoiceNumber || row.payload.xeroInvoiceNumber || row.payload.xeroReference, '', 500),
+      relationship: 'billed-as', confidence: matches.length === 1 ? 1 : 0.5,
+      state: matches.length === 1 ? 'confirmed' : 'needs-review',
+      provenance_kind: 'exact-reference', evidence: { field: 'invoice_number', value: text(invoiceNumber, '', 500) }
+    }));
+  }
+  return saved;
+}
+
+function archiveFilename(value) {
+  return text(value, 'estimate-file', 180).replace(/[\\/\r\n"<>:|?*\u0000-\u001f]/g, '_').replace(/^\.+$/, 'file') || 'estimate-file';
+}
+
+async function sharePointGraphToken(env) {
+  const tenant = text(env.ENTRA_TENANT_ID, '', 120);
+  const clientId = text(env.SHAREPOINT_GRAPH_CLIENT_ID, '', 120);
+  const clientSecret = text(env.SHAREPOINT_GRAPH_CLIENT_SECRET, '', 4000);
+  if (!tenant || !clientId || !clientSecret || !text(env.SHAREPOINT_SITE_ID) || !text(env.SHAREPOINT_DRIVE_ID)) {
+    throw Object.assign(new Error('Shared archive content access is not configured'), { status: 503 });
+  }
+  const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials', scope: 'https://graph.microsoft.com/.default' })
+  });
+  if (!response.ok) throw Object.assign(new Error('Shared archive content authentication failed'), { status: 503 });
+  const token = await response.json();
+  if (!token.access_token) throw Object.assign(new Error('Shared archive content authentication failed'), { status: 503 });
+  return token.access_token;
+}
+
+async function graphSharePointRequest(env, path, init = {}) {
+  const token = await sharePointGraphToken(env);
+  const response = await fetch(`https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(text(env.SHAREPOINT_SITE_ID, '', 500))}/drives/${encodeURIComponent(text(env.SHAREPOINT_DRIVE_ID, '', 500))}${path}`, {
+    ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers || {}) }
+  });
+  return response;
+}
+
+async function graphFileBytes(response, limit = 20 * 1024 * 1024) {
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (declared > limit) throw Object.assign(new Error('Archived file is too large to retrieve'), { status: 413 });
+  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const part = await reader.read();
+    if (part.done) break;
+    size += part.value.byteLength;
+    if (size > limit) { await reader.cancel(); throw Object.assign(new Error('Archived file is too large to retrieve'), { status: 413 }); }
+    chunks.push(part.value);
+  }
+  const output = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.byteLength; }
+  return output;
+}
+
+async function listEstimateArchiveEndpoint(request, env, origin) {
+  const url = new URL(request.url);
+  const result = await queryEstimateArchive(env, {
+    q: url.searchParams.get('q'), estimateNumber: url.searchParams.get('estimateNumber'),
+    customer: url.searchParams.get('customer'), email: url.searchParams.get('email'),
+    reference: url.searchParams.get('reference'), from: url.searchParams.get('from'),
+    to: url.searchParams.get('to'), state: url.searchParams.get('state'),
+    relatedJobId: url.searchParams.get('relatedJobId'), relatedInvoice: url.searchParams.get('relatedInvoice'),
+    cursor: url.searchParams.get('cursor'), limit: url.searchParams.get('limit')
+  });
+  return json(result, 200, origin || '');
+}
+
+async function estimateArchiveDetailEndpoint(env, origin, archiveId) {
+  const row = await env.DB.prepare(`SELECT id, canonical_id, source_kind, classification_state, message_direction,
+    mailbox, sender_email, recipient_emails,
+    subject, customer_display AS customer, customer_email, estimate_number, reference, sent_at,
+    received_at
+    FROM archive_messages WHERE id = ?`).bind(archiveId).first();
+  if (!row) throw Object.assign(new Error('Archive message not found'), { status: 404 });
+  const conversationId = await env.DB.prepare('SELECT conversation_id FROM archive_messages WHERE id = ?').bind(archiveId).first();
+  const attachments = await env.DB.prepare(`SELECT id, source_attachment_id, file_name, mime_type,
+    size_bytes, sha256 FROM archive_attachments WHERE message_id = ? ORDER BY created_at, id`).bind(archiveId).all();
+  const associations = await env.DB.prepare(`SELECT id, target_kind, target_id, target_reference,
+    relationship, confidence, state, provenance_kind, evidence_json, created_by, created_at, updated_at
+    FROM archive_associations WHERE message_id = ? ORDER BY created_at, id`).bind(archiveId).all();
+  let recipients = [];
+  try { recipients = JSON.parse(row.recipient_emails || '[]'); } catch (_) {}
+  let sourceCopies = [];
+  try {
+    const sources = await env.DB.prepare(`SELECT DISTINCT mailbox FROM estimate_mail_sources WHERE canonical_id = ? ORDER BY mailbox`).bind(row.canonical_id).all();
+    sourceCopies = (sources.results || []).map((source) => ({ mailbox: source.mailbox }));
+  } catch (_) { sourceCopies = []; }
+  let conversation = [];
+  if (conversationId?.conversation_id) {
+    const result = await env.DB.prepare(`SELECT id, source_kind, classification_state, message_direction,
+      mailbox, subject, sender_email, sent_at, received_at FROM archive_messages WHERE conversation_id = ?
+      ORDER BY COALESCE(NULLIF(sent_at, ''), received_at), id LIMIT 500`).bind(conversationId.conversation_id).all();
+    conversation = result.results || [];
+  }
+  // Exact, confirmed job/estimate associations make distinct mail threads for
+  // the same work discoverable from one archive detail view.
+  const relatedThreads = await env.DB.prepare(`SELECT DISTINCT m.id, m.source_kind, m.classification_state, m.message_direction,
+      m.mailbox, m.subject, m.sender_email, m.sent_at, m.received_at
+    FROM archive_associations base
+    JOIN archive_associations related ON related.target_kind=base.target_kind AND related.target_id=base.target_id
+    JOIN archive_messages m ON m.id=related.message_id
+    WHERE base.message_id=? AND base.state='confirmed' AND base.target_kind IN ('job-card','estimate')
+      AND related.state='confirmed' AND m.id<>?
+    ORDER BY COALESCE(NULLIF(m.sent_at,''),m.received_at),m.id LIMIT 500`).bind(archiveId, archiveId).all();
+  if (relatedThreads.results?.length) {
+    const seen = new Set(conversation.map((item) => item.id));
+    for (const item of relatedThreads.results) if (!seen.has(item.id)) { conversation.push(item); seen.add(item.id); }
+    conversation.sort((a, b) => String(a.sent_at || a.received_at).localeCompare(String(b.sent_at || b.received_at)) || a.id.localeCompare(b.id));
+  }
+  if (conversation.length) {
+    const placeholders = conversation.map(() => '?').join(',');
+    const threadFiles = await env.DB.prepare(`SELECT id, message_id, file_name, mime_type, size_bytes FROM archive_attachments WHERE message_id IN (${placeholders}) ORDER BY created_at, id`).bind(...conversation.map((item) => item.id)).all();
+    const filesByMessage = new Map();
+    for (const item of threadFiles.results || []) {
+      const values = filesByMessage.get(item.message_id) || [];
+      values.push({ id: item.id, file_name: item.file_name, mime_type: item.mime_type, size_bytes: item.size_bytes });
+      filesByMessage.set(item.message_id, values);
+    }
+    conversation = conversation.map((item) => ({ ...item, attachments: filesByMessage.get(item.id) || [] }));
+  }
+  const safeAttachments = (attachments.results || []).map(({ id, file_name, mime_type, size_bytes }) => ({ id, file_name, mime_type, size_bytes }));
+  const safeAssociations = (associations.results || []).map(({ target_kind, target_id, target_reference, relationship, confidence, state }) => ({
+    target_kind, target_reference, relationship, confidence, state,
+    ...(target_kind === 'job-card' || target_kind === 'estimate' ? { target_id } : {})
+  }));
+  const { canonical_id: _canonicalId, ...safeMessage } = row;
+  return json({ message: { ...safeMessage, recipient_emails: Array.isArray(recipients) ? recipients : [] }, sourceCopies, attachments: safeAttachments, associations: safeAssociations, conversation }, 200, origin || '');
+}
+
+async function estimateArchiveContentEndpoint(env, archiveId, contentId, origin = '') {
+  let file;
+  if (contentId === 'eml') {
+    const row = await env.DB.prepare(`SELECT sharepoint_eml_item_id AS item_id, 'message.eml' AS file_name,
+      'message/rfc822' AS mime_type FROM archive_messages WHERE id = ?`).bind(archiveId).first();
+    if (!row || !row.item_id) throw Object.assign(new Error('Archived message content is not available'), { status: 404 });
+    file = row;
+  } else {
+    file = await env.DB.prepare(`SELECT a.sharepoint_item_id AS item_id, a.file_name, a.mime_type
+      FROM archive_attachments a WHERE a.id = ? AND a.message_id = ?`).bind(contentId, archiveId).first();
+    if (!file || !file.item_id) throw Object.assign(new Error('Archived attachment is not available'), { status: 404 });
+  }
+  const response = await graphSharePointRequest(env, `/items/${encodeURIComponent(file.item_id)}/content`);
+  if (!response.ok) throw Object.assign(new Error('Archived content could not be retrieved'), { status: response.status === 404 ? 404 : 503 });
+  const bytes = await graphFileBytes(response);
+  const name = archiveFilename(file.file_name);
+  // EML is always downloaded as an attachment; HTML and other active content
+  // are never rendered inline inside the portal origin.
+  const mime = contentId === 'eml' || /(?:text\/html|application\/xhtml)/i.test(file.mime_type || '')
+    ? (contentId === 'eml' ? 'message/rfc822' : 'application/octet-stream')
+    : text(file.mime_type, 'application/octet-stream', 120).replace(/[\r\n;]/g, '');
+  return new Response(bytes, { status: 200, headers: {
+    'content-type': mime, 'content-length': String(bytes.byteLength),
+    'content-disposition': `attachment; filename="${name}"`, 'cache-control': 'private, no-store',
+    'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+    'x-frame-options': 'DENY', ...(origin ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true', vary: 'Origin' } : {})
+  } });
+}
+
+async function createAppEstimateEndpoint(request, env, identity, origin) {
+  const body = await readJson(request);
+  const fileName = archiveFilename(body.fileName || body.file_name);
+  const contentType = text(body.contentType || body.content_type, 'application/pdf', 120).replace(/[\r\n;]/g, '');
+  const base64 = String(body.contentBase64 || body.content_base64 || '');
+  if (!base64 || base64.length > 1_450_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw Object.assign(new Error('Estimate document is missing or too large'), { status: 400 });
+  const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  if (!bytes.byteLength || bytes.byteLength > 1_000_000) throw Object.assign(new Error('Estimate document is missing or too large'), { status: 400 });
+  const sourceRecordId = text(body.source_record_id || body.sourceRecordId, '', 240);
+  if (!sourceRecordId) throw Object.assign(new Error('source_record_id is required for idempotent estimate filing'), { status: 400 });
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const contentHash = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  const identityBytes = new TextEncoder().encode(`${sourceRecordId}\0${contentHash}`);
+  const recipients = body.recipient_emails || body.recipientEmails || body.to || [];
+  const metadataFingerprint = JSON.stringify({
+    estimate_number: text(body.estimate_number || body.estimateNumber, '', 500),
+    customer: text(body.customer || body.client || body.client_company, '', 1000),
+    customer_email: text(body.customer_email || body.customerEmail || body.client_email, '', 320).toLowerCase(),
+    reference: text(body.reference || body.job_reference, '', 500),
+    subject: text(body.subject, '', 1000),
+    mailbox: text(body.mailbox || body.source_mailbox, '', 320).toLowerCase(),
+    recipient_emails: (Array.isArray(recipients) ? recipients : String(recipients).split(/[;,\s]+/))
+      .map((value) => text(value, '', 320).toLowerCase()).filter(Boolean).sort(),
+    message_direction: text(body.message_direction || body.direction, '', 16),
+    conversation_id: text(body.conversation_id || body.conversationId, '', 1000),
+    sent_at: text(body.sent_at || body.sentAt, '', 80),
+    received_at: text(body.received_at || body.receivedAt, '', 80)
+  });
+  const identityDigest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${new TextDecoder().decode(identityBytes)}\0${metadataFingerprint}`)));
+  const documentId = [...identityDigest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  const canonicalId = `app:${documentId}`;
+  const existing = await env.DB.prepare(`SELECT m.id, a.id AS attachment_id FROM archive_messages m
+    LEFT JOIN archive_attachments a ON a.message_id=m.id AND a.source_attachment_id=?
+    WHERE m.canonical_id=? LIMIT 1`).bind(documentId, canonicalId).first();
+  if (existing?.id && existing?.attachment_id) return json({ ok: true, id: existing.id, attachment_id: existing.attachment_id, duplicate: true }, 200, origin || '');
+  const archiveInput = normalizeEstimateArchiveRecord({
+    ...body, id: documentId, canonical_id: canonicalId, source_kind: 'app',
+    source_message_id: documentId, classification_state: 'confirmed', sender_email: identity.upn,
+    sent_at: text(body.sent_at || body.sentAt, now(), 80), received_at: text(body.received_at || body.receivedAt, now(), 80),
+    content_sha256: contentHash,
+    provenance: { source: 'portal-app', source_record_id: sourceRecordId, created_by_oid: identity.oid, created_by_upn: identity.upn }
+  });
+  const extension = fileName.match(/\.[A-Za-z0-9]{1,12}$/)?.[0] || '';
+  // Portal-generated client estimates have their own SharePoint folder. The
+  // authenticated email-ingestion flow continues to use Estimates/Incoming.
+  const path = `/root:/Estimates/Sent%20from%20Portal/${contentHash}${encodeURIComponent(extension)}:/content`;
+  const uploaded = await graphSharePointRequest(env, path, { method: 'PUT', headers: { 'content-type': contentType }, body: bytes });
+  if (!uploaded.ok) throw Object.assign(new Error('Estimate document could not be archived'), { status: 503 });
+  const item = await uploaded.json();
+  const saved = await upsertEstimateArchive(env, { ...archiveInput, sharepoint_manifest_item_id: text(item.id, '', 500), provenance: JSON.parse(archiveInput.provenance_json) });
+  const savedAssociations = await deriveArchiveAssociations(env, saved.id, {
+    sourceRecordId, estimateNumber: archiveInput.estimate_number, reference: archiveInput.reference,
+    invoiceNumber: text(body.invoice_number || body.invoiceNumber, '', 500)
+  });
+  const attachmentId = existing?.attachment_id || crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO archive_attachments
+    (id, message_id, source_attachment_id, file_name, mime_type, size_bytes, sha256, sharepoint_item_id, provenance_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(message_id, source_attachment_id) DO UPDATE SET
+      file_name=excluded.file_name, mime_type=excluded.mime_type, size_bytes=excluded.size_bytes,
+      sha256=excluded.sha256, sharepoint_item_id=excluded.sharepoint_item_id, provenance_json=excluded.provenance_json`)
+    .bind(attachmentId, saved.id, documentId, fileName, contentType, bytes.byteLength, contentHash, text(item.id, '', 500), JSON.stringify({ source: 'portal-app', source_record_id: sourceRecordId, created_by_oid: identity.oid })).run();
+  return json({ ok: true, id: saved.id, attachment_id: attachmentId, associations: publicArchiveAssociations(savedAssociations) }, 201, origin || '');
 }
 
 function estimateProjection(row, payload) {
@@ -3041,6 +3543,16 @@ async function handle(request, env, ctx) {
   }
   const identity = await authenticate(request, env);
   if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
+
+  if (url.pathname === '/api/archive/estimates' && request.method === 'GET') return listEstimateArchiveEndpoint(request, env, origin || '');
+  if (url.pathname === '/api/archive/estimates/app' && request.method === 'POST') return createAppEstimateEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/estimates/send' && request.method === 'POST') return sendClientEstimateEndpoint(request, env, identity, origin || '');
+  const archiveContentMatch = url.pathname.match(/^\/api\/archive\/estimates\/([^/]+)\/content\/([^/]+)$/);
+  if (archiveContentMatch && request.method === 'GET') {
+    return estimateArchiveContentEndpoint(env, decodeURIComponent(archiveContentMatch[1]), decodeURIComponent(archiveContentMatch[2]), origin || '');
+  }
+  const archiveDetailMatch = url.pathname.match(/^\/api\/archive\/estimates\/([^/]+)$/);
+  if (archiveDetailMatch && request.method === 'GET') return estimateArchiveDetailEndpoint(env, origin || '', decodeURIComponent(archiveDetailMatch[1]));
 
   if (url.pathname === '/api/xero/connect' && request.method === 'POST') return startXeroConnection(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');

@@ -12,7 +12,8 @@
 
 ## Global Constraints
 
-- Accounts-only access for mailbox, SharePoint estimate index, invoice controls, and related email links.
+- All authenticated GMT portal users may read the shared estimate/job/conversation archive through the Worker; Xero invoice actions and financial linking stay Accounts-only.
+- Keep the SharePoint archive restricted to its service/admin audience; do not create anonymous or public links.
 - Preserve estimate-number aliases; never silently merge uncertain matches.
 - Use existing Power Automate/Microsoft 365 authentication before adding Worker-held mailbox credentials.
 - Invoice editor must use normal responsive flow with no absolute positioning or fixed viewport widths.
@@ -101,7 +102,9 @@
 - Modify: `cloudflare-worker/wrangler.toml` only if a new non-secret endpoint setting is required
 - Test: `tests/provider-estimate-replay.mjs`
 
-- [ ] Configure the Power Automate flow against `info@gmt-services.co.uk` and the existing GMT SharePoint site/library, keeping permissions Accounts-only.
+- [ ] Configure idempotent estimate and related-conversation intake for Inbox and Sent Items across `info@gmt-services.co.uk` and `accounts@gmt-services.co.uk`; exclude `acc.gmtelect@outlook.com`, preserve `.eml` originals and attachment versions, and leave source mail untouched.
+- [ ] Backfill all approved folders with persisted pagination and reconcile per-mailbox counts for scanned, archived, duplicates, excluded, review, and failed records.
+- [ ] Keep SharePoint source files restricted and verify authenticated portal users can retrieve them through the protected Worker; verify anonymous and wrong-tenant access is denied.
 - [ ] Replay one real estimate email and verify message ID, attachment, index row, and web-app match.
 - [ ] Verify a revised estimate number and a second invoice both resolve to the same canonical record.
 - [ ] Verify an app-created estimate enters the same index.
