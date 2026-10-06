@@ -83,7 +83,7 @@ Job card photos are attached to the same `+jobcards` email as the job card detai
 
 FormSubmit may treat each plus-addressed alias as a separate destination. Confirm one test email to each alias before relying on the rules in production.
 
-See `docs/business-mailbox-power-automate-migration-plan.md` for the Microsoft 365 business mailbox migration plan, `docs/mail-routing-verification-checklist.md` for the pre-cutover delivery, forwarding, and backup checks, `docs/outlook-onedrive-filing-and-index-plan.md` for the storage/index plan, and `docs/power-automate-build-runbook.md` for the production flow build order, validation and rollback steps. The public-site package and WordPress implementation boundary are defined in `docs/bonline-wordpress-handover-plan.md`.
+See `docs/business-mailbox-power-automate-migration-plan.md` for the Microsoft 365 business mailbox migration plan, `docs/mail-routing-verification-checklist.md` for the pre-cutover delivery, forwarding, and backup checks, `docs/outlook-onedrive-filing-and-index-plan.md` for the storage/index plan, and `docs/power-automate-build-runbook.md` for the production flow build order, validation and rollback steps. The older WordPress handover proposal is marked as superseded in `docs/bonline-wordpress-handover-plan.md`; the current public-site target is GitHub Pages and Cloudflare Pages. The marketing pages are static files at the repository root and in the generated `services/` and `process/` directories.
 
 The staged replacement for the legacy personal Outlook intake is documented in
 `docs/timesheet-fallback-routing-plan.md`. It must not be enabled until the
@@ -113,6 +113,11 @@ Build the Pages upload from a hydrated checkout with:
 ```bash
 node tools/build-cloudflare-pages.mjs /tmp/gmt-pages-build
 ```
+
+The public marketing pages are static routes under `services/` and `process/`
+and are also present at the repository root for GitHub Pages. If you edit the
+page definitions, run `npm run generate:marketing-pages` and then
+`npm run test:marketing:contract` before building the Cloudflare Pages bundle.
 
 Production Pages deployments run from GitHub Actions after changes reach
 `main`. The workflow builds and checks the bundle, then deploys it to the

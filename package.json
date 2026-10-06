@@ -8,6 +8,8 @@
     "dev": "nodemon server.js",
     "test:audit:jason-zip": "node tests/audit-jason-zip-regression.mjs",
     "test:audit:fixtures": "node tests/audit-fixture-matrix.mjs",
+    "generate:marketing-pages": "node tools/generate-public-marketing-pages.mjs",
+    "test:marketing:contract": "node tests/public-marketing-contract.mjs",
     "test:pages:deployment-workflow": "node tests/cloudflare-pages-deployment-workflow.mjs",
     "test:worker:deployment-workflow": "node tests/cloudflare-worker-deployment-workflow.mjs",
     "test:estimate-send": "node tests/estimate-send.test.mjs",

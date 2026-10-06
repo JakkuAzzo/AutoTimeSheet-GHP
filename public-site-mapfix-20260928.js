@@ -420,7 +420,7 @@
     var card = form ? form.closest('.workshop-enquiry-card') : null;
     var status = card ? card.querySelector('[data-workshop-enquiry-status]') : null;
     var toggle = card ? card.querySelector('[data-workshop-enquiry-toggle]') : null;
-    var enquiryNav = document.querySelector('[data-enquire-nav]');
+    var enquiryNavs = Array.prototype.slice.call(document.querySelectorAll('[data-enquire-nav]'));
     if (!form || !status || !card || !toggle) return;
     prepareProtectedForm(form);
 
@@ -445,13 +445,13 @@
     }
 
     var isMobile = window.matchMedia && window.matchMedia('(max-width: 820px)').matches;
-    setExpanded(!isMobile);
+    setExpanded(!isMobile || window.location.hash === '#workshop-enquiry');
     toggle.addEventListener('click', function () {
       setExpanded(!card.classList.contains('is-expanded'));
     });
 
-    if (enquiryNav) {
-      enquiryNav.addEventListener('click', function (event) {
+    enquiryNavs.forEach(function (enquiryLink) {
+      enquiryLink.addEventListener('click', function (event) {
         event.preventDefault();
         if (!card.classList.contains('is-expanded')) setExpanded(true);
         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -460,7 +460,7 @@
           if (firstField) firstField.focus();
         }, 450);
       });
-    }
+    });
 
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
