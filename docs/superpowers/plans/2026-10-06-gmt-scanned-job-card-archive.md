@@ -60,31 +60,33 @@ Before implementation, wait for **GMT Pay Month Reconciliation & Portal Completi
 - Consumes: 13 source paths; Poppler commands `pdfinfo`, `pdfseparate`, and `pdftoppm`; Tesseract `eng`.
 - Produces: `tmp/job-card-import/manifest.json`, 13 unchanged-source upload entries, and one derivative PDF plus OCR entry per source page. Manifest records `batchId`, source file/SHA-256/QuickXorHash, source page, derivative file/SHA-256/QuickXorHash, card type, candidate card number/date/customer/order number/site/engineer/report/amount, OCR text, mean OCR confidence, and review state.
 
-- [ ] **Step 1: Write failing preparation tests**
+- [x] **Step 1: Write failing preparation tests**
 
 Test deterministic page IDs from source SHA-256 plus one-based page number; reject a page with a missing renderer output; record blank OCR as `review_state: "needs-review"`; preserve each original source path and byte-identifying SHA-256 and compute QuickXorHash for source and derivative verification; and produce an inventory whose page total must equal 559 for this input set.
 
-- [ ] **Step 2: Run `node tests/job-card-import-prepare.mjs` and confirm RED**
+- [x] **Step 2: Run `node tests/job-card-import-prepare.mjs` and confirm RED**
 
 Expected: FAIL because the preparation module and manifest validation do not exist.
 
-- [ ] **Step 3: Implement `prepareImport(sources, outputDir)`**
+- [x] **Step 3: Implement `prepareImport(sources, outputDir)`**
 
 Use `pdfinfo` for page counts, `pdfseparate` for one-page PDFs, `pdftoppm` for OCR images, and `tesseract` TSV/text output. Do not alter input PDFs. Compute SHA-256 as the stable content identity and compute Microsoft's QuickXorHash for both source and derivative bytes to compare with SharePoint's returned file hash when available. Preserve raw OCR and mark low-confidence or missing anchor fields for review. Fail preflight if a required binary is missing or a page cannot be rendered.
 
-- [ ] **Step 4: Run the preparation tests and confirm GREEN**
+- [x] **Step 4: Run the preparation tests and confirm GREEN**
 
 Run: `node tests/job-card-import-prepare.mjs`
 
 Expected: PASS, including stable IDs and explicit missing/blank-page results.
 
-- [ ] **Step 5: Prepare the supplied PDFs and reconcile the local manifest**
+- [x] **Step 5: Prepare the supplied PDFs and reconcile the local manifest**
 
 Run: `npm run prepare:job-cards -- --source-dir "/Users/nathanbrown-bennett/Documents/GMT Job Cards" --output-dir tmp/job-card-import`
 
 Expected: 13 source entries, 559 page entries, matching source hashes, and a list of any blank, duplicate, ambiguous, or low-confidence records for Accounts review. Do not discard any such page.
 
-- [ ] **Step 6: Commit the tested preparation tool**
+- [x] **Step 6: Commit the tested preparation tool**
+
+**Execution evidence (2026-10-06):** All 13 supplied originals still match their source SHA-256 and QuickXorHash values. The prepared manifest contains 559 distinct page IDs and derivatives; all 559 derivative SHA-256 and QuickXorHash values were recomputed from disk and match. OCR produced text for all pages, flagged 556 for Accounts review, and reported zero duplicate page copies. Issue counts: 407 low-confidence OCR, 556 missing card-number candidates, 543 missing-date candidates, and 365 missing-customer candidates. These are review flags; OCR values remain candidates and were not treated as confirmed business data. The archive output is ignored local staging data, not a SharePoint upload.
 
 ```bash
 git add tools/prepare-job-card-import.mjs tests/job-card-import-prepare.mjs package.json

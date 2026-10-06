@@ -28,6 +28,7 @@
     "record:training": "node tools/record-staff-walkthrough.mjs all",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
+    "prepare:job-cards": "node tools/prepare-job-card-import.mjs",
     "test:timesheets:responsive-entry": "node tests/timesheet-entry-responsive.mjs",
     "test:timesheets:daily-calculation": "node tests/timesheet-daily-calculation.mjs",
     "test:timesheets:daily-preview": "node tests/timesheet-daily-preview.mjs",

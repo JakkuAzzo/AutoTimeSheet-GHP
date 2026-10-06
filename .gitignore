@@ -1,5 +1,10 @@
 node_modules/
 output/playwright/
+tmp/job-card-import/
+tmp/job-card-sample/
+tmp/job-card-sample-real/
+tmp/ocr-diagnostic/
+tmp/pdfs/
 *.db
 *.db-shm
 *.db-wal
