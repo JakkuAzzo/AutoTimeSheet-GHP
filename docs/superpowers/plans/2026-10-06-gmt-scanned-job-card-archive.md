@@ -112,23 +112,23 @@ git commit -m "feat: prepare scanned job cards for import"
 - `PATCH /api/job-cards/archive/:recordId/review` accepts Accounts-confirmed fields and a review note, writes an audit entry with actor/time, and leaves OCR candidate values intact.
 - D1 `job_card_archive.record_id` references a `records.record_id` row with `kind='job-cards'`; `xero_invoice_links` continues to use that record ID unchanged.
 
-- [ ] **Step 1: Write failing D1 and Worker contract tests**
+- [x] **Step 1: Write failing D1 and Worker contract tests**
 
 Cover migration columns and indexes, role-restricted session creation/import, upload-failure-before-index ordering, deterministic retries, content-access checks, FTS search, and cursor paging over at least 560 matching records. Assert the Accounts-only session response contains only its one-time `uploadUrl` plus opaque session metadata; other authenticated responses and every employee/unauthenticated response contain no SharePoint item IDs, private URLs, or upload URLs. Assert upload URLs have no D1 column and are never logged.
 
-- [ ] **Step 2: Run `node tests/job-card-archive.test.mjs` and confirm RED**
+- [x] **Step 2: Run `node tests/job-card-archive.test.mjs` and confirm RED**
 
 Expected: FAIL because the migration, module, and routes are absent.
 
-- [ ] **Step 3: Implement the D1 archive/index module and migration**
+- [x] **Step 3: Implement the D1 archive/index module and migration**
 
 Create `job_card_import_batches`, `job_card_archive`, a contentful `job_card_archive_fts` FTS5 table using the trigram tokenizer, upload-session metadata without upload URLs, and `job_card_archive_review_audit`. Store raw OCR and separate candidate/confirmed JSON. Add parameterized type/date filters, three-character-or-longer text search, and keyset pagination. Use the trigram tokenizer only for queries of at least three consecutive characters, as required by its substring behavior ([D1 index guidance](https://developers.cloudflare.com/d1/best-practices/use-indexes/)).
 
-- [ ] **Step 4: Implement protected upload, import, search, review, and content routes**
+- [x] **Step 4: Implement protected upload, import, search, review, and content routes**
 
 Restrict upload-session creation, batch completion, page import, and review mutations to `identity.isAdmin || identity.isJobCardAdmin`. Store original bundles under `Shared Documents/JobCards/Source Batches/` and page PDFs under `Shared Documents/JobCards/Records/`, using deterministic names derived from validated IDs. Never accept a client-supplied SharePoint path. Only write/upsert D1 after Graph confirms the deterministic item path and size; compare returned `quickXorHash` to the manifest value and clearly distinguish this from the retained local SHA-256. Stream content through the Worker without returning item IDs or provider URLs. Expire and clear upload-session metadata after completion or expiry; the preauthenticated URL is never stored. Keep invoice-link reads and mutations on their existing record/Accounts access policy; do not broaden invoice data visibility while adding shared job-card search.
 
-- [ ] **Step 5: Run Worker archive, access-policy, and invoice-link tests**
+- [x] **Step 5: Run Worker archive, access-policy, and invoice-link tests**
 
 Run:
 
@@ -140,12 +140,14 @@ node tests/xero-integration-contract.mjs
 
 Expected: all pass; an ordinary employee can search and preview shared cards but cannot import or correct them, and an authorized Accounts identity can query imported IDs through the existing invoice relationship API without changing its access policy.
 
-- [ ] **Step 6: Commit the protected archive API**
+- [x] **Step 6: Commit the protected archive API**
 
 ```bash
 git add cloudflare-worker/migrations/0010_job_card_archive.sql cloudflare-worker/src/job-card-archive.js cloudflare-worker/src/index.js tests/job-card-archive.test.mjs package.json
 git commit -m "feat: add searchable scanned job card archive"
 ```
+
+**Execution evidence (2026-10-06):** The migration and protected Worker routes implement Accounts-only upload/review, server-derived SharePoint paths, upload-before-index verification, D1 FTS5 search and cursor paging, deterministic records, audit logging, and the authenticated content proxy. `npm run test:jobs:archive`, `npm run test:jobs:access-policy`, and `npm run test:xero:integration-contract` pass. These are local contract tests; no provider upload or deployment was performed.
 
 ### Task 3: Add the Accounts importer and searchable Job Cards history
 
@@ -165,23 +167,23 @@ git commit -m "feat: add searchable scanned job card archive"
 - `GMTPortalApi.getJobCardContent(recordId)` returns an authenticated PDF `Blob` for an in-page object URL; the viewer selects the page record itself because each derivative is one page.
 - `GMTPortalApi.reviewJobCard(recordId, correctedFields)` saves Accounts-confirmed metadata and an audit entry.
 
-- [ ] **Step 1: Write failing Playwright UI tests**
+- [x] **Step 1: Write failing Playwright UI tests**
 
 Cover search by card number, customer, date range, order number, engineer, and OCR text; cursor paging; empty and low-confidence results; Accounts-only correction/import controls; one-page PDF preview; and preservation of existing invoice display.
 
-- [ ] **Step 2: Run `node tests/job-card-archive-ui.mjs` and confirm RED**
+- [x] **Step 2: Run `node tests/job-card-archive-ui.mjs` and confirm RED**
 
 Expected: FAIL because the archive controls and API wrappers do not exist.
 
-- [ ] **Step 3: Add portal API wrappers and protected search/detail UI**
+- [x] **Step 3: Add portal API wrappers and protected search/detail UI**
 
 Show at most 100 results per page with next/previous controls. Escape OCR-derived values before rendering. Keep page preview in a Blob URL created from the authenticated Worker response and revoke it when selection changes. Use the existing `/api/records/job-cards/:recordId/invoices` UI and relationship endpoints, preserving their current Accounts/record access checks. For historical imported records (`action='archive_import'`), hide revision/edit controls while retaining authorized invoice relationship controls and read-only detail behavior.
 
-- [ ] **Step 4: Add the resumable Accounts import flow**
+- [x] **Step 4: Add the resumable Accounts import flow**
 
 Accept the prepared manifest and matching source/page files. Upload the 13 originals and 559 page PDFs using sequential Graph upload ranges, report each file/page and total progress, retry transient failures with the same deterministic path, and allow a rerun to skip verified records. Complete each original bundle before creating its batch entry; complete each page file before its archive/`records` upsert. Never mark a page imported until its SharePoint content metadata and D1 record both verify. Upload URLs stay in memory and must not appear in logs, saved browser storage, or error reports.
 
-- [ ] **Step 5: Run importer UI, job-card, and invoice UI tests**
+- [x] **Step 5: Run importer UI, job-card, and invoice UI tests**
 
 Run:
 
@@ -193,16 +195,18 @@ node tests/xero-invoice-ui.mjs
 
 Expected: all pass; Accounts can correct OCR candidates and manage invoice links, employees cannot edit them, and existing invoice permissions remain intact.
 
-- [ ] **Step 6: Review the search and import UI visually at 320, 375, 768, 1024, and 1440 pixels**
+- [x] **Step 6: Review the search and import UI visually at 320, 375, 768, 1024, and 1440 pixels**
 
 Confirm search filters, progress/errors, one-page preview, and review form fit without clipping; confirm keyboard focus and touch targets.
 
-- [ ] **Step 7: Commit the portal archive and importer UI**
+- [x] **Step 7: Commit the portal archive and importer UI**
 
 ```bash
 git add tools/job-card-import.html tools/job-card-import.js portal-api.js jobs/index.html portal.js portal.css tests/job-card-archive-ui.mjs package.json
 git commit -m "feat: add job card archive search and import UI"
 ```
+
+**Execution evidence (2026-10-06):** `npm run test:jobs:archive-ui` and the access-policy, invoice UI, preparation, estimate archive, estimate send, estimate client-history, and focused timesheet regressions pass. Browser captures were reviewed at 320, 375, 768, 1024, 1280, and 1440 pixels; the mobile PDF action opens the authenticated one-page PDF in the native viewer. Timesheet entry and totals also passed visual checks at 320, 375, 768, 960, 1024, and 1440 pixels, and the daily preview fixture now pins its September test month. `node tests/job-card-email-routing.mjs` remains a known unrelated failure: its single-recipient expectation disagrees with the unchanged current two-recipient configuration.
 
 ### Task 4: Import and verify all supplied job cards
 
@@ -233,3 +237,5 @@ Verify all 13 unchanged source bundles and exactly 559 page-level file/index rec
 - [ ] **Step 5: Record import evidence and prepare the integration handoff**
 
 Save counts, hashes, SharePoint item verification results, search examples, review exceptions, and test output in `docs/superpowers/reports/`. Do not push, merge, or deploy from this feature branch; hand the verified branch to **GMT Pay Month Reconciliation & Portal Completion** for its requested integration gate.
+
+**Release boundary:** Tasks 2 and 3 are implemented locally and ready for the target task's review/integration. The 13 source PDFs and 559 page derivatives remain in local staging only. SharePoint upload, live API checks, target-task integration, push, merge, and deployment remain unverified and must happen in the named reconciliation task.

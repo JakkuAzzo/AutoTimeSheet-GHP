@@ -19,6 +19,8 @@
     "test:weekly-correction-dispatch": "node tests/weekly-correction-dispatch.mjs",
     "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
     "test:jobs:access-policy": "node tests/job-card-access-policy.mjs",
+    "test:jobs:archive": "node tests/job-card-archive.test.mjs",
+    "test:jobs:archive-ui": "node tests/job-card-archive-ui.mjs",
     "test:enquiries": "node tests/enquiry-contract.mjs",
     "test:submissions-ui": "node tests/submissions-ui-smoke.mjs",
     "test:dashboard-updates": "node tests/dashboard-updates-smoke.mjs",

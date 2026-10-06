@@ -42,6 +42,12 @@
   let jobHistoryMeta = {};
   let xeroStatusSnapshot = null;
   let selectedJobId = '';
+  let jobCardArchiveCursor = null;
+  let jobCardArchiveFilters = {};
+  let selectedJobCardArchiveId = '';
+  let selectedJobCardArchiveContentUrl = '';
+  let jobCardArchiveRequestId = 0;
+  let jobCardArchiveSearchRequestId = 0;
 
   function portalProfileName() {
     return store.get('gmt.portal.profile.v1', {}).name || '';
@@ -184,7 +190,7 @@
     add('_captcha', 'false');
     add('_url', window.location.href);
     const cc = isJobCard
-      ? recipientList(window.GMT_APP_CONFIG?.formSubmitCc, GMT_JOB_CARD_CC)
+      ? GMT_JOB_CARD_CC
       : recipientList(window.GMT_APP_CONFIG?.formSubmitCc);
     if (cc) add('_cc', cc);
     add('submission_type', kind);
@@ -344,6 +350,176 @@
       container.innerHTML = `<div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Linked billing</p><h3>Invoices</h3></div><span class="small-text">${invoices.length} linked</span></div>${cards ? `<ul class="record-invoice-list">${cards}</ul>` : '<p class="small-text">No Xero invoice is linked yet.</p>'}${canManage ? `<div class="record-invoice-link-form"><label>Link invoice number<input data-record-invoice-number placeholder="e.g. INV-0001"></label><button type="button" class="secondary" data-record-invoice-link="${safe(recordId)}">Find and link invoice</button><span class="small-text" data-record-invoice-feedback></span></div>` : ''}`;
     } catch (error) {
       container.innerHTML = `<p class="small-text">Invoice links are unavailable: ${safe(error?.message || 'Please try again.')}</p>`;
+    }
+  }
+
+  function archiveFieldLabel(field) {
+    return ({
+      cardNumber: 'Job card number', date: 'Date', customer: 'Customer', orderNumber: 'Order / PO',
+      site: 'Site', engineer: 'Engineer', report: 'Work description', amount: 'Amount'
+    })[field] || field;
+  }
+
+  function archiveDateCandidate(value) {
+    const raw = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const match = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (!match) return '';
+    const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+    return `${year}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+  }
+
+  function renderJobCardArchiveResults(records, append = false) {
+    const list = $('#job-card-archive-results');
+    if (!list) return;
+    const rows = Array.isArray(records) ? records : [];
+    if (!append && !rows.length) {
+      list.innerHTML = '<p class="small-text portal-history-empty">No scanned job cards match this search.</p>';
+      return;
+    }
+    const markup = rows.map((record) => {
+      const candidates = record.candidates || {};
+      const confirmed = record.confirmed_fields || {};
+      const reference = confirmed.cardNumber || candidates.cardNumber || record.record_id;
+      const customer = confirmed.customer || candidates.customer || 'Customer needs review';
+      const date = confirmed.date || candidates.date || 'Date needs review';
+      const confidence = record.mean_ocr_confidence == null ? 'OCR confidence unavailable' : `OCR confidence ${Math.round(Number(record.mean_ocr_confidence))}%`;
+      const review = record.review_state === 'confirmed' ? 'Accounts confirmed' : 'Accounts review needed';
+      return `<button type="button" class="job-card-archive-result" data-job-archive-select="${safe(record.record_id)}" aria-current="${String(record.record_id === selectedJobCardArchiveId)}"><strong>${safe(reference)}</strong><span>${safe(customer)}</span><small>${safe(record.card_type)} · ${safe(record.source_file)} page ${safe(record.source_page)} · ${safe(date)}</small><small>${safe(review)} · ${safe(confidence)}</small></button>`;
+    }).join('');
+    if (append) list.insertAdjacentHTML('beforeend', markup);
+    else list.innerHTML = markup;
+  }
+
+  function renderJobCardArchiveDetail(record) {
+    const detail = $('#job-card-archive-detail');
+    if (!detail) return;
+    const candidates = record.candidates || {};
+    const confirmed = record.confirmed_fields || {};
+    const fields = ['cardNumber', 'date', 'customer', 'orderNumber', 'site', 'engineer', 'report', 'amount'];
+    const values = fields.map((field) => `<div><dt>${safe(archiveFieldLabel(field))}</dt><dd>${safe(confirmed[field] || candidates[field] || 'Not captured')}</dd></div>`).join('');
+    const isConfirmed = record.review_state === 'confirmed';
+    const canReview = Boolean(jobHistoryMeta.is_admin || jobHistoryMeta.is_job_card_admin);
+    const reviewForm = canReview ? `<form class="job-card-archive-review-form" id="job-card-archive-review-form" data-job-card-review="${safe(record.record_id)}">
+      <label>Confirmed job card number<input name="cardNumber" value="${safe(confirmed.cardNumber || candidates.cardNumber || '')}" maxlength="240"></label>
+      <label>Confirmed date<input name="date" type="date" value="${safe(confirmed.date || archiveDateCandidate(candidates.date))}"></label>
+      <label>Confirmed customer<input name="customer" value="${safe(confirmed.customer || candidates.customer || '')}" maxlength="1000"></label>
+      <label>Confirmed order / PO<input name="orderNumber" value="${safe(confirmed.orderNumber || candidates.orderNumber || '')}" maxlength="500"></label>
+      <label>Confirmed site<input name="site" value="${safe(confirmed.site || candidates.site || '')}" maxlength="2000"></label>
+      <label>Confirmed engineer<input name="engineer" value="${safe(confirmed.engineer || candidates.engineer || '')}" maxlength="500"></label>
+      <label data-wide>Confirmed work description<textarea name="report" maxlength="6000">${safe(confirmed.report || candidates.report || '')}</textarea></label>
+      <label>Confirmed amount<input name="amount" value="${safe(confirmed.amount || candidates.amount || '')}" maxlength="240"></label>
+      <label>Review status<select name="state"><option value="confirmed" ${isConfirmed ? 'selected' : ''}>Accounts confirmed</option><option value="needs-review" ${isConfirmed ? '' : 'selected'}>Needs more review</option></select></label>
+      <label data-wide>Accounts review note<textarea name="note" maxlength="2000">${safe(record.review_note || '')}</textarea></label>
+      <div class="job-card-archive-review-actions"><button type="submit">Save Accounts review</button><span class="small-text" data-job-card-review-status role="status"></span></div>
+    </form>` : '';
+    detail.innerHTML = `<header><p class="portal-card-kicker">${safe(record.review_state === 'confirmed' ? 'Accounts confirmed record' : 'OCR suggestions · review required')}</p><h3>${safe(record.source_file)} · page ${safe(record.source_page)}</h3><p>${safe(record.card_type)} job card · ${safe(record.record_id)}</p></header>
+      <dl class="job-card-archive-meta">${values}<div><dt>Mean OCR confidence</dt><dd>${safe(record.mean_ocr_confidence == null ? 'Unavailable' : `${Number(record.mean_ocr_confidence).toFixed(1)}%`)}</dd></div></dl>
+      <a class="job-card-archive-open-preview" id="job-card-archive-open-preview" href="#" target="_blank" rel="noopener noreferrer" hidden>Open full-page PDF</a>
+      <iframe class="job-card-archive-preview" id="job-card-archive-preview" title="Scanned job card page" referrerpolicy="no-referrer"></iframe>
+      <details><summary>Raw OCR text (unverified)</summary><pre class="job-card-archive-ocr">${safe(record.ocr_text || 'No OCR text was captured.')}</pre></details>
+      ${reviewForm}`;
+    const preview = $('#job-card-archive-preview');
+    if (preview && selectedJobCardArchiveContentUrl) preview.src = selectedJobCardArchiveContentUrl;
+  }
+
+  async function selectJobCardArchive(recordId) {
+    const selected = String(recordId || '');
+    if (!selected || !window.GMTPortalApi?.getJobCardArchiveRecord) return;
+    selectedJobCardArchiveId = selected;
+    const requestId = ++jobCardArchiveRequestId;
+    $$('#job-card-archive-results [data-job-archive-select]').forEach((button) => button.setAttribute('aria-current', String(button.dataset.jobArchiveSelect === selected)));
+    const detail = $('#job-card-archive-detail');
+    if (detail) detail.innerHTML = '<p class="small-text">Loading scanned page and record details…</p>';
+    const invoicePanel = $('#job-card-archive-invoice-links');
+    loadRecordInvoiceLinks('job-cards', selected, invoicePanel, Boolean(jobHistoryMeta.is_admin));
+    try {
+      const body = await window.GMTPortalApi.getJobCardArchiveRecord(selected);
+      if (requestId !== jobCardArchiveRequestId) return;
+      if (selectedJobCardArchiveContentUrl) URL.revokeObjectURL(selectedJobCardArchiveContentUrl);
+      selectedJobCardArchiveContentUrl = '';
+      renderJobCardArchiveDetail(body?.record || {});
+      try {
+        selectedJobCardArchiveContentUrl = await window.GMTPortalApi.getJobCardArchiveContentUrl(selected);
+        if (requestId === jobCardArchiveRequestId) {
+          const preview = $('#job-card-archive-preview');
+          if (preview) preview.src = selectedJobCardArchiveContentUrl;
+          const openPreview = $('#job-card-archive-open-preview');
+          if (openPreview) {
+            openPreview.href = selectedJobCardArchiveContentUrl;
+            openPreview.hidden = false;
+          }
+        } else {
+          URL.revokeObjectURL(selectedJobCardArchiveContentUrl);
+          selectedJobCardArchiveContentUrl = '';
+        }
+      } catch (error) {
+        const preview = $('#job-card-archive-preview');
+        if (preview) preview.replaceWith(Object.assign(document.createElement('p'), { className: 'small-text', textContent: error.message || 'Scanned page preview is unavailable.' }));
+      }
+    } catch (error) {
+      if (requestId === jobCardArchiveRequestId && detail) detail.innerHTML = `<p class="small-text">Scanned job-card details are unavailable: ${safe(error?.message || 'Please try again.')}</p>`;
+    }
+  }
+
+  async function loadJobCardArchive(options = {}) {
+    const status = $('#job-card-archive-status');
+    const more = $('#job-card-archive-more');
+    const list = $('#job-card-archive-results');
+    if (!list || !window.GMTPortalApi?.jobCardArchiveSearch) return;
+    const append = options.append === true;
+    const requestId = append ? jobCardArchiveSearchRequestId : ++jobCardArchiveSearchRequestId;
+    if (!append) {
+      jobCardArchiveFilters = options.filters || {};
+      jobCardArchiveCursor = null;
+      list.innerHTML = '';
+      if (status) status.textContent = 'Searching scanned job cards…';
+    } else if (status) status.textContent = 'Loading more scanned job cards…';
+    try {
+      const result = await window.GMTPortalApi.jobCardArchiveSearch({ ...jobCardArchiveFilters, ...(append && jobCardArchiveCursor ? { cursor: jobCardArchiveCursor } : {}), limit: 50 });
+      if (requestId !== jobCardArchiveSearchRequestId) return;
+      const rows = Array.isArray(result?.records) ? result.records : [];
+      renderJobCardArchiveResults(rows, append);
+      jobCardArchiveCursor = result?.nextCursor || null;
+      if (more) more.hidden = !jobCardArchiveCursor;
+      if (status) status.textContent = `${list.querySelectorAll('[data-job-archive-select]').length} scanned records loaded${jobCardArchiveCursor ? '. More results are available.' : '.'}`;
+      if (!append && rows.length) {
+        const selected = rows.some((row) => row.record_id === selectedJobCardArchiveId) ? selectedJobCardArchiveId : rows[0].record_id;
+        await selectJobCardArchive(selected);
+      } else if (!append && !rows.length) {
+        selectedJobCardArchiveId = '';
+        if (selectedJobCardArchiveContentUrl) URL.revokeObjectURL(selectedJobCardArchiveContentUrl);
+        selectedJobCardArchiveContentUrl = '';
+        const detail = $('#job-card-archive-detail');
+        const invoicePanel = $('#job-card-archive-invoice-links');
+        if (detail) detail.innerHTML = '<p class="small-text">No scanned job cards match this search.</p>';
+        if (invoicePanel) invoicePanel.innerHTML = '<p class="small-text">Select a scanned job card to view or link invoices.</p>';
+      }
+    } catch (error) {
+      if (requestId !== jobCardArchiveSearchRequestId) return;
+      if (status) status.textContent = error?.message || 'The scanned job-card archive could not be searched.';
+      if (more) more.hidden = true;
+      if (!append && list) list.innerHTML = '<p class="small-text">The scanned job-card archive is unavailable. Check your connection and try again.</p>';
+    }
+  }
+
+  async function saveJobCardArchiveReview(form) {
+    const recordId = form.dataset.jobCardReview;
+    const fields = Object.fromEntries(['cardNumber', 'date', 'customer', 'orderNumber', 'site', 'engineer', 'report', 'amount'].map((name) => [name, form.elements[name]?.value.trim() || '']));
+    const status = form.elements.state?.value || 'needs-review';
+    const note = form.elements.note?.value.trim() || '';
+    const feedback = form.querySelector('[data-job-card-review-status]');
+    const button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    if (feedback) feedback.textContent = 'Saving Accounts review…';
+    try {
+      await window.GMTPortalApi.reviewJobCardArchive(recordId, { confirmedFields: fields, state: status, note });
+      await loadJobCardArchive({ filters: jobCardArchiveFilters });
+      const refreshedFeedback = $('#job-card-archive-review-form [data-job-card-review-status]');
+      if (refreshedFeedback) refreshedFeedback.textContent = 'Accounts review saved.';
+    } catch (error) {
+      if (feedback) feedback.textContent = error?.message || 'Accounts review could not be saved.';
+      if (button) button.disabled = false;
     }
   }
 
@@ -573,6 +749,8 @@
         remote: true
       }));
       renderJobs(remoteJobs, body?.meta || {});
+      const importLink = $('#job-card-import-link');
+      if (importLink) importLink.hidden = !(body?.meta?.is_admin || body?.meta?.is_job_card_admin);
       loadProtectedXero(body?.meta || {});
     } catch (_) {
       // The local draft list remains visible when the protected service is unavailable.
@@ -711,7 +889,38 @@
       }
     });
     $('#job-card-history-refresh')?.addEventListener('click', loadProtectedJobs);
+    $('#job-card-archive-search')?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const query = $('#job-card-archive-query')?.value.trim() || '';
+      const from = $('#job-card-archive-from')?.value || '';
+      const to = $('#job-card-archive-to')?.value || '';
+      if (query && Array.from(query).length < 3) {
+        const status = $('#job-card-archive-status');
+        if (status) status.textContent = 'Enter at least three characters to search scanned text.';
+        $('#job-card-archive-query')?.focus();
+        return;
+      }
+      if (from && to && from > to) {
+        const status = $('#job-card-archive-status');
+        if (status) status.textContent = 'The confirmed date start must be on or before the end date.';
+        $('#job-card-archive-from')?.focus();
+        return;
+      }
+      loadJobCardArchive({ filters: { q: query, cardType: $('#job-card-archive-type')?.value || '', from, to } });
+    });
+    $('#job-card-archive-more')?.addEventListener('click', () => loadJobCardArchive({ append: true }));
+    $('#job-card-scanned-archive')?.addEventListener('submit', (event) => {
+      const form = event.target.closest('[data-job-card-review]');
+      if (!form) return;
+      event.preventDefault();
+      saveJobCardArchiveReview(form);
+    });
     $('#job-card-history')?.addEventListener('click', async (event) => {
+      const archiveSelect = event.target.closest('[data-job-archive-select]');
+      if (archiveSelect) {
+        await selectJobCardArchive(archiveSelect.dataset.jobArchiveSelect);
+        return;
+      }
       const selectButton = event.target.closest('[data-job-select]');
       if (selectButton) {
         selectJobHistory(selectButton.dataset.jobSelect);
@@ -1165,7 +1374,10 @@
     bindTabs(); bindJobs(); bindTasks(); bindOrg(); bindNotifications(); bindCalendar();
     renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
     prefillPortalIdentity();
-    loadProtectedJobs();
+    loadProtectedJobs().finally(() => loadJobCardArchive());
+  });
+  window.addEventListener('beforeunload', () => {
+    if (selectedJobCardArchiveContentUrl) URL.revokeObjectURL(selectedJobCardArchiveContentUrl);
   });
   document.addEventListener('gmtportalidentity', prefillPortalIdentity);
   document.addEventListener('gmtportalprofile', prefillPortalIdentity);
