@@ -40,7 +40,7 @@
 
 - [x] **Step 1: Write the failing test**
 
-Create five Playwright viewport cases (320, 375, 768, 1024, and 1440 pixels). Generate a five-day week and assert that `.timesheet-grid` and each `.day-card` have no horizontal overflow, every `[data-field]` input/select and action button stays within the viewport, labels remain visible, and the desktop date/time controls have at least 96 CSS pixels of width.
+Create Playwright viewport cases at 320, 375, 768, 960, 1024, and 1440 pixels. Generate a five-day week and assert that `.timesheet-grid` and each `.day-card` have no horizontal overflow, every `[data-field]` input/select and action button stays within the viewport, label text remains visible without overlapping its control, and the desktop date/time controls have at least 96 CSS pixels of width.
 
 - [x] **Step 2: Run the focused test and confirm RED**
 
@@ -69,7 +69,7 @@ Remove the 57.5rem minimum widths and horizontal overflow from the timesheet gri
 
 Run: `npm run test:timesheets:responsive-entry`
 
-Expected: PASS at all five viewport widths with no horizontal overflow.
+Expected: PASS at all six viewport widths with no horizontal overflow, including the 960px breakpoint check.
 
 - [x] **Step 3: Run calculation, absence, break, and submission regressions**
 
@@ -86,7 +86,7 @@ Expected: all four scripts pass with the existing calculation totals and submiss
 
 - [x] **Step 4: Review the page visually at all required widths**
 
-Capture the timesheet form at 320, 375, 768, 1024, and 1440 CSS pixels. Confirm labels, controls, status/result, collapse/remove actions, and totals are legible, aligned, and not clipped. Fix any defects and rerun the focused plus regression tests.
+Capture the timesheet form at 320, 375, 768, 960, 1024, and 1440 CSS pixels. Confirm labels, controls, status/result, collapse/remove actions, and totals are legible, aligned, and not clipped. Fix any defects and rerun the focused plus regression tests.
 
 - [x] **Step 5: Commit the verified UI change**
 

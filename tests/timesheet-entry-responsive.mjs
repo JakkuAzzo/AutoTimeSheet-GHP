@@ -65,7 +65,7 @@ try {
   assert.deepEqual(keyboardFocus, { insideDayCard: true, focusable: true, visible: true, outlineWidth: '3px' });
   await page.evaluate(() => document.activeElement?.blur());
 
-  const widths = [320, 375, 768, 1024, 1440];
+  const widths = [320, 375, 768, 960, 1024, 1440];
   const failures = [];
   const layouts = [];
   for (const width of widths) {
@@ -91,7 +91,18 @@ try {
         controls: controls.map((element) => ({ field: element.dataset.field, ...rect(element) })),
         bodyResults: cards.map((card) => ({ bodyBottom: rect(card.querySelector('.day-card-body')).bottom, resultTop: rect(card.querySelector('.day-result')).top })),
         controlCount: controls.length,
-        labels: labels.map((element) => ({ text: element.firstChild?.textContent.trim() || '', ...rect(element) })),
+        labels: labels.map((element) => {
+          const textNode = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+          const range = document.createRange();
+          if (textNode) range.selectNodeContents(textNode);
+          const control = element.querySelector('[data-field]');
+          return {
+            text: textNode?.textContent.trim() || '',
+            textRects: [...range.getClientRects()].map((box) => ({ left: box.left, right: box.right, top: box.top, bottom: box.bottom })),
+            control: control ? rect(control) : null,
+            ...rect(element)
+          };
+        }),
         collapsedSummaries: [...document.querySelectorAll('.day-card.is-collapsed .day-mini-summary')].map((element) => {
           const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
           return { height: element.getBoundingClientRect().height, lineHeight };
@@ -119,6 +130,7 @@ try {
     });
     layout.labels.forEach((label) => {
       if (label.width < 1 || label.height < 1 || label.left < -1 || label.right > width + 1) failures.push(`${width}px: label '${label.text}' is hidden or clipped`);
+      if (label.control && label.textRects.some((textRect) => textRect.bottom > label.control.top + 1)) failures.push(`${width}px: label '${label.text}' overlaps its control`);
     });
     layout.buttons.forEach((button) => {
       if (button.left < -1 || button.right > width + 1) failures.push(`${width}px: '${button.name}' action extends outside viewport`);
