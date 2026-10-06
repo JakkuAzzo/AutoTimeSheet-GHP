@@ -133,18 +133,13 @@
     status.textContent = 'Word-compatible estimate downloaded. Review it before sending.';
   }
 
-  function addHidden(form, name, value) {
-    const input = document.createElement('input');
-    input.type = 'hidden'; input.name = name; input.value = value == null ? '' : value;
-    form.appendChild(input);
-  }
-
-  function addAttachment(form, file) {
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    const input = document.createElement('input');
-    input.type = 'file'; input.name = 'attachment'; input.hidden = true; input.files = transfer.files;
-    form.appendChild(input);
+  function archiveContentBase64(value) {
+    const bytes = new TextEncoder().encode(String(value || ''));
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+    }
+    return btoa(binary);
   }
 
   async function sendToClient() {
@@ -152,55 +147,56 @@
     if (!formElement.reportValidity()) return;
     const d = data();
     if (!d.email) { status.textContent = 'Enter the client email before sending this estimate.'; $('estimate-client-email').focus(); return; }
-    const endpoint = String(CONFIG.estimateSendEndpoint || CONFIG.estimateFormSubmitEndpoint || '').trim();
-    if (!endpoint) { status.textContent = 'Client sending is not configured yet. Download the document and use the approved Accounts workflow.'; return; }
-    const accountsBcc = String(CONFIG.estimateAccountsBcc || CONFIG.formSubmitCc || '').trim();
-    if (!accountsBcc) { status.textContent = 'Client sending is waiting for the approved Accounts BCC route to be configured.'; return; }
+    if (!portalApiEnabled() || typeof window.GMTPortalApi.archiveAppEstimate !== 'function' || typeof window.GMTPortalApi.sendEstimate !== 'function') {
+      status.textContent = 'The protected estimate archive and company send route are not connected. No email was sent.';
+      return;
+    }
+    const accountsBcc = String(CONFIG.estimateAccountsBcc || 'accounts@gmt-services.co.uk').trim();
+    if (!accountsBcc) { status.textContent = 'Client sending is waiting for the approved Accounts BCC route to be configured. No email was sent.'; return; }
+    const approved = window.confirm(`Review before sending:\n\nEstimate ${d.number}\nClient: ${d.company}\nTo: ${d.email}\nAccounts copy: ${accountsBcc}\nTotal: ${money(d.total)}\n\nThe estimate will be filed in the shared archive before the email is sent. Continue?`);
+    if (!approved) { status.textContent = 'Estimate not sent. Review the preview and choose Send to client when ready.'; return; }
     const content = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)} - Estimate</title></head><body>${documentHtml(d)}</body></html>`;
-    const file = new File([content], `${d.number || 'GMT-estimate'}.doc`, { type:'application/msword' });
-    const frame = document.createElement('iframe');
-    frame.name = `estimate-submit-${Date.now()}`; frame.hidden = true; document.body.appendChild(frame);
-    const form = document.createElement('form');
-    form.method = 'POST'; form.action = endpoint; form.target = frame.name; form.enctype = 'multipart/form-data'; form.hidden = true;
-    addHidden(form, '_subject', `[GMT][ESTIMATE][CLIENT] ${d.number} | ${d.company}`);
-    addHidden(form, '_template', 'box'); addHidden(form, '_captcha', 'false'); addHidden(form, '_url', window.location.href);
-    addHidden(form, '_to', d.email); addHidden(form, 'to', d.email);
-    addHidden(form, '_bcc', accountsBcc); addHidden(form, 'bcc', accountsBcc);
-    addHidden(form, 'gmt_type', 'estimate'); addHidden(form, 'gmt_schema_version', '2');
-    addHidden(form, 'gmt_send_mode', 'client'); addHidden(form, 'gmt_estimate_number', d.number); addHidden(form, 'gmt_estimate_date', d.date);
-    addHidden(form, 'gmt_client_company', d.company); addHidden(form, 'gmt_client_contact', d.attention);
-    addHidden(form, 'gmt_client_email', d.email); addHidden(form, 'gmt_accounts_bcc', accountsBcc); addHidden(form, 'gmt_reference', d.reference);
-    addHidden(form, 'gmt_subtotal', d.subtotal.toFixed(2)); addHidden(form, 'gmt_vat', d.vat.toFixed(2));
-    addHidden(form, 'gmt_total', d.total.toFixed(2)); addHidden(form, 'gmt_submitted_at', new Date().toISOString());
-    addHidden(form, 'message', 'Please send the attached estimate to the client email and BCC Accounts for filing.');
-    addAttachment(form, file);
     let protectedRecord = null;
     try {
-      if (portalApiEnabled()) {
-        protectedRecord = protectedEstimateRecord(d);
-        await window.GMTPortalApi.saveRecord(protectedRecord);
-        try { await indexAppEstimate(d, protectedRecord.recordId); } catch (_) { /* indexing must not block client delivery */ }
-      }
-      const response = await fetch(endpoint, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' }, credentials: 'omit' });
-      const responseText = await response.text();
-      let result = null;
-      try { result = responseText ? JSON.parse(responseText) : null; } catch (_) {}
-      if (!response.ok || (result && (result.success === false || result.success === 'false'))) throw new Error(result && result.message ? result.message : `Estimate delivery failed (${response.status}).`);
+      protectedRecord = protectedEstimateRecord(d);
+      await window.GMTPortalApi.saveRecord(protectedRecord);
+      try { await indexAppEstimate(d, protectedRecord.recordId); } catch (_) { /* the protected estimate record remains available for the shared views */ }
       const sentAt = new Date().toISOString();
-      const localRecord = { ...d, sentAt, status: 'Sent to client', recordId: protectedRecord ? protectedRecord.recordId : `${d.number || 'estimate'}|${sentAt}` };
+      const localRecord = { ...d, sentAt, status: 'Pending client send', recordId: protectedRecord.recordId };
+      status.textContent = 'Filing the estimate in the shared SharePoint archive…';
+      await window.GMTPortalApi.archiveAppEstimate({
+        fileName: `${d.number || 'GMT-estimate'}.doc`, contentType: 'application/msword',
+        contentBase64: archiveContentBase64(content), subject: `Estimate ${d.number} | ${d.company}`,
+        estimate_number: d.number, customer: d.company, customer_email: d.email,
+        recipient_emails: [d.email, accountsBcc], reference: d.reference,
+        sent_at: sentAt, received_at: sentAt, source_record_id: protectedRecord.recordId
+      });
+      await loadArchive(true);
+      status.textContent = 'Estimate filed. Sending through the approved Accounts mailbox…';
+      const result = await window.GMTPortalApi.sendEstimate({
+        recordId: protectedRecord.recordId, estimate: d,
+        fileName: `${d.number || 'GMT-estimate'}.doc`, contentType: 'application/msword',
+        contentBase64: archiveContentBase64(content), to: d.email
+      });
+      const finalSentAt = result?.sent_at || new Date().toISOString();
+      localRecord.sentAt = finalSentAt;
+      localRecord.status = 'Sent to client';
       saveLocalEstimate(localRecord);
       historyRecords = [localRecord, ...historyRecords.filter((record) => record.recordId !== localRecord.recordId)];
       renderHistory(historyRecords, portalApiEnabled() ? 'protected portal history' : 'this browser');
-      if (protectedRecord) await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Sent to client', issue: '', updatedAt: sentAt });
-      try { await indexAppEstimate(d, protectedRecord ? protectedRecord.recordId : localRecord.recordId, 'sent'); } catch (_) { /* mail delivery already succeeded */ }
-      status.textContent = 'Estimate sent to the client and recorded for Accounts filing.';
+      try { await indexAppEstimate(d, protectedRecord.recordId, 'sent'); } catch (_) { /* archive and protected history remain queryable */ }
+      status.textContent = 'Estimate sent through the approved Accounts route, archived, and added to shared estimate history.';
     } catch (error) {
       if (protectedRecord) {
-        try { await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Delivery failed', issue: error.message || 'Estimate delivery failed', updatedAt: new Date().toISOString() }); } catch (_) {}
+        const archiveFailed = /archiv|sharepoint|shared archive/i.test(error.message || '');
+        if (archiveFailed) {
+          try { await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Archive failed', issue: error.message || 'Estimate archive failed', updatedAt: new Date().toISOString() }); } catch (_) {}
+        }
       }
-      status.textContent = error.message || 'Estimate could not be sent.';
-    } finally {
-      form.remove(); frame.remove();
+      const uncertain = error.status === 502 || /delivery result|run history|unexpected redirect/i.test(error.message || '');
+      status.textContent = uncertain
+        ? `${error.message || 'Delivery could not be confirmed.'} Check the Power Automate run before retrying; the estimate is retained in the shared archive.`
+        : `${error.message || 'Estimate could not be sent.'} The estimate remains in the shared archive; no email was confirmed.`;
     }
   }
 
@@ -341,6 +337,115 @@
     }
   }
 
+  const archiveList = $('estimate-archive-results');
+  const archiveDetail = $('estimate-archive-detail');
+  const archiveStatus = $('estimate-archive-status');
+  const archiveMore = $('estimate-archive-more');
+  let archiveCursor = '';
+  let archiveFilters = {};
+  let archiveBusy = false;
+  function archiveDate(value) {
+    if (!value) return 'Date unavailable';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('en-GB');
+  }
+
+  function archiveRecordLabel(record) {
+    return `${record.estimate_number || record.subject || 'Estimate email'} · ${record.customer || record.customer_email || 'Customer unavailable'} · ${archiveDate(record.sent_at || record.received_at)}`;
+  }
+
+  function renderArchiveRecords(records, append) {
+    if (!append) archiveList.replaceChildren();
+    if (!records.length && !append) {
+      archiveList.innerHTML = '<p class="small-text portal-history-empty">No archived email records match this search.</p>';
+      return;
+    }
+    const startIndex = archiveList.querySelectorAll('[data-archive-id]').length;
+    archiveList.insertAdjacentHTML('beforeend', records.map((record, index) => `<button type="button" class="estimate-history-item" data-archive-id="${esc(record.id)}" aria-current="false"><strong>${esc(record.estimate_number || record.subject || 'Estimate email')}</strong><span>${esc(record.customer || record.customer_email || 'Customer unavailable')}</span><small>${esc(archiveDate(record.sent_at || record.received_at))} · ${esc(record.mailbox || 'Shared GMT mailbox')} · ${esc(record.classification_state || 'candidate')}</small></button>`).join(''));
+    archiveList.querySelectorAll('[data-archive-id]').forEach((button) => {
+      if (button.dataset.bound) return;
+      button.dataset.bound = 'true';
+      button.addEventListener('click', () => selectArchiveMessage(button.dataset.archiveId));
+    });
+    if (startIndex === 0 && records[0]) selectArchiveMessage(records[0].id);
+  }
+
+  async function loadArchive(reset) {
+    if (!portalApiEnabled() || typeof window.GMTPortalApi.searchEstimateArchive !== 'function') {
+      archiveStatus.textContent = 'Shared archive access is not configured for this portal.';
+      return;
+    }
+    if (archiveBusy) return;
+    if (reset) { archiveCursor = ''; archiveList.replaceChildren(); archiveDetail.innerHTML = '<p class="small-text">Select a message to view archived files and conversation records.</p>'; }
+    archiveBusy = true;
+    archiveMore.disabled = true;
+    archiveStatus.textContent = reset ? 'Searching the shared archive…' : 'Loading the next page…';
+    try {
+      const response = await window.GMTPortalApi.searchEstimateArchive({ ...archiveFilters, limit: 50, cursor: archiveCursor });
+      const records = Array.isArray(response?.records) ? response.records : [];
+      renderArchiveRecords(records, !reset);
+      archiveCursor = response?.nextCursor || '';
+      archiveMore.hidden = !archiveCursor;
+      archiveStatus.textContent = `${archiveList.querySelectorAll('[data-archive-id]').length} archived message${archiveList.querySelectorAll('[data-archive-id]').length === 1 ? '' : 's'} loaded${archiveCursor ? '; more results are available.' : '.'}`;
+    } catch (error) {
+      archiveStatus.textContent = error?.message || 'The shared archive could not be loaded. Try again.';
+      archiveMore.hidden = true;
+    } finally {
+      archiveBusy = false;
+      archiveMore.disabled = false;
+    }
+  }
+
+  async function selectArchiveMessage(archiveId) {
+    archiveList.querySelectorAll('[data-archive-id]').forEach((button) => button.setAttribute('aria-current', String(button.dataset.archiveId === archiveId)));
+    archiveDetail.innerHTML = '<p class="small-text">Loading message and conversation details…</p>';
+    try {
+      const detail = await window.GMTPortalApi.getEstimateArchiveRecord(archiveId);
+      const message = detail?.message || {};
+      const conversation = Array.isArray(detail?.conversation) ? detail.conversation : [];
+      const attachments = Array.isArray(detail?.attachments) ? detail.attachments : [];
+      const associations = Array.isArray(detail?.associations) ? detail.associations : [];
+      const sourceCopies = Array.isArray(detail?.sourceCopies) ? detail.sourceCopies : [];
+      const mailboxLabels = [...new Set([message.mailbox, ...sourceCopies.map((source) => source.mailbox)].filter(Boolean))].join(', ') || 'GMT mailboxes';
+      const thread = conversation.length ? conversation.map((item) => `<div class="estimate-archive-thread"><strong>${esc(item.subject || 'Email')}</strong><span>${esc(item.sender_email || '')} · ${esc(archiveDate(item.sent_at || item.received_at))}</span><button type="button" class="secondary" data-archive-download="${esc(item.id)}" data-content-id="eml" data-file-name="message.eml">Download email (.eml)</button>${(item.attachments || []).map((file) => `<div class="estimate-archive-file"><span>${esc(file.file_name || 'Attachment')}</span><button type="button" class="secondary" data-archive-download="${esc(item.id)}" data-content-id="${esc(file.id)}" data-file-name="${esc(file.file_name || 'attachment')}">Download attachment</button></div>`).join('')}</div>`).join('') : '<p class="small-text">No other conversation messages have been archived yet.</p>';
+      const files = attachments.length ? attachments.map((item) => `<div class="estimate-archive-file"><span>${esc(item.file_name || 'Attachment')} <small>${esc(item.size_bytes ? `${Math.round(item.size_bytes / 1024)} KB` : '')}</small></span><button type="button" class="secondary" data-archive-download="${esc(archiveId)}" data-content-id="${esc(item.id)}" data-file-name="${esc(item.file_name || 'attachment')}">Download</button></div>`).join('') : '<p class="small-text">No attachments are indexed for this message.</p>';
+      const related = associations.length ? associations.map((item) => {
+        const targetHref = item.target_kind === 'job-card' && item.target_id ? `../jobs/?record=${encodeURIComponent(item.target_id)}` : item.target_kind === 'estimate' && item.target_id ? `./estimates.html?record=${encodeURIComponent(item.target_id)}` : '';
+        const label = `${item.target_kind || 'GMT record'} ${item.target_reference || ''}`.trim();
+        return `<li>${targetHref ? `<a href="${esc(targetHref)}">${esc(label)}</a>` : esc(label)} · ${esc(item.relationship || 'related')} · ${esc(item.state || 'candidate')}${item.state !== 'confirmed' ? ' · Review link' : ''}</li>`;
+      }).join('') : '<li>No linked job card, estimate, or invoice record yet.</li>';
+      const emlButton = message.source_kind === 'email' ? `<button type="button" class="secondary" data-archive-download="${esc(archiveId)}" data-content-id="eml" data-file-name="message.eml">Download email (.eml)</button>` : '';
+      archiveDetail.innerHTML = `<header><p class="portal-card-kicker">${esc(message.classification_state || 'Archive record')}</p><h3>${esc(message.estimate_number || message.subject || 'Estimate email')}</h3><p><strong>${esc(message.customer || message.customer_email || 'Customer unavailable')}</strong></p><p>${esc(message.sender_email || '')} · ${esc(archiveDate(message.sent_at || message.received_at))}</p><p class="small-text">Archived mailbox copies: ${esc(mailboxLabels)}</p>${emlButton}</header><section class="estimate-archive-files"><h4>Attachments</h4>${files}</section><section><h4>Email conversation (${conversation.length})</h4><div class="estimate-archive-files">${thread}</div></section><section class="estimate-archive-associations"><h4>Related GMT records</h4><ul>${related}</ul></section>`;
+    } catch (error) {
+      archiveDetail.innerHTML = `<p class="small-text">Message details could not be loaded: ${esc(error?.message || 'Please try again.')}</p>`;
+    }
+  }
+
+  $('estimate-archive-range')?.addEventListener('change', (event) => {
+    const custom = event.target.value === 'custom';
+    $('estimate-archive-from').disabled = !custom;
+    $('estimate-archive-to').disabled = !custom;
+    if (!custom) { $('estimate-archive-from').value = ''; $('estimate-archive-to').value = ''; }
+  });
+  $('estimate-archive-search')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const customRange = $('estimate-archive-range').value === 'custom';
+    const from = customRange ? $('estimate-archive-from').value : '';
+    const to = customRange ? $('estimate-archive-to').value : '';
+    if (from && to && from > to) { archiveStatus.textContent = 'The start date must be on or before the end date.'; $('estimate-archive-from').focus(); return; }
+    archiveFilters = { q: $('estimate-archive-query').value.trim(), from, to };
+    loadArchive(true);
+  });
+  archiveMore?.addEventListener('click', () => loadArchive(false));
+  archiveDetail?.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-archive-download]');
+    if (!button || !window.GMTPortalApi?.getEstimateArchiveContent) return;
+    button.disabled = true;
+    try { await window.GMTPortalApi.getEstimateArchiveContent(button.dataset.archiveDownload, button.dataset.contentId, button.dataset.fileName); }
+    catch (error) { archiveStatus.textContent = error?.message || 'The archived file could not be downloaded.'; }
+    finally { button.disabled = false; }
+  });
+
   $('estimate-date').value = today.toISOString().slice(0, 10);
   const profile = portalProfile();
   if (profile.name && !$('estimate-prepared-by').value) $('estimate-prepared-by').value = profile.name;
@@ -353,6 +458,7 @@
   $('print-estimate').addEventListener('click', () => { render(); window.print(); });
   $('send-estimate').addEventListener('click', sendToClient);
   if (historyRefresh) historyRefresh.addEventListener('click', loadEstimateHistory);
+  loadArchive(true);
   $('estimate-invoice-links')?.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-estimate-invoice-link]');
     if (!button || !window.GMTPortalApi?.xeroLookupInvoice) return;

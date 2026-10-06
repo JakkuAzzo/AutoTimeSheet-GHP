@@ -8,17 +8,17 @@ The invoice editor also remains usable at desktop and mobile widths. Its form, p
 
 ## Scope and access
 
-The workflow is Accounts-only. The mailbox source is `info@gmt-services.co.uk`; the SharePoint destination is the existing GMT site and estimate/document area. The web app reads correlation results only through the authenticated backend. Staff users do not receive mailbox contents or Accounts invoice controls.
+The archive is readable to every authenticated GMT portal user, including estimate messages, client conversations, and their attachments. Xero invoice controls and manual financial record linking remain Accounts-only. The mailbox sources are `info@gmt-services.co.uk` and `accounts@gmt-services.co.uk`; `acc.gmtelect@outlook.com` is excluded because it cannot be accessed through Amanda's work account. Archive data is served through the authenticated portal backend. Keep the SharePoint source library service-restricted and expose archived content only through backend requests that validate the portal tenant identity. Do not create public or anonymous SharePoint links.
 
 The preferred transport is Power Automate using the tenant’s existing Microsoft 365 authentication. It avoids storing mailbox credentials in the Cloudflare Worker. A future direct Graph integration remains possible, but is outside this first implementation.
 
 ## Mail intake and SharePoint index
 
-A mailbox-triggered flow identifies estimate messages and attachments, extracts estimate number, client, sender, message date, job/reference terms, and Outlook message ID, then stores the original message URL and attachment in the protected SharePoint estimate location. The flow upserts a canonical estimate index row keyed by a stable record ID.
+A mailbox-triggered flow identifies sent customer estimates and the related client conversation, extracts estimate number, client, direction, sender, recipients, message date, job/reference terms, Outlook message ID, Internet Message-ID, and conversation ID, then stores the original MIME `.eml`, attachments, and a searchable manifest in the protected SharePoint estimate location. Only messages classified as customer-estimate or demonstrably related conversation are archived; keyword matches alone are not sufficient. Supplier quotations and unrelated attachments are excluded or left in a review queue. The flow upserts a canonical estimate index row keyed by a stable record ID.
 
 The index stores canonical number, known number aliases, client identity, job/reference terms, estimate date, source (`email` or `app`), SharePoint item URL, Outlook message URL/message ID, attachment URL, created/updated timestamps, and correlation status. It retains aliases rather than overwriting history when an estimate number changes.
 
-App-created estimates submit the same fields and use the same upsert contract. The flow is idempotent on Outlook message ID, attachment hash, and canonical record ID.
+App-created estimates submit the same fields and use the same upsert contract. The flow is idempotent on Internet Message-ID (or mailbox plus provider message ID), attachment hash, and canonical record ID. Historical backfill covers Inbox and Sent Items with a persisted page/delta cursor and per-mailbox scanned, archived, duplicate, excluded, needs-review, and failed counts. Intake never moves, marks, categorizes, or deletes source mail.
 
 ## Correlation rules
 
@@ -34,7 +34,7 @@ Only exact or explicit matches are auto-linked. Lower-confidence candidates are 
 
 ## Invoice experience
 
-Opening an invoice loads its Xero details and related GMT index rows. The context panel shows each related estimate/job card, client, date/status, SharePoint record link, and saved Outlook message link. It also shows when several invoice numbers refer to the same GMT record. If no match exists, it says so and offers the Accounts link workflow. Full mailbox search is not exposed until the protected index is available.
+Authenticated portal users can search archived estimates and open related job cards, client conversation messages, and attachment downloads through the Worker. The Worker authenticates every list, detail, and content request and retrieves file bytes from SharePoint without exposing provider IDs or broad SharePoint links. Opening an invoice additionally loads its Xero details and related GMT index rows in the Accounts interface. It shows when several invoice numbers refer to one GMT record; uncertain matches remain candidates for Accounts review.
 
 ## Editor layout repair
 
@@ -44,10 +44,10 @@ The connection banner remains compact and separate from the editor. Lookup failu
 
 ## Error handling and audit
 
-Mailbox, SharePoint, and correlation failures are visible as actionable Accounts status messages. The flow retries transient provider errors, deduplicates repeated deliveries, and records failed items for review. No estimate or invoice is silently discarded.
+Mailbox, SharePoint, and correlation failures are visible as actionable archive status messages. The flow retries transient provider errors, deduplicates repeated deliveries, and records failed items for review. No estimate or message is silently discarded.
 
 ## Verification
 
-Verification must cover: a real estimate email from `info@gmt-services.co.uk`; an attached estimate document; a revised estimate number; multiple invoice numbers linked to one record; an app-created estimate; SharePoint persistence; Outlook message links; Accounts-only visibility; no-match and ambiguous-match handling; desktop layout; narrow mobile layout; and a long invoice list with partial provider responses.
+Verification must cover: representative estimate messages and attachments from all three mailboxes; duplicate copies across mailboxes; sent and received messages in one conversation; a revised estimate number; multiple invoice numbers linked to one record; an app-created estimate; SharePoint persistence; authenticated portal visibility and content download; denied anonymous/wrong-tenant requests; no-match and ambiguous-match handling; desktop layout; narrow mobile layout; and a long invoice list with partial provider responses.
 
 The release is complete only when a fresh mailbox-to-SharePoint-to-web-app chain is evidenced and the invoice editor is visually checked at desktop and mobile widths.

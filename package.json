@@ -10,6 +10,7 @@
     "test:audit:fixtures": "node tests/audit-fixture-matrix.mjs",
     "test:pages:deployment-workflow": "node tests/cloudflare-pages-deployment-workflow.mjs",
     "test:worker:deployment-workflow": "node tests/cloudflare-worker-deployment-workflow.mjs",
+    "test:estimate-send": "node tests/estimate-send.test.mjs",
     "test:calendar:protected-boundary": "node tests/calendar-protected-boundary.mjs",
     "test:calendar:day-actions": "node tests/calendar-day-actions.mjs",
     "test:pages:public-root": "node tests/cloudflare-pages-public-root.mjs",

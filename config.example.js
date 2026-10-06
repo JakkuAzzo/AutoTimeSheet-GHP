@@ -10,6 +10,8 @@ window.GMT_APP_CONFIG = {
   taskFormSubmitEndpoint: "",
   calendarFormSubmitEndpoint: "",
   estimateFormSubmitEndpoint: "",
+  // Delegated Power Automate Flow Service scope used by the protected estimate-send route.
+  estimateSendScopes: ["https://service.flow.microsoft.com//.default"],
 
   // Last-resort fallback for an already approved FormSubmit route.
   fallbackFormSubmitEndpoint: "",
