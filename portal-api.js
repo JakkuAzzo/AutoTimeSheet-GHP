@@ -40,6 +40,13 @@
         if (upstreamToken) headers["X-GMT-Upstream-Authorization"] = "Bearer " + upstreamToken;
       }
     }
+    if (Array.isArray(settings.requiredUpstreamScopes) && settings.requiredUpstreamScopes.length) {
+      var requiredUpstreamAuth = await authContext();
+      if (!requiredUpstreamAuth || typeof requiredUpstreamAuth.acquireToken !== "function") throw new Error("Flow Service sign-in context unavailable");
+      var requiredUpstreamToken = await requiredUpstreamAuth.acquireToken(settings.requiredUpstreamScopes);
+      if (!requiredUpstreamToken) throw new Error("Flow Service access token unavailable");
+      headers["X-GMT-Upstream-Authorization"] = "Bearer " + requiredUpstreamToken;
+    }
     var fetchOptions = {
       method: settings.method || "GET",
       headers: headers,
@@ -102,6 +109,65 @@
 
   function estimateIndexList() {
     return request("/api/estimates/index?limit=500", { method: "GET" });
+  }
+
+  function searchEstimateArchive(filters) {
+    var params = new URLSearchParams();
+    var values = filters && typeof filters === "object" ? filters : {};
+    Object.keys(values).forEach(function (key) {
+      var value = String(values[key] == null ? "" : values[key]).trim();
+      if (value) params.set(key, value);
+    });
+    return request("/api/archive/estimates" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
+  }
+
+  function getEstimateArchiveRecord(archiveId) {
+    return request("/api/archive/estimates/" + encodeURIComponent(String(archiveId || "")), { method: "GET" });
+  }
+
+  function archiveAppEstimate(record) {
+    return request("/api/archive/estimates/app", { method: "POST", body: record || {} });
+  }
+
+  function sendEstimate(record) {
+    return request("/api/estimates/send", {
+      method: "POST", body: record || {},
+      requiredUpstreamScopes: Array.isArray(config.estimateSendScopes) ? config.estimateSendScopes : []
+    });
+  }
+
+  async function getEstimateArchiveContent(archiveId, contentId, fileName) {
+    var endpoint = baseUrl();
+    if (!endpoint) throw new Error("Protected portal archive is not configured");
+    var headers = {};
+    var requestedScopes = scopes();
+    if (requestedScopes.length) {
+      var auth = await authContext();
+      if (!auth || typeof auth.acquireToken !== "function") throw new Error("Sign-in context unavailable");
+      var token = await auth.acquireToken(requestedScopes);
+      if (!token) throw new Error("Protected portal access token unavailable");
+      headers.Authorization = "Bearer " + token;
+    }
+    var path = "/api/archive/estimates/" + encodeURIComponent(String(archiveId || "")) + "/content/" + encodeURIComponent(String(contentId || ""));
+    var response = await fetch(endpoint + path, { method: "GET", headers: headers, credentials: "include", cache: "no-store" });
+    if (!response.ok) {
+      var message = "Archived file could not be downloaded (" + response.status + ")";
+      try { var body = await response.json(); if (body && body.error) message = body.error; } catch (_) {}
+      throw new Error(message);
+    }
+    var disposition = response.headers.get("content-disposition") || "";
+    var match = disposition.match(/filename="?([^";]+)"?/i);
+    var name = String(fileName || (match && match[1]) || "archived-file").replace(/[\\/\r\n]/g, "_");
+    var blob = await response.blob();
+    var objectUrl = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = name;
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
   }
 
   function getProfile() {
@@ -209,6 +275,11 @@
     deleteRecord: deleteRecord,
     history: history,
     estimateIndexList: estimateIndexList,
+    searchEstimateArchive: searchEstimateArchive,
+    getEstimateArchiveRecord: getEstimateArchiveRecord,
+    getEstimateArchiveContent: getEstimateArchiveContent,
+    archiveAppEstimate: archiveAppEstimate,
+    sendEstimate: sendEstimate,
     getProfile: getProfile,
     saveProfile: saveProfile,
     dispatchCorrections: dispatchCorrections,
