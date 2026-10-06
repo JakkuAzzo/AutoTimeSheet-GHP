@@ -2,7 +2,7 @@
 
 ## Status
 
-Design proposal for user review. No production code, SharePoint files, or provider configuration has been changed for this request.
+Design approved by the user on 2026-10-06. Implementation plans are ready for review; no production code, SharePoint files, or provider configuration has been changed for this request.
 
 ## User goals
 
