@@ -47,6 +47,8 @@
 
 Before implementation, wait for **GMT Pay Month Reconciliation & Portal Completion** to finish its current SharePoint archive edits and commit or otherwise expose a reviewable source revision. Bring that revision into this isolated branch first, preserving this spec and both plans. Use its reviewed Graph credential, upload, content-proxy, and deployment configuration; do not edit its active dirty worktree or duplicate an existing helper. If its interfaces differ from this plan, update this plan and return it for review before coding.
 
+**Execution record (2026-10-06):** The target checkout remained dirty and untouched, so its exposed tracked diff and six untracked source files were copied to isolated branch `codex/gmt-estimate-archive-review` at base `8122de2` as reviewable snapshot commit `5d99a6b`. `git diff --check` and the estimate archive, authenticated UI, index, client-history, and send contract tests passed on that snapshot. It is merged into this feature branch at `6bb57fd`; no provider configuration or SharePoint content changed. This snapshot is a tested local integration base, not evidence that the target task is complete or deployed.
+
 ### Task 1: Prepare and reconcile the scanned pages locally
 
 **Files:**
