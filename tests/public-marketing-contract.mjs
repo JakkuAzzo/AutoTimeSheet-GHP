@@ -41,14 +41,15 @@ assert.match(homepage, /Why Choose GMT\?/i);
 assert.match(homepage, /id="services"/);
 assert.doesNotMatch(homepage, /Trusted Across London|useful turnaround/i,
   'Unverified trust and turnaround claims must stay out of public copy');
-assert.match(homepage, /public-site-mapfix-20260928\.js\?v=marketing-refresh-20261005/);
-assert.match(homepage, /href="\/services\/"/);
+assert.match(homepage, /public-site-mapfix-20260928\.js\?v=carousel-track-20261006-v1/);
+assert.match(homepage, /href="#services"/,
+  'The homepage service navigation must target the service carousel');
 assert.match(homepage, /href="\/process\/"/);
 assert.equal((homepage.match(/class="button primary service-enquiry-link" href="\/#workshop-enquiry" data-enquire-nav/g) || []).length, 9,
   'Each homepage service card must have an enquiry button wired to open the mobile form');
 assert.equal((homepage.match(/class="service-benefit"/g) || []).length, 9,
   'Each homepage service card must state a customer benefit');
-assert.match(publicSiteScript, /querySelectorAll\(['"]\[data-enquire-nav\]['"]\)/,
+assert.match(publicSiteScript, /querySelectorAll\(['"]\[data-enquire-nav\], \[data-service-enquiry-open\]['"]\)/,
   'Every homepage enquiry navigation control must be wired');
 assert.match(publicSiteScript, /window\.location\.hash\s*===\s*['"]#workshop-enquiry['"]/,
   'Direct links from service pages must open the homepage enquiry form');

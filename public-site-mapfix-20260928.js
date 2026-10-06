@@ -207,10 +207,15 @@
     var slides = track ? Array.prototype.slice.call(track.querySelectorAll('.hero-media-slide')) : [];
     if (!root || !track || slides.length < 2) return;
 
+    var intro = root.querySelector('[data-hero-intro]');
+    var inner = root.querySelector('.hero-inner');
     var index = 0;
     var duration = 5500;
     var paused = false;
     var timer = null;
+    var introTimer = null;
+    var introListeners = [];
+    var carouselStarted = false;
     var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     function setIndex(nextIndex) {
@@ -230,6 +235,54 @@
       if (!paused) setIndex(index + 1);
     }
 
+    function startCarousel() {
+      if (carouselStarted || reducedMotion) return;
+      carouselStarted = true;
+      timer = window.setInterval(advance, duration);
+    }
+
+    function clearIntroListeners() {
+      introListeners.forEach(function (listener) {
+        document.removeEventListener(listener.type, listener.handler);
+      });
+      introListeners = [];
+    }
+
+    function finishIntro() {
+      if (!root.classList.contains('is-hero-intro-active')) return;
+      if (introTimer) window.clearTimeout(introTimer);
+      clearIntroListeners();
+      root.classList.remove('is-hero-intro-active');
+      if (inner) {
+        inner.inert = false;
+        inner.removeAttribute('aria-hidden');
+      }
+      if (intro) intro.setAttribute('aria-hidden', 'true');
+      startCarousel();
+    }
+
+    function beginIntro() {
+      if (reducedMotion) {
+        finishIntro();
+        return;
+      }
+      if (!intro || !inner) {
+        root.classList.remove('is-hero-intro-active');
+        startCarousel();
+        return;
+      }
+      root.classList.add('is-hero-intro-active');
+      intro.setAttribute('aria-hidden', 'false');
+      inner.setAttribute('aria-hidden', 'true');
+      inner.inert = true;
+      ['pointerdown', 'keydown', 'touchstart'].forEach(function (type) {
+        var handler = finishIntro;
+        introListeners.push({ type: type, handler: handler });
+        document.addEventListener(type, handler, { once: true, passive: true });
+      });
+      introTimer = window.setTimeout(finishIntro, 2000);
+    }
+
     root.addEventListener('focusin', function () { setPaused(true); });
     root.addEventListener('focusout', function (event) {
       if (!root.contains(event.relatedTarget)) setPaused(false);
@@ -239,17 +292,18 @@
     });
 
     setIndex(0);
-    if (!reducedMotion) {
-      timer = window.setInterval(advance, duration);
-      window.addEventListener('beforeunload', function () {
-        if (timer) window.clearInterval(timer);
-      });
-    }
+    beginIntro();
+    window.addEventListener('beforeunload', function () {
+      if (timer) window.clearInterval(timer);
+      if (introTimer) window.clearTimeout(introTimer);
+      clearIntroListeners();
+    });
   }
 
   function initWorkshopMotionCarousel() {
     var root = document.querySelector('[data-workshop-motion-track]');
     var slides = root ? Array.prototype.slice.call(root.querySelectorAll('.workshop-motion-image')) : [];
+    var backdrop = document.querySelector('[data-workshop-motion-backdrop]');
     if (!root || slides.length < 2) return;
 
     var index = 0;
@@ -263,6 +317,10 @@
       slides.forEach(function (slide, slideIndex) {
         slide.classList.toggle('is-active', slideIndex === index);
       });
+      if (backdrop) {
+        var imageUrl = slides[index].currentSrc || slides[index].src;
+        backdrop.style.backgroundImage = 'url("' + imageUrl.replace(/"/g, '%22') + '")';
+      }
     }
 
     function advance() {
@@ -289,68 +347,156 @@
   }
 
   function initContentCarousel() {
-    var root = document.querySelector('[data-content-carousel]');
-    if (!root) return;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-content-carousel]'), function (root) {
+      var track = root.querySelector('[data-content-track]');
+      var panels = track ? Array.prototype.slice.call(track.querySelectorAll('.content-carousel-panel')) : [];
+      var previous = root.querySelector('[data-content-prev]');
+      var next = root.querySelector('[data-content-next]');
+      var page = root.querySelector('[data-content-page]');
+      if (!track || !panels.length || !previous || !next) return;
 
-    var panels = Array.prototype.slice.call(root.querySelectorAll('.content-carousel-panel'));
-    var previous = root.querySelector('[data-content-prev]');
-    var next = root.querySelector('[data-content-next]');
-    var page = root.querySelector('[data-content-page]');
-    if (!panels.length || !previous || !next) return;
+      var index = 0;
+      function sizeTrack() {
+        var panelWidth = root.clientWidth;
+        if (!panelWidth) return;
+        track.style.width = (panelWidth * panels.length) + 'px';
+        panels.forEach(function (panel) {
+          panel.style.flex = '0 0 ' + panelWidth + 'px';
+          panel.style.width = panelWidth + 'px';
+        });
+        track.style.transform = 'translate3d(-' + (index * panelWidth) + 'px, 0, 0)';
+      }
 
-    var index = 0;
+      function setIndex(nextIndex, updateHash) {
+        index = (nextIndex + panels.length) % panels.length;
+        panels.forEach(function (panel, panelIndex) {
+          var active = panelIndex === index;
+          panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+          panel.inert = !active;
+          panel.classList.toggle('is-active', active);
+        });
+        var panelWidth = root.clientWidth;
+        track.style.transform = 'translate3d(-' + (index * panelWidth) + 'px, 0, 0)';
+        if (page) page.textContent = 'Page ' + (index + 1) + ' of ' + panels.length;
+        if (panels[index].querySelector('#workshopMap')) refreshMapSize();
+        if (updateHash && panels[index].id) history.replaceState(null, '', '#' + panels[index].id);
+      }
 
-    function setIndex(nextIndex, updateHash) {
-      index = (nextIndex + panels.length) % panels.length;
-      panels.forEach(function (panel, panelIndex) {
-        var active = panelIndex === index;
-        panel.setAttribute('aria-hidden', active ? 'false' : 'true');
-        panel.classList.toggle('is-active', active);
+      previous.addEventListener('click', function () {
+        setIndex(index - 1, true);
       });
-      if (page) page.textContent = 'Page ' + (index + 1) + ' of ' + panels.length;
-      if (updateHash) history.replaceState(null, '', '#' + panels[index].id);
-    }
-
-    previous.addEventListener('click', function () {
-      setIndex(index - 1, true);
-    });
-    next.addEventListener('click', function () {
-      setIndex(index + 1, true);
-    });
-
-    Array.prototype.forEach.call(document.querySelectorAll('[data-carousel-target]'), function (link) {
-      link.addEventListener('click', function (event) {
-        var targetIndex = Number(link.getAttribute('data-carousel-target'));
-        if (!Number.isInteger(targetIndex) || !panels[targetIndex]) return;
-        event.preventDefault();
-        setIndex(targetIndex, true);
-        root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      next.addEventListener('click', function () {
+        setIndex(index + 1, true);
       });
-    });
 
-    setIndex(0, false);
+      Array.prototype.forEach.call(document.querySelectorAll('[data-carousel-target]'), function (link) {
+        var targetId = link.getAttribute('data-carousel-target');
+        var targetIndex = panels.findIndex(function (panel) { return panel.id === targetId; });
+        if (targetIndex < 0) return;
+        link.addEventListener('click', function (event) {
+          event.preventDefault();
+          setIndex(targetIndex, true);
+          root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+
+      var hashTarget = window.location.hash ? document.getElementById(window.location.hash.slice(1)) : null;
+      var hashPanel = hashTarget && hashTarget.closest('.content-carousel-panel');
+      var initialIndex = hashPanel ? panels.indexOf(hashPanel) : 0;
+      track.style.transition = 'none';
+      setIndex(initialIndex >= 0 ? initialIndex : 0, false);
+      root.classList.add('is-carousel-enhanced');
+      window.requestAnimationFrame(function () {
+        sizeTrack();
+        track.style.removeProperty('transition');
+      });
+      window.addEventListener('resize', sizeTrack);
+    });
   }
 
   function initContactModal() {
     var modal = document.querySelector('[data-contact-modal]');
-    var openButton = document.querySelector('[data-contact-open]');
+    var slot = modal ? modal.querySelector('[data-workshop-enquiry-slot]') : null;
+    var card = document.querySelector('.workshop-enquiry-card');
+    var topicTitle = modal ? modal.querySelector('[data-contact-topic-title]') : null;
+    var offering = modal ? modal.querySelector('[data-contact-offering]') : null;
+    var concerns = modal ? modal.querySelector('[data-contact-concerns]') : null;
+    var imageWrap = modal ? modal.querySelector('[data-contact-image-wrap]') : null;
+    var contextImage = imageWrap ? imageWrap.querySelector('[data-contact-image]') : null;
     var closeButtons = modal ? modal.querySelectorAll('[data-contact-close]') : [];
-    var form = modal ? modal.querySelector('[data-contact-form]') : null;
-    var status = modal ? modal.querySelector('[data-contact-status]') : null;
-    if (!modal || !openButton || !form) return;
-    prepareProtectedForm(form);
+    if (!modal || !slot || !card) return;
 
-    var requestType = form.querySelector('[name="request_type"]');
-    function syncBookingFields() {
-      var booking = requestType && /^(Call|Meeting)$/i.test(requestType.value);
-      ['preferred_date', 'preferred_time'].forEach(function (name) {
-        var input = form.querySelector('[name="' + name + '"]');
-        if (input) input.required = !!booking;
-      });
-    }
-    if (requestType) { requestType.addEventListener('change', syncBookingFields); syncBookingFields(); }
+    var placeholder = document.createElement('aside');
+    placeholder.className = 'hero-copy workshop-enquiry-card workshop-enquiry-prompt';
+    placeholder.id = 'workshop-enquiry';
+    placeholder.setAttribute('aria-labelledby', 'workshop-enquiry-prompt-title');
+    placeholder.innerHTML = '<p class="eyebrow">Make an enquiry</p><h3 id="workshop-enquiry-prompt-title">Talk to the workshop</h3><p>Tell GMT about the equipment, the fault and the support you need.</p><a class="button primary" href="#workshop-enquiry" data-enquire-nav>Make an enquiry</a>';
+    card.removeAttribute('id');
+    card.parentNode.replaceChild(placeholder, card);
+    slot.appendChild(card);
+
+    var form = card.querySelector('[data-workshop-enquiry-form]');
+    var topicSelect = form ? form.querySelector('[data-service-topic]') : null;
+    var message = form ? form.querySelector('[name="message"]') : null;
+    var openButtons = Array.prototype.slice.call(document.querySelectorAll('[data-enquire-nav], [data-service-enquiry-open]'));
 
     var lastFocus = null;
+
+    function setContext(trigger) {
+      var topic = trigger && trigger.getAttribute('data-enquiry-topic') || 'General enquiry';
+      var serviceCard = trigger && trigger.closest('.service-card');
+      if (topic === 'General enquiry' && serviceCard) {
+        var heading = serviceCard.querySelector('h3');
+        if (heading) topic = heading.textContent.trim();
+      }
+      var detail = trigger && trigger.getAttribute('data-enquiry-offering') || 'Tell GMT what equipment you need help with and what has changed.';
+      var points = trigger && trigger.getAttribute('data-enquiry-concerns');
+      var imageSource = trigger && trigger.getAttribute('data-enquiry-image');
+      var imageAlt = trigger && trigger.getAttribute('data-enquiry-image-alt');
+      if (serviceCard) {
+        var serviceImage = serviceCard.querySelector('img');
+        if (serviceImage) {
+          imageSource = imageSource || serviceImage.getAttribute('src');
+          imageAlt = imageAlt || serviceImage.getAttribute('alt');
+        }
+      }
+      var defaultPoints = ['Equipment type and make or model, if known', 'What the equipment does and when the issue occurs', 'Photos or nameplate details, where available'];
+
+      if (topicTitle) topicTitle.textContent = topic === 'General enquiry' ? 'Talk to the workshop' : topic;
+      if (offering) offering.textContent = detail;
+      if (imageWrap && contextImage) {
+        if (imageSource) {
+          contextImage.src = imageSource;
+          contextImage.alt = imageAlt || topic;
+          imageWrap.hidden = false;
+        } else {
+          contextImage.removeAttribute('src');
+          contextImage.alt = '';
+          imageWrap.hidden = true;
+        }
+      }
+      if (concerns) {
+        concerns.replaceChildren();
+        (points ? points.split('|') : defaultPoints).forEach(function (point) {
+          var item = document.createElement('li');
+          item.textContent = point.trim();
+          concerns.appendChild(item);
+        });
+      }
+      if (topicSelect) {
+        var option = Array.prototype.find.call(topicSelect.options, function (item) { return item.value.toLowerCase() === topic.toLowerCase(); });
+        if (!option && topic !== 'General enquiry') {
+          option = document.createElement('option');
+          option.value = topic;
+          option.textContent = topic;
+          topicSelect.appendChild(option);
+        }
+        topicSelect.value = option ? option.value : 'General enquiry';
+      }
+      if (message) message.placeholder = topic === 'General enquiry'
+        ? 'Tell us what equipment you need help with and what has changed.'
+        : 'Tell us more about your ' + topic.toLowerCase() + ' enquiry.';
+    }
 
     function close() {
       modal.hidden = true;
@@ -358,12 +504,29 @@
       if (lastFocus) lastFocus.focus();
     }
 
-    openButton.addEventListener('click', function () {
-      lastFocus = document.activeElement;
+    function open(trigger) {
+      lastFocus = trigger || document.activeElement;
+      setContext(trigger);
       modal.hidden = false;
       document.body.classList.add('modal-open');
-      var firstField = form.querySelector('input:not([type="hidden"])');
+      var workshopForm = card.querySelector('[data-workshop-enquiry-form]');
+      var toggle = card.querySelector('[data-workshop-enquiry-toggle]');
+      if (workshopForm) workshopForm.hidden = false;
+      if (toggle) toggle.hidden = true;
+      card.classList.add('is-expanded');
+      var firstField = workshopForm && workshopForm.querySelector('input:not([type="hidden"])');
       if (firstField) firstField.focus();
+      else {
+        var closeButton = modal.querySelector('.contact-close');
+        if (closeButton) closeButton.focus();
+      }
+    }
+
+    openButtons.forEach(function (button) {
+      button.addEventListener('click', function (event) {
+        event.preventDefault();
+        open(button);
+      });
     });
 
     Array.prototype.forEach.call(closeButtons, function (button) {
@@ -372,47 +535,26 @@
 
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape' && !modal.hidden) close();
-    });
-
-    form.addEventListener('submit', async function (event) {
-      event.preventDefault();
-      if (!status) return;
-      var protectionError = validateProtectedForm(form);
-      if (protectionError) {
-        status.textContent = protectionError;
-        return;
-      }
-      var endpoint = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.contactFormSubmitEndpoint;
-      if (!endpoint) {
-        status.textContent = 'The contact form is not configured yet. Please call the workshop.';
-        return;
-      }
-
-      var submitButton = form.querySelector('button[type="submit"]');
-      var formData = new FormData(form);
-      formData.set('_replyto', formData.get('email') || '');
-      var requestTypeValue = formData.get('request_type') || 'General enquiry';
-      formData.set('_subject', '[GMT][' + requestTypeValue + '] Website request');
-      addEnquiryMetadata(formData, form, requestTypeValue, /^(Call|Meeting)$/i.test(requestTypeValue));
-      if (submitButton) submitButton.disabled = true;
-      status.textContent = 'Sending your enquiry…';
-
-      try {
-        var response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { Accept: 'application/json' },
-          body: formData
-        });
-        if (!response.ok) throw new Error('Contact request failed');
-        form.reset();
-        syncBookingFields();
-        status.textContent = 'Thanks — your enquiry has been sent to GMT Electrical Services.';
-      } catch (_error) {
-        status.textContent = 'We could not send the form. Please call 0208 683 0464 instead.';
-      } finally {
-        if (submitButton) submitButton.disabled = false;
+      if (event.key !== 'Tab' || modal.hidden) return;
+      var focusable = Array.prototype.slice.call(modal.querySelectorAll('button:not([disabled]), a[href], input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])')).filter(function (item) {
+        return !item.hidden && item.getAttribute('aria-hidden') !== 'true';
+      });
+      if (!focusable.length) return;
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     });
+
+    window.addEventListener('hashchange', function () {
+      if (window.location.hash === '#workshop-enquiry') open(null);
+    });
+    if (window.location.hash === '#workshop-enquiry') open(null);
   }
 
   function initWorkshopEnquiry() {
@@ -420,7 +562,6 @@
     var card = form ? form.closest('.workshop-enquiry-card') : null;
     var status = card ? card.querySelector('[data-workshop-enquiry-status]') : null;
     var toggle = card ? card.querySelector('[data-workshop-enquiry-toggle]') : null;
-    var enquiryNavs = Array.prototype.slice.call(document.querySelectorAll('[data-enquire-nav]'));
     if (!form || !status || !card || !toggle) return;
     prepareProtectedForm(form);
 
@@ -450,17 +591,7 @@
       setExpanded(!card.classList.contains('is-expanded'));
     });
 
-    enquiryNavs.forEach(function (enquiryLink) {
-      enquiryLink.addEventListener('click', function (event) {
-        event.preventDefault();
-        if (!card.classList.contains('is-expanded')) setExpanded(true);
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        window.setTimeout(function () {
-          var firstField = form.querySelector('input:not([type="hidden"])');
-          if (firstField) firstField.focus();
-        }, 450);
-      });
-    });
+    if (card.closest('[data-contact-modal]')) toggle.hidden = true;
 
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
