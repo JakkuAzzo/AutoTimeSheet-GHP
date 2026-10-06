@@ -121,6 +121,140 @@
     return request("/api/archive/estimates" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
   }
 
+  function jobCardArchiveSearch(filters) {
+    var params = new URLSearchParams();
+    var values = filters && typeof filters === "object" ? filters : {};
+    Object.keys(values).forEach(function (key) {
+      var value = String(values[key] == null ? "" : values[key]).trim();
+      if (value) params.set(key, value);
+    });
+    return request("/api/job-cards/archive/search" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
+  }
+
+  function getJobCardArchiveRecord(recordId) {
+    return request("/api/job-cards/archive/" + encodeURIComponent(String(recordId || "")), { method: "GET" });
+  }
+
+  function reviewJobCardArchive(recordId, review) {
+    return request("/api/job-cards/archive/" + encodeURIComponent(String(recordId || "")) + "/review", { method: "PATCH", body: review || {} });
+  }
+
+  function jobCardArchiveAccess() {
+    return request("/api/job-cards/archive/access", { method: "GET" });
+  }
+
+  async function getJobCardArchiveContentUrl(recordId) {
+    var endpoint = baseUrl();
+    if (!endpoint) throw new Error("Protected portal archive is not configured");
+    var headers = {};
+    var requestedScopes = scopes();
+    if (requestedScopes.length) {
+      var auth = await authContext();
+      if (!auth || typeof auth.acquireToken !== "function") throw new Error("Sign-in context unavailable");
+      var token = await auth.acquireToken(requestedScopes);
+      if (!token) throw new Error("Protected portal access token unavailable");
+      headers.Authorization = "Bearer " + token;
+    }
+    var response = await fetch(endpoint + "/api/job-cards/archive/" + encodeURIComponent(String(recordId || "")) + "/content", {
+      method: "GET", headers: headers, credentials: "include", cache: "no-store"
+    });
+    if (!response.ok) {
+      var message = "Scanned job-card page could not be retrieved (" + response.status + ")";
+      try { var body = await response.json(); if (body && body.error) message = body.error; } catch (_) {}
+      throw new Error(message);
+    }
+    return URL.createObjectURL(await response.blob());
+  }
+
+  function startJobCardImportBatch(batch) {
+    return request("/api/admin/job-card-batches/start", { method: "POST", body: batch || {} });
+  }
+
+  function jobCardImportBatchStatus(batchId) {
+    return request("/api/admin/job-card-batches/" + encodeURIComponent(String(batchId || "")) + "/status", { method: "GET" });
+  }
+
+  function createJobCardUploadSession(session) {
+    return request("/api/admin/job-card-upload-sessions", { method: "POST", body: session || {} });
+  }
+
+  function completeJobCardSourceUpload(sessionId) {
+    return request("/api/admin/job-card-batches/complete", { method: "POST", body: { sessionId: String(sessionId || "") } });
+  }
+
+  function importJobCardPage(sessionId) {
+    return request("/api/admin/job-cards/import", { method: "POST", body: { sessionId: String(sessionId || "") } });
+  }
+
+  async function uploadJobCardFile(file, uploadUrl, onProgress) {
+    var chunkBytes = 10 * 1024 * 1024;
+    var totalBytes = Number(file && file.size) || 0;
+    var url = String(uploadUrl || "");
+    if (!file || !totalBytes || !/^https:\/\//i.test(url)) throw new Error("The SharePoint upload session is unavailable.");
+    var offset = 0;
+    var retries = 0;
+    var pause = function (milliseconds) { return new Promise(function (resolve) { window.setTimeout(resolve, milliseconds); }); };
+    var recoverOffset = async function () {
+      var statusResponse;
+      try { statusResponse = await fetch(url, { method: "GET", headers: { Accept: "application/json" }, cache: "no-store" }); }
+      catch (_) { throw new Error("The SharePoint upload paused. Start the import again to retry this file."); }
+      if (statusResponse.status === 404) return totalBytes;
+      if (!statusResponse.ok) throw new Error("The SharePoint upload paused. Start the import again to retry this file.");
+      var statusBody = await statusResponse.json().catch(function () { return {}; });
+      var range = Array.isArray(statusBody.nextExpectedRanges) ? statusBody.nextExpectedRanges[0] : "";
+      var parsed = String(range || "").match(/^(\d+)(?:-|$)/);
+      if (!parsed) throw new Error("The SharePoint upload paused. Start the import again to retry this file.");
+      return Math.min(totalBytes, Number(parsed[1]));
+    };
+    while (offset < totalBytes) {
+      var end = Math.min(offset + chunkBytes, totalBytes);
+      var response;
+      try {
+        response = await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Range": "bytes " + offset + "-" + (end - 1) + "/" + totalBytes
+          },
+          body: file.slice(offset, end),
+          cache: "no-store"
+        });
+      } catch (_) {
+        retries += 1;
+        if (retries > 5) throw new Error("The SharePoint upload paused after several connection retries. Retry the batch to continue.");
+        var previousOffset = offset;
+        offset = await recoverOffset();
+        if (typeof onProgress === "function") onProgress(offset, totalBytes);
+        if (offset === previousOffset) await pause(250 * retries);
+        continue;
+      }
+      if (response.status === 416 || response.status === 429 || response.status >= 500) {
+        retries += 1;
+        if (retries > 5) throw new Error("The SharePoint upload paused after several connection retries. Retry the batch to continue.");
+        var previousOffset = offset;
+        offset = await recoverOffset();
+        if (typeof onProgress === "function") onProgress(offset, totalBytes);
+        if (offset === previousOffset) await pause(250 * retries);
+        continue;
+      }
+      if (!response.ok) throw new Error("SharePoint rejected a job-card upload chunk (" + response.status + ").");
+      retries = 0;
+      var nextOffset = end;
+      if (response.status === 202) {
+        var body = await response.json().catch(function () { return {}; });
+        var range = Array.isArray(body.nextExpectedRanges) ? body.nextExpectedRanges[0] : "";
+        var parsed = String(range || "").match(/^(\d+)(?:-|$)/);
+        if (parsed) nextOffset = Number(parsed[1]);
+      } else if (response.status === 200 || response.status === 201) {
+        nextOffset = totalBytes;
+      }
+      if (nextOffset <= offset && nextOffset < totalBytes) throw new Error("SharePoint did not advance the job-card upload.");
+      offset = Math.min(totalBytes, nextOffset);
+      if (typeof onProgress === "function") onProgress(offset, totalBytes);
+    }
+    return { uploadedBytes: totalBytes };
+  }
+
   function getEstimateArchiveRecord(archiveId) {
     return request("/api/archive/estimates/" + encodeURIComponent(String(archiveId || "")), { method: "GET" });
   }
@@ -276,6 +410,17 @@
     history: history,
     estimateIndexList: estimateIndexList,
     searchEstimateArchive: searchEstimateArchive,
+    jobCardArchiveSearch: jobCardArchiveSearch,
+    getJobCardArchiveRecord: getJobCardArchiveRecord,
+    reviewJobCardArchive: reviewJobCardArchive,
+    jobCardArchiveAccess: jobCardArchiveAccess,
+    getJobCardArchiveContentUrl: getJobCardArchiveContentUrl,
+    startJobCardImportBatch: startJobCardImportBatch,
+    jobCardImportBatchStatus: jobCardImportBatchStatus,
+    createJobCardUploadSession: createJobCardUploadSession,
+    completeJobCardSourceUpload: completeJobCardSourceUpload,
+    importJobCardPage: importJobCardPage,
+    uploadJobCardFile: uploadJobCardFile,
     getEstimateArchiveRecord: getEstimateArchiveRecord,
     getEstimateArchiveContent: getEstimateArchiveContent,
     archiveAppEstimate: archiveAppEstimate,

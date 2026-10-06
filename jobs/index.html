@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GMT Job Cards</title>
 <link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=job-history-preview-20260914">
+<link rel="stylesheet" href="../portal.css?v=scanned-job-card-archive-20261006">
 <link rel="stylesheet" href="../tools/estimates.css?v=jobs-estimate-layout-20260914">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
@@ -54,10 +54,27 @@
       <section id="job-card-invoice-links" class="record-invoice-links card" aria-live="polite"><p class="small-text">Select a job card to view linked invoices.</p></section>
     </div>
     <p class="small-text">All job cards remain viewable in protected history. Accounts identities can see every card and manage status, invoice number, Xero reference, and job-email link.</p>
+    <section class="job-card-archive" id="job-card-scanned-archive" aria-labelledby="job-card-scanned-archive-title">
+      <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">4 · Scanned records</p><h2 id="job-card-scanned-archive-title">Search scanned job cards</h2><p class="small-text">Search the OCR text and review Accounts-confirmed fields. OCR suggestions are clearly marked until Accounts verifies them.</p></div><a class="secondary job-card-import-link" id="job-card-import-link" href="../tools/job-card-import.html" hidden>Import archive</a></div>
+      <form class="job-card-archive-filters" id="job-card-archive-search">
+        <label>Search<input id="job-card-archive-query" type="search" placeholder="Job card number, customer, site or work description" autocomplete="off"></label>
+        <label>Card type<select id="job-card-archive-type"><option value="">All cards</option><option value="EC">EC</option><option value="MTA">MTA</option></select></label>
+        <label>Confirmed from<input id="job-card-archive-from" type="date"></label>
+        <label>Confirmed to<input id="job-card-archive-to" type="date"></label>
+        <button type="submit">Search archive</button>
+      </form>
+      <p class="small-text" id="job-card-archive-status" role="status" aria-live="polite">Loading scanned records…</p>
+      <div class="job-card-archive-layout">
+        <div class="job-card-archive-results" id="job-card-archive-results" aria-live="polite"></div>
+        <article class="job-card-archive-detail" id="job-card-archive-detail" aria-live="polite"><p class="small-text">Select a scanned job card to preview and review its record.</p></article>
+      </div>
+      <button type="button" class="secondary" id="job-card-archive-more" hidden>Load more records</button>
+      <section class="record-invoice-links card" id="job-card-archive-invoice-links" aria-live="polite"><p class="small-text">Select a scanned job card to view or link invoices.</p></section>
+    </section>
   </section>
 </main>
 <script src="../portal-api.js?v=portal-api-xero-20260914"></script>
-<script src="../portal.js?v=job-card-history-preview-20260914"></script>
+<script src="../portal.js?v=scanned-job-card-archive-20261006"></script>
 <script src="../add-logo.js?v=remove-intros-20260626"></script>
 </body>
 </html>
