@@ -18,6 +18,9 @@ migrations_dir = "migrations"
 
 [vars]
 ENTRA_TENANT_ID = "8b182d6b-6f34-4ca2-84ad-50ca712b5488"
+SHAREPOINT_GRAPH_CLIENT_ID = "70053a3e-237f-4843-b115-1769926b96f3"
+SHAREPOINT_SITE_ID = "gmtelectservsltd.sharepoint.com,1ca23733-8e2a-4bc3-adb9-8dd7fcc0047d,3284630b-5a9d-40e8-a46b-143832536909"
+SHAREPOINT_DRIVE_ID = "b!MzeiHCqOw0utuY3X_MAEfQtjhDKdWuhApGsUODJTaQkE_LCubVqORJnNdwdXKGNF"
 ENTRA_AUDIENCES = "01b5a6c6-f6c1-47cb-aebe-67f07f415e4b,https://service.flow.microsoft.com/"
 ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,https://gmt-timesheets.pages.dev"
 ADMIN_UPNS = "acc.gmtelect@outlook.com,acc.gmtelect@gmt-services.co.uk"

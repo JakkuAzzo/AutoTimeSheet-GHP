@@ -12,6 +12,7 @@
     "test:marketing:contract": "node tests/public-marketing-contract.mjs",
     "test:pages:deployment-workflow": "node tests/cloudflare-pages-deployment-workflow.mjs",
     "test:worker:deployment-workflow": "node tests/cloudflare-worker-deployment-workflow.mjs",
+    "test:estimate-send": "node tests/estimate-send.test.mjs",
     "test:calendar:protected-boundary": "node tests/calendar-protected-boundary.mjs",
     "test:calendar:day-actions": "node tests/calendar-day-actions.mjs",
     "test:pages:public-root": "node tests/cloudflare-pages-public-root.mjs",
@@ -29,6 +30,8 @@
     "record:training": "node tools/record-staff-walkthrough.mjs all",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
+    "prepare:job-cards": "node tools/prepare-job-card-import.mjs",
+    "test:timesheets:responsive-entry": "node tests/timesheet-entry-responsive.mjs",
     "test:timesheets:daily-calculation": "node tests/timesheet-daily-calculation.mjs",
     "test:timesheets:daily-preview": "node tests/timesheet-daily-preview.mjs",
     "test:timesheets:pay-month": "node tests/timesheet-pay-month-policy.mjs",
@@ -50,6 +53,7 @@
     "cors": "^2.8.5"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "playwright": "^1.63.0"
   }
 }

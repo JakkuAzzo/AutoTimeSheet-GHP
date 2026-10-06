@@ -17,7 +17,12 @@ details, Outlook conversation ID/link, and an append-only message projection.
 
 1. Create a D1 database named `gmt-portal` in the GMT Cloudflare account.
 2. Replace the placeholder `database_id` in `wrangler.toml` with the returned
-   ID, then apply `schema.sql` with Wrangler's D1 execute command.
+   ID. Apply the numbered migrations in order with Wrangler D1 migrations
+   (`wrangler d1 migrations apply gmt-portal --remote`); do not use
+   `schema.sql` as a substitute for the migration history. For local checks,
+   use `--local` and a disposable database. The estimate archive contract is
+   added by `migrations/0009_estimate_archive.sql` and has not been applied to
+   production by this change.
 3. Deploy the Worker from this directory.
 4. Set `HISTORY_UPSTREAM_URL` to the existing protected timesheet history
    trigger only when that flow is still the approved source. Leave it blank
@@ -64,6 +69,15 @@ the enquiry as awaiting inbox synchronisation. Replies entered in the portal
 are saved to the protected thread with `Reply queued` status; actual mailbox
 delivery remains owned by the Microsoft 365 flow.
 
+Portal-created client estimates are archived before delivery. The protected
+`POST /api/estimates/send` route calls the tenant-owned Power Automate send flow
+using the Worker secret `ESTIMATE_SEND_FLOW_URL`; never put the trigger URL in
+the public Pages configuration. The flow must return a success JSON response
+only after the Outlook send action completes, always copy Accounts, and enforce
+its own idempotency key before sending. Until the secret and verified flow are
+configured, the portal preserves the estimate in protected history and the
+shared archive but does not send it.
+
 Existing intake
 flows remain responsible for filing generated attachments; D1 is the durable
 protected portal history and edit source. The scheduled dispatcher records
@@ -75,6 +89,27 @@ Job-card payloads preserve the card reference, revision, lifecycle status,
 invoice number, Xero reference, previous-card ID, and optional Outlook message
 link. Each submitted revision receives a new protected record ID, so an update
 can be assigned a new invoice while the earlier card remains in the chain.
+
+## Estimate email archive data contract
+
+`estimate_index` remains the canonical estimate-number/client lookup used by
+the existing Accounts invoice correlation path. Migration
+`migrations/0009_estimate_archive.sql` adds message, attachment, and association
+records without creating a second estimate master. An email is keyed by its
+Internet Message-ID where available; a mailbox plus provider message ID is the
+fallback idempotency key. The existing `estimate_mail_sources` table retains
+each approved mailbox copy, while each archive message retains its source,
+classification, searchable metadata, SharePoint EML/manifest item IDs, and
+non-sensitive provenance JSON.
+
+Keep original `.eml` bytes, full message bodies, conversation exports, and
+attachment bytes in the restricted SharePoint archive. D1 stores searchable
+metadata, hashes, and opaque SharePoint item IDs for authenticated server-side
+fetches. `archive_associations` records estimate, job-card, and invoice edges
+with confidence, review state, evidence, and the matching rule; a conversation
+ID or shared customer is a candidate signal, not proof by itself. Do not apply
+this migration to production until the archive ingest/query Worker endpoints,
+SharePoint access policy, and bounded read-only backfill have been verified.
 
 ## Xero connection
 

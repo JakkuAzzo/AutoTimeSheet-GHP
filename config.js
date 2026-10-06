@@ -14,12 +14,13 @@ window.GMT_APP_CONFIG = {
   jobCardFormSubmitEndpoint: "",
   taskFormSubmitEndpoint: "",
   calendarFormSubmitEndpoint: "",
-  // Estimate sending/history stay blank until the dedicated Microsoft 365
-  // intake and protected read route are approved and tested.
-  estimateFormSubmitEndpoint: "",
-  estimateSendEndpoint: "",
+  // Estimate email delivery is never sent directly from the browser. The
+  // authenticated Worker calls the approved Power Automate flow from a secret.
   estimateHistoryEndpoint: "",
   estimateHistoryScopes: [],
+  // The estimate-send HTTP trigger is tenant-authenticated. Request its
+  // delegated Flow Service token only when an employee chooses Send.
+  estimateSendScopes: ["https://service.flow.microsoft.com//.default"],
   // Never fall back to a personal mailbox for client delivery. New timesheets
   // are delivered to the company Accounts mailbox and copied to the legacy
   // Accounts archive while that mailbox remains in use.

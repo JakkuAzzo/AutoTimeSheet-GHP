@@ -91,6 +91,7 @@ const archivePayload = {
   outlook_message_id: 'outlook-message-123',
   estimate_number: 'EST-2026-123',
   client: 'Artic Building Services Ltd',
+  sharepoint_eml_item_id: 'sharepoint-eml-123',
   outlook_url: 'https://outlook.office.com/mail/id/outlook-message-123',
   sharepoint_url: 'https://gmtelectservsltd.sharepoint.com/sites/GMTWeb-App/Shared%20Documents/Estimates/quote.pdf'
 };
@@ -100,11 +101,13 @@ const legacyKeyArchive = await worker.fetch(new Request(archiveUrl, { method: 'P
 assert.equal(legacyKeyArchive.status, 401, 'the legacy archive key does not authorize estimate mail ingestion');
 const wrongMailboxArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ESTIMATE_MAIL_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox: 'other@example.com' }) }), archiveEnv, {});
 assert.equal(wrongMailboxArchive.status, 403, 'the archive ingest endpoint rejects unapproved mailboxes');
-for (const mailbox of ['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk', 'acc.gmtelect@outlook.com']) {
+for (const mailbox of ['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk']) {
   const acceptedArchive = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ESTIMATE_MAIL_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox, outlook_message_id: `message-${mailbox}`, internet_message_id: '<same-message@outlook.example>' }) }), archiveEnv, {});
   assert.equal(acceptedArchive.status, 200, `the approved mail archive payload is accepted for ${mailbox}`);
   const acceptedBody = await acceptedArchive.json();
   assert.equal(acceptedBody.estimate.canonical_id, 'email:<same-message@outlook.example>', 'duplicate copies across approved mailboxes share a canonical ID');
   assert.equal(acceptedBody.estimate.mailbox, mailbox, 'the index retains the source mailbox for distinguishing copies');
 }
+const excludedPersonalMailbox = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ESTIMATE_MAIL_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox: 'acc.gmtelect@outlook.com' }) }), archiveEnv, {});
+assert.equal(excludedPersonalMailbox.status, 403, 'the archive ingest endpoint excludes the inaccessible Outlook.com mailbox');
 console.log('Estimate index contract: PASS');
