@@ -1,6 +1,7 @@
 import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
 import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
+import { getJobCardArchiveRecord, getJobCardBatch, jobCardBatchStatus, normalizeJobCardEntry, queryJobCardArchive, reviewJobCardArchive, startJobCardBatch, upsertJobCardArchive, upsertJobCardSourceFile } from './job-card-archive.js';
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
@@ -13,6 +14,8 @@ const MAX_PROFILE_NAME = 240;
 const MAX_PROFILE_EMAIL = 320;
 const ATTACHMENT_FIELDS = new Set(['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
 const JWKS_CACHE = new Map();
+const SHAREPOINT_TOKEN_CACHE = new Map();
+const SHAREPOINT_FOLDER_CACHE = new Set();
 
 function now() {
   return new Date().toISOString();
@@ -1125,6 +1128,9 @@ async function sharePointGraphToken(env) {
   if (!tenant || !clientId || !clientSecret || !text(env.SHAREPOINT_SITE_ID) || !text(env.SHAREPOINT_DRIVE_ID)) {
     throw Object.assign(new Error('Shared archive content access is not configured'), { status: 503 });
   }
+  const cacheKey = `${tenant}:${clientId}`;
+  const cached = SHAREPOINT_TOKEN_CACHE.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
   const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
     body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials', scope: 'https://graph.microsoft.com/.default' })
@@ -1132,6 +1138,8 @@ async function sharePointGraphToken(env) {
   if (!response.ok) throw Object.assign(new Error('Shared archive content authentication failed'), { status: 503 });
   const token = await response.json();
   if (!token.access_token) throw Object.assign(new Error('Shared archive content authentication failed'), { status: 503 });
+  const lifetime = Math.max(120, Number(token.expires_in) || 3600);
+  SHAREPOINT_TOKEN_CACHE.set(cacheKey, { token: token.access_token, expiresAt: Date.now() + lifetime * 1000 });
   return token.access_token;
 }
 
@@ -1141,6 +1149,262 @@ async function graphSharePointRequest(env, path, init = {}) {
     ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers || {}) }
   });
   return response;
+}
+
+function requireJobCardArchiveAdmin(identity) {
+  if (!identity?.isAdmin && !identity?.isJobCardAdmin) throw Object.assign(new Error('Scanned job-card archive changes are restricted to Accounts'), { status: 403 });
+}
+
+function encodeDrivePath(path) {
+  return String(path).split('/').map((part) => encodeURIComponent(part)).join('/');
+}
+
+async function ensureSharePointFolder(env, folderPath) {
+  const siteId = text(env.SHAREPOINT_SITE_ID, '', 500);
+  const driveId = text(env.SHAREPOINT_DRIVE_ID, '', 500);
+  let current = '';
+  for (const segment of String(folderPath).split('/').filter(Boolean)) {
+    current = current ? `${current}/${segment}` : segment;
+    const cacheKey = `${siteId}:${driveId}:${current}`;
+    if (SHAREPOINT_FOLDER_CACHE.has(cacheKey)) continue;
+    const path = `/root:/${encodeDrivePath(current)}`;
+    let response = await graphSharePointRequest(env, path);
+    if (response.status === 404) {
+      const parent = current.includes('/') ? current.slice(0, current.lastIndexOf('/')) : '';
+      const childrenPath = parent ? `/root:/${encodeDrivePath(parent)}:/children` : '/root/children';
+      response = await graphSharePointRequest(env, childrenPath, {
+        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ name: segment, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' })
+      });
+      if (response.status === 409) response = await graphSharePointRequest(env, path);
+    }
+    if (!response.ok) throw Object.assign(new Error('SharePoint job-card archive folders could not be prepared'), { status: 503 });
+    let item;
+    try { item = await response.json(); } catch (_) { item = null; }
+    if (!item?.id || !item.folder) throw Object.assign(new Error('SharePoint job-card archive folder could not be verified'), { status: 503 });
+    SHAREPOINT_FOLDER_CACHE.add(cacheKey);
+  }
+}
+
+function jobCardSessionId(value) {
+  const id = text(value, '', 80);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw Object.assign(new Error('Job-card upload session was not found'), { status: 404 });
+  return id;
+}
+
+async function jobCardBatchStartEndpoint(request, env, identity, origin) {
+  requireJobCardArchiveAdmin(identity);
+  const body = await readJson(request);
+  const result = await startJobCardBatch(env, body, identity);
+  await ensureSharePointFolder(env, `JobCards/Source Batches/${result.batchId}`);
+  await ensureSharePointFolder(env, 'JobCards/Records');
+  return json({ ok: true, ...result }, result.duplicate ? 200 : 201, origin || '');
+}
+
+async function jobCardBatchStatusEndpoint(env, identity, batchId, origin) {
+  requireJobCardArchiveAdmin(identity);
+  return json(await jobCardBatchStatus(env, batchId), 200, origin || '');
+}
+
+async function jobCardUploadSessionEndpoint(request, env, identity, origin) {
+  requireJobCardArchiveAdmin(identity);
+  const body = await readJson(request);
+  const purpose = text(body.purpose, '', 32);
+  if (!['source-batch', 'job-card-page'].includes(purpose)) throw Object.assign(new Error('Upload purpose is invalid'), { status: 400 });
+  const batch = await getJobCardBatch(env, body.batchId);
+  let sourceFile = '';
+  let recordId = null;
+  let pageCount = 0;
+  let sizeBytes = 0;
+  let sha256 = '';
+  let quickXorHash = '';
+  let expectedPath = '';
+  let manifestEntry = null;
+
+  if (purpose === 'source-batch') {
+    sourceFile = text(body.fileName, '', 180);
+    const expected = batch.sources.find((source) => source.fileName === sourceFile);
+    const candidate = {
+      fileName: sourceFile, pageCount: Number(body.pageCount), sizeBytes: Number(body.sizeBytes),
+      sha256: text(body.sha256, '', 64).toLowerCase(), quickXorHash: text(body.quickXorHash, '', 80)
+    };
+    if (!expected || JSON.stringify(candidate) !== JSON.stringify(expected)) throw Object.assign(new Error('Source PDF does not match the registered batch inventory'), { status: 409 });
+    const existing = await env.DB.prepare('SELECT sharepoint_item_id FROM job_card_source_files WHERE batch_id=? AND source_file=?').bind(batch.batch_id, sourceFile).first();
+    if (batch.status !== 'uploading' && !existing) throw Object.assign(new Error('The source batch is already complete'), { status: 409 });
+    sizeBytes = candidate.sizeBytes;
+    sha256 = candidate.sha256;
+    quickXorHash = candidate.quickXorHash;
+    pageCount = candidate.pageCount;
+    expectedPath = `JobCards/Source Batches/${batch.batch_id}/${sourceFile}`;
+  } else {
+    if (!['source-complete', 'pages-complete'].includes(batch.status)) throw Object.assign(new Error('Upload all original source PDFs before adding page records'), { status: 409 });
+    manifestEntry = await normalizeJobCardEntry({ ...body.manifestEntry, batchId: batch.batch_id });
+    const source = batch.sources.find((item) => item.fileName === manifestEntry.sourceFile);
+    const uploadedSource = await env.DB.prepare('SELECT sha256, quick_xor_hash FROM job_card_source_files WHERE batch_id=? AND source_file=?').bind(batch.batch_id, manifestEntry.sourceFile).first();
+    if (!source || !uploadedSource || source.sha256 !== manifestEntry.sourceSha256 || source.quickXorHash !== manifestEntry.sourceQuickXorHash || manifestEntry.sourcePage > source.pageCount) {
+      throw Object.assign(new Error('Job-card page does not match a completed source PDF'), { status: 409 });
+    }
+    recordId = manifestEntry.recordId;
+    sourceFile = manifestEntry.sourceFile;
+    sizeBytes = manifestEntry.sizeBytes;
+    sha256 = manifestEntry.sha256;
+    quickXorHash = manifestEntry.quickXorHash;
+    pageCount = manifestEntry.sourcePage;
+    expectedPath = `JobCards/Records/${recordId}.pdf`;
+  }
+
+  const graphPath = `/root:/${encodeDrivePath(expectedPath)}:/createUploadSession`;
+  const graphResponse = await graphSharePointRequest(env, graphPath, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace' } })
+  });
+  if (!graphResponse.ok) throw Object.assign(new Error('SharePoint could not create the job-card upload session'), { status: 503 });
+  const graphSession = await graphResponse.json();
+  const uploadUrl = text(graphSession.uploadUrl, '', 5000);
+  const expirationDateTime = text(graphSession.expirationDateTime, '', 80);
+  if (!uploadUrl || !/^https:\/\//i.test(uploadUrl) || !Number.isFinite(Date.parse(expirationDateTime))) {
+    throw Object.assign(new Error('SharePoint returned an invalid upload session'), { status: 503 });
+  }
+  const sessionId = crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO job_card_upload_sessions
+    (session_id, purpose, batch_id, record_id, source_file, size_bytes, expected_sha256,
+     expected_quick_xor_hash, expected_path, page_count, manifest_entry_json, actor_oid, actor_upn, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(sessionId, purpose, batch.batch_id, recordId, sourceFile, sizeBytes, sha256, quickXorHash, expectedPath,
+      pageCount, manifestEntry ? JSON.stringify(manifestEntry) : null, identity.oid, identity.upn, expirationDateTime).run();
+  // Graph's preauthenticated URL is returned to this Accounts request only.
+  // It is never persisted, logged, or included in subsequent responses.
+  return json({ sessionId, uploadUrl, expirationDateTime }, 201, origin || '');
+}
+
+async function jobCardSessionForCompletion(env, sessionId) {
+  const row = await env.DB.prepare('SELECT * FROM job_card_upload_sessions WHERE session_id=?').bind(sessionId).first();
+  if (!row) throw Object.assign(new Error('Job-card upload session was not found'), { status: 404 });
+  if (row.status === 'complete') return row;
+  if (row.status === 'expired' || Date.parse(row.expires_at) <= Date.now()) {
+    await env.DB.prepare(`UPDATE job_card_upload_sessions SET status='expired', expected_sha256=NULL,
+      expected_quick_xor_hash=NULL, expected_path=NULL, manifest_entry_json=NULL, completed_at=? WHERE session_id=?`)
+      .bind(new Date().toISOString(), sessionId).run();
+    throw Object.assign(new Error('Job-card upload session expired; create a new session to retry'), { status: 410 });
+  }
+  if (!row.expected_path || !row.expected_sha256 || !row.expected_quick_xor_hash) throw Object.assign(new Error('Job-card upload session is incomplete'), { status: 409 });
+  return row;
+}
+
+async function graphCompletedJobCardFile(env, session) {
+  const response = await graphSharePointRequest(env, `/root:/${encodeDrivePath(session.expected_path)}`);
+  if (!response.ok) throw Object.assign(new Error(response.status === 404 ? 'SharePoint upload has not completed' : 'SharePoint upload could not be verified'), { status: response.status === 404 ? 409 : 503 });
+  const item = await response.json();
+  if (!item.id || Number(item.size) !== Number(session.size_bytes) || item.file?.hashes?.quickXorHash !== session.expected_quick_xor_hash) {
+    throw Object.assign(new Error('SharePoint file size or QuickXorHash does not match the local manifest'), { status: 409 });
+  }
+  return item;
+}
+
+async function clearJobCardUploadSession(env, sessionId) {
+  await env.DB.prepare(`UPDATE job_card_upload_sessions SET status='complete', expected_sha256=NULL,
+    expected_quick_xor_hash=NULL, expected_path=NULL, manifest_entry_json=NULL, completed_at=? WHERE session_id=?`)
+    .bind(new Date().toISOString(), sessionId).run();
+}
+
+async function jobCardBatchCompleteEndpoint(request, env, identity, origin) {
+  requireJobCardArchiveAdmin(identity);
+  const body = await readJson(request);
+  const sessionId = jobCardSessionId(body.sessionId);
+  const session = await jobCardSessionForCompletion(env, sessionId);
+  if (session.purpose !== 'source-batch') throw Object.assign(new Error('Upload session is not an original source PDF'), { status: 400 });
+  const batch = await getJobCardBatch(env, session.batch_id);
+  if (session.status !== 'complete') {
+    const item = await graphCompletedJobCardFile(env, session);
+    if (item.name && item.name !== session.source_file) throw Object.assign(new Error('SharePoint file name does not match the source inventory'), { status: 409 });
+    const source = batch.sources.find((entry) => entry.fileName === session.source_file);
+    if (!source) throw Object.assign(new Error('Original source is not part of the registered batch'), { status: 409 });
+    await upsertJobCardSourceFile(env, batch.batch_id, source, item, identity);
+    await clearJobCardUploadSession(env, sessionId);
+  }
+  const latest = await getJobCardBatch(env, session.batch_id);
+  const sourceCount = Number((await env.DB.prepare('SELECT COUNT(*) AS count FROM job_card_source_files WHERE batch_id=?').bind(batch.batch_id).first())?.count) || 0;
+  return json({ ok: true, batchId: latest.batch_id, status: latest.status, uploadedSourceCount: sourceCount }, 200, origin || '');
+}
+
+async function jobCardImportEndpoint(request, env, identity, origin) {
+  requireJobCardArchiveAdmin(identity);
+  const body = await readJson(request);
+  const sessionId = jobCardSessionId(body.sessionId);
+  const session = await jobCardSessionForCompletion(env, sessionId);
+  if (session.purpose !== 'job-card-page') throw Object.assign(new Error('Upload session is not a job-card page'), { status: 400 });
+  if (session.status === 'complete') {
+    const existing = await getJobCardArchiveRecord(env, session.record_id);
+    return json({ ok: true, recordId: existing.record_id, reviewState: existing.review_state, duplicate: true }, 200, origin || '');
+  }
+  const item = await graphCompletedJobCardFile(env, session);
+  if (item.name && item.name !== `${session.record_id}.pdf`) throw Object.assign(new Error('SharePoint filename does not match the job-card record ID'), { status: 409 });
+  let manifestEntry;
+  try { manifestEntry = JSON.parse(session.manifest_entry_json || '{}'); } catch (_) { throw Object.assign(new Error('Job-card upload session manifest is invalid'), { status: 500 }); }
+  const before = await env.DB.prepare('SELECT record_id FROM job_card_archive WHERE record_id=?').bind(session.record_id).first();
+  const saved = await upsertJobCardArchive(env, {
+    manifestEntry,
+    sharepointItemId: item.id,
+    sharepointPath: session.expected_path
+  }, identity);
+  const batch = await getJobCardBatch(env, session.batch_id);
+  const importedCount = Number((await env.DB.prepare('SELECT COUNT(*) AS count FROM job_card_archive WHERE batch_id=?').bind(session.batch_id).first())?.count) || 0;
+  if (importedCount >= batch.page_count) {
+    await env.DB.prepare("UPDATE job_card_import_batches SET status='pages-complete', updated_at=CURRENT_TIMESTAMP WHERE batch_id=?").bind(session.batch_id).run();
+  }
+  await clearJobCardUploadSession(env, sessionId);
+  return json({ ok: true, recordId: saved.recordId, reviewState: saved.reviewState, duplicate: Boolean(before) }, before ? 200 : 201, origin || '');
+}
+
+function projectJobCardArchive(row) {
+  let candidates = {};
+  let confirmedFields = {};
+  try { candidates = JSON.parse(row.candidates_json || '{}'); } catch (_) {}
+  try { confirmedFields = JSON.parse(row.confirmed_json || '{}'); } catch (_) {}
+  return {
+    record_id: row.record_id, batch_id: row.batch_id, source_file: row.source_file,
+    source_page: row.source_page, card_type: row.card_type, ocr_text: row.ocr_text,
+    mean_ocr_confidence: row.mean_ocr_confidence, candidates, confirmed_fields: confirmedFields,
+    review_state: row.review_state, review_note: row.review_note || '', reviewed_at: row.reviewed_at || null
+  };
+}
+
+async function listJobCardArchiveEndpoint(request, env, identity, origin) {
+  if (!canViewAllRecords(identity, 'job-cards')) throw Object.assign(new Error('Job-card archive access is not permitted'), { status: 403 });
+  const url = new URL(request.url);
+  const result = await queryJobCardArchive(env, {
+    q: url.searchParams.get('q'), cardType: url.searchParams.get('cardType'),
+    from: url.searchParams.get('from'), to: url.searchParams.get('to'),
+    cursor: url.searchParams.get('cursor'), limit: url.searchParams.get('limit')
+  });
+  return json(result, 200, origin || '');
+}
+
+async function jobCardArchiveDetailEndpoint(env, identity, recordId, origin) {
+  if (!canViewAllRecords(identity, 'job-cards')) throw Object.assign(new Error('Job-card archive access is not permitted'), { status: 403 });
+  const row = await getJobCardArchiveRecord(env, recordId);
+  return json({ record: projectJobCardArchive(row) }, 200, origin || '');
+}
+
+async function jobCardArchiveReviewEndpoint(request, env, identity, recordId, origin) {
+  requireJobCardArchiveAdmin(identity);
+  const body = await readJson(request);
+  const result = await reviewJobCardArchive(env, recordId, body, identity);
+  return json({ ok: true, ...result }, 200, origin || '');
+}
+
+async function jobCardArchiveContentEndpoint(env, identity, recordId, origin) {
+  if (!canViewAllRecords(identity, 'job-cards')) throw Object.assign(new Error('Job-card archive access is not permitted'), { status: 403 });
+  const row = await getJobCardArchiveRecord(env, recordId);
+  const response = await graphSharePointRequest(env, `/items/${encodeURIComponent(row.sharepoint_item_id)}/content`);
+  if (!response.ok) throw Object.assign(new Error('Archived job-card content could not be retrieved'), { status: response.status === 404 ? 404 : 503 });
+  return new Response(response.body, { status: 200, headers: {
+    'content-type': 'application/pdf', 'content-length': String(row.size_bytes),
+    'content-disposition': `inline; filename="${row.record_id}.pdf"`, 'cache-control': 'private, no-store',
+    'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+    'x-frame-options': 'SAMEORIGIN', ...(origin ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true', vary: 'Origin' } : {})
+  } });
 }
 
 async function graphFileBytes(response, limit = 20 * 1024 * 1024) {
@@ -3544,6 +3808,31 @@ async function handle(request, env, ctx) {
   const identity = await authenticate(request, env);
   if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
 
+  if (url.pathname === '/api/admin/job-card-batches/start' && request.method === 'POST') return jobCardBatchStartEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/job-cards/archive/access' && request.method === 'GET') {
+    return json({ canImport: Boolean(identity.isAdmin || identity.isJobCardAdmin) }, 200, origin || '');
+  }
+  const jobCardBatchStatusMatch = url.pathname.match(/^\/api\/admin\/job-card-batches\/([^/]+)\/status$/);
+  if (jobCardBatchStatusMatch && request.method === 'GET') {
+    return jobCardBatchStatusEndpoint(env, identity, decodeURIComponent(jobCardBatchStatusMatch[1]), origin || '');
+  }
+  if (url.pathname === '/api/admin/job-card-upload-sessions' && request.method === 'POST') return jobCardUploadSessionEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/admin/job-card-batches/complete' && request.method === 'POST') return jobCardBatchCompleteEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/admin/job-cards/import' && request.method === 'POST') return jobCardImportEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/job-cards/archive/search' && request.method === 'GET') return listJobCardArchiveEndpoint(request, env, identity, origin || '');
+  const jobCardArchiveContentMatch = url.pathname.match(/^\/api\/job-cards\/archive\/([^/]+)\/content$/);
+  if (jobCardArchiveContentMatch && request.method === 'GET') {
+    return jobCardArchiveContentEndpoint(env, identity, decodeURIComponent(jobCardArchiveContentMatch[1]), origin || '');
+  }
+  const jobCardArchiveReviewMatch = url.pathname.match(/^\/api\/job-cards\/archive\/([^/]+)\/review$/);
+  if (jobCardArchiveReviewMatch && request.method === 'PATCH') {
+    return jobCardArchiveReviewEndpoint(request, env, identity, decodeURIComponent(jobCardArchiveReviewMatch[1]), origin || '');
+  }
+  const jobCardArchiveDetailMatch = url.pathname.match(/^\/api\/job-cards\/archive\/([^/]+)$/);
+  if (jobCardArchiveDetailMatch && request.method === 'GET') {
+    return jobCardArchiveDetailEndpoint(env, identity, decodeURIComponent(jobCardArchiveDetailMatch[1]), origin || '');
+  }
+
   if (url.pathname === '/api/archive/estimates' && request.method === 'GET') return listEstimateArchiveEndpoint(request, env, origin || '');
   if (url.pathname === '/api/archive/estimates/app' && request.method === 'POST') return createAppEstimateEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/estimates/send' && request.method === 'POST') return sendClientEstimateEndpoint(request, env, identity, origin || '');
@@ -3608,6 +3897,7 @@ async function handle(request, env, ctx) {
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
     if (existing && !canAccessRecord(identity, existing)) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
+    if (existing?.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
     if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
     if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
     const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env);
@@ -3650,6 +3940,7 @@ async function handle(request, env, ctx) {
     if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (request.method === 'GET') return json({ record: projectRow(existing, true, env), payload: payloadObject(existing) }, 200, origin || '');
+    if (existing.action === 'archive_import' && (request.method === 'PATCH' || request.method === 'DELETE')) return json({ error: 'Scanned job-card records are managed through Accounts review' }, 409, origin || '');
     if (request.method === 'PATCH') {
       if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) return json({ error: 'Only the current and previous pay months may be edited.' }, 409, origin || '');
       const body = await readJson(request);

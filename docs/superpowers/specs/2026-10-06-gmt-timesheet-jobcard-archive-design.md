@@ -2,7 +2,7 @@
 
 ## Status
 
-Design approved by the user on 2026-10-06. The responsive timesheet redesign is implemented and visually verified on an isolated branch. Job-card archive implementation is waiting for the reconciliation task's SharePoint archive changes to become reviewable and integrate. No SharePoint files or provider configuration have been changed for this request.
+Design approved by the user on 2026-10-06. The responsive timesheet redesign and local job-card archive/import UI/API are implemented and visually/test verified on the isolated feature branch. A tested snapshot of the reconciliation task's currently exposed archive source is included as the local integration base. The target task still needs to review and incorporate this feature before its release steps. No SharePoint files or provider configuration have been changed for this request.
 
 ## User goals
 

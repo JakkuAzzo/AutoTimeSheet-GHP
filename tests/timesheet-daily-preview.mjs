@@ -33,7 +33,9 @@ let messageListener;
 const context = {
   window: {
     GMT_APP_CONFIG: {},
-    location: { origin: 'https://gmt.test', search: '' },
+    // Keep the calendar month aligned with the September fixtures regardless
+    // of the date the test suite is run.
+    location: { origin: 'https://gmt.test', search: '?month=2026-09' },
     addEventListener(name, callback) { if (name === 'message') messageListener = callback; }
   },
   document: {
