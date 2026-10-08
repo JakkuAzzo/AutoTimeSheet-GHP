@@ -3032,6 +3032,16 @@ body {
   .marketing-related ul,
   .marketing-list-grid { grid-template-columns: 1fr; }
   .marketing-capabilities-grid { grid-template-columns: 1fr; }
+  .marketing-capabilities-grid {
+    align-content: start;
+    grid-auto-rows: max-content;
+  }
+  .marketing-capabilities-grid > a {
+    align-self: start;
+    height: auto;
+    min-height: 68px;
+    padding: .65rem .75rem;
+  }
   .marketing-page-main { padding-inline: .85rem; }
   .marketing-page .site-nav { justify-content: flex-start; gap: .25rem .9rem; }
   .marketing-page .site-nav a { font-size: .76rem; }

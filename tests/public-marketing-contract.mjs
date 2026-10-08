@@ -41,7 +41,7 @@ assert.match(homepage, /Why Choose GMT\?/i);
 assert.match(homepage, /id="services"/);
 assert.doesNotMatch(homepage, /Trusted Across London|useful turnaround/i,
   'Unverified trust and turnaround claims must stay out of public copy');
-assert.match(homepage, /public-site-mapfix-20260928\.js\?v=carousel-track-20261006-v1/);
+assert.match(homepage, /public-site-mapfix-20260928\.js\?v=carousel-track-20261006-v2/);
 assert.match(homepage, /href="#services"/,
   'The homepage service navigation must target the service carousel');
 assert.match(homepage, /href="\/process\/"/);
