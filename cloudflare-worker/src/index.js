@@ -3281,7 +3281,13 @@ async function refreshXeroAccessToken(env, connection, fetchImpl = fetch) {
   if (!response.ok || !body?.access_token) {
     const message = xeroErrorMessage(body, `Xero token refresh failed (${response.status})`);
     await env.DB.prepare('UPDATE xero_connections SET last_error = ?, updated_at = ? WHERE tenant_id = ?').bind(message, now(), connection.tenant_id).run();
-    throw Object.assign(new Error(message), { status: 502 });
+    const invalidGrant = String(body?.error || '').toLowerCase() === 'invalid_grant' || /consum|invalid.grant|refresh token/i.test(String(body?.error_description || body?.message || ''));
+    throw Object.assign(new Error(message), {
+      status: 503,
+      publicMessage: invalidGrant
+        ? 'Xero authorisation expired or its refresh token was already used. Reconnect Xero to restore invoice access.'
+        : 'Xero could not refresh its authorisation. Retry shortly or reconnect Xero to restore invoice access.'
+    });
   }
   const nextRefreshToken = text(body.refresh_token, refreshToken, 5000);
   const encrypted = await encryptXeroSecret(nextRefreshToken, settings);
@@ -3454,6 +3460,47 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
     estimateCorrelation = correlateEstimateRecords(estimateRows, xeroInvoiceProjection(invoice), []);
   } catch (_) {}
   const indexedById = new Map(estimateRows.map((row) => [row.canonical_id, row]));
+  // Persist only exact, unique references. Customer-name-only correlations are
+  // returned as review candidates and never become confirmed links.
+  for (const match of estimateCorrelation.matches) {
+    if (!['estimate-number', 'estimate-number-alias', 'reference'].includes(match.rule)) continue;
+    const estimate = indexedById.get(match.canonical_id);
+    if (!estimate) continue;
+    const sourceMessages = new Map();
+    if (estimate.internet_message_id) {
+      const source = await env.DB.prepare(`SELECT id, conversation_id FROM archive_messages
+        WHERE internet_message_id = ? LIMIT 1`).bind(String(estimate.internet_message_id).toLowerCase()).first();
+      if (source) sourceMessages.set(source.id, { ...source, provenance: 'exact-reference' });
+    }
+    for (const source of estimate.mail_sources || []) {
+      if (!source.mailbox || !source.outlook_message_id) continue;
+      const archived = await env.DB.prepare(`SELECT id, conversation_id FROM archive_messages
+        WHERE mailbox = ? AND source_message_id = ? LIMIT 1`).bind(source.mailbox, source.outlook_message_id).first();
+      if (archived) sourceMessages.set(archived.id, { ...archived, provenance: 'exact-reference' });
+    }
+    for (const archived of sourceMessages.values()) {
+      await upsertEstimateAssociation(env, archived.id, {
+        target_kind: 'invoice', target_id: invoiceId,
+        target_reference: text(invoice.InvoiceNumber || invoiceId, '', 500),
+        relationship: 'billed-as', confidence: 1, state: 'confirmed',
+        provenance_kind: 'exact-reference',
+        evidence: { estimate_canonical_id: estimate.canonical_id, rule: match.rule, invoice_reference: text(invoice.Reference, '', 500) }
+      }, identity.upn);
+      if (archived.conversation_id) {
+        const conversation = await env.DB.prepare(`SELECT id FROM archive_messages
+          WHERE conversation_id = ? AND source_kind = 'email'`).bind(archived.conversation_id).all();
+        for (const message of conversation.results || []) {
+          await upsertEstimateAssociation(env, message.id, {
+            target_kind: 'invoice', target_id: invoiceId,
+            target_reference: text(invoice.InvoiceNumber || invoiceId, '', 500),
+            relationship: 'same-conversation', confidence: 1, state: 'confirmed',
+            provenance_kind: 'conversation-id',
+            evidence: { estimate_canonical_id: estimate.canonical_id, source_message_id: archived.id, conversation_id: archived.conversation_id }
+          }, identity.upn);
+        }
+      }
+    }
+  }
   const relatedEstimates = estimateCorrelation.matches.map((match) => {
     const row = indexedById.get(match.canonical_id) || {};
     return {
@@ -4021,7 +4068,7 @@ export default {
       return await handle(request, env, ctx);
     } catch (error) {
       const status = Number(error && error.status) || 500;
-      const message = status >= 500 ? 'GMT portal service is temporarily unavailable' : (error.message || 'Request failed');
+      const message = error?.publicMessage || (status >= 500 ? 'GMT portal service is temporarily unavailable' : (error.message || 'Request failed'));
       const origin = allowedOrigin(request, env);
       return json({ error: message }, status, origin || '');
     }

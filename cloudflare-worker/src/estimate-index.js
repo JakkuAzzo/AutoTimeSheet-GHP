@@ -107,9 +107,14 @@ export function correlateEstimateRecords(indexRows = [], invoice = {}, records =
   const direct = rows.filter((row) => invoiceNumber && (row.estimate_number === invoiceNumber || row.number_aliases.includes(invoiceNumber)));
   const referenced = direct.length ? direct : rows.filter((row) => reference && (row.estimate_number === reference || row.number_aliases.includes(reference)));
   const exact = referenced.length ? referenced : rows.filter((row) => reference && row.reference && row.reference.toLowerCase() === reference.toLowerCase());
-  const chosen = exact.length ? exact : rows.filter((row) => client && row.client && row.client.toLowerCase() === client);
+  const clientOnly = exact.length ? [] : rows.filter((row) => client && row.client && row.client.toLowerCase() === client);
+  const chosen = exact.length ? exact : clientOnly;
   const unique = [...new Map(chosen.map((row) => [row.canonical_id, row])).values()];
   const rule = direct.length ? 'estimate-number' : referenced.length ? 'estimate-number-alias' : exact.length ? 'reference' : 'client';
+  if (!exact.length) {
+    const candidates = unique.map((row) => ({ canonical_id: row.canonical_id, rule: 'client' }));
+    return { matches: [], candidates, explanation: candidates.length ? 'Customer name only; Accounts review required' : 'No confident estimate match' };
+  }
   const matches = unique.length === 1 ? [{ canonical_id: unique[0].canonical_id, rule }] : [];
   const candidates = unique.length > 1 ? unique.map((row) => ({ canonical_id: row.canonical_id, rule: 'ambiguous' })) : [];
   return { matches, candidates, explanation: matches.length ? `Matched by ${rule}` : candidates.length ? 'Multiple candidates require Accounts review' : 'No confident estimate match' };

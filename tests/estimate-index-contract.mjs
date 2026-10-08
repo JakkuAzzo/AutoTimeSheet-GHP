@@ -67,6 +67,12 @@ const ambiguous = correlateEstimateRecords([
 ], { contact_name: 'Artic Building Services Ltd' }, []);
 assert.equal(ambiguous.matches.length, 0);
 assert.equal(ambiguous.candidates.length, 2);
+const singleClientOnly = correlateEstimateRecords([
+  { canonical_id: 'client-only', client: 'Artic Building Services Ltd' }
+], { contact_name: 'Artic Building Services Ltd' }, []);
+assert.equal(singleClientOnly.matches.length, 0, 'customer name alone never confirms an estimate link');
+assert.deepEqual(singleClientOnly.candidates, [{ canonical_id: 'client-only', rule: 'client' }]);
+assert.match(singleClientOnly.explanation, /review/i);
 
 const archiveEnv = {
   ARCHIVE_INGEST_KEY: 'legacy-key-must-not-authorize-estimate-mail',
