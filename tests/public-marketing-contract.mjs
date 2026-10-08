@@ -35,13 +35,20 @@ const titles = new Set();
 const serviceIndex = fs.readFileSync(path.join(repo, 'services/index.html'), 'utf8');
 const processIndex = fs.readFileSync(path.join(repo, 'process/index.html'), 'utf8');
 const publicSiteScript = fs.readFileSync(path.join(repo, 'public-site-mapfix-20260928.js'), 'utf8');
+const publicStyles = fs.readFileSync(path.join(repo, 'public-site.css'), 'utf8');
 
 assert.match(homepage, /Specialist Motor, Pump, Fan &amp; Gearbox Repairs/i);
 assert.match(homepage, /Why Choose GMT\?/i);
 assert.match(homepage, /id="services"/);
 assert.doesNotMatch(homepage, /Trusted Across London|useful turnaround/i,
   'Unverified trust and turnaround claims must stay out of public copy');
-assert.match(homepage, /public-site-mapfix-20260928\.js\?v=carousel-track-20261006-v2/);
+assert.match(homepage, /public-site-mapfix-20260928\.js\?v=carousel-track-20261006-v3/);
+assert.match(publicSiteScript, /function updateMobileHeroHeight\(/,
+  'The hero must size itself to the visible mobile viewport below the site header and nav');
+assert.match(publicStyles, /height:\s*var\(--gmt-mobile-hero-height(?:,[^)]+)?\)/,
+  'The mobile hero must occupy only the viewport area below the measured site header and nav');
+assert.match(publicStyles, /\.hero\.is-hero-intro-active \.hero-inner\s*\{[^}]*position:\s*absolute/s,
+  'Hidden hero copy must not stretch the intro stage and push the logo below the fold');
 assert.match(homepage, /href="#services"/,
   'The homepage service navigation must target the service carousel');
 assert.match(homepage, /href="\/process\/"/);
