@@ -6,6 +6,7 @@ const html = fs.readFileSync(new URL('tools/estimates.html', root), 'utf8');
 const index = fs.readFileSync(new URL('tools/index.html', root), 'utf8');
 const page = fs.readFileSync(new URL('tools/estimates.js', root), 'utf8');
 const config = fs.readFileSync(new URL('config.js', root), 'utf8');
+const historyData = fs.readFileSync(new URL('tools/estimate-history-data.mjs', root), 'utf8');
 
 assert.match(html, /id="estimate-client-email"[^>]*required/);
 assert.match(html, />Send to client</);
@@ -27,7 +28,8 @@ assert.match(worker, /Delivery status needs review/);
 assert.match(page, /estimateHistoryEndpoint/);
 assert.match(page, /estimateIndexList/);
 assert.match(page, /mergeSharedEstimateIndex/);
-assert.match(page, /sharepoint_url/);
+assert.match(page, /estimate-history-data\.mjs/);
+assert.match(historyData, /sharepoint_url/);
 assert.match(fs.readFileSync(new URL('portal-api.js', root), 'utf8'), /function estimateIndexList\(/);
 assert.match(page, /function assetUrl/);
 assert.match(page, /assetUrl\('image\.png'\)/);

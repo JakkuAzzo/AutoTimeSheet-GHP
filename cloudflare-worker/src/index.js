@@ -3523,7 +3523,7 @@ async function recordInvoiceLinksEndpoint(request, env, identity, origin, kind, 
   const record = await env.DB.prepare('SELECT record_id, kind, status FROM records WHERE record_id = ?').bind(recordId).first();
   if (!record) return json({ error: 'Record not found' }, 404, origin || '');
   if (record.kind !== kind) return json({ error: 'Record type does not match the requested link type' }, 400, origin || '');
-  if (!canAccessRecord(identity, record)) throw Object.assign(new Error('You are not allowed to view this record'), { status: 403 });
+  if (!canViewRecord(identity, record)) throw Object.assign(new Error('You are not allowed to view this record'), { status: 403 });
   const linked = await env.DB.prepare(`SELECT tenant_id, invoice_id, record_kind, linked_by_upn, linked_at
     FROM xero_invoice_links WHERE record_id = ? AND record_kind = ? ORDER BY linked_at DESC`)
     .bind(recordId, kind).all();
