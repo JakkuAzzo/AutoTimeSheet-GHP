@@ -3850,30 +3850,72 @@ body {
   }
 
   .content-carousel-wide > .content-carousel-track > .marketing-story-section {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1rem;
+    grid-template-columns: minmax(0, 1.25fr) minmax(112px, .72fr);
+    align-items: start;
+    gap: .75rem;
   }
 
   .content-carousel-wide .marketing-story-image {
     width: 100%;
     max-width: none;
     justify-self: stretch;
+    align-self: center;
   }
 
   .content-carousel-wide .marketing-story-image img {
-    height: 200px;
-    max-height: 200px;
+    height: clamp(190px, 58vw, 300px);
+    max-height: none;
+    object-fit: cover;
   }
 
   .content-carousel-wide > .content-carousel-track > .workshop-motion {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    gap: .85rem;
+    grid-template-columns: minmax(0, 1.15fr) minmax(112px, .72fr);
+    grid-template-rows: auto auto;
+    align-items: start;
+    gap: .85rem .75rem;
   }
 
   .content-carousel-wide .workshop-motion-content {
     grid-column: 1;
     grid-row: 1;
+    min-width: 0;
+  }
+
+  .content-carousel-wide .workshop-enquiry-card {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .content-carousel-wide .workshop-motion-media {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: stretch;
+    width: 100%;
+    height: clamp(250px, 76vw, 390px);
+    max-height: none;
+    aspect-ratio: auto;
+    margin-block: 0;
+  }
+
+  .content-carousel-wide .workshop-motion-image {
+    object-fit: cover;
+  }
+}
+
+@media (max-width: 360px) {
+  .content-carousel-wide > .content-carousel-track > .marketing-story-section,
+  .content-carousel-wide > .content-carousel-track > .workshop-motion {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .content-carousel-wide .marketing-story-image {
+    justify-self: start;
+    max-width: 240px;
+  }
+
+  .content-carousel-wide .marketing-story-image img {
+    height: 190px;
   }
 
   .content-carousel-wide .workshop-enquiry-card {
@@ -3884,14 +3926,6 @@ body {
   .content-carousel-wide .workshop-motion-media {
     grid-column: 1;
     grid-row: 3;
-    align-self: auto;
     height: 220px;
-    max-height: 220px;
-    aspect-ratio: 4 / 3;
-    margin-block: 0;
-  }
-
-  .content-carousel-wide .workshop-motion-image {
-    object-fit: contain;
   }
 }
