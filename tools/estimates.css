@@ -1,13 +1,12 @@
-.estimate-main { max-width: 1400px; }
+.estimate-main { width:100%; max-width:1400px; }
+.estimate-main > *, .estimate-layout, .estimate-form, .estimate-preview-panel, #estimate-archive, .estimate-archive-layout, .estimate-archive-detail, .estimate-paper { min-width:0; }
 .estimate-intro { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; margin-bottom:1rem; }
 .estimate-intro h2, .estimate-form h2, .estimate-preview-panel h2 { margin:.15rem 0 .35rem; color:var(--green); }
 .estimate-intro p:not(.portal-card-kicker) { max-width:60rem; margin:0; color:var(--muted); line-height:1.5; }
 .estimate-status-chip { padding:.4rem .7rem; color:#0d4c16; background:#e4f2e0; border:1px solid #a9caa1; border-radius:999px; font-weight:800; white-space:nowrap; }
-.estimate-layout { display:grid; grid-template-columns:minmax(320px, .95fr) minmax(440px, 1.05fr); gap:1rem; align-items:start; }
+.estimate-layout { display:grid; grid-template-columns:minmax(0, .95fr) minmax(0, 1.05fr); gap:1rem; align-items:start; }
 .estimate-form, .estimate-preview-panel { display:grid; gap:1rem; }
 .estimate-history-panel { display:grid; gap:1rem; min-width:0; margin-top:1rem; }
-.estimate-history-layout { display:grid; grid-template-columns:minmax(240px,.7fr) minmax(420px,1.3fr); gap:1rem; align-items:start; min-width:0; }
-.estimate-history-layout > *, .estimate-history-list, .estimate-history-preview { min-width:0; }
 .submission-history-list-panel { display:grid; gap:.6rem; min-width:0; }
 .submission-list-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; min-width:0; padding:.1rem 0 .55rem; border-bottom:1px solid var(--line); }
 .submission-list-controls .portal-history-filter { display:grid; grid-template-columns:1fr; gap:.25rem; align-items:stretch; min-width:0; color:var(--green); font-size:.78rem; letter-spacing:.02em; }
@@ -21,7 +20,7 @@
 .estimate-history-preview { min-height:520px; }
 .estimate-archive-filters { display:grid; grid-template-columns:minmax(220px,1.7fr) minmax(145px,.8fr) repeat(2,minmax(145px,.7fr)) auto; gap:.65rem; align-items:end; }
 .estimate-archive-filters label { display:grid; gap:.3rem; color:var(--green); font-size:.8rem; font-weight:850; }
-.estimate-archive-layout { display:grid; grid-template-columns:minmax(250px,.75fr) minmax(0,1.25fr); gap:1rem; align-items:start; min-width:0; }
+.estimate-archive-layout { display:grid; grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr); gap:1rem; align-items:start; min-width:0; width:100%; }
 .estimate-archive-detail { display:grid; gap:.7rem; min-width:0; padding:1rem; background:#fbfdf9; border:1px solid var(--line); border-radius:.75rem; }
 .estimate-archive-detail h3, .estimate-archive-detail h4 { margin:.2rem 0; color:var(--green); }
 .estimate-archive-detail p { margin:.15rem 0; overflow-wrap:anywhere; }
@@ -39,24 +38,24 @@
 .estimate-line-remove { min-height:40px; padding:.45rem .6rem; color:#8b2525; background:#fff; border:1px solid #d9aaaa; border-radius:.5rem; }
 .estimate-actions { display:flex; flex-wrap:wrap; gap:.65rem; padding-top:.25rem; border-top:1px solid var(--line); }
 .estimate-preview-panel { position:sticky; top:1rem; }
-.estimate-paper { min-height:760px; padding:2.4rem; color:#1e293b; background:#fff; border:1px solid #d9dfd4; box-shadow:0 12px 30px rgba(0,0,0,.1); font-family:Arial,sans-serif; }
+.estimate-paper { width:100%; max-width:100%; min-height:760px; padding:2.4rem; color:#1e293b; background:#fff; border:1px solid #d9dfd4; box-shadow:0 12px 30px rgba(0,0,0,.1); font-family:Arial,sans-serif; overflow-wrap:anywhere; }
 .estimate-paper-header { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; padding-bottom:1.5rem; border-bottom:2px solid #cda72e; }
 .estimate-paper-logo { display:block; width:250px; max-width:48%; height:auto; object-fit:contain; object-position:left center; }
 .estimate-paper-company { color:#17241b; font-size:.82rem; font-weight:800; text-align:right; }
 .estimate-paper-company p { margin:.15rem 0; }
 .estimate-paper-title { margin:2.2rem 0 1.6rem; color:#17241b; font-size:1.55rem; letter-spacing:.08em; text-align:center; text-transform:uppercase; }
-.estimate-paper-meta { display:grid; grid-template-columns:1fr auto; gap:1rem; margin-bottom:1.6rem; font-size:.92rem; }
+.estimate-paper-meta { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,auto); gap:1rem; margin-bottom:1.6rem; font-size:.92rem; }
 .estimate-paper-meta p { margin:.2rem 0; }
 .estimate-paper-body { min-height:300px; font-size:.95rem; line-height:1.55; }
-.estimate-paper-table { width:100%; margin:1.2rem 0; border-collapse:collapse; font-size:.9rem; }
+.estimate-paper-table { width:100%; margin:1.2rem 0; border-collapse:collapse; table-layout:fixed; font-size:.9rem; overflow-wrap:anywhere; }
 .estimate-paper-table th, .estimate-paper-table td { padding:.55rem .35rem; border-bottom:1px solid #d9dfd4; text-align:left; }
 .estimate-paper-table th:not(:first-child), .estimate-paper-table td:not(:first-child) { text-align:right; }
 .estimate-paper-total { margin-left:auto; width:min(280px,100%); font-size:.95rem; }
 .estimate-paper-total p { display:flex; justify-content:space-between; gap:1rem; margin:.35rem 0; }
 .estimate-paper-total .grand-total { padding-top:.55rem; color:#123d1d; border-top:2px solid #cda72e; font-size:1.1rem; font-weight:900; }
 .estimate-paper-terms { margin-top:2rem; white-space:pre-line; font-size:.88rem; line-height:1.5; }
-@media (max-width:900px) { .estimate-layout, .estimate-history-layout, .estimate-archive-layout { grid-template-columns:1fr; } .estimate-preview-panel { position:static; } }
-@media (max-width:700px) { .estimate-intro, .estimate-form-heading, .estimate-preview-toolbar { align-items:flex-start; flex-direction:column; } .estimate-line { grid-template-columns:1fr 1fr; } .estimate-line label:first-child { grid-column:1/-1; } .estimate-line-total { text-align:left; } .estimate-paper { min-height:0; padding:1.1rem; } .estimate-paper-header { flex-direction:column; } .estimate-paper-logo { max-width:80%; } .estimate-history-layout { gap:.75rem; } .estimate-history-list { max-height:none; } .estimate-archive-filters { grid-template-columns:1fr 1fr; } .estimate-archive-filters label:first-child { grid-column:1/-1; } .estimate-archive-filters button { grid-column:1/-1; } .submission-list-controls { grid-template-columns:1fr; } }
+@media (max-width:900px) { .estimate-layout, .estimate-archive-layout { grid-template-columns:minmax(0,1fr); width:100%; } .estimate-form, .estimate-preview-panel { width:100%; } .estimate-preview-panel { position:static; } }
+@media (max-width:700px) { .estimate-main { width:100%; padding:.65rem; } .estimate-intro, .estimate-form-heading, .estimate-preview-toolbar { align-items:flex-start; flex-direction:column; } .estimate-line { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .estimate-line label:first-child { grid-column:1/-1; } .estimate-line-total { text-align:left; } .estimate-paper { min-height:0; padding:1rem; } .estimate-paper-header { flex-direction:column; } .estimate-paper-logo { max-width:80%; } .estimate-paper-meta { grid-template-columns:minmax(0,1fr); gap:.35rem; } .estimate-paper-table { font-size:.78rem; } .estimate-archive-filters { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .estimate-archive-filters label:first-child { grid-column:1/-1; } .estimate-archive-filters button { grid-column:1/-1; } .submission-list-controls { grid-template-columns:1fr; } }
 @media print { body { background:#fff; } .app-header, .estimate-intro, .estimate-form, .estimate-preview-toolbar { display:none !important; } .estimate-main, .estimate-layout, .estimate-preview-panel { display:block; max-width:none; margin:0; padding:0; } .estimate-paper { min-height:0; border:0; box-shadow:none; } }
 
 /* Submitted documents uses a dense record column so the document list stays
