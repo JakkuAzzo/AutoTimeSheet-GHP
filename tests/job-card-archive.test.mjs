@@ -27,6 +27,35 @@ for (const index of ['idx_job_card_archive_batch_source', 'idx_job_card_upload_s
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?").get(index), `index ${index} exists`);
 }
 
+// Production D1 was created with NOT NULL hashes. Keep the router test strict
+// so completion and expiry paths cannot clear fields that the live schema keeps.
+db.exec(`
+  CREATE TABLE job_card_upload_sessions_production (
+    session_id TEXT PRIMARY KEY,
+    purpose TEXT NOT NULL CHECK (purpose IN ('source-batch', 'job-card-page')),
+    batch_id TEXT NOT NULL REFERENCES job_card_import_batches(batch_id) ON DELETE CASCADE,
+    record_id TEXT,
+    source_file TEXT NOT NULL DEFAULT '',
+    size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+    expected_sha256 TEXT NOT NULL CHECK (length(expected_sha256) = 64),
+    expected_quick_xor_hash TEXT NOT NULL,
+    expected_path TEXT,
+    page_count INTEGER NOT NULL DEFAULT 0 CHECK (page_count >= 0),
+    manifest_entry_json TEXT CHECK (manifest_entry_json IS NULL OR json_valid(manifest_entry_json)),
+    actor_oid TEXT NOT NULL,
+    actor_upn TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'uploading' CHECK (status IN ('uploading', 'complete', 'expired')),
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT
+  );
+  INSERT INTO job_card_upload_sessions_production SELECT * FROM job_card_upload_sessions;
+  DROP TABLE job_card_upload_sessions;
+  ALTER TABLE job_card_upload_sessions_production RENAME TO job_card_upload_sessions;
+  CREATE INDEX idx_job_card_upload_sessions_expiry ON job_card_upload_sessions(status, expires_at);
+  CREATE INDEX idx_job_card_upload_sessions_record ON job_card_upload_sessions(record_id, status);
+`);
+
 const d1 = {
   prepare(sql) {
     const createStatement = (args = []) => ({
@@ -275,12 +304,25 @@ try {
   assert.ok(!content.headers.get('content-disposition')?.includes('private-sharepoint-item'));
   assert.equal(await content.text(), '%PDF-1.4 test page');
 
+  const expiringSession = await call('/api/admin/job-card-upload-sessions', accountsToken, {
+    method: 'POST', body: { purpose: 'source-batch', batchId, fileName: sourceFiles[0].fileName, sizeBytes: sourceFiles[0].sizeBytes, sha256: sourceFiles[0].sha256, quickXorHash: sourceFiles[0].quickXorHash, pageCount: sourceFiles[0].pageCount }
+  });
+  assert.equal(expiringSession.status, 201);
+  const expiringSessionBody = await expiringSession.json();
+  db.prepare('UPDATE job_card_upload_sessions SET expires_at=? WHERE session_id=?').run('2000-01-01T00:00:00.000Z', expiringSessionBody.sessionId);
+  const expired = await call('/api/admin/job-card-batches/complete', accountsToken, { method: 'POST', body: { sessionId: expiringSessionBody.sessionId } });
+  assert.equal(expired.status, 410, 'expired upload sessions are marked expired without clearing required hashes');
+  const expiredSession = db.prepare('SELECT status, expected_sha256, expected_quick_xor_hash FROM job_card_upload_sessions WHERE session_id=?').get(expiringSessionBody.sessionId);
+  assert.equal(expiredSession.status, 'expired');
+  assert.ok(expiredSession.expected_sha256 && expiredSession.expected_quick_xor_hash);
+  assert.equal(db.prepare('SELECT expected_path FROM job_card_upload_sessions WHERE session_id=?').get(expiringSessionBody.sessionId).expected_path, null);
+
   const afterRouteResponse = await call('/api/job-cards/archive/search?q=archivepaginationmarker&limit=2', employeeToken);
   assert.equal(afterRouteResponse.status, 200);
   const afterRoute = await afterRouteResponse.json();
   assert.ok(!JSON.stringify(afterRoute).includes('private-sharepoint-item'));
   assert.ok(!JSON.stringify(afterRoute).includes('sharepointPath'));
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM job_card_upload_sessions WHERE status='complete' AND expected_path IS NULL AND manifest_entry_json IS NULL AND expected_sha256 IS NULL AND expected_quick_xor_hash IS NULL").get().count, 3, 'completed upload metadata is cleared from D1');
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM job_card_upload_sessions WHERE status='complete' AND expected_path IS NULL AND manifest_entry_json IS NULL AND expected_sha256 IS NOT NULL AND expected_quick_xor_hash IS NOT NULL").get().count, 3, 'completed sessions clear private manifest details while retaining required hashes');
 } finally {
   globalThis.fetch = originalFetch;
 }
