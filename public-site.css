@@ -3774,6 +3774,10 @@ body {
   max-width: none;
 }
 
+.content-carousel-wide .workshop-motion-content > .eyebrow {
+  color: #fff;
+}
+
 .content-carousel-wide .workshop-enquiry-card {
   grid-column: 2;
   grid-row: 1;
@@ -3783,15 +3787,16 @@ body {
 .content-carousel-wide .workshop-motion-media {
   grid-column: 3;
   grid-row: 1;
-  align-self: center;
+  align-self: stretch;
   width: 100%;
-  height: 320px;
-  max-height: 320px;
-  aspect-ratio: 4 / 5;
+  height: auto;
+  max-height: none;
+  aspect-ratio: auto;
+  margin-block: calc(-1 * clamp(1.5rem, 3.4vw, 2.5rem));
 }
 
 .content-carousel-wide .workshop-motion-image {
-  object-fit: contain;
+  object-fit: cover;
   object-position: center;
   background: transparent;
 }
@@ -3835,8 +3840,7 @@ body {
   .content-carousel-wide .workshop-motion-media {
     grid-column: 2;
     grid-row: 1 / 3;
-    height: 280px;
-    max-height: 280px;
+    align-self: stretch;
   }
 }
 
@@ -3880,8 +3884,14 @@ body {
   .content-carousel-wide .workshop-motion-media {
     grid-column: 1;
     grid-row: 3;
+    align-self: auto;
     height: 220px;
     max-height: 220px;
     aspect-ratio: 4 / 3;
+    margin-block: 0;
+  }
+
+  .content-carousel-wide .workshop-motion-image {
+    object-fit: contain;
   }
 }
