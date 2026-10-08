@@ -49,6 +49,12 @@ assert.match(publicStyles, /height:\s*var\(--gmt-mobile-hero-height(?:,[^)]+)?\)
   'The mobile hero must occupy only the viewport area below the measured site header and nav');
 assert.match(publicStyles, /\.hero\.is-hero-intro-active \.hero-inner\s*\{[^}]*position:\s*absolute/s,
   'Hidden hero copy must not stretch the intro stage and push the logo below the fold');
+assert.match(publicStyles.slice(publicStyles.lastIndexOf('.workshop-motion-content {')),
+  /grid-row:\s*1\s*;/,
+  'The workshop motion heading and copy must precede its photo in the mobile slide');
+assert.match(publicStyles.slice(publicStyles.lastIndexOf('.workshop-motion-media {')),
+  /grid-row:\s*2\s*;/,
+  'The workshop motion photo must follow its heading and copy in the mobile slide');
 assert.match(homepage, /href="#services"/,
   'The homepage service navigation must target the service carousel');
 assert.match(homepage, /href="\/process\/"/);
