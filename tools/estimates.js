@@ -223,7 +223,7 @@
   async function viewConversationMessage(messageId) {
     const item = [...(conversationDialog?.querySelectorAll('[data-view-archive-message]') || [])].find((element) => element.dataset.viewArchiveMessage === messageId);
     if (!item) return;
-    const button = item.querySelector('button');
+    const button = item.matches('button') ? item : item.querySelector('button');
     button.disabled = true;
     conversationTitle.textContent = 'Loading archived email…';
     try {
