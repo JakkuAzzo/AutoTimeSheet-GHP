@@ -398,6 +398,10 @@ function xeroCookieState(request) {
   try { return decodeURIComponent(match[1]); } catch (_) { return ''; }
 }
 
+function xeroOAuthStateMatches(state, cookieState) {
+  return Boolean(state) && (!cookieState || constantTimeEqual(state, cookieState));
+}
+
 function xeroStateCookie(value, maxAge = 600) {
   return `gmt_xero_oauth_state=${encodeURIComponent(value || '')}; Max-Age=${maxAge}; Path=/api/xero; HttpOnly; Secure; SameSite=None`;
 }
@@ -3178,7 +3182,10 @@ async function completeXeroConnection(request, env) {
   const configuredReturn = settings.returnUrl;
   if (!settings.configured) return xeroRedirectResponse(configuredReturn, 'error', 'not-configured');
   if (url.searchParams.get('error')) return xeroRedirectResponse(configuredReturn, 'error', 'authorisation-denied');
-  if (!state || !cookieState || !constantTimeEqual(state, cookieState)) return xeroRedirectResponse(configuredReturn, 'error', 'invalid-state');
+  // Safari may omit the cross-site cookie on the return from Xero. The random
+  // state is also stored hashed, expires, and is consumed once below, so the
+  // cookie is an additional mismatch check rather than a required credential.
+  if (!xeroOAuthStateMatches(state, cookieState)) return xeroRedirectResponse(configuredReturn, 'error', 'invalid-state');
   const stateHash = await sha256Base64Url(state);
   const stateRow = await env.DB.prepare(`SELECT state_hash, owner_oid, owner_upn, return_url
     FROM xero_oauth_states WHERE state_hash = ? AND consumed_at IS NULL AND expires_at > ?`).bind(stateHash, now()).first();
@@ -4149,6 +4156,7 @@ export {
   getProfileSettings,
   saveProfileSettings,
   xeroSettings,
+  xeroOAuthStateMatches,
   xeroInvoiceProjection,
   xeroInvoicePayload,
   xeroInvoiceDeliveryStatus,
