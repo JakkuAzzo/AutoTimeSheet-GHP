@@ -3429,7 +3429,7 @@ body {
   background-position: center;
   background-size: cover;
   filter: blur(16px) saturate(.82);
-  opacity: .68;
+  opacity: .22;
   transform: scale(1.04);
   transition: background-image .5s ease;
 }
@@ -3581,6 +3581,15 @@ body {
   .workshop-enquiry-card {
     grid-column: 1;
     grid-row: 3;
+  }
+
+  .workshop-enquiry-prompt {
+    margin-inline: auto;
+    text-align: center;
+  }
+
+  .workshop-enquiry-prompt .button {
+    margin-inline: auto;
   }
 }
 
