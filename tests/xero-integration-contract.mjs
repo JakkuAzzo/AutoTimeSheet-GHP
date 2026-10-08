@@ -77,6 +77,9 @@ assert.match(invoicesUi, /related_estimates/);
 assert.match(invoicesUi, /email_threads/);
 assert.match(invoicesUi, /Reconnect Xero/);
 assert.match(invoicesUi, /last_error/);
+assert.match(invoicesUi, /Xero connected successfully/);
+assert.match(invoicesUi, /Xero reconnect did not complete/);
+assert.match(worker, /https:\/\/gmt-services\.co\.uk\/tools\/invoices\?xero=connected/);
 assert.match(worker, /Reconnect Xero to restore invoice access/);
 for (const handler of [
   'startXeroConnection', 'xeroStatus', 'xeroSetupDataEndpoint', 'xeroInvoiceRecords',
@@ -102,10 +105,11 @@ const settings = xeroSettings({
   XERO_CLIENT_SECRET: 'client-secret',
   XERO_REDIRECT_URI: 'https://gmt-portal-api.example.workers.dev/api/xero/callback',
   XERO_TOKEN_ENCRYPTION_KEY: key,
-  XERO_POST_CONNECT_REDIRECT: 'https://gmt-services.co.uk/jobs/?xero=connected',
+  XERO_POST_CONNECT_REDIRECT: 'https://gmt-services.co.uk/tools/invoices?xero=connected',
   ALLOWED_ORIGINS: 'https://gmt-services.co.uk'
 });
 assert.equal(settings.configured, true);
+assert.equal(new URL(settings.returnUrl).pathname, '/tools/invoices');
 const encrypted = await encryptXeroSecret('rotating-refresh-token', settings);
 assert.notEqual(encrypted.ciphertext, 'rotating-refresh-token');
 assert.equal(await decryptXeroSecret(encrypted.ciphertext, encrypted.iv, settings), 'rotating-refresh-token');

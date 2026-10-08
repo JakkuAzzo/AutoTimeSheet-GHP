@@ -55,6 +55,36 @@
     });
   }
 
+  function consumeXeroReturn() {
+    var params = new URLSearchParams(window.location.search);
+    var result = params.get("xero");
+    if (result !== "connected" && result !== "error") return null;
+    var reason = params.get("xero_reason") || "";
+    try { window.history.replaceState({}, document.title, window.location.pathname + window.location.hash); } catch (_) {}
+    return { result: result, reason: reason };
+  }
+
+  function showXeroReturn(result) {
+    if (!result) return;
+    if (result.result === "connected") {
+      if (status) status.textContent = "Xero connected successfully. The invoice register is refreshing.";
+      return;
+    }
+    var messages = {
+      "authorisation-denied": "Xero reconnect was not completed because access was declined or cancelled.",
+      "invalid-state": "Xero reconnect could not verify the sign-in session. Start reconnect again from this page.",
+      "expired-state": "The Xero reconnect session expired. Start reconnect again from this page.",
+      "token-exchange": "Xero returned, but did not complete authorisation. Check the Xero app callback URL and try again.",
+      "no-tenant": "Xero authorisation completed without returning a GMT organisation.",
+      "missing-code": "Xero did not return an authorisation code. Start reconnect again.",
+      "not-configured": "Xero is not fully configured on the portal service.",
+      "storage-not-configured": "The portal could not store the Xero authorisation. Contact the portal administrator."
+    };
+    if (status) status.textContent = messages[result.reason] || "Xero reconnect did not complete. Start reconnect again or contact the portal administrator.";
+    if (chip) chip.textContent = "Reconnect incomplete";
+    if (connect) { connect.hidden = false; connect.style.display = ""; connect.textContent = "Reconnect Xero"; }
+  }
+
   function money(value, currency) {
     var number = Number(value);
     if (!Number.isFinite(number)) return "Not recorded";
@@ -457,6 +487,7 @@
 
 
 
+  var xeroReturn = consumeXeroReturn();
   resetEditor();
-  loadStatus();
+  loadStatus().then(function () { showXeroReturn(xeroReturn); });
 }());
