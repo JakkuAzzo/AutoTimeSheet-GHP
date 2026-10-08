@@ -304,6 +304,28 @@
     window.setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
   }
 
+  async function fetchEstimateArchiveContent(archiveId, contentId) {
+    var endpoint = baseUrl();
+    if (!endpoint) throw new Error("Protected portal archive is not configured");
+    var headers = {};
+    var requestedScopes = scopes();
+    if (requestedScopes.length) {
+      var auth = await authContext();
+      if (!auth || typeof auth.acquireToken !== "function") throw new Error("Sign-in context unavailable");
+      var token = await auth.acquireToken(requestedScopes);
+      if (!token) throw new Error("Protected portal access token unavailable");
+      headers.Authorization = "Bearer " + token;
+    }
+    var path = "/api/archive/estimates/" + encodeURIComponent(String(archiveId || "")) + "/content/" + encodeURIComponent(String(contentId || ""));
+    var response = await fetch(endpoint + path, { method: "GET", headers: headers, credentials: "include", cache: "no-store" });
+    if (!response.ok) {
+      var message = "Archived file could not be opened (" + response.status + ")";
+      try { var body = await response.json(); if (body && body.error) message = body.error; } catch (_) {}
+      throw new Error(message);
+    }
+    return response.blob();
+  }
+
   function getProfile() {
     return request("/api/profile", { method: "GET" });
   }
@@ -423,6 +445,7 @@
     uploadJobCardFile: uploadJobCardFile,
     getEstimateArchiveRecord: getEstimateArchiveRecord,
     getEstimateArchiveContent: getEstimateArchiveContent,
+    fetchEstimateArchiveContent: fetchEstimateArchiveContent,
     archiveAppEstimate: archiveAppEstimate,
     sendEstimate: sendEstimate,
     getProfile: getProfile,

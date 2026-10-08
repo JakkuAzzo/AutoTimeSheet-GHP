@@ -52,15 +52,15 @@ const identityFromAmandaToken = tokenIdentity({
 assert.equal(identityFromInfoToken.isAdmin, false);
 assert.equal(identityFromInfoToken.isOperationsAdmin, true);
 assert.equal(identityFromInfoToken.isJobCardAdmin, true);
-assert.equal(identityFromAmandaToken.isAdmin, false, 'Amanda gets no broader portal-admin role from this change');
-assert.equal(identityFromAmandaToken.isOperationsAdmin, false);
+assert.equal(identityFromAmandaToken.isAdmin, true, 'Amanda can access all authenticated portal pages and admin records');
+assert.equal(identityFromAmandaToken.isOperationsAdmin, true);
 assert.equal(identityFromAmandaToken.isJobCardAdmin, true, 'the configured job-card role recognizes Amanda’s tenant identity');
 
 assert.equal(canViewAllRecords(employee, 'job-cards'), true, 'all authenticated portal users can read shared job cards');
 assert.equal(canViewAllRecords(jobCardAdmin, 'job-cards'), true);
 assert.equal(canViewAllRecords(jobCardAdmin, 'timesheets'), false);
 assert.equal(canViewAllRecords(identityFromAmandaToken, 'job-cards'), true);
-assert.equal(canViewAllRecords(identityFromAmandaToken, 'timesheets'), false, 'Amanda’s added role stays within job-card records');
+assert.equal(canViewAllRecords(identityFromAmandaToken, 'timesheets'), true, 'Amanda has the all-pages administrator role');
 assert.equal(canViewAllRecords(identityFromInfoToken, 'estimates'), true);
 assert.equal(canViewAllRecords(identityFromInfoToken, 'tasks'), true);
 assert.equal(canViewAllRecords(identityFromInfoToken, 'timesheets'), false);
@@ -103,6 +103,7 @@ assert.equal(canAccessRecord(jobCardAdmin, { ...jobCard, owner_oid: 'other-oid' 
 assert.equal(canAccessRecord(jobCardAdmin, { ...jobCard, kind: 'timesheets', owner_oid: 'other-oid' }), false);
 assert.equal(canAccessRecord(identityFromInfoToken, { ...jobCard, kind: 'estimates', owner_oid: 'other-oid' }), true);
 assert.equal(canAccessRecord(identityFromInfoToken, { ...jobCard, kind: 'timesheets', owner_oid: 'other-oid' }), false);
+assert.equal(canAccessRecord(identityFromAmandaToken, { ...jobCard, kind: 'timesheets', owner_oid: 'other-oid' }), true);
 assert.equal(canAccessRecord(accountsAdmin, { ...jobCard, owner_oid: 'other-oid' }), true);
 
 const projected = projectRow(jobCard);

@@ -59,15 +59,25 @@ await api.getEstimateArchiveContent('message-1', 'attachment-1', 'estimate.pdf')
 assert.match(calls.at(-1).url, /\/api\/archive\/estimates\/message-1\/content\/attachment-1$/);
 assert.equal(downloaded, true, 'archive content is downloaded through the authenticated portal request');
 assert.deepEqual(createdObjectUrls, ['blob:archive-test']);
+const conversationBody = await api.fetchEstimateArchiveContent('message-1', 'eml');
+assert.equal(typeof conversationBody.text, 'function', 'conversation email content can be fetched without forcing a download');
+assert.match(calls.at(-1).url, /\/api\/archive\/estimates\/message-1\/content\/eml$/);
+assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer signed-portal-token');
 
 const html = await readFile(new URL('../tools/estimates.html', import.meta.url), 'utf8');
 const script = await readFile(new URL('../tools/estimates.js', import.meta.url), 'utf8');
 const css = await readFile(new URL('../tools/estimates.css', import.meta.url), 'utf8');
-for (const id of ['estimate-archive-search', 'estimate-archive-query', 'estimate-archive-range', 'estimate-archive-from', 'estimate-archive-to', 'estimate-archive-results', 'estimate-archive-detail', 'estimate-archive-more']) {
+for (const id of ['estimate-archive-search', 'estimate-archive-query', 'estimate-archive-from', 'estimate-archive-to', 'estimate-archive-results', 'estimate-archive-detail', 'estimate-archive-more', 'estimate-conversation-dialog', 'estimate-conversation-messages', 'estimate-conversation-message-body']) {
   assert.ok(html.includes(`id="${id}"`), `Estimates UI contains ${id}`);
 }
+assert.doesNotMatch(html, /id="estimate-archive-from"[^>]*disabled/, 'From date is directly editable');
+assert.doesNotMatch(html, /id="estimate-archive-to"[^>]*disabled/, 'To date is directly editable');
+assert.doesNotMatch(html, /id="estimate-archive-range"/, 'date range inputs do not depend on the removed range selector');
 assert.match(script, /nextCursor/);
 assert.match(script, /Email conversation/);
+assert.match(script, /View conversation/);
+assert.match(script, /showModal\(\)/, 'the conversation control opens an accessible browser dialog');
+assert.match(script, /fetchEstimateArchiveContent/, 'conversation messages can be fetched for browser preview');
 assert.match(script, /Download attachment/);
 assert.match(script, /message\.source_kind === 'email'/, 'app-created document rows do not offer a missing EML download');
 assert.match(css, /estimate-archive-layout/);
