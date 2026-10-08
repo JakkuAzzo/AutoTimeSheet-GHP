@@ -321,7 +321,7 @@ async function saveProfileSettings(env, identity, body) {
 const XERO_DEFAULT_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_DEFAULT_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_DEFAULT_API_URL = 'https://api.xero.com';
-const XERO_DEFAULT_RETURN_URL = 'https://gmt-services.co.uk/jobs/?xero=connected';
+const XERO_DEFAULT_RETURN_URL = 'https://gmt-services.co.uk/tools/invoices?xero=connected';
 const XERO_DEFAULT_SCOPES = 'openid profile email offline_access accounting.invoices accounting.contacts accounting.settings';
 
 function xeroSettings(env) {
