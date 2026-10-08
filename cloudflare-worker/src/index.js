@@ -1330,8 +1330,8 @@ async function jobCardSessionForCompletion(env, sessionId) {
   if (!row) throw Object.assign(new Error('Job-card upload session was not found'), { status: 404 });
   if (row.status === 'complete') return row;
   if (row.status === 'expired' || Date.parse(row.expires_at) <= Date.now()) {
-    await env.DB.prepare(`UPDATE job_card_upload_sessions SET status='expired', expected_sha256=NULL,
-      expected_quick_xor_hash=NULL, expected_path=NULL, manifest_entry_json=NULL, completed_at=? WHERE session_id=?`)
+    await env.DB.prepare(`UPDATE job_card_upload_sessions SET status='expired', expected_path=NULL,
+      manifest_entry_json=NULL, completed_at=? WHERE session_id=?`)
       .bind(new Date().toISOString(), sessionId).run();
     throw Object.assign(new Error('Job-card upload session expired; create a new session to retry'), { status: 410 });
   }
@@ -1350,8 +1350,8 @@ async function graphCompletedJobCardFile(env, session) {
 }
 
 async function clearJobCardUploadSession(env, sessionId) {
-  await env.DB.prepare(`UPDATE job_card_upload_sessions SET status='complete', expected_sha256=NULL,
-    expected_quick_xor_hash=NULL, expected_path=NULL, manifest_entry_json=NULL, completed_at=? WHERE session_id=?`)
+  await env.DB.prepare(`UPDATE job_card_upload_sessions SET status='complete', expected_path=NULL,
+    manifest_entry_json=NULL, completed_at=? WHERE session_id=?`)
     .bind(new Date().toISOString(), sessionId).run();
 }
 
