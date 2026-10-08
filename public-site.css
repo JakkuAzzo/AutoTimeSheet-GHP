@@ -2914,10 +2914,27 @@ body {
 .marketing-inline-cta { margin: 1.5rem 0 0; text-align: center; }
 
 .google-reviews-section {
+  position: relative;
+  isolation: isolate;
   max-width: 1180px;
   padding-block: clamp(1.25rem, 3vw, 2rem) clamp(2rem, 4vw, 3.25rem);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f4f6f2;
 }
 
+.google-reviews-section::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: url("assets/website/hero/hero-workshop-Photo-3.jpg") center / cover no-repeat;
+  content: "";
+  opacity: .22;
+  pointer-events: none;
+}
+
+.google-reviews-section > * { position: relative; z-index: 1; }
 .google-reviews-section .section-heading { margin-bottom: 1rem; }
 .google-reviews-section .eyebrow { color: var(--green-2); font-weight: 850; }
 
@@ -2925,7 +2942,7 @@ body {
   overflow: hidden;
   border: 1px solid var(--line);
   border-top: 4px solid var(--gold);
-  background: var(--white);
+  background: rgba(255, 255, 255, .94);
   box-shadow: 0 10px 26px rgba(18, 61, 29, .07);
 }
 
