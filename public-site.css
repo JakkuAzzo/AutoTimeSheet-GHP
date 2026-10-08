@@ -3793,6 +3793,7 @@ body {
 .content-carousel-wide .workshop-motion-image {
   object-fit: contain;
   object-position: center;
+  background: transparent;
 }
 
 @media (max-width: 980px) {
