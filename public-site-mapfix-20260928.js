@@ -356,6 +356,15 @@
       if (!track || !panels.length || !previous || !next) return;
 
       var index = 0;
+      var mobileLayout = window.matchMedia('(max-width: 820px)');
+      function sizeActivePanel() {
+        if (mobileLayout.matches && root.classList.contains('is-carousel-enhanced')) {
+          track.style.height = panels[index].scrollHeight + 'px';
+        } else {
+          track.style.removeProperty('height');
+        }
+      }
+
       function sizeTrack() {
         var panelWidth = root.clientWidth;
         if (!panelWidth) return;
@@ -365,6 +374,7 @@
           panel.style.width = panelWidth + 'px';
         });
         track.style.transform = 'translate3d(-' + (index * panelWidth) + 'px, 0, 0)';
+        sizeActivePanel();
       }
 
       function setIndex(nextIndex, updateHash) {
@@ -377,6 +387,7 @@
         });
         var panelWidth = root.clientWidth;
         track.style.transform = 'translate3d(-' + (index * panelWidth) + 'px, 0, 0)';
+        sizeActivePanel();
         if (page) page.textContent = 'Page ' + (index + 1) + ' of ' + panels.length;
         if (panels[index].querySelector('#workshopMap')) refreshMapSize();
         if (updateHash && panels[index].id) history.replaceState(null, '', '#' + panels[index].id);
