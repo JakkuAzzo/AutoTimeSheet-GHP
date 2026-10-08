@@ -22,24 +22,33 @@
     return Array.from(files || []).filter((file) => /\.pdf$/i.test(file.name));
   }
 
-  async function inspectSelectedFolders() {
+  async function inspectSelectedFiles() {
     const sourceInput = $('#job-card-source-folder');
-    const preparedInput = $('#job-card-prepared-folder');
+    const manifestInput = $('#job-card-manifest-file');
+    const pageInput = $('#job-card-page-files');
     const summary = $('#job-card-import-file-summary');
     const start = $('#job-card-import-start');
     const sourceFiles = pdfFiles(sourceInput?.files);
-    const preparedFiles = Array.from(preparedInput?.files || []);
+    const manifestFiles = Array.from(manifestInput?.files || []);
+    const pageFiles = pdfFiles(pageInput?.files);
+    const preparedFiles = [...manifestFiles, ...pageFiles];
     sourceFilesByName = new Map(sourceFiles.map((file) => [file.name.toLowerCase(), file]));
-    preparedFilesByPath = new Map(preparedFiles.map((file) => [filePath(file), file]));
+    preparedFilesByPath = new Map([
+      ...manifestFiles.map((file) => [filePath(file), file]),
+      ...pageFiles.map((file) => {
+        const path = filePath(file);
+        return [/^pages\//i.test(path) ? path : `pages/${file.name}`, file];
+      })
+    ]);
     manifest = null;
     if (start) start.disabled = true;
-    if (!sourceFiles.length || !preparedFiles.length) {
-      if (summary) summary.textContent = 'Select both folders to check the batch inventory.';
+    if (!sourceFiles.length || !manifestFiles.length || !pageFiles.length) {
+      if (summary) summary.textContent = 'Select the source PDFs, manifest, and page PDFs to check the batch inventory.';
       return;
     }
-    const manifests = preparedFiles.filter((file) => file.name.toLowerCase() === 'manifest.json');
+    const manifests = manifestFiles.filter((file) => file.name.toLowerCase() === 'manifest.json');
     if (manifests.length !== 1) {
-      if (summary) summary.textContent = 'The prepared folder must contain exactly one manifest.json file.';
+      if (summary) summary.textContent = 'Select exactly one file named manifest.json.';
       return;
     }
     try {
@@ -54,7 +63,7 @@
       const sourceSizesMatch = parsed.sources.every((source) => sourceFilesByName.get(String(source.fileName).toLowerCase())?.size === Number(source.sizeBytes));
       const pageSizesMatch = parsed.pages.every((page) => preparedFilesByPath.get(String(page.file))?.size === Number(page.sizeBytes));
       if (!sourceMatch || !pageMatch || !countMatch || !sourceSizesMatch || !pageSizesMatch) {
-        if (summary) summary.textContent = 'The selected files do not match the manifest inventory. Check that you chose the original source folder and the completed prepared archive folder.';
+        if (summary) summary.textContent = 'The selected files do not match the manifest inventory. Check the 13 source PDFs, manifest.json, and all PDFs inside the prepared pages folder.';
         return;
       }
       manifest = parsed;
@@ -211,9 +220,9 @@
         return;
       }
       if (main) main.hidden = false;
-      ['#job-card-source-folder', '#job-card-prepared-folder'].forEach((selector) => $(selector)?.addEventListener('change', inspectSelectedFolders));
+      ['#job-card-source-folder', '#job-card-manifest-file', '#job-card-page-files'].forEach((selector) => $(selector)?.addEventListener('change', inspectSelectedFiles));
       $('#job-card-import-start')?.addEventListener('click', importBatch);
-      status('Accounts access verified. Select both folders to begin.');
+      status('Accounts access verified. Select the archive files to begin.');
     } catch (error) {
       if (main) main.hidden = true;
       if (denied) denied.hidden = false;

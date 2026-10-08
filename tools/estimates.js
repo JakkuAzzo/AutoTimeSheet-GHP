@@ -1,53 +1,16 @@
-import { mergeSharedEstimateIndex, normaliseHistoryRecord } from './estimate-history-data.mjs';
-
 (() => {
   const CONFIG = window.GMT_APP_CONFIG || {};
   const $ = (id) => document.getElementById(id);
   const lines = $('estimate-lines');
   const preview = $('estimate-preview');
   const status = $('estimate-status');
-  const historyStatus = $('estimate-history-status');
-  const historyList = $('estimate-history-list');
-  const historyPreview = $('estimate-history-preview');
-  const historyRefresh = $('estimate-history-refresh');
   const sendButton = $('send-estimate');
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   const money = (value) => new Intl.NumberFormat('en-GB', { style:'currency', currency:'GBP' }).format(Number(value) || 0);
   const today = new Date();
-  let historyRecords = [];
-  let selectedHistory = -1;
 
   function portalProfile() {
     try { return JSON.parse(localStorage.getItem('gmt.portal.profile.v1') || '{}'); } catch (_) { return {}; }
-  }
-
-  function normaliseScopes(value) {
-    if (Array.isArray(value)) return value.map((scope) => String(scope || '').trim()).filter(Boolean);
-    if (typeof value === 'string') return value.split(/\s+/).map((scope) => scope.trim()).filter(Boolean);
-    return [];
-  }
-
-  function historyStorageKey() {
-    const profile = portalProfile();
-    const identity = String(profile.subject || profile.username || 'signed-in-account').trim();
-    return `gmt.estimates.history.v1.${encodeURIComponent(identity).slice(0, 160)}`;
-  }
-
-  function readLocalHistory() {
-    try {
-      const value = JSON.parse(localStorage.getItem(historyStorageKey()) || '[]');
-      return Array.isArray(value) ? value.filter((record) => record && typeof record === 'object') : [];
-    } catch (_) { return []; }
-  }
-
-  function saveLocalEstimate(record) {
-    try {
-      const existing = readLocalHistory();
-      const next = [record, ...existing.filter((item) => item.recordId !== record.recordId)].slice(0, 50);
-      localStorage.setItem(historyStorageKey(), JSON.stringify(next));
-    } catch (_) {
-      // A storage failure must not stop the protected send request.
-    }
   }
 
   function portalApiEnabled() {
@@ -164,7 +127,6 @@ import { mergeSharedEstimateIndex, normaliseHistoryRecord } from './estimate-his
       await window.GMTPortalApi.saveRecord(protectedRecord);
       try { await indexAppEstimate(d, protectedRecord.recordId); } catch (_) { /* the protected estimate record remains available for the shared views */ }
       const sentAt = new Date().toISOString();
-      const localRecord = { ...d, sentAt, status: 'Pending client send', recordId: protectedRecord.recordId };
       status.textContent = 'Filing the estimate in the shared SharePoint archive…';
       await window.GMTPortalApi.archiveAppEstimate({
         fileName: `${d.number || 'GMT-estimate'}.doc`, contentType: 'application/msword',
@@ -175,19 +137,13 @@ import { mergeSharedEstimateIndex, normaliseHistoryRecord } from './estimate-his
       });
       await loadArchive(true);
       status.textContent = 'Estimate filed. Sending through the approved Accounts mailbox…';
-      const result = await window.GMTPortalApi.sendEstimate({
+      await window.GMTPortalApi.sendEstimate({
         recordId: protectedRecord.recordId, estimate: d,
         fileName: `${d.number || 'GMT-estimate'}.doc`, contentType: 'application/msword',
         contentBase64: archiveContentBase64(content), to: d.email
       });
-      const finalSentAt = result?.sent_at || new Date().toISOString();
-      localRecord.sentAt = finalSentAt;
-      localRecord.status = 'Sent to client';
-      saveLocalEstimate(localRecord);
-      historyRecords = [localRecord, ...historyRecords.filter((record) => record.recordId !== localRecord.recordId)];
-      renderHistory(historyRecords, portalApiEnabled() ? 'protected portal history' : 'this browser');
       try { await indexAppEstimate(d, protectedRecord.recordId, 'sent'); } catch (_) { /* archive and protected history remain queryable */ }
-      status.textContent = 'Estimate sent through the approved Accounts route, archived, and added to shared estimate history.';
+      status.textContent = 'Estimate sent through the approved Accounts route and filed in the shared archive.';
     } catch (error) {
       if (protectedRecord) {
         const archiveFailed = /archiv|sharepoint|shared archive/i.test(error.message || '');
@@ -199,110 +155,6 @@ import { mergeSharedEstimateIndex, normaliseHistoryRecord } from './estimate-his
       status.textContent = uncertain
         ? `${error.message || 'Delivery could not be confirmed.'} Check the Power Automate run before retrying; the estimate is retained in the shared archive.`
         : `${error.message || 'Estimate could not be sent.'} The estimate remains in the shared archive; no email was confirmed.`;
-    }
-  }
-
-  async function includeSharedEstimateIndex(records) {
-    if (!portalApiEnabled() || typeof window.GMTPortalApi.estimateIndexList !== 'function') return records;
-    const body = await window.GMTPortalApi.estimateIndexList();
-    return mergeSharedEstimateIndex(records, body && body.estimates);
-  }
-
-  function renderHistory(records, source) {
-    historyRecords = records.map(normaliseHistoryRecord).filter(Boolean);
-    if (!historyRecords.length) {
-      historyList.innerHTML = '<p class="small-text portal-history-empty">No estimates have been sent from this account.</p>';
-      historyPreview.innerHTML = '<p class="small-text">Select an estimate to preview it.</p>';
-      selectedHistory = -1;
-      return;
-    }
-    historyList.innerHTML = historyRecords.map((record, index) => `<button type="button" class="estimate-history-item" data-history-index="${index}" aria-current="${index === 0 ? 'true' : 'false'}"><strong>${esc(record.number || 'Estimate')}</strong><span>${esc(record.company || 'Client company')}</span><small>${esc(record.date || 'No date')} · ${esc(record.status || 'Sent')}${record.sourceMailboxes?.length ? ` · Copies: ${esc(record.sourceMailboxes.join(', '))}` : ''}</small></button>`).join('');
-    historyList.querySelectorAll('[data-history-index]').forEach((button) => button.addEventListener('click', () => selectHistory(Number(button.dataset.historyIndex))));
-    const requestedRecord = new URLSearchParams(window.location.search || '').get('record') || '';
-    const requestedIndex = requestedRecord ? historyRecords.findIndex((record) => String(record.recordId) === requestedRecord) : -1;
-    selectHistory(requestedIndex >= 0 ? requestedIndex : (selectedHistory >= 0 && selectedHistory < historyRecords.length ? selectedHistory : 0));
-    if (historyStatus && source) historyStatus.textContent = `Showing ${historyRecords.length} estimate${historyRecords.length === 1 ? '' : 's'} from ${source}.`;
-  }
-
-  function selectHistory(index) {
-    if (!historyRecords[index]) return;
-    selectedHistory = index;
-    historyList.querySelectorAll('[data-history-index]').forEach((button) => { button.setAttribute('aria-current', String(Number(button.dataset.historyIndex) === index)); });
-    const record = historyRecords[index];
-    const safeLink = (value) => /^https?:\/\//i.test(String(value || '')) ? esc(value) : '';
-    const sharepoint = safeLink(record.sharepointUrl || record.attachmentUrl);
-    const outlook = safeLink(record.outlookUrl);
-    const links = (sharepoint || outlook) ? `<div class="estimate-preview-toolbar"><strong>Archived source</strong><span>${sharepoint ? `<a href="${sharepoint}" target="_blank" rel="noopener">Open shared SharePoint file ↗</a>` : ''}${sharepoint && outlook ? ' · ' : ''}${outlook ? `<a href="${outlook}" target="_blank" rel="noopener">Open email in Outlook ↗</a>` : ''}</span></div>` : '';
-    historyPreview.innerHTML = documentHtml(record) + links;
-    loadEstimateInvoiceLinks(historyRecords[index]);
-  }
-
-  async function loadEstimateInvoiceLinks(record) {
-    const panel = $('estimate-invoice-links');
-    if (!panel || !record?.recordId || !window.GMTPortalApi?.recordInvoiceLinks) return;
-    panel.innerHTML = '<p class="small-text">Loading linked invoices…</p>';
-    try {
-      const body = await window.GMTPortalApi.recordInvoiceLinks('estimates', record.recordId);
-      const invoices = Array.isArray(body?.invoices) ? body.invoices : [];
-      const list = invoices.map((invoice) => `<li><strong>${esc(invoice.invoice_number || invoice.invoice_id || 'Invoice')}</strong> · ${esc(invoice.display_status || invoice.status || 'Unknown')} · ${esc(invoice.amount_due == null ? 'Amount due unavailable' : money(invoice.amount_due))}${invoice.url ? ` · <a href="${esc(invoice.url)}" target="_blank" rel="noopener">Open in Xero ↗</a>` : ''}</li>`).join('');
-      panel.innerHTML = `<div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Linked billing</p><h3>Invoices</h3></div><span class="small-text">${invoices.length} linked</span></div>${list ? `<ul class="record-invoice-list">${list}</ul>` : '<p class="small-text">No Xero invoice is linked yet.</p>'}<div class="record-invoice-link-form"><label>Link invoice number<input data-estimate-invoice-number placeholder="e.g. INV-0001"></label><button type="button" class="secondary" data-estimate-invoice-link="${esc(record.recordId)}">Find and link invoice</button><span class="small-text" data-estimate-invoice-feedback></span></div>`;
-    } catch (error) {
-      panel.innerHTML = `<p class="small-text">Invoice links are unavailable: ${esc(error?.message || 'Please try again.')}</p>`;
-    }
-  }
-
-  async function loadEstimateHistory() {
-    const localRecords = readLocalHistory();
-    const endpoint = String(CONFIG.estimateHistoryEndpoint || '').trim();
-    if (!endpoint && portalApiEnabled()) {
-      historyStatus.textContent = 'Loading protected estimate history…';
-      try {
-        const body = await window.GMTPortalApi.history('estimates');
-        const records = await includeSharedEstimateIndex(body && Array.isArray(body.records) ? body.records : []);
-        renderHistory(records, 'shared portal history');
-        return;
-      } catch (_) {
-        // The labelled local fallback below remains available during an outage.
-      }
-    }
-    if (!endpoint) {
-      if (localRecords.length) {
-        renderHistory(localRecords, 'this browser; protected history is not connected');
-        historyStatus.textContent = 'Protected Microsoft 365 estimate history is not connected. Showing estimates sent from this browser.';
-      } else {
-        historyStatus.textContent = 'Protected Microsoft 365 estimate history is not connected yet.';
-        renderHistory([], 'this account');
-      }
-      return;
-    }
-    historyStatus.textContent = 'Loading protected estimate history…';
-    try {
-      const headers = { Accept: 'application/json' };
-      const scopes = normaliseScopes(CONFIG.estimateHistoryScopes);
-      let auth = window.GMT_PORTAL_AUTH || {};
-      if (scopes.length) {
-        if (typeof auth.acquireToken !== 'function' && window.GMT_PORTAL_AUTH_READY) auth = await window.GMT_PORTAL_AUTH_READY;
-        if (typeof auth.acquireToken !== 'function') throw new Error('Sign-in context unavailable');
-        const token = await auth.acquireToken(scopes);
-        if (!token) throw new Error('History access token unavailable');
-        headers.Authorization = `Bearer ${token}`;
-      }
-      const response = await fetch(endpoint, { credentials: 'include', cache: 'no-store', headers });
-      if (response.status === 401) throw new Error('Your GMT sign-in has expired');
-      if (response.status === 403) throw new Error('Your GMT account is not authorised to view these estimates');
-      if (!response.ok) throw new Error('History request failed');
-      const body = await response.json();
-      if (!body || !Array.isArray(body.records)) throw new Error('History response was not valid');
-      const records = await includeSharedEstimateIndex(body.records);
-      renderHistory(records, 'shared protected history');
-    } catch (_) {
-      if (localRecords.length) {
-        renderHistory(localRecords, 'this browser; protected history could not be loaded');
-        historyStatus.textContent = 'Protected estimate history could not be loaded. Showing estimates sent from this browser only.';
-      } else {
-        historyStatus.textContent = 'Your previous estimates could not be loaded. Please try again or contact Accounts.';
-        renderHistory([], 'this account');
-      }
     }
   }
 
@@ -426,25 +278,8 @@ import { mergeSharedEstimateIndex, normaliseHistoryRecord } from './estimate-his
   $('download-estimate-word').addEventListener('click', wordDownload);
   $('print-estimate').addEventListener('click', () => { render(); window.print(); });
   $('send-estimate').addEventListener('click', sendToClient);
-  if (historyRefresh) historyRefresh.addEventListener('click', loadEstimateHistory);
   loadArchive(true);
-  $('estimate-invoice-links')?.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-estimate-invoice-link]');
-    if (!button || !window.GMTPortalApi?.xeroLookupInvoice) return;
-    const panel = $('estimate-invoice-links');
-    const feedback = panel.querySelector('[data-estimate-invoice-feedback]');
-    const number = panel.querySelector('[data-estimate-invoice-number]')?.value.trim() || '';
-    if (!number) { feedback.textContent = 'Enter an invoice number first.'; return; }
-    button.disabled = true; feedback.textContent = 'Finding invoice in Xero…';
-    try {
-      const found = await window.GMTPortalApi.xeroLookupInvoice(number, '');
-      if (!found?.invoice?.invoice_id) throw new Error('No Xero invoice matched that number.');
-      await window.GMTPortalApi.xeroLinkInvoice(found.invoice.invoice_id, [button.dataset.estimateInvoiceLink], '');
-      await loadEstimateInvoiceLinks(historyRecords[selectedHistory]);
-    } catch (error) { feedback.textContent = error.message || 'Invoice could not be linked.'; button.disabled = false; }
-  });
   $('clear-estimate').addEventListener('click', () => { if (confirm('Clear this estimate?')) { lines.innerHTML = ''; addLine(); status.textContent = 'Estimate cleared.'; } });
   document.querySelectorAll('#estimate-form input, #estimate-form textarea').forEach((input) => input.addEventListener('input', render));
   addLine({ description:'', quantity:1, unit:0 });
-  loadEstimateHistory();
 })();

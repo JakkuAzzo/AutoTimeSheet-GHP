@@ -18,14 +18,15 @@
   <nav class="header-actions"><a href="../jobs/">Job Cards</a><a href="../portal/">Dashboard</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main estimate-main job-card-import-main" id="job-card-import-main" hidden>
-  <section class="estimate-intro card"><div><p class="portal-card-kicker">Accounts only · source-preserving import</p><h2>Import the scanned job-card archive</h2><p>Select the original scan folder and the prepared folder containing the OCR manifest and 559 one-page PDFs. Each file is checked against the manifest before it is sent to SharePoint.</p></div><span class="estimate-status-chip">Resumable by batch</span></section>
+  <section class="estimate-intro card"><div><p class="portal-card-kicker">Accounts only · source-preserving import</p><h2>Import the scanned job-card archive</h2><p>Select the original PDFs, the OCR manifest, and the 559 one-page scans from the pages folder. Each file is checked against the manifest before it is sent to SharePoint.</p></div><span class="estimate-status-chip">Resumable by batch</span></section>
   <section class="card job-card-import-panel" id="job-card-import-panel">
-    <div class="estimate-form-heading"><div><p class="portal-card-kicker">1 · Select local files</p><h2>Choose the two folders</h2></div></div>
+    <div class="estimate-form-heading"><div><p class="portal-card-kicker">1 · Select local files</p><h2>Choose the archive files</h2></div></div>
     <div class="job-card-import-pickers">
-      <label>Original PDFs folder<input id="job-card-source-folder" type="file" webkitdirectory directory multiple accept="application/pdf,.pdf"><span class="small-text">Choose the folder containing the 13 unchanged EC and MTA source PDFs.</span></label>
-      <label>Prepared archive folder<input id="job-card-prepared-folder" type="file" webkitdirectory directory multiple accept="application/pdf,.pdf,.json"><span class="small-text">Choose the folder containing manifest.json and its pages folder.</span></label>
+      <label>Original source PDFs<input id="job-card-source-folder" type="file" multiple accept="application/pdf,.pdf"><span class="small-text">Select the 13 unchanged EC and MTA source PDFs.</span></label>
+      <label>Archive manifest<input id="job-card-manifest-file" type="file" accept="application/json,.json"><span class="small-text">Select manifest.json from the prepared archive folder.</span></label>
+      <label>Scanned page PDFs<input id="job-card-page-files" type="file" multiple accept="application/pdf,.pdf"><span class="small-text">Select all 559 one-page PDFs inside the prepared archive’s pages folder.</span></label>
     </div>
-    <p class="small-text" id="job-card-import-file-summary" aria-live="polite">Select both folders to check the batch inventory.</p>
+    <p class="small-text" id="job-card-import-file-summary" aria-live="polite">Select the source PDFs, manifest, and page PDFs to check the batch inventory.</p>
     <div class="job-card-import-actions"><button type="button" id="job-card-import-start" disabled>Verify and import archive</button><a class="secondary" href="../jobs/">Return to job-card search</a></div>
   </section>
   <section class="card job-card-import-progress" aria-labelledby="job-card-import-progress-title">
