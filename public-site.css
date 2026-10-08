@@ -711,6 +711,17 @@ footer {
   align-self: stretch;
 }
 
+@media (max-width: 820px) {
+  .content-carousel.is-carousel-enhanced .content-carousel-track {
+    align-items: flex-start;
+    transition: transform .68s cubic-bezier(.22, .75, .26, 1), height .28s ease;
+  }
+
+  .content-carousel.is-carousel-enhanced .content-carousel-panel {
+    align-self: flex-start;
+  }
+}
+
 .content-carousel .reveal,
 .content-carousel .reveal.is-visible {
   opacity: 1;
