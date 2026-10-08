@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   canAccessRecord,
   canViewAllRecords,
@@ -28,13 +29,38 @@ const identityFromInfoToken = tokenIdentity({
   OPERATIONS_ADMIN_UPNS: 'info@gmt-services.co.uk',
   JOB_CARD_ADMIN_UPNS: 'info@gmt-services.co.uk'
 });
+
+const wranglerConfig = readFileSync(new URL('../cloudflare-worker/wrangler.toml', import.meta.url), 'utf8');
+const wranglerVar = (name) => wranglerConfig.match(new RegExp(`^${name} = "([^"]*)"$`, 'm'))?.[1] || '';
+const identityFromAmandaToken = tokenIdentity({
+  tid: wranglerVar('ENTRA_TENANT_ID'),
+  aud: wranglerVar('ENTRA_AUDIENCES').split(',')[0],
+  iss: `https://login.microsoftonline.com/${wranglerVar('ENTRA_TENANT_ID')}/v2.0`,
+  exp: Math.floor(Date.now() / 1000) + 300,
+  oid: 'amanda-oid',
+  preferred_username: 'Amanda.BB@GMTElectServsLtd.onmicrosoft.com',
+  name: 'Amanda Brown-Bennett'
+}, {
+  ENTRA_TENANT_ID: wranglerVar('ENTRA_TENANT_ID'),
+  ENTRA_AUDIENCES: wranglerVar('ENTRA_AUDIENCES'),
+  ADMIN_UPNS: wranglerVar('ADMIN_UPNS'),
+  ADMIN_OIDS: wranglerVar('ADMIN_OIDS'),
+  ADMIN_GROUP_IDS: wranglerVar('ADMIN_GROUP_IDS'),
+  OPERATIONS_ADMIN_UPNS: wranglerVar('OPERATIONS_ADMIN_UPNS'),
+  JOB_CARD_ADMIN_UPNS: wranglerVar('JOB_CARD_ADMIN_UPNS')
+});
 assert.equal(identityFromInfoToken.isAdmin, false);
 assert.equal(identityFromInfoToken.isOperationsAdmin, true);
 assert.equal(identityFromInfoToken.isJobCardAdmin, true);
+assert.equal(identityFromAmandaToken.isAdmin, false, 'Amanda gets no broader portal-admin role from this change');
+assert.equal(identityFromAmandaToken.isOperationsAdmin, false);
+assert.equal(identityFromAmandaToken.isJobCardAdmin, true, 'the configured job-card role recognizes Amanda’s tenant identity');
 
 assert.equal(canViewAllRecords(employee, 'job-cards'), true, 'all authenticated portal users can read shared job cards');
 assert.equal(canViewAllRecords(jobCardAdmin, 'job-cards'), true);
 assert.equal(canViewAllRecords(jobCardAdmin, 'timesheets'), false);
+assert.equal(canViewAllRecords(identityFromAmandaToken, 'job-cards'), true);
+assert.equal(canViewAllRecords(identityFromAmandaToken, 'timesheets'), false, 'Amanda’s added role stays within job-card records');
 assert.equal(canViewAllRecords(identityFromInfoToken, 'estimates'), true);
 assert.equal(canViewAllRecords(identityFromInfoToken, 'tasks'), true);
 assert.equal(canViewAllRecords(identityFromInfoToken, 'timesheets'), false);
