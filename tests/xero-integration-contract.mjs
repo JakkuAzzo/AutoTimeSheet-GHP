@@ -10,7 +10,8 @@ import {
   xeroInvoicePaymentStatus,
   xeroInvoiceMutationPolicy,
   xeroAccountingRequest,
-  xeroSettings
+  xeroSettings,
+  xeroOAuthStateMatches
 } from '../cloudflare-worker/src/index.js';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
@@ -81,6 +82,10 @@ assert.match(invoicesUi, /Xero connected successfully/);
 assert.match(invoicesUi, /Xero reconnect did not complete/);
 assert.match(worker, /https:\/\/gmt-services\.co\.uk\/tools\/invoices\?xero=connected/);
 assert.match(worker, /Reconnect Xero to restore invoice access/);
+assert.equal(xeroOAuthStateMatches('random-valid-state', ''), true, 'a server-stored state can validate when Safari omits the cross-site cookie');
+assert.equal(xeroOAuthStateMatches('random-valid-state', 'random-valid-state'), true, 'a matching cookie remains valid');
+assert.equal(xeroOAuthStateMatches('random-valid-state', 'different-state'), false, 'a present mismatched cookie is rejected');
+assert.equal(xeroOAuthStateMatches('', ''), false, 'an absent state is rejected');
 for (const handler of [
   'startXeroConnection', 'xeroStatus', 'xeroSetupDataEndpoint', 'xeroInvoiceRecords',
   'listXeroInvoicesEndpoint', 'lookupXeroInvoiceEndpoint', 'xeroInvoiceDetailEndpoint',
