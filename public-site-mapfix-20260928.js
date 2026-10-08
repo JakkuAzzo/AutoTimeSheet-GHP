@@ -382,12 +382,18 @@
       var index = 0;
       var mobileLayout = window.matchMedia('(max-width: 820px)');
       function sizeActivePanel() {
-        if (mobileLayout.matches && root.classList.contains('is-carousel-enhanced')) {
-          track.style.height = panels[index].scrollHeight + 'px';
+        if (root.classList.contains('is-carousel-enhanced') && (mobileLayout.matches || root.classList.contains('content-carousel-wide'))) {
+          if (root.classList.contains('content-carousel-wide')) track.style.height = 'auto';
+          var visiblePanelHeights = root.classList.contains('content-carousel-wide')
+            ? panels.map(function (panel) { return panel.scrollHeight; })
+            : [panels[index].scrollHeight];
+          track.style.height = Math.max.apply(Math, visiblePanelHeights) + 'px';
         } else {
           track.style.removeProperty('height');
         }
       }
+
+      root.addEventListener('gmt:panel-resize', sizeActivePanel);
 
       function sizeTrack() {
         var panelWidth = root.clientWidth;
@@ -697,6 +703,10 @@
       toggle.setAttribute('aria-expanded', String(expanded));
       toggle.textContent = expanded ? 'Close enquiry form' : 'Open enquiry form';
       form.hidden = !expanded;
+      var carousel = card.closest('[data-content-carousel]');
+      if (carousel) window.requestAnimationFrame(function () {
+        carousel.dispatchEvent(new Event('gmt:panel-resize'));
+      });
     }
 
     var isMobile = window.matchMedia && window.matchMedia('(max-width: 820px)').matches;
