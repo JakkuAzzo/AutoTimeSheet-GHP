@@ -842,14 +842,27 @@ async function estimateIndexUpsertEndpoint(request, env, identity, origin) {
 async function estimateIndexListEndpoint(request, env, identity, origin) {
   const url = new URL(request.url);
   const estimates = await listEstimateIndex(env, identity, { limit: url.searchParams.get('limit') || 500 });
-  return json({ estimates: estimates.map(({ sharepoint_url, attachment_url, ...estimate }) => estimate) }, 200, origin || '');
+  const projected = await Promise.all(estimates.map(async (estimate) => {
+    const sourceRecordId = estimate.source === 'email'
+      ? await emailEstimatePortalRecordId(estimate.canonical_id)
+      : estimate.canonical_id;
+    const { sharepoint_url: _sharepointUrl, attachment_url: _attachmentUrl, ...safe } = estimate;
+    return { ...safe, source_record_id: sourceRecordId };
+  }));
+  return json({ estimates: projected }, 200, origin || '');
+}
+
+export async function emailEstimatePortalRecordId(canonicalId) {
+  const key = text(canonicalId, '', 2000);
+  if (!key) throw new Error('Archived estimate identity is missing');
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key)));
+  const suffix = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `email-estimate:${suffix}`;
 }
 
 async function upsertEmailEstimatePortalRecord(env, archive, input) {
   if (!archive?.canonical_id) throw Object.assign(new Error('Archived estimate identity is missing'), { status: 500 });
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(archive.canonical_id)));
-  const suffix = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  const recordId = `email-estimate:${suffix}`;
+  const recordId = await emailEstimatePortalRecordId(archive.canonical_id);
   const sentAt = text(input.sent_at || input.sentAt || input.received_at || input.receivedAt, '', 80);
   const date = sentAt.slice(0, 10);
   const number = text(input.estimate_number || input.estimateNumber, '', 160);

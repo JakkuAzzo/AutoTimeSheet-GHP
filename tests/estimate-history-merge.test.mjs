@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mergeSharedEstimateIndex, normaliseHistoryRecord } from '../tools/estimate-history-data.mjs';
+import { emailEstimatePortalRecordId } from '../cloudflare-worker/src/index.js';
 
 const merged = mergeSharedEstimateIndex([
   {
@@ -30,5 +31,25 @@ assert.equal(normalized.recordId, 'email-estimate:message-1', 'normalisation mus
 assert.equal(normalized.canonicalId, 'email:<estimate-1@example.com>');
 assert.equal(normalized.company, 'Artic Building Services Ltd');
 assert.deepEqual(normalized.sourceMailboxes, ['info@gmt-services.co.uk']);
+
+const projectionCanonicalId = 'email:<norton-estimate@example.com>';
+const projectionRecordId = await emailEstimatePortalRecordId(projectionCanonicalId);
+const projectionWithoutMessageKey = mergeSharedEstimateIndex([
+  {
+    source_record_id: projectionRecordId,
+    estimate_number: 'EST-3001',
+    client_company: 'Norton Group'
+  }
+], [
+  {
+    canonical_id: projectionCanonicalId,
+    source_record_id: projectionRecordId,
+    estimate_number: 'EST-3001',
+    client: 'Norton Group'
+  }
+]);
+assert.equal(projectionWithoutMessageKey.length, 1, 'the shared index crosswalk deduplicates history projections without raw message keys');
+assert.equal(projectionWithoutMessageKey[0].recordId, projectionRecordId);
+assert.equal(projectionWithoutMessageKey[0].canonical_id, projectionCanonicalId);
 
 console.log('Estimate history merge and detail identity: PASS');

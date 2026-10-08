@@ -46,18 +46,22 @@ export function normaliseHistoryRecord(record) {
 
 export function mergeSharedEstimateIndex(records, estimates) {
   const byId = new Map();
+  const keyByRecordId = new Map();
   (Array.isArray(records) ? records : []).forEach((record) => {
     const apiRecordId = String(record?.source_record_id || record?.sourceRecordId || record?.recordId || '').trim();
     const canonicalId = String(record?.canonical_id || record?.canonicalId || record?.reconciliation?.source_message_key || record?.source_message_key || apiRecordId).trim();
     if (!canonicalId) return;
     byId.set(canonicalId, { ...record, canonical_id: canonicalId, source_record_id: apiRecordId || record?.source_record_id, recordId: apiRecordId || canonicalId });
+    if (apiRecordId) keyByRecordId.set(apiRecordId, canonicalId);
   });
   (Array.isArray(estimates) ? estimates : []).forEach((estimate) => {
     const id = String(estimate?.canonical_id || '').trim();
     if (!id) return;
-    const current = byId.get(id) || {};
+    const estimateRecordId = String(estimate?.source_record_id || estimate?.sourceRecordId || '').trim();
+    const matchedId = (estimateRecordId && keyByRecordId.get(estimateRecordId)) || id;
+    const current = byId.get(matchedId) || {};
     const sourceRecordId = current.source_record_id || current.sourceRecordId || current.recordId || estimate.source_record_id || '';
-    byId.set(id, {
+    byId.set(matchedId, {
       ...current,
       ...estimate,
       canonical_id: id,
@@ -71,6 +75,7 @@ export function mergeSharedEstimateIndex(records, estimates) {
       estimate_date: estimate.estimate_date || current.estimate_date || current.estimateDate || current.date || '',
       source: estimate.source || current.source || 'email'
     });
+    if (sourceRecordId) keyByRecordId.set(String(sourceRecordId), matchedId);
   });
   return [...byId.values()];
 }
