@@ -757,6 +757,48 @@ footer {
   display: flex;
 }
 
+.content-carousel-tabs {
+  grid-row: 1;
+  gap: .5rem;
+  padding: .7rem 1rem;
+}
+
+.content-carousel.is-carousel-enhanced .content-carousel-tabs + .content-carousel-track {
+  grid-row: 2;
+}
+
+.content-carousel-tab {
+  min-width: 0;
+  min-height: 44px;
+  padding: .55rem 1rem;
+  border: 1px solid var(--line);
+  border-bottom: 3px solid transparent;
+  border-radius: 10px 10px 0 0;
+  background: #f7f8f5;
+  color: var(--green-2);
+  font: inherit;
+  font-size: .94rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.content-carousel-tab[aria-selected="true"] {
+  border-color: var(--line);
+  border-bottom-color: var(--gold);
+  background: #fff;
+  color: var(--green);
+}
+
+.content-carousel-tab:hover,
+.content-carousel-tab:focus-visible {
+  border-bottom-color: var(--gold);
+  outline-color: var(--gold);
+}
+
+.content-carousel-tabs .content-carousel-tab {
+  flex: 0 1 15rem;
+}
+
 .content-carousel-button {
   width: 44px;
   height: 44px;

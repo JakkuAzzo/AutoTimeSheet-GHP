@@ -376,7 +376,8 @@
       var previous = root.querySelector('[data-content-prev]');
       var next = root.querySelector('[data-content-next]');
       var page = root.querySelector('[data-content-page]');
-      if (!track || !panels.length || !previous || !next) return;
+      var tabs = Array.prototype.slice.call(root.querySelectorAll('[data-content-tab]'));
+      if (!track || !panels.length || (tabs.length ? tabs.length !== panels.length : !previous || !next)) return;
 
       var index = 0;
       var mobileLayout = window.matchMedia('(max-width: 820px)');
@@ -408,6 +409,11 @@
           panel.inert = !active;
           panel.classList.toggle('is-active', active);
         });
+        tabs.forEach(function (tab, tabIndex) {
+          var active = tabIndex === index;
+          tab.setAttribute('aria-selected', active ? 'true' : 'false');
+          tab.setAttribute('tabindex', active ? '0' : '-1');
+        });
         var panelWidth = root.clientWidth;
         track.style.transform = 'translate3d(-' + (index * panelWidth) + 'px, 0, 0)';
         sizeActivePanel();
@@ -416,11 +422,28 @@
         if (updateHash && panels[index].id) history.replaceState(null, '', '#' + panels[index].id);
       }
 
-      previous.addEventListener('click', function () {
+      if (previous) previous.addEventListener('click', function () {
         setIndex(index - 1, true);
       });
-      next.addEventListener('click', function () {
+      if (next) next.addEventListener('click', function () {
         setIndex(index + 1, true);
+      });
+
+      tabs.forEach(function (tab, tabIndex) {
+        tab.addEventListener('click', function () {
+          setIndex(tabIndex, true);
+        });
+        tab.addEventListener('keydown', function (event) {
+          var targetIndex = null;
+          if (event.key === 'ArrowRight') targetIndex = (index + 1) % tabs.length;
+          if (event.key === 'ArrowLeft') targetIndex = (index + tabs.length - 1) % tabs.length;
+          if (event.key === 'Home') targetIndex = 0;
+          if (event.key === 'End') targetIndex = tabs.length - 1;
+          if (targetIndex === null) return;
+          event.preventDefault();
+          tabs[targetIndex].focus();
+          setIndex(targetIndex, true);
+        });
       });
 
       Array.prototype.forEach.call(document.querySelectorAll('[data-carousel-target]'), function (link) {

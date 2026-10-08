@@ -26,11 +26,11 @@
     .hero.is-hero-intro-active .hero-inner { opacity: 1 !important; visibility: visible !important; transform: none !important; pointer-events: auto !important; }
   </style>
 </noscript>
-<link rel="stylesheet" href="public-site.css?v=marketing-refresh-20261006-v18">
+<link rel="stylesheet" href="public-site.css?v=marketing-refresh-20261006-v19">
 <link rel="preload" as="image" href="image.webp" fetchpriority="high">
 <link rel="preload" as="image" href="assets/website/workshop/joe-workshop.jpg" type="image/jpeg">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script defer src="public-site-mapfix-20260928.js?v=carousel-track-20261006-v3"></script>
+<script defer src="public-site-mapfix-20260928.js?v=carousel-track-20261006-v4"></script>
 </head>
 <body>
 <header class="site-header">
@@ -245,9 +245,13 @@
     </div>
   </section>
 
-  <div class="content-carousel content-carousel-wide" data-content-carousel role="region" aria-roledescription="carousel" aria-label="Our story and the workshop">
+  <div class="content-carousel content-carousel-wide" data-content-carousel role="region" aria-label="Our story and the workshop">
+    <div class="content-carousel-controls content-carousel-tabs" role="tablist" aria-label="Our story and workshop pages">
+      <button class="content-carousel-tab" type="button" role="tab" id="about-tab" aria-controls="about" aria-selected="true" tabindex="0" data-content-tab="about">Our story</button>
+      <button class="content-carousel-tab" type="button" role="tab" id="workshop-motion-tab" aria-controls="workshop-motion" aria-selected="false" tabindex="-1" data-content-tab="workshop-motion">Workshop in motion</button>
+    </div>
     <div class="content-carousel-track" data-content-track>
-    <section class="section marketing-story-section content-carousel-panel" id="about" aria-labelledby="about-title">
+    <section class="section marketing-story-section content-carousel-panel" id="about" role="tabpanel" tabindex="0" aria-labelledby="about-tab">
     <div class="marketing-story-copy">
       <p class="eyebrow">Our story</p>
       <h2 id="about-title">A Croydon engineering company since 1985</h2>
@@ -260,7 +264,7 @@
       <figcaption>GMT Electrical Services, Croydon</figcaption>
     </figure>
   </section>
-    <section class="workshop-motion content-carousel-panel" id="workshop-motion" aria-labelledby="workshop-motion-title">
+    <section class="workshop-motion content-carousel-panel" id="workshop-motion" role="tabpanel" tabindex="0" aria-labelledby="workshop-motion-tab">
     <div class="workshop-motion-backdrop" data-workshop-motion-backdrop aria-hidden="true"></div>
     <div class="workshop-motion-media" aria-hidden="true">
       <div class="workshop-motion-track" data-workshop-motion-track>
@@ -332,11 +336,6 @@
       <p class="form-status workshop-enquiry-status" data-workshop-enquiry-status role="status" aria-live="polite"></p>
     </aside>
   </section>
-    </div>
-    <div class="content-carousel-controls" role="group" aria-label="Our story carousel controls">
-      <button class="content-carousel-button" type="button" data-content-prev aria-label="Previous page">&#8592;</button>
-      <p class="content-carousel-status" data-content-page role="status" aria-live="polite">Page 1 of 2</p>
-      <button class="content-carousel-button" type="button" data-content-next aria-label="Next page">&#8594;</button>
     </div>
   </div>
 
