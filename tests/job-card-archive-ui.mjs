@@ -374,7 +374,18 @@ try {
   activeRole = 'accounts';
   await page.goto(`${baseUrl}/tools/job-card-import.html`, { waitUntil: 'load' });
   await page.waitForFunction(() => !document.querySelector('#job-card-import-main')?.hidden, null, { timeout: 5000 });
-  await page.locator('#job-card-import-main').screenshot({ path: join(screenshotDir, 'job-card-import-accounts.png'), animations: 'disabled' });
+  await page.getByText('Accounts access verified. Select the archive files to begin.').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#job-card-manifest-file').count(), 1, 'Safari can select the manifest as an ordinary file');
+  assert.equal(await page.locator('#job-card-page-files').count(), 1, 'Safari can select page PDFs as ordinary files');
+  for (const width of [320, 1440]) {
+    await page.setViewportSize({ width, height: 980 });
+    const layout = await page.locator('#job-card-import-main').evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth
+    }));
+    assert.ok(layout.scrollWidth <= layout.clientWidth, `import form does not overflow at ${width}px`);
+    await page.locator('#job-card-import-main').screenshot({ path: join(screenshotDir, `job-card-import-${width}.png`), animations: 'disabled' });
+  }
 
   await page.route('https://upload.example.test/**', async (route) => {
     const address = new URL(route.request().url());
@@ -444,9 +455,11 @@ try {
   };
   await writeFile(join(preparedDir, 'manifest.json'), JSON.stringify(manifest));
   const sourceInput = page.locator('#job-card-source-folder');
-  const preparedInput = page.locator('#job-card-prepared-folder');
-  await sourceInput.setInputFiles(sourceDir);
-  await preparedInput.setInputFiles(preparedDir);
+  const manifestInput = page.locator('#job-card-manifest-file');
+  const preparedInput = page.locator('#job-card-page-files');
+  await sourceInput.setInputFiles({ name: 'EC09200.pdf', mimeType: 'application/pdf', buffer: mismatchedSourceBytes });
+  await manifestInput.setInputFiles({ name: 'manifest.json', mimeType: 'application/json', buffer: await readFile(join(preparedDir, 'manifest.json')) });
+  await preparedInput.setInputFiles({ name: `${recordId}.pdf`, mimeType: 'application/pdf', buffer: pageBytes });
   await page.getByText('1 original PDFs and 1 scanned pages match the manifest.', { exact: false }).waitFor({ state: 'visible' });
   assert.equal(await page.locator('#job-card-import-start').isEnabled(), true, 'matching source and derivative file hashes enable import');
 
@@ -456,7 +469,7 @@ try {
   assert.equal(sessionSequence, 0, 'a source hash mismatch creates no upload session');
 
   await writeFile(join(sourceDir, 'EC09200.pdf'), sourceBytes);
-  await sourceInput.setInputFiles(sourceDir);
+  await sourceInput.setInputFiles({ name: 'EC09200.pdf', mimeType: 'application/pdf', buffer: sourceBytes });
   await page.getByText('1 original PDFs and 1 scanned pages match the manifest.', { exact: false }).waitFor({ state: 'visible' });
   await page.locator('#job-card-import-start').click();
   try {
