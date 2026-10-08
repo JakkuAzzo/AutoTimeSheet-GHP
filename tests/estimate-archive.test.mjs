@@ -278,6 +278,13 @@ assert.equal(portalRecord.kind, 'estimates', 'confirmed email estimates can appe
 assert.equal(portalRecord.action, 'email_archive');
 assert.equal(JSON.parse(portalRecord.payload_json).estimateNumber, 'EST-PORTAL-1');
 assert.equal(JSON.parse(portalRecord.payload_json).archiveMessageId, portalEstimateBody.archive.id);
+const emailEstimateAssociation = db.prepare(`SELECT target_kind, target_id, target_reference, relationship, confidence, state, provenance_kind, evidence_json
+  FROM archive_associations WHERE message_id=? AND target_kind='estimate'`).get(portalEstimateBody.archive.id);
+assert.deepEqual(emailEstimateAssociation && { ...emailEstimateAssociation, evidence_json: JSON.parse(emailEstimateAssociation.evidence_json) }, {
+  target_kind: 'estimate', target_id: portalRecord.record_id, target_reference: 'EST-PORTAL-1',
+  relationship: 'represents-estimate', confidence: 1, state: 'confirmed', provenance_kind: 'app-link',
+  evidence_json: { field: 'portal_record.archiveMessageId', record_id: portalRecord.record_id }
+}, 'an estimate email explicitly upserted as a portal record gets a confirmed, provenance-backed archive link');
 const historyWithImportedEstimate = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/history?kind=estimates', { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
 assert.equal(historyWithImportedEstimate.status, 200);
 const historyWithImportedEstimateBody = await historyWithImportedEstimate.json();

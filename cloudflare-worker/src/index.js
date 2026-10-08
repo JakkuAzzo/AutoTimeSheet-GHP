@@ -886,6 +886,11 @@ async function upsertEmailEstimatePortalRecord(env, archive, input) {
       updated_at=excluded.updated_at, payload_json=excluded.payload_json, source_message_key=excluded.source_message_key`)
     .bind(recordId, text(input.mailbox, '', 320).toLowerCase(), date || null, date || null, date || null,
       sentAt || timestamp, timestamp, JSON.stringify(payload), archive.canonical_id).run();
+  await upsertEstimateAssociation(env, archive.id, {
+    target_kind: 'estimate', target_id: recordId, target_reference: number,
+    relationship: 'represents-estimate', confidence: 1, state: 'confirmed',
+    provenance_kind: 'app-link', evidence: { field: 'portal_record.archiveMessageId', record_id: recordId }
+  });
   return { record_id: recordId, created: !existing, updated: Boolean(existing && result?.success !== false) };
 }
 
