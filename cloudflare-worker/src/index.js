@@ -3430,10 +3430,47 @@ async function xeroInvoiceRecords(env, identity, origin) {
   }) }, 200, origin || '');
 }
 
+async function persistExactInvoiceJobCardLinks(env, connection, invoice, identity) {
+  const reference = correlationToken(invoice?.Reference);
+  const invoiceId = text(invoice?.InvoiceID, '', 180);
+  if (!reference || !invoiceId) return;
+  // Only reviewed jobReference/reference fields qualify. OCR candidates such
+  // as cardNumber are deliberately excluded until Accounts confirms them.
+  const result = await env.DB.prepare(`SELECT record_id, kind, payload_json FROM records
+    WHERE kind = 'job-cards' AND status <> 'Deleted' AND (
+      lower(trim(record_id)) = ? OR
+      lower(trim(CASE WHEN json_valid(payload_json) THEN COALESCE(json_extract(payload_json, '$.jobReference'), '') ELSE '' END)) = ? OR
+      lower(trim(CASE WHEN json_valid(payload_json) THEN COALESCE(json_extract(payload_json, '$.job_reference'), '') ELSE '' END)) = ? OR
+      lower(trim(CASE WHEN json_valid(payload_json) THEN COALESCE(json_extract(payload_json, '$.reference'), '') ELSE '' END)) = ?
+    )`).bind(reference, reference, reference, reference).all();
+  const rows = result.results || [];
+  if (rows.length !== 1) return;
+  const record = rows[0];
+  await storeXeroInvoiceLinks(env, connection, invoiceId, [{ record_id: record.record_id, kind: 'job-cards' }], identity);
+
+  const messageIds = new Set();
+  const matchingEmails = await env.DB.prepare(`SELECT id FROM archive_messages
+    WHERE source_kind = 'email' AND lower(trim(reference)) = ?`).bind(reference).all();
+  for (const message of matchingEmails.results || []) messageIds.add(message.id);
+  const linkedEmails = await env.DB.prepare(`SELECT message_id FROM archive_associations
+    WHERE target_kind = 'job-card' AND target_id = ? AND state = 'confirmed'`).bind(record.record_id).all();
+  for (const message of linkedEmails.results || []) messageIds.add(message.message_id);
+  for (const messageId of messageIds) {
+    await upsertEstimateAssociation(env, messageId, {
+      target_kind: 'invoice', target_id: invoiceId,
+      target_reference: text(invoice.InvoiceNumber || invoiceId, '', 500),
+      relationship: 'billed-as', confidence: 1, state: 'confirmed',
+      provenance_kind: 'exact-reference',
+      evidence: { field: 'xero_reference', value: text(invoice.Reference, '', 500), job_card_id: record.record_id, rule: 'job-card-reference' }
+    }, identity.upn);
+  }
+}
+
 async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoiceId) {
   requireXeroAdmin(identity);
   const url = new URL(request.url);
   const result = await getXeroInvoice(env, url.searchParams.get('tenantId') || '', invoiceId);
+  await persistExactInvoiceJobCardLinks(env, result.connection, result.invoice, identity);
   // Keep the link lookup independent from the records projection. Older
   // installations can have the link table populated before every records
   // column is present, and a failed join would make the whole invoice detail

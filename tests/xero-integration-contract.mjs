@@ -43,6 +43,8 @@ assert.match(worker, /xeroInvoiceLinksEndpoint/);
 assert.match(worker, /related_estimates/);
 assert.match(worker, /email_threads/);
 assert.match(worker, /recordInvoiceLinksEndpoint/);
+assert.match(worker, /persistExactInvoiceJobCardLinks/);
+assert.match(worker, /job-card-reference/);
 assert.match(worker, /canViewRecord\(identity, record\)/);
 assert.match(worker, /const xeroInvoiceLinksMatch/);
 assert.match(worker, /const recordInvoiceLinksMatch/);
