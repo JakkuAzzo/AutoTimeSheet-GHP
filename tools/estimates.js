@@ -162,6 +162,10 @@
   const archiveDetail = $('estimate-archive-detail');
   const archiveStatus = $('estimate-archive-status');
   const archiveMore = $('estimate-archive-more');
+  const conversationDialog = $('estimate-conversation-dialog');
+  const conversationMessages = $('estimate-conversation-messages');
+  const conversationBody = $('estimate-conversation-message-body');
+  const conversationTitle = $('estimate-conversation-message-title');
   let archiveCursor = '';
   let archiveFilters = {};
   let archiveBusy = false;
@@ -173,6 +177,67 @@
 
   function archiveRecordLabel(record) {
     return `${record.estimate_number || record.subject || 'Estimate email'} · ${record.customer || record.customer_email || 'Customer unavailable'} · ${archiveDate(record.sent_at || record.received_at)}`;
+  }
+
+  function decodeQuotedPrintable(value) {
+    const encoded = value.replace(/=\r?\n/g, '').replace(/=([0-9a-f]{2})/gi, '%$1');
+    try { return decodeURIComponent(encoded); }
+    catch (_) { return encoded.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))); }
+  }
+
+  function decodeEmlPart(headers, body) {
+    const contentType = headers.match(/^content-type:\s*([^;\r\n]+)/im)?.[1]?.trim().toLowerCase() || 'text/plain';
+    const transfer = headers.match(/^content-transfer-encoding:\s*([^\r\n]+)/im)?.[1]?.trim().toLowerCase() || '';
+    const boundary = headers.match(/boundary="?([^";\r\n]+)"?/i)?.[1];
+    if (contentType.startsWith('multipart/') && boundary) {
+      const parts = body.split(`--${boundary}`).map((part) => part.replace(/^\r?\n|\r?\n--?\r?\n?$/g, '')).filter(Boolean);
+      const parsed = parts.map((part) => {
+        const splitAt = part.search(/\r?\n\r?\n/);
+        return splitAt < 0 ? null : { headers: part.slice(0, splitAt), body: part.slice(splitAt).replace(/^\r?\n\r?\n/, '') };
+      }).filter(Boolean);
+      const selected = parsed.find((part) => /^content-type:\s*text\/plain/im.test(part.headers)) || parsed.find((part) => /^content-type:\s*text\/html/im.test(part.headers));
+      return selected ? decodeEmlPart(selected.headers, selected.body) : 'This archived message has no readable text body.';
+    }
+    let text = body;
+    if (transfer === 'base64') {
+      try { const binary = atob(text.replace(/\s/g, '')); text = new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0))); }
+      catch (_) { return 'The archived message body could not be decoded.'; }
+    } else if (transfer === 'quoted-printable') text = decodeQuotedPrintable(text);
+    if (contentType === 'text/html') return text.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<\/(p|div|li|tr|h[1-6])\s*>/gi, '\n').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'");
+    return text;
+  }
+
+  function showConversation(conversation) {
+    if (!conversationDialog || !conversationMessages) return;
+    conversationTitle.textContent = `Email conversation (${conversation.length})`;
+    conversationBody.textContent = 'Select a message to view its archived email body.';
+    conversationMessages.replaceChildren();
+    if (!conversation.length) {
+      conversationMessages.innerHTML = '<p class="small-text">No conversation messages are available for this record.</p>';
+    } else {
+      conversationMessages.innerHTML = conversation.map((item) => `<article class="estimate-conversation-message"><div><strong>${esc(item.subject || 'Email')}</strong><span>${esc(item.sender_email || '')} · ${esc(archiveDate(item.sent_at || item.received_at))}</span></div><button type="button" class="secondary" data-view-archive-message="${esc(item.id)}">View email</button></article>`).join('');
+    }
+    conversationDialog.showModal();
+  }
+
+  async function viewConversationMessage(messageId) {
+    const item = [...(conversationDialog?.querySelectorAll('[data-view-archive-message]') || [])].find((element) => element.dataset.viewArchiveMessage === messageId);
+    if (!item) return;
+    const button = item.querySelector('button');
+    button.disabled = true;
+    conversationTitle.textContent = 'Loading archived email…';
+    try {
+      const blob = await window.GMTPortalApi.fetchEstimateArchiveContent(messageId, 'eml');
+      const raw = await blob.text();
+      const separator = raw.search(/\r?\n\r?\n/);
+      const headers = separator < 0 ? '' : raw.slice(0, separator);
+      const body = separator < 0 ? raw : raw.slice(separator).replace(/^\r?\n\r?\n/, '');
+      conversationTitle.textContent = item.querySelector('strong')?.textContent || 'Archived email';
+      conversationBody.textContent = decodeEmlPart(headers, body).trim() || 'This archived message has no readable text body.';
+    } catch (error) {
+      conversationTitle.textContent = 'Email could not be opened';
+      conversationBody.textContent = error?.message || 'Try again later.';
+    } finally { button.disabled = false; }
   }
 
   function renderArchiveRecords(records, append) {
@@ -236,35 +301,43 @@
         return `<li>${targetHref ? `<a href="${esc(targetHref)}">${esc(label)}</a>` : esc(label)} · ${esc(item.relationship || 'related')} · ${esc(item.state || 'candidate')}${item.state !== 'confirmed' ? ' · Review link' : ''}</li>`;
       }).join('') : '<li>No linked job card, estimate, or invoice record yet.</li>';
       const emlButton = message.source_kind === 'email' ? `<button type="button" class="secondary" data-archive-download="${esc(archiveId)}" data-content-id="eml" data-file-name="message.eml">Download email (.eml)</button>` : '';
-      archiveDetail.innerHTML = `<header><p class="portal-card-kicker">${esc(message.classification_state || 'Archive record')}</p><h3>${esc(message.estimate_number || message.subject || 'Estimate email')}</h3><p><strong>${esc(message.customer || message.customer_email || 'Customer unavailable')}</strong></p><p>${esc(message.sender_email || '')} · ${esc(archiveDate(message.sent_at || message.received_at))}</p><p class="small-text">Archived mailbox copies: ${esc(mailboxLabels)}</p>${emlButton}</header><section class="estimate-archive-files"><h4>Attachments</h4>${files}</section><section><h4>Email conversation (${conversation.length})</h4><div class="estimate-archive-files">${thread}</div></section><section class="estimate-archive-associations"><h4>Related GMT records</h4><ul>${related}</ul></section>`;
+      const conversationButton = `<button type="button" class="secondary" data-view-conversation>View conversation in browser (${conversation.length})</button>`;
+      archiveDetail.innerHTML = `<header><p class="portal-card-kicker">${esc(message.classification_state || 'Archive record')}</p><h3>${esc(message.estimate_number || message.subject || 'Estimate email')}</h3><p><strong>${esc(message.customer || message.customer_email || 'Customer unavailable')}</strong></p><p>${esc(message.sender_email || '')} · ${esc(archiveDate(message.sent_at || message.received_at))}</p><p class="small-text">Archived mailbox copies: ${esc(mailboxLabels)}</p>${conversationButton}${emlButton}</header><section class="estimate-archive-files"><h4>Attachments</h4>${files}</section><section><h4>Email conversation (${conversation.length})</h4><div class="estimate-archive-files">${thread}</div></section><section class="estimate-archive-associations"><h4>Related GMT records</h4><ul>${related}</ul></section>`;
     } catch (error) {
       archiveDetail.innerHTML = `<p class="small-text">Message details could not be loaded: ${esc(error?.message || 'Please try again.')}</p>`;
     }
   }
 
-  $('estimate-archive-range')?.addEventListener('change', (event) => {
-    const custom = event.target.value === 'custom';
-    $('estimate-archive-from').disabled = !custom;
-    $('estimate-archive-to').disabled = !custom;
-    if (!custom) { $('estimate-archive-from').value = ''; $('estimate-archive-to').value = ''; }
-  });
   $('estimate-archive-search')?.addEventListener('submit', (event) => {
     event.preventDefault();
-    const customRange = $('estimate-archive-range').value === 'custom';
-    const from = customRange ? $('estimate-archive-from').value : '';
-    const to = customRange ? $('estimate-archive-to').value : '';
+    const from = $('estimate-archive-from').value;
+    const to = $('estimate-archive-to').value;
     if (from && to && from > to) { archiveStatus.textContent = 'The start date must be on or before the end date.'; $('estimate-archive-from').focus(); return; }
     archiveFilters = { q: $('estimate-archive-query').value.trim(), from, to };
     loadArchive(true);
   });
   archiveMore?.addEventListener('click', () => loadArchive(false));
   archiveDetail?.addEventListener('click', async (event) => {
+    if (event.target.closest('[data-view-conversation]')) {
+      const selectedId = archiveList.querySelector('[data-archive-id][aria-current="true"]')?.dataset.archiveId;
+      if (selectedId) {
+        try {
+          const detail = await window.GMTPortalApi.getEstimateArchiveRecord(selectedId);
+          showConversation(Array.isArray(detail?.conversation) ? detail.conversation : []);
+        } catch (error) { archiveStatus.textContent = error?.message || 'The conversation could not be loaded.'; }
+      }
+      return;
+    }
     const button = event.target.closest('[data-archive-download]');
     if (!button || !window.GMTPortalApi?.getEstimateArchiveContent) return;
     button.disabled = true;
     try { await window.GMTPortalApi.getEstimateArchiveContent(button.dataset.archiveDownload, button.dataset.contentId, button.dataset.fileName); }
     catch (error) { archiveStatus.textContent = error?.message || 'The archived file could not be downloaded.'; }
     finally { button.disabled = false; }
+  });
+  conversationMessages?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-view-archive-message]');
+    if (button) viewConversationMessage(button.dataset.viewArchiveMessage);
   });
 
   $('estimate-date').value = today.toISOString().slice(0, 10);

@@ -8,7 +8,7 @@
 <title>GMT Estimate Builder</title>
 <link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
 <link rel="stylesheet" href="../portal.css?v=estimates-full-preview-20260914">
-<link rel="stylesheet" href="estimates.css?v=estimate-mobile-archive-20261008">
+<link rel="stylesheet" href="estimates.css?v=estimate-conversation-filters-20261008">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../auth.js?v=entra-auth-20260914-signout-dashboard"></script>
 </head>
@@ -47,9 +47,8 @@
     <p class="small-text">Search archived estimate emails across the approved GMT mailboxes. Open a result to see its conversation, related records, and safely downloaded files.</p>
     <form id="estimate-archive-search" class="estimate-archive-filters">
       <label>Search<input id="estimate-archive-query" type="search" placeholder="Customer, estimate number, job reference, or email"></label>
-      <label>Date range<select id="estimate-archive-range"><option value="all">All time</option><option value="custom">Custom dates</option></select></label>
-      <label>From<input id="estimate-archive-from" type="date" disabled></label>
-      <label>To<input id="estimate-archive-to" type="date" disabled></label>
+      <label>From<input id="estimate-archive-from" type="date"></label>
+      <label>To<input id="estimate-archive-to" type="date"></label>
       <button type="submit">Search archive</button>
     </form>
     <p id="estimate-archive-status" class="small-text" role="status" aria-live="polite">Loading shared archive…</p>
@@ -58,9 +57,14 @@
       <article id="estimate-archive-detail" class="estimate-archive-detail"><p class="small-text">Select a message to view archived files and conversation records.</p></article>
     </div>
     <button id="estimate-archive-more" type="button" class="secondary" hidden>Load more</button>
+    <dialog id="estimate-conversation-dialog" class="estimate-conversation-dialog" aria-labelledby="estimate-conversation-title">
+      <div class="estimate-conversation-dialog-header"><div><p class="portal-card-kicker">Shared archive</p><h2 id="estimate-conversation-title">Email conversation</h2></div><form method="dialog"><button type="submit" class="secondary" aria-label="Close conversation">Close</button></form></div>
+      <div id="estimate-conversation-messages" class="estimate-conversation-messages"></div>
+      <section class="estimate-conversation-message-view" aria-live="polite"><h3 id="estimate-conversation-message-title">Select a message to view it</h3><pre id="estimate-conversation-message-body">Email contents will be shown here as safe plain text.</pre></section>
+    </dialog>
   </section>
 </main>
-<script src="../portal-api.js?v=portal-api-20260910"></script>
-<script type="module" src="estimates.js?v=estimate-history-dedupe-20261008"></script>
+<script src="../portal-api.js?v=estimate-conversation-preview-20261008"></script>
+<script type="module" src="estimates.js?v=estimate-conversation-preview-20261008"></script>
 </body>
 </html>

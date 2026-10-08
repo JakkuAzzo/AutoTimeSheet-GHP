@@ -10,6 +10,10 @@ import { fileURLToPath } from 'node:url';
 import { quickXorHash } from '../tools/prepare-job-card-import.mjs';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const jobsPageHtml = await readFile(new URL('../jobs/index.html', import.meta.url), 'utf8');
+assert.doesNotMatch(jobsPageHtml, /3 · Job card history|View job cards/, 'job cards use one shared archive section instead of the duplicate history heading');
+assert.match(jobsPageHtml, /Job cards and shared archive/);
+assert.ok(jobsPageHtml.indexOf('id="job-card-list"') < jobsPageHtml.indexOf('id="job-card-scanned-archive"'), 'new submitted cards and scanned scans appear in the same archive section');
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
 const mime = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
