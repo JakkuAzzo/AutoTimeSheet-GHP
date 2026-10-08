@@ -2913,6 +2913,89 @@ body {
 .marketing-trust-grid p { margin: 0; color: var(--muted); }
 .marketing-inline-cta { margin: 1.5rem 0 0; text-align: center; }
 
+.google-reviews-section {
+  max-width: 1180px;
+  padding-block: clamp(1.25rem, 3vw, 2rem) clamp(2rem, 4vw, 3.25rem);
+}
+
+.google-reviews-section .section-heading { margin-bottom: 1rem; }
+.google-reviews-section .eyebrow { color: var(--green-2); font-weight: 850; }
+
+.google-reviews-viewport {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--gold);
+  background: var(--white);
+  box-shadow: 0 10px 26px rgba(18, 61, 29, .07);
+}
+
+.google-reviews-track {
+  display: flex;
+  width: 200%;
+  transition: transform .55s cubic-bezier(.22, .75, .26, 1);
+}
+
+.google-review-card {
+  box-sizing: border-box;
+  flex: 0 0 50%;
+  min-width: 0;
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: clamp(1.4rem, 4vw, 2.6rem);
+  text-align: center;
+}
+
+.google-review-quote {
+  max-width: 48rem;
+  margin: 0 0 1.1rem;
+  color: var(--green);
+  font-size: clamp(1.2rem, 2.5vw, 1.8rem);
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.google-review-attribution { margin: 0; font-weight: 800; }
+.google-review-attribution a { color: var(--green-2); text-underline-offset: .18em; }
+.google-review-attribution span { color: var(--muted); font-weight: 600; }
+
+.google-reviews-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .8rem;
+  flex-wrap: wrap;
+  margin-top: .8rem;
+}
+
+.google-reviews-controls .content-carousel-button { width: 40px; height: 40px; font-size: 1.65rem; }
+.google-reviews-controls .content-carousel-status { min-width: 100px; margin: 0; }
+
+.google-reviews-pause {
+  min-height: 40px;
+  padding: .45rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--green-2);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.google-reviews-pause:hover,
+.google-reviews-pause:focus-visible { border-color: var(--green); outline-color: var(--gold); }
+
+.google-reviews-source { margin: .55rem 0 0; text-align: center; font-size: .88rem; }
+.google-reviews-source a { color: var(--green-2); font-weight: 800; text-underline-offset: .18em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .google-reviews-track { transition: none; }
+}
+
 .marketing-story-section {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(250px, .9fr);
