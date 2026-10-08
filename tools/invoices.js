@@ -69,11 +69,16 @@
 
   function renderConnections() {
     var list = connectionList();
+    var reconnectNeeded = list.some(function (item) { return !!item.last_error; });
     if (list.length && !tenantId) tenantId = String(list[0].tenant_id || "");
-    if (chip) chip.textContent = list.length ? "Connected" : (xeroBody && xeroBody.configured ? "Not connected" : "Not configured");
-    if (connect) { connect.hidden = list.length > 0; connect.style.display = list.length > 0 ? "none" : ""; }
+    if (chip) chip.textContent = reconnectNeeded ? "Reconnect required" : (list.length ? "Connected" : (xeroBody && xeroBody.configured ? "Not connected" : "Not configured"));
+    if (connect) {
+      connect.hidden = list.length > 0 && !reconnectNeeded;
+      connect.style.display = connect.hidden ? "none" : "";
+      connect.textContent = reconnectNeeded ? "Reconnect Xero" : "Connect Xero";
+    }
     if (status) status.textContent = xeroBody && xeroBody.configured
-      ? (list.length ? "The Accounts Xero connection is ready. Invoices are managed in Xero and linked GMT records are logged here." : "Xero is configured but no organisation is connected yet. Connect once to enable Accounts invoice management.")
+      ? (reconnectNeeded ? "Xero needs to be reauthorised. Reconnect the Accounts connection to restore invoice access." : (list.length ? "The Accounts Xero connection is ready. Invoices are managed in Xero and linked GMT records are logged here." : "Xero is configured but no organisation is connected yet. Connect once to enable Accounts invoice management."))
       : "Xero is not configured on the portal service yet.";
     if (!connections) return;
     if (!list.length) { connections.innerHTML = '<p class="portal-history-empty">No Xero organisation is connected.</p>'; return; }

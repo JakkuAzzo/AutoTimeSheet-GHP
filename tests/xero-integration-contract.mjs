@@ -73,6 +73,9 @@ assert.match(invoicesUi, /xero-invoice-main/);
 assert.match(invoicesUi, /Accounts administrator/);
 assert.match(invoicesUi, /related_estimates/);
 assert.match(invoicesUi, /email_threads/);
+assert.match(invoicesUi, /Reconnect Xero/);
+assert.match(invoicesUi, /last_error/);
+assert.match(worker, /Reconnect Xero to restore invoice access/);
 for (const handler of [
   'startXeroConnection', 'xeroStatus', 'xeroSetupDataEndpoint', 'xeroInvoiceRecords',
   'listXeroInvoicesEndpoint', 'lookupXeroInvoiceEndpoint', 'xeroInvoiceDetailEndpoint',
