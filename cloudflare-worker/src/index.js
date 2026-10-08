@@ -845,6 +845,37 @@ async function estimateIndexListEndpoint(request, env, identity, origin) {
   return json({ estimates: estimates.map(({ sharepoint_url, attachment_url, ...estimate }) => estimate) }, 200, origin || '');
 }
 
+async function upsertEmailEstimatePortalRecord(env, archive, input) {
+  if (!archive?.canonical_id) throw Object.assign(new Error('Archived estimate identity is missing'), { status: 500 });
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(archive.canonical_id)));
+  const suffix = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  const recordId = `email-estimate:${suffix}`;
+  const sentAt = text(input.sent_at || input.sentAt || input.received_at || input.receivedAt, '', 80);
+  const date = sentAt.slice(0, 10);
+  const number = text(input.estimate_number || input.estimateNumber, '', 160);
+  const company = text(input.client || input.customer || input.company, '', 500);
+  const customerEmail = text(input.client_email || input.customer_email || input.customerEmail, '', 320).toLowerCase();
+  const payload = {
+    number, estimateNumber: number, date, company, clientCompany: company,
+    email: customerEmail, clientEmail: customerEmail,
+    attention: text(input.attention, '', 240), reference: text(input.reference, '', 300),
+    subject: text(input.subject, '', 500), archiveMessageId: archive.id,
+    archiveSource: 'email'
+  };
+  const timestamp = now();
+  const existing = await env.DB.prepare('SELECT record_id FROM records WHERE record_id = ?').bind(recordId).first();
+  const result = await env.DB.prepare(`INSERT INTO records
+    (record_id, owner_oid, owner_upn, employee_name, kind, action, status, start_date, end_date,
+     record_date, submitted_at, updated_at, issue, payload_json, source_message_key)
+    VALUES (?, 'shared-estimate-archive', ?, 'GMT Estimate Archive', 'estimates', 'email_archive', 'Submitted', ?, ?, ?, ?, ?, '', ?, ?)
+    ON CONFLICT(record_id) DO UPDATE SET owner_upn=excluded.owner_upn, employee_name=excluded.employee_name,
+      status=excluded.status, record_date=excluded.record_date, submitted_at=excluded.submitted_at,
+      updated_at=excluded.updated_at, payload_json=excluded.payload_json, source_message_key=excluded.source_message_key`)
+    .bind(recordId, text(input.mailbox, '', 320).toLowerCase(), date || null, date || null, date || null,
+      sentAt || timestamp, timestamp, JSON.stringify(payload), archive.canonical_id).run();
+  return { record_id: recordId, created: !existing, updated: Boolean(existing && result?.success !== false) };
+}
+
 async function estimateArchiveIngestEndpoint(request, env, origin) {
   const configuredKey = text(env.ESTIMATE_MAIL_INGEST_KEY, '', 1000);
   if (!configuredKey) throw Object.assign(new Error('Estimate archive ingestion is not configured'), { status: 503 });
@@ -932,7 +963,10 @@ async function estimateArchiveIngestEndpoint(request, env, origin) {
         attachment.sizeBytes, attachment.sha256, attachment.itemId,
         JSON.stringify({ source: 'power-automate-estimate-index', mailbox })).run();
   }
-  return json({ ok: true, estimate, archive, associations: publicArchiveAssociations(savedAssociations) }, 200, origin || '');
+  const portalRecord = body.portal_record === true && archiveInput.classification_state === 'confirmed'
+    ? await upsertEmailEstimatePortalRecord(env, { ...archive, canonical_id: canonicalId }, { ...body, mailbox })
+    : null;
+  return json({ ok: true, estimate, archive, portal_record: portalRecord, associations: publicArchiveAssociations(savedAssociations) }, 200, origin || '');
 }
 
 async function sendClientEstimateEndpoint(request, env, identity, origin) {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import vm from 'node:vm';
 import { queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from '../cloudflare-worker/src/estimate-archive.js';
 import worker from '../cloudflare-worker/src/index.js';
 
@@ -10,8 +11,16 @@ const db = new DatabaseSync(':memory:');
 db.exec(await readFile(new URL('../cloudflare-worker/migrations/0007_estimate_index.sql', import.meta.url), 'utf8'));
 db.exec(await readFile(new URL('../cloudflare-worker/migrations/0008_estimate_mail_sources.sql', import.meta.url), 'utf8'));
 db.exec(migration);
-db.exec(`CREATE TABLE records (record_id TEXT PRIMARY KEY, kind TEXT, status TEXT, record_date TEXT, payload_json TEXT, updated_at TEXT)`);
-db.prepare('INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)').run('job-101', 'job-cards', 'Open', '2026-01-01', JSON.stringify({ jobReference: 'JOB-101', company: 'Acme Ltd', xeroInvoiceId: 'provider-invoice-private', invoiceNumber: 'INV-009' }), '2026-01-01T00:00:00Z');
+db.exec(`CREATE TABLE records (
+  record_id TEXT PRIMARY KEY, owner_oid TEXT NOT NULL DEFAULT '', owner_upn TEXT NOT NULL DEFAULT '',
+  employee_name TEXT NOT NULL DEFAULT '', kind TEXT, action TEXT NOT NULL DEFAULT '', status TEXT,
+  start_date TEXT, end_date TEXT, record_date TEXT, submitted_at TEXT NOT NULL DEFAULT '', updated_at TEXT,
+  issue TEXT, payload_json TEXT, source_message_key TEXT, source_attachment_ids TEXT, reconciliation_key TEXT,
+  source_variant_status TEXT, reconciled_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)`);
+db.exec(`CREATE TABLE dispatch_queue (record_id TEXT PRIMARY KEY, status TEXT, attempts INTEGER, queued_at TEXT, last_sent_at TEXT, last_error TEXT)`);
+db.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name, kind, action, status, record_date, submitted_at, payload_json, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run('job-101', 'owner', 'owner@example.test', 'Owner', 'job-cards', 'job-card', 'Open', '2026-01-01', '2026-01-01T00:00:00Z', JSON.stringify({ jobReference: 'JOB-101', company: 'Acme Ltd', xeroInvoiceId: 'provider-invoice-private', invoiceNumber: 'INV-009' }), '2026-01-01T00:00:00Z');
 
 const tableNames = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(({ name }) => name));
 for (const name of ['archive_messages', 'archive_attachments', 'archive_associations']) {
@@ -252,6 +261,54 @@ const linkedBody = await linkedIngest.json();
 assert.equal(linkedBody.associations[0].target_reference, 'JOB-101');
 assert.equal(db.prepare('SELECT COUNT(*) AS count FROM archive_associations WHERE message_id=?').get(linkedBody.archive.id).count, 1,
   'archive ingest persists explicit record relationships for portal detail');
+const portalEstimateIngest = await worker.fetch(new Request(ingestUrl, {
+  method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': 'secret' },
+  body: JSON.stringify({
+    mailbox: 'info@gmt-services.co.uk', outlook_message_id: 'portal-estimate-mail',
+    internet_message_id: '<portal-estimate@example.test>', sharepoint_eml_item_id: 'sp-portal-estimate-eml',
+    classification_state: 'confirmed', portal_record: true, estimate_number: 'EST-PORTAL-1',
+    client: 'Client Ltd', client_email: 'client@example.test', reference: 'JOB-202',
+    subject: 'Estimate EST-PORTAL-1 for Client Ltd', sent_at: '2026-10-07T09:00:00Z'
+  })
+}), { ...routeEnv, ESTIMATE_MAIL_INGEST_KEY: 'secret' }, {});
+assert.equal(portalEstimateIngest.status, 200);
+const portalEstimateBody = await portalEstimateIngest.json();
+const portalRecord = db.prepare('SELECT * FROM records WHERE record_id=?').get(portalEstimateBody.portal_record.record_id);
+assert.equal(portalRecord.kind, 'estimates', 'confirmed email estimates can appear in shared submitted-document and calendar views');
+assert.equal(portalRecord.action, 'email_archive');
+assert.equal(JSON.parse(portalRecord.payload_json).estimateNumber, 'EST-PORTAL-1');
+assert.equal(JSON.parse(portalRecord.payload_json).archiveMessageId, portalEstimateBody.archive.id);
+const historyWithImportedEstimate = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/history?kind=estimates', { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
+assert.equal(historyWithImportedEstimate.status, 200);
+const historyWithImportedEstimateBody = await historyWithImportedEstimate.json();
+assert.ok(historyWithImportedEstimateBody.records.some((record) => record.source_record_id === portalRecord.record_id && record.estimate_number === 'EST-PORTAL-1'),
+  'authenticated employees see confirmed imported estimate emails in the shared submitted-document history');
+const calendarContext = { window: {} };
+vm.runInNewContext(await readFile(new URL('../portal/calendar-data.js', import.meta.url), 'utf8'), calendarContext);
+const calendarEvents = calendarContext.window.GMTCalendarData.recordsToEvents(historyWithImportedEstimateBody.records, {});
+assert.ok(calendarEvents.some((event) => event.recordId === portalRecord.record_id && event.date === '2026-10-07' && event.type === 'estimates'),
+  'confirmed imported estimates with a date appear in the shared calendar');
+const portalEstimateReplay = await worker.fetch(new Request(ingestUrl, {
+  method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': 'secret' },
+  body: JSON.stringify({
+    mailbox: 'accounts@gmt-services.co.uk', outlook_message_id: 'portal-estimate-copy',
+    internet_message_id: '<portal-estimate@example.test>', sharepoint_eml_item_id: 'sp-portal-estimate-eml',
+    classification_state: 'confirmed', portal_record: true, estimate_number: 'EST-PORTAL-1',
+    client: 'Client Ltd', client_email: 'client@example.test', reference: 'JOB-202',
+    subject: 'Estimate EST-PORTAL-1 for Client Ltd', sent_at: '2026-10-07T09:00:00Z'
+  })
+}), { ...routeEnv, ESTIMATE_MAIL_INGEST_KEY: 'secret' }, {});
+assert.equal(portalEstimateReplay.status, 200);
+assert.equal(db.prepare("SELECT COUNT(*) AS count FROM records WHERE action='email_archive'").get().count, 1,
+  'duplicate copies do not create duplicate portal estimate records');
+const candidatePortalRecord = await worker.fetch(new Request(ingestUrl, {
+  method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': 'secret' },
+  body: JSON.stringify({ mailbox: 'info@gmt-services.co.uk', outlook_message_id: 'candidate-portal-record', internet_message_id: '<candidate@example.test>', sharepoint_eml_item_id: 'sp-candidate-eml', portal_record: true, subject: 'Supplier quotation candidate' })
+}), { ...routeEnv, ESTIMATE_MAIL_INGEST_KEY: 'secret' }, {});
+assert.equal(candidatePortalRecord.status, 200);
+assert.equal((await candidatePortalRecord.json()).portal_record, null,
+  'candidate and supplier mail remains out of Submitted Documents and the calendar even if a caller requests a portal record');
+assert.equal(db.prepare("SELECT COUNT(*) AS count FROM records WHERE action='email_archive'").get().count, 1);
 const secondJobEmail = await worker.fetch(new Request(ingestUrl, {
   method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': 'secret' },
   body: JSON.stringify({ mailbox: 'info@gmt-services.co.uk', outlook_message_id: 'other-thread-message', internet_message_id: '<other-thread@example.test>', sharepoint_eml_item_id: 'sp-other-thread', reference: ' JOB-101 ', invoice_number: 'INV-009' })
@@ -269,9 +326,12 @@ const combinedJobBody = await combinedJobDetail.json();
 assert.ok(combinedJobBody.conversation.some((item) => item.id === secondJobMessage.archive.id),
   'opening an email associated with a job also surfaces a separate conversation linked to the same job');
 assert.ok(!JSON.stringify(combinedJobBody).includes('provider-invoice-private'), 'invoice provider IDs remain hidden from all shared portal users');
-db.prepare('INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)').run('older-job-exact', 'job-cards', 'Open', '2018-01-01', JSON.stringify({ jobReference: 'OLD-JOB-EXACT' }), '2018-01-01T00:00:00Z');
+const insertTestRecord = db.prepare(`INSERT INTO records
+  (record_id, owner_oid, owner_upn, employee_name, kind, action, status, record_date, submitted_at, payload_json, updated_at)
+  VALUES (?, 'test-owner', 'test@example.test', 'Test', ?, 'test', ?, ?, ?, ?, ?)`);
+insertTestRecord.run('older-job-exact', 'job-cards', 'Open', '2018-01-01', '2018-01-01T00:00:00Z', JSON.stringify({ jobReference: 'OLD-JOB-EXACT' }), '2018-01-01T00:00:00Z');
 for (let index = 0; index < 520; index += 1) {
-  db.prepare('INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)').run(`newer-job-${index}`, 'job-cards', 'Open', '2026-01-01', JSON.stringify({ jobReference: `NEW-JOB-${index}` }), `2026-01-${String((index % 28) + 1).padStart(2, '0')}T00:00:00Z`);
+  insertTestRecord.run(`newer-job-${index}`, 'job-cards', 'Open', '2026-01-01', '2026-01-01T00:00:00Z', JSON.stringify({ jobReference: `NEW-JOB-${index}` }), `2026-01-${String((index % 28) + 1).padStart(2, '0')}T00:00:00Z`);
 }
 const olderJobEmail = await worker.fetch(new Request(ingestUrl, {
   method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': 'secret' },
@@ -294,7 +354,7 @@ globalThis.fetch = async (url, init = {}) => {
 const appEnv = { ...routeEnv, SHAREPOINT_GRAPH_CLIENT_ID: 'test-client', SHAREPOINT_GRAPH_CLIENT_SECRET: 'test-secret', SHAREPOINT_SITE_ID: 'test-site', SHAREPOINT_DRIVE_ID: 'test-drive' };
 const appUrl = 'https://gmt-portal-api.example.workers.dev/api/archive/estimates/app';
 const appBody = { fileName: 'estimate.doc', contentType: 'application/msword', contentBase64: Buffer.from('estimate bytes').toString('base64'), source_record_id: 'protected-estimate-record-1', estimate_number: 'EST-APP-1', customer: 'Acme Ltd', reference: 'JOB-101', invoice_number: 'INV-009' };
-db.prepare('INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)').run('protected-estimate-record-1', 'estimates', 'Sent to client', '2026-01-02', JSON.stringify({ estimateNumber: 'EST-APP-1', reference: 'JOB-101' }), '2026-01-02T00:00:00Z');
+insertTestRecord.run('protected-estimate-record-1', 'estimates', 'Sent to client', '2026-01-02', '2026-01-02T00:00:00Z', JSON.stringify({ estimateNumber: 'EST-APP-1', reference: 'JOB-101' }), '2026-01-02T00:00:00Z');
 const firstAppResponse = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify(appBody) }), appEnv, {});
 assert.equal(firstAppResponse.status, 201, 'first app archive request stores the document');
 assert.match(appUploadPaths[0], /\/root:\/Estimates\/Sent%20from%20Portal\//,
