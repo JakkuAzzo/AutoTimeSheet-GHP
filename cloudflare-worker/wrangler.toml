@@ -25,7 +25,7 @@ ENTRA_AUDIENCES = "01b5a6c6-f6c1-47cb-aebe-67f07f415e4b,https://service.flow.mic
 ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,https://gmt-timesheets.pages.dev"
 ADMIN_UPNS = "acc.gmtelect@outlook.com,acc.gmtelect@gmt-services.co.uk"
 OPERATIONS_ADMIN_UPNS = "info@gmt-services.co.uk"
-JOB_CARD_ADMIN_UPNS = "acc.gmtelect@outlook.com,acc.gmtelect@gmt-services.co.uk,info@gmt-services.co.uk"
+JOB_CARD_ADMIN_UPNS = "acc.gmtelect@outlook.com,acc.gmtelect@gmt-services.co.uk,info@gmt-services.co.uk,amanda.bb@gmtelectservsltd.onmicrosoft.com"
 ADMIN_OIDS = ""
 ADMIN_GROUP_IDS = ""
 HISTORY_UPSTREAM_URL = "https://default8b182d6b6f344ca284ad50ca712b54.88.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/491610e0763f41269a645bde6346369d/triggers/manual/paths/invoke?api-version=1"
