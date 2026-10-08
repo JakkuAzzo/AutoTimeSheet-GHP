@@ -475,11 +475,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-google-reviews-carousel]'), function (root) {
       var track = root.querySelector('[data-reviews-track]');
       var slides = track ? Array.prototype.slice.call(track.querySelectorAll('[data-review-slide]')) : [];
-      var previous = root.querySelector('[data-review-prev]');
-      var next = root.querySelector('[data-review-next]');
-      var pauseButton = root.querySelector('[data-review-pause]');
-      var page = root.querySelector('[data-review-page]');
-      if (!track || slides.length < 2 || !previous || !next || !pauseButton || !page) return;
+      if (!track || slides.length < 2) return;
 
       var index = 0;
       var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -487,7 +483,6 @@
       var focusInside = false;
       var pageVisible = !document.hidden;
       var inViewport = true;
-      var userPaused = false;
       var timer = null;
 
       track.style.width = (slides.length * 100) + '%';
@@ -495,7 +490,7 @@
         slide.style.flex = '0 0 ' + (100 / slides.length) + '%';
       });
 
-      function setIndex(nextIndex, announce) {
+      function setIndex(nextIndex) {
         index = (nextIndex + slides.length) % slides.length;
         slides.forEach(function (slide, slideIndex) {
           var active = slideIndex === index;
@@ -504,28 +499,12 @@
           slide.classList.toggle('is-active', active);
         });
         track.style.transform = 'translate3d(-' + (index * 100 / slides.length) + '%, 0, 0)';
-        page.textContent = 'Review ' + (index + 1) + ' of ' + slides.length;
-        if (!announce) page.setAttribute('aria-live', 'off');
-        else page.setAttribute('aria-live', 'polite');
-      }
-
-      function updatePauseControl() {
-        var paused = userPaused || reducedMotion.matches;
-        pauseButton.setAttribute('aria-pressed', userPaused ? 'true' : 'false');
-        pauseButton.textContent = reducedMotion.matches ? 'Auto-play off' : (userPaused ? 'Resume reviews' : 'Pause reviews');
-        pauseButton.hidden = reducedMotion.matches;
       }
 
       function shouldPause() {
-        return userPaused || reducedMotion.matches || pointerInside || focusInside || !pageVisible || !inViewport;
+        return reducedMotion.matches || pointerInside || focusInside || !pageVisible || !inViewport;
       }
 
-      previous.addEventListener('click', function () { setIndex(index - 1, true); });
-      next.addEventListener('click', function () { setIndex(index + 1, true); });
-      pauseButton.addEventListener('click', function () {
-        userPaused = !userPaused;
-        updatePauseControl();
-      });
       root.addEventListener('mouseenter', function () { pointerInside = true; });
       root.addEventListener('mouseleave', function () { pointerInside = false; });
       root.addEventListener('focusin', function () { focusInside = true; });
@@ -539,14 +518,9 @@
         }, { threshold: 0.05 });
         observer.observe(root);
       }
-      if (typeof reducedMotion.addEventListener === 'function') {
-        reducedMotion.addEventListener('change', updatePauseControl);
-      }
-
-      setIndex(0, false);
-      updatePauseControl();
+      setIndex(0);
       timer = window.setInterval(function () {
-        if (!shouldPause()) setIndex(index + 1, false);
+        if (!shouldPause()) setIndex(index + 1);
       }, 6500);
       window.addEventListener('beforeunload', function () {
         if (timer) window.clearInterval(timer);
