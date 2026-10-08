@@ -3409,7 +3409,7 @@ body {
 
   .workshop-motion-media {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
     align-self: auto;
     min-height: 0;
     height: auto;
@@ -3423,7 +3423,7 @@ body {
 
   .workshop-motion-content {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
     align-self: start;
   }
 
