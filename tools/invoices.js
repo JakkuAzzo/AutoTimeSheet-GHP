@@ -11,7 +11,6 @@
   var connect = $("xero-connect");
   var refresh = $("xero-refresh");
   var loadButton = $("xero-invoice-load");
-  var linkNewestButton = $("xero-invoice-link-newest");
   var listStatus = $("xero-invoice-status-message");
   var progress = $("xero-invoice-progress");
   var table = $("xero-invoice-table");
@@ -146,7 +145,6 @@
     invoiceRows = Array.isArray(invoices) ? invoices : [];
     renderCustomerFilter(invoiceRows);
     var body = window.GMTInvoiceOrder.newestFirst(filterInvoiceRows(invoiceRows).filter(function (invoice) { return !invoice.type || invoice.type === "ACCREC"; }));
-    if (linkNewestButton) linkNewestButton.disabled = !body.length || !connectionList().length;
     table.innerHTML = '<thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Date</th><th>Due</th><th>Total</th><th>Amount due</th><th>Actions</th></tr></thead><tbody>' + (body.length ? body.map(function (invoice) {
       var invoiceNumber = String(invoice.invoice_number || "").trim();
       var reference = invoice.url && invoiceNumber ? '<a href="' + safe(invoice.url) + '" target="_blank" rel="noopener">' + safe(invoiceNumber) + ' ↗</a>' : safe(invoiceNumber || "—");
@@ -157,37 +155,6 @@
     table.querySelectorAll("[data-xero-manage]").forEach(function (button) {
       button.addEventListener("click", function () { openInvoice(button.getAttribute("data-xero-manage")); });
     });
-  }
-
-  async function linkNewestInvoices() {
-    if (!linkNewestButton || !api.xeroInvoice) return;
-    var batch = window.GMTInvoiceOrder.selectNewest(invoiceRows.filter(function (invoice) { return !invoice.type || invoice.type === "ACCREC"; }), 10);
-    if (!batch.length) { if (listStatus) listStatus.textContent = "Load invoice history with dates before starting the newest-first link pass."; return; }
-    var linkedInvoices = 0;
-    var exactEstimates = 0;
-    var exactJobCards = 0;
-    var exactEmailThreads = 0;
-    linkNewestButton.disabled = true;
-    try {
-      for (var index = 0; index < batch.length; index += 1) {
-        var row = batch[index];
-        if (listStatus) listStatus.textContent = "Checking exact archive links for newest invoice " + (index + 1) + " of " + batch.length + " · " + (row.invoice_number || row.invoice_id) + "…";
-        var detail = await api.xeroInvoice(row.invoice_id, selectedTenant());
-        var estimates = (detail && Array.isArray(detail.related_estimates) ? detail.related_estimates : []).filter(function (item) { return ["estimate-number", "estimate-number-alias", "reference"].indexOf(item.correlation_rule) >= 0; });
-        var jobCards = detail && Array.isArray(detail.related_job_cards) ? detail.related_job_cards : [];
-        var emailThreads = (detail && Array.isArray(detail.email_threads) ? detail.email_threads : []).filter(function (item) { return item.match_status === "matched"; });
-        exactEstimates += estimates.length;
-        exactJobCards += jobCards.length;
-        exactEmailThreads += emailThreads.length;
-        if (estimates.length || jobCards.length || emailThreads.length) linkedInvoices += 1;
-      }
-      if (listStatus) listStatus.textContent = "Newest-first pass complete: checked " + batch.length + " invoices; exact links found on " + linkedInvoices + " invoice(s) (" + exactEstimates + " estimates, " + exactJobCards + " job cards, " + exactEmailThreads + " email threads). Ambiguous or unmatched invoices were left unchanged.";
-      if (editingInvoiceId && batch.some(function (invoice) { return invoice.invoice_id === editingInvoiceId; })) await openInvoice(editingInvoiceId);
-    } catch (error) {
-      if (listStatus) listStatus.textContent = "Newest-first pass stopped after " + linkedInvoices + " invoice(s) with exact links. " + (error && error.message ? error.message : "Retry to continue; existing links are preserved.");
-    } finally {
-      linkNewestButton.disabled = false;
-    }
   }
 
   function renderRecordChips() {
@@ -478,7 +445,6 @@
     loadInvoices(true);
   });
   if (loadButton) loadButton.addEventListener("click", loadInvoices);
-  if (linkNewestButton) linkNewestButton.addEventListener("click", linkNewestInvoices);
   if (statusFilter) statusFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (invoiceSearch) invoiceSearch.addEventListener("input", function () { renderInvoices(invoiceRows); });
   if (customerFilter) customerFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
