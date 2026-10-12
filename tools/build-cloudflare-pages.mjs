@@ -32,7 +32,7 @@ for (const directory of ['timesheets', 'jobs', 'tasks', 'tools', 'training', 'au
 fs.rmSync(path.join(output, 'tools', 'build-cloudflare-pages.mjs'), { force: true });
 
 for (const file of [
-  'styles.css', 'portal.css', 'analytics.js', 'add-logo.js', 'favicon.svg',
+  'styles.css', 'portal.css', 'responsive-tables.css', 'responsive-tables.js', 'analytics.js', 'add-logo.js', 'favicon.svg',
   'image.png', 'image.webp', 'lazy-xlsx.js', 'portal-api.js', 'portal.js',
   'script.js', 'pay-periods.js', 'timesheet-coverage.js', 'timesheets.js', 'timesheet-clock.js',
   'timesheet-clock-transport.js', 'timesheet-row-policy.js', 'timesheet-input-fix.js',

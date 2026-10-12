@@ -1,0 +1,107 @@
+/* Tables stay within their page panels. On narrow screens, each row becomes a
+   labeled card so every value remains readable without sideways scrolling. */
+.table-scroll,
+.table-wrap,
+.pay-month-table-scroll {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip !important;
+}
+
+table.responsive-data-table {
+  display: table;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0 !important;
+  table-layout: fixed;
+}
+
+table.responsive-data-table th,
+table.responsive-data-table td {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+table.responsive-data-table td button,
+table.responsive-data-table td a {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  table.responsive-data-table:not(.estimate-paper-table) {
+    display: block;
+    width: 100%;
+    border-collapse: separate;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) tbody {
+    display: grid;
+    width: 100%;
+    gap: .65rem;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) tr {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    padding: .35rem .65rem;
+    border: 1px solid var(--line, #cdd8c6);
+    border-radius: .7rem;
+    background: var(--card, #fff);
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) td {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, .7fr) minmax(0, 1.3fr);
+    align-items: start;
+    gap: .5rem;
+    width: 100%;
+    min-width: 0;
+    padding: .45rem 0;
+    border: 0;
+    border-bottom: 1px solid #e7ece3;
+    background: transparent;
+    text-align: left;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) td:last-child {
+    border-bottom: 0;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) td::before {
+    content: attr(data-label);
+    min-width: 0;
+    color: var(--green, #123d1d);
+    font-size: .72rem;
+    font-weight: 900;
+    overflow-wrap: anywhere;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) td[colspan] {
+    display: block;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) td[colspan]::before {
+    content: none;
+  }
+
+  table.responsive-data-table:not(.estimate-paper-table) td > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
