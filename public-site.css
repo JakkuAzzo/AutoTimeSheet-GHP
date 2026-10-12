@@ -3269,6 +3269,13 @@ body {
   word-break: normal;
 }
 
+@media (min-width: 821px) {
+  .site-nav {
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+}
+
 .service-card > .service-enquiry-link {
   align-self: flex-start;
   width: auto;
