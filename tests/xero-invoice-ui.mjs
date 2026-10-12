@@ -36,6 +36,8 @@ assert.match(css, /\.xero-invoice-workspace/);
 assert.match(css, /@media[^{]*max-width/);
 assert.match(jobs, /id="job-card-invoice-links"/);
 assert.match(portal, /recordInvoiceLinks/);
+assert.match(ui, /record\.title[\s\S]*OCR candidate/, 'invoice linking labels OCR-derived job-card names as candidates');
+assert.match(ui, /record_title[\s\S]*OCR candidate/, 'invoice related-records avoid showing scanned job-card hashes as names');
 assert.match(estimates, /No linked job card, estimate, or invoice record yet/);
 
 console.log('Invoice workspace UI contract: PASS');

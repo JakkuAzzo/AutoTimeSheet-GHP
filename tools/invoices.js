@@ -216,10 +216,10 @@
       var title = link.record_title || link.record_id || kind;
       var context = [link.customer, link.record_date, link.record_status].filter(Boolean).join(" · ");
       var email = link.email_url ? ' <a href="' + safe(link.email_url) + '" target="_blank" rel="noopener">Open job email ↗</a>' : '';
-      return '<li><strong>' + safe(kind) + ' · ' + safe(title) + '</strong>' + (context ? '<span class="small-text">' + safe(context) + '</span>' : '') + '<span class="small-text"><a href="' + safe(link.history_url || '#') + '">Open record in GMT ↗</a>' + email + '</span></li>';
+      return '<li><strong>' + safe(kind) + ' · ' + safe(title) + (link.is_candidate ? ' · OCR candidate' : '') + '</strong>' + (context ? '<span class="small-text">' + safe(context) + '</span>' : '') + '<span class="small-text"><a href="' + safe(link.history_url || '#') + '">Open record in GMT ↗</a>' + email + '</span></li>';
     }).join("");
     var estimateCards = estimates.map(function (item) { return '<li><strong>Estimate · ' + safe(item.estimate_number || item.canonical_id) + '</strong><span class="small-text">' + safe([item.client, item.estimate_date, item.reference, item.correlation_rule].filter(Boolean).join(' · ')) + '</span><span class="small-text">' + (item.history_url ? '<a href="' + safe(item.history_url) + '">Open estimate in GMT ↗</a>' : '') + (item.outlook_url ? ' · <a href="' + safe(item.outlook_url) + '" target="_blank" rel="noopener">Open estimate email ↗</a>' : '') + '</span></li>'; }).join('');
-    var jobCardCards = jobCards.map(function (item) { return '<li><strong>Job card · ' + safe(item.record_id) + '</strong><span class="small-text"><a href="' + safe(item.history_url || '#') + '">Open job card in GMT ↗</a></span></li>'; }).join('');
+    var jobCardCards = jobCards.map(function (item) { return '<li><strong>Job card · ' + safe(item.record_title || item.record_id) + (item.is_candidate ? ' · OCR candidate' : '') + '</strong>' + (item.customer ? '<span class="small-text">' + safe(item.customer) + '</span>' : '') + '<span class="small-text"><a href="' + safe(item.history_url || '#') + '">Open job card in GMT ↗</a></span></li>'; }).join('');
     var emails = emailThreads.map(function (item) { return '<li><strong>Estimate email · ' + safe(item.subject || item.canonical_id) + '</strong><span class="small-text">' + safe(item.match_status || 'related') + (item.outlook_url ? ' · <a href="' + safe(item.outlook_url) + '" target="_blank" rel="noopener">Open in Outlook ↗</a>' : '') + '</span></li>'; }).join('');
     return '<strong>Related GMT records</strong><p class="small-text">These records may share the same work even when Xero invoice numbers change or more than one invoice is used.</p><ul class="xero-related-record-list">' + cards + estimateCards + jobCardCards + emails + '</ul>';
   }
@@ -364,7 +364,7 @@
       if (results[1].status === "fulfilled") {
         var records = results[1].value && results[1].value.records || [];
         recordRows = records;
-        if (recordSelect) recordSelect.innerHTML = records.map(function (record) { return '<option value="' + safe(record.record_id) + '">' + safe((record.kind === "estimates" ? "Estimate" : "Job card") + " · " + record.title + (record.customer ? " · " + record.customer : "") + (record.total == null ? "" : " · " + money(record.total, "GBP"))) + '</option>'; }).join("") || '<option value="">No active estimates or job cards</option>';
+        if (recordSelect) recordSelect.innerHTML = records.map(function (record) { return '<option value="' + safe(record.record_id) + '">' + safe((record.kind === "estimates" ? "Estimate" : "Job card") + " · " + record.title + (record.is_candidate ? " · OCR candidate" : "") + (record.customer ? " · " + record.customer : "") + (record.total == null ? "" : " · " + money(record.total, "GBP"))) + '</option>'; }).join("") || '<option value="">No active estimates or job cards</option>';
       } else {
         errors.push(results[1].reason && results[1].reason.message || "GMT records could not be loaded");
         if (recordSelect) recordSelect.innerHTML = '<option value="">GMT records unavailable — use Refresh</option>';

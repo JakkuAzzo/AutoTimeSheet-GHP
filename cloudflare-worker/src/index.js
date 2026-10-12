@@ -3485,18 +3485,42 @@ async function getXeroInvoice(env, tenantId, invoiceId, options = {}) {
   return { connection, invoice };
 }
 
+function xeroLinkedRecordDisplay(row, payload) {
+  let candidates = {};
+  let confirmed = {};
+  try { candidates = JSON.parse(row.candidates_json || '{}'); } catch (_) {}
+  try { confirmed = JSON.parse(row.confirmed_json || '{}'); } catch (_) {}
+  const candidateFields = payload.candidateFields && typeof payload.candidateFields === 'object' ? payload.candidateFields : {};
+  const confirmedFields = payload.confirmedFields && typeof payload.confirmedFields === 'object' ? payload.confirmedFields : {};
+  const title = payload.estimateNumber || payload.number || payload.jobReference || payload.reference ||
+    confirmed.cardNumber || confirmedFields.cardNumber || candidates.cardNumber || candidateFields.cardNumber ||
+    (row.source_file ? `${row.source_file} · page ${row.source_page || ''}` : row.record_id);
+  const customer = payload.company || payload.client || payload.customerName || confirmed.customer ||
+    confirmedFields.customer || candidates.customer || candidateFields.customer || '';
+  return {
+    title: text(title, '', 255), customer: text(customer, '', 240),
+    is_candidate: row.kind === 'job-cards' && row.archive_review_state !== 'confirmed' &&
+      Boolean(candidates.cardNumber || candidateFields.cardNumber)
+  };
+}
+
 async function xeroInvoiceRecords(env, identity, origin) {
   requireXeroAdmin(identity);
-  const result = await env.DB.prepare(`SELECT record_id, kind, status, employee_name, record_date, payload_json
-    FROM records WHERE kind IN ('estimates', 'job-cards') AND status <> 'Deleted'
-    ORDER BY updated_at DESC LIMIT 500`).all();
+  const result = await env.DB.prepare(`SELECT r.record_id, r.kind, r.status, r.employee_name, r.record_date, r.payload_json,
+      a.candidates_json, a.confirmed_json, a.review_state AS archive_review_state,
+      a.source_file, a.source_page
+    FROM records r LEFT JOIN job_card_archive a ON a.record_id=r.record_id
+    WHERE r.kind IN ('estimates', 'job-cards') AND r.status <> 'Deleted'
+    ORDER BY r.updated_at DESC LIMIT 500`).all();
   return json({ records: (result.results || []).map((row) => {
     const payload = payloadObject(row);
+    const display = xeroLinkedRecordDisplay(row, payload);
     return {
       record_id: text(row.record_id, '', MAX_RECORD_ID),
       kind: row.kind,
-      title: text(payload.estimateNumber || payload.number || payload.jobReference || payload.reference || row.record_id, '', 160),
-      customer: text(payload.company || payload.client || payload.customerName, '', 240),
+      title: display.title,
+      customer: display.customer,
+      is_candidate: display.is_candidate,
       date: text(row.record_date, '', 10),
       total: Number.isFinite(Number(payload.total)) ? Number(payload.total) : null
     };
@@ -3553,8 +3577,11 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
     FROM xero_invoice_links WHERE tenant_id = ? AND invoice_id = ? ORDER BY linked_at DESC`).bind(result.connection.tenant_id, invoiceId).all();
   const linkedRecords = new Map();
   for (const link of links.results || []) {
-    const record = await env.DB.prepare(`SELECT status AS record_status, record_date, payload_json
-      FROM records WHERE record_id = ?`).bind(link.record_id).first();
+    const record = await env.DB.prepare(`SELECT r.status AS record_status, r.record_date, r.payload_json,
+        a.candidates_json, a.confirmed_json, a.review_state AS archive_review_state,
+        a.source_file, a.source_page
+      FROM records r LEFT JOIN job_card_archive a ON a.record_id=r.record_id
+      WHERE r.record_id = ?`).bind(link.record_id).first();
     linkedRecords.set(link.record_id, record || {});
   }
   const audit = await env.DB.prepare(`SELECT action, before_status, after_status, actor_upn, occurred_at FROM xero_invoice_audit
@@ -3637,12 +3664,17 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
       attachment_url: httpUrl(row.attachment_url, 2000),
       match_status: estimateCorrelation.matches.some((match) => match.canonical_id === row.canonical_id) ? 'matched' : 'candidate'
     }));
-  const relatedJobCards = (links.results || []).filter((link) => link.record_kind === 'job-cards').map((link) => ({
-    record_id: text(link.record_id, '', MAX_RECORD_ID),
-    linked_by_upn: text(link.linked_by_upn, '', 320),
-    linked_at: text(link.linked_at, '', 80),
-    history_url: `../jobs/?record=${encodeURIComponent(link.record_id)}`
-  }));
+  const relatedJobCards = (links.results || []).filter((link) => link.record_kind === 'job-cards').map((link) => {
+    const record = linkedRecords.get(link.record_id) || {};
+    const display = xeroLinkedRecordDisplay({ ...record, kind: 'job-cards', record_id: link.record_id }, payloadObject(record));
+    return {
+      record_id: text(link.record_id, '', MAX_RECORD_ID), record_title: display.title,
+      customer: display.customer, is_candidate: display.is_candidate,
+      linked_by_upn: text(link.linked_by_upn, '', 320),
+      linked_at: text(link.linked_at, '', 80),
+      history_url: `../jobs/?record=${encodeURIComponent(link.record_id)}`
+    };
+  });
   return json({
     invoice: xeroInvoiceProjection(invoice),
     line_items: (invoice.LineItems || []).map((line) => ({ description: text(line.Description, '', 4000), quantity: Number(line.Quantity) || 0, unit_amount: Number(line.UnitAmount) || 0, account_code: text(line.AccountCode, '', 40), tax_type: text(line.TaxType, '', 80) })),
@@ -3653,11 +3685,13 @@ async function xeroInvoiceDetailEndpoint(request, env, identity, origin, invoice
       const record = linkedRecords.get(link.record_id) || {};
       const payload = payloadObject(record);
       const kind = link.record_kind === 'estimates' ? 'estimate' : 'job-card';
+      const display = xeroLinkedRecordDisplay({ ...record, kind: link.record_kind, record_id: link.record_id }, payload);
       return {
         record_id: text(link.record_id, '', MAX_RECORD_ID),
         record_kind: link.record_kind,
-        record_title: text(payload.estimateNumber || payload.number || payload.jobReference || payload.reference || link.record_id, link.record_id, 255),
-        customer: text(payload.company || payload.client || payload.customerName || payload.client_company || payload.clientCompany, '', 240),
+        record_title: display.title,
+        customer: display.customer || text(payload.client_company || payload.clientCompany, '', 240),
+        is_candidate: display.is_candidate,
         record_date: text(record.record_date || payload.date || payload.estimateDate || payload.estimate_date || payload.plannedDate || payload.planned_date, '', 40),
         record_status: text(record.record_status, '', 80),
         email_url: text(payload.jobEmailUrl || payload.job_email_url || payload.emailUrl || payload.email_url, '', 2000),
