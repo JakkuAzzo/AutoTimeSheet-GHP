@@ -247,6 +247,15 @@
   });
 
   show(0);
+  if (window.GMTPortalApi && typeof window.GMTPortalApi.access === "function") {
+    window.GMTPortalApi.access().then(function (access) {
+      var userManagement = document.querySelector("[data-admin-users-link]");
+      if (userManagement && access && access.isAdmin) {
+        userManagement.hidden = false;
+        userManagement.removeAttribute("aria-hidden");
+      }
+    }).catch(function () {});
+  }
   loadTasks();
   loadNotifications();
 }());

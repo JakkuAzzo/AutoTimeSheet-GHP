@@ -338,7 +338,7 @@
     // Keep the control visible on every authorised document view. Accounts
     // receives the full roster; other identities simply see the employees
     // present in their authorised history (often just themselves).
-    if (employeeFilterWrap) employeeFilterWrap.hidden = !(historyMeta && historyMeta.is_admin === true);
+    if (employeeFilterWrap) employeeFilterWrap.hidden = !(historyMeta && (historyMeta.is_admin === true || historyMeta.is_hr_admin === true));
     return sorted.length;
   }
   function populatePayMonths() {
@@ -1153,6 +1153,12 @@
       realRecordCount = realRecords.length;
       records = realRecords;
       historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
+      if (historyMeta.is_hr_admin && !historyMeta.is_admin) {
+        tabButtons.forEach(function (button) {
+          var tab = button.getAttribute("data-submission-tab");
+          button.hidden = tab !== "timesheets" && tab !== "calendar";
+        });
+      }
       updateDeliveryIndicator();
       populateEmployees(realRecords);
       var scope = body && body.meta && body.meta.visible_scope ? " Access: " + body.meta.visible_scope + "." : "";

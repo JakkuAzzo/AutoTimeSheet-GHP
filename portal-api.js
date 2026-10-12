@@ -73,6 +73,18 @@
     return !!baseUrl();
   }
 
+  function access() {
+    return request('/api/access', { method: 'GET' });
+  }
+
+  function adminUsers() {
+    return request('/api/admin/users', { method: 'GET' });
+  }
+
+  function updateUserAccess(body) {
+    return request('/api/admin/users', { method: 'POST', body: body || {} });
+  }
+
   function saveRecord(record) {
     return request("/api/records", { method: "POST", body: record });
   }
@@ -425,6 +437,9 @@
   window.GMTPortalApi = {
     enabled: enabled,
     request: request,
+    access: access,
+    adminUsers: adminUsers,
+    updateUserAccess: updateUserAccess,
     saveRecord: saveRecord,
     updateRecord: updateRecord,
     queueAttachments: queueAttachments,

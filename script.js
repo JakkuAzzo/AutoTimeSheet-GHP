@@ -49,6 +49,7 @@ let recalculateTimer = null;
 let xlsxPromise = null;
 let toastTimer = null;
 let protectedEditLoaded = false;
+let timesheetSubmitting = false;
 
 function rowsForRequestedDay(rows) {
   const source = Array.isArray(rows) ? rows : [];
@@ -1047,16 +1048,23 @@ function submissionKeyPart(value) {
     .replace(/^-+|-+$/g, '') || 'unknown';
 }
 
-function buildTimesheetSubmissionId(calendarSync) {
+async function buildTimesheetSubmissionId(calendarSync, calculated) {
   const profile = localPortalProfile();
   const employeeIdentity = employeeEmail.value.trim() || profile.username || employeeName.value.trim();
-  // A generated form can retain its original week start after its Date rows
-  // change. Each new submission needs its own identity so separate dated
-  // slices and later versions cannot overwrite one another upstream.
-  const nonce = window.crypto && typeof window.crypto.randomUUID === 'function'
-    ? window.crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-  return `timesheet-${submissionKeyPart(employeeIdentity).slice(0, 64)}-${calendarSync.weekStart || 'unspecified'}-${calendarSync.weekEnd || 'unspecified'}-${nonce}`;
+  // The same employee/week/content submitted from another browser receives
+  // the same idempotency key. Changed rows produce a new revision id.
+  const canonicalRows = (calculated || []).map((row) => [row.date, row.start, row.finish, row.lunchMinutes, row.absenceStatus, row.description, row.note]);
+  const canonical = [employeeIdentity.toLowerCase(), calendarSync.weekStart, calendarSync.weekEnd, canonicalRows].join('|');
+  let digest = '';
+  if (window.crypto && window.crypto.subtle && typeof TextEncoder === 'function') {
+    const bytes = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+    digest = Array.from(new Uint8Array(bytes)).slice(0, 12).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  } else {
+    let hash = 2166136261;
+    for (let index = 0; index < canonical.length; index += 1) { hash ^= canonical.charCodeAt(index); hash = Math.imul(hash, 16777619); }
+    digest = (hash >>> 0).toString(16).padStart(8, '0');
+  }
+  return `timesheet-${submissionKeyPart(employeeIdentity).slice(0, 48)}-${calendarSync.weekStart || 'unspecified'}-${digest}`;
 }
 
 function buildTimesheetWorkbookKey(calendarSync) {
@@ -1440,6 +1448,7 @@ function createEmailForm() {
 
 async function submitTimesheet(event) {
   event.preventDefault();
+  if (timesheetSubmitting) return;
   clearMessage();
   // Weekend cards are opt-in. If a generated Saturday or Sunday was never
   // changed, remove it before totals, files, calendar sync, and submission so
@@ -1456,7 +1465,12 @@ async function submitTimesheet(event) {
   // browser because it falls outside the current calendar month.
   const deferCorrection = Boolean(editSourceId && portalApiEnabled());
   if (!deferCorrection && !formSubmitEndpoint()) return showError('FormSubmit is not configured yet.');
+  timesheetSubmitting = true;
+  const submitButton = form.querySelector('[type="submit"]');
+  if (submitButton) { submitButton.disabled = true; submitButton.dataset.originalText = submitButton.textContent; submitButton.textContent = 'Submitting…'; }
   let protectedRecord = null;
+  let protectedRecordSaved = false;
+  let portalSyncIssue = '';
   try {
     await ensureXlsxLoaded();
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
@@ -1465,7 +1479,7 @@ async function submitTimesheet(event) {
     // Preserve the source ID when this form was opened from protected history.
     // That makes a correction update the existing record instead of creating a
     // second submission for the same employee and week.
-    const submissionId = editSourceId || buildTimesheetSubmissionId(calendarSync);
+    const submissionId = editSourceId || await buildTimesheetSubmissionId(calendarSync, calculated);
     const workbookKey = buildTimesheetWorkbookKey(calendarSync);
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
     // Send machine-readable envelopes with every submission. The intake flow
@@ -1476,9 +1490,17 @@ async function submitTimesheet(event) {
     saveSubmittedDraft(submissionId);
     if (portalApiEnabled()) {
       protectedRecord = portalTimesheetRecord(calendarSyncWithIds, calculated, totals, weighted, submissionId, deferCorrection ? 'Submitted' : 'Pending delivery');
-      await window.GMTPortalApi.saveRecord(protectedRecord);
+      try {
+        await window.GMTPortalApi.saveRecord(protectedRecord);
+        protectedRecordSaved = true;
+      } catch (portalError) {
+        // A portal history outage must not prevent an otherwise valid filing
+        // through the approved Accounts email route.
+        portalSyncIssue = portalError && portalError.message ? portalError.message : 'Portal history could not be saved.';
+      }
     }
     if (deferCorrection) {
+      if (!protectedRecordSaved) throw new Error('The correction could not be saved to protected history, so it has not been queued. Retry when portal access is available.');
       const queued = await queueCorrectionAttachments(submissionId, [
         { fieldName: 'attachment_record', file: recordFile },
         { fieldName: 'attachment', file: xlsxFile },
@@ -1571,16 +1593,19 @@ async function submitTimesheet(event) {
     setFileInputFiles(field('csv'), [csvFile]);
     setFileInputFiles(field('calendarSyncJson'), [calendarSyncFile]);
     await submitMultipartForm(emailForm);
-    if (portalApiEnabled() && protectedRecord) {
+    if (portalApiEnabled() && protectedRecord && protectedRecordSaved) {
       protectedRecord = { ...protectedRecord, status: 'Submitted', updatedAt: new Date().toISOString(), issue: '' };
-      await window.GMTPortalApi.updateRecord(submissionId, protectedRecord);
+      try { await window.GMTPortalApi.updateRecord(submissionId, protectedRecord); }
+      catch (portalError) { portalSyncIssue = portalError && portalError.message ? portalError.message : 'Portal history status could not be updated.'; }
     }
     emailForm.remove();
-    showSuccess(portalApiEnabled()
-      ? 'Timesheet submitted successfully. Your daily record, calendar sync and XLSX/CSV attachments were saved for Accounts.'
-      : 'Timesheet submitted successfully. Your XLSX and CSV attachments were sent to Accounts.');
+    showSuccess(portalSyncIssue
+      ? 'Timesheet email was accepted by Accounts, but portal history could not be confirmed. Check Submitted documents before retrying to avoid a duplicate.'
+      : (portalApiEnabled()
+        ? 'Timesheet submitted successfully. Your daily record, calendar sync and XLSX/CSV attachments were saved for Accounts.'
+        : 'Timesheet submitted successfully. Your XLSX and CSV attachments were sent to Accounts.'));
   } catch (error) {
-    if (portalApiEnabled() && protectedRecord) {
+    if (portalApiEnabled() && protectedRecord && protectedRecordSaved) {
       try {
         await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Delivery failed', issue: error.message || 'Timesheet delivery failed', updatedAt: new Date().toISOString() });
       } catch (_) {
@@ -1588,6 +1613,9 @@ async function submitTimesheet(event) {
       }
     }
     showError(error.message || 'Submission failed.');
+  } finally {
+    timesheetSubmitting = false;
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = submitButton.dataset.originalText || 'Submit timesheet'; delete submitButton.dataset.originalText; }
   }
 }
 

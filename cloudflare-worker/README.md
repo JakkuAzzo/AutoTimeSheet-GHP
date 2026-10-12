@@ -29,7 +29,19 @@ details, Outlook conversation ID/link, and an append-only message projection.
    while the flow is unavailable.
 5. Set `ADMIN_UPNS`, `ADMIN_OIDS`, or `ADMIN_GROUP_IDS` to the approved GMT
    administrator identities in Cloudflare variables. Do not hard-code them in
-   the client bundle.
+   the client bundle. The Worker deployment workflow uses `--keep-vars`, so
+   existing Cloudflare admin UPN, object ID, group, operations, and job-card
+   variables remain authoritative. `ADDITIONAL_ADMIN_UPNS` adds administrators
+   without replacing that existing list. `HR_ADMIN_UPNS` grants read access to
+   all employee timesheets, clock records, and calendar requests.
+   `XERO_ADMIN_UPNS` grants Xero invoice access without broader portal
+   administration. The checked-in GMT defaults include Michelle and Lidia for
+   HR and Xero and `accounts@gmt-services.co.uk` as an additional full admin.
+   Apply
+   `migrations/0011_portal_access_assignments.sql` before deploying code that
+   enables `/portal/users.html`. That page can grant or revoke HR, Xero,
+   operations, and job-card roles with an audit record, but cannot grant full
+   administrator status.
    `OPERATIONS_ADMIN_UPNS` can grant an Accounts or office identity access to
    all non-timesheet submissions while keeping employee timesheets and clock
    records owner-filtered. `JOB_CARD_ADMIN_UPNS` can additionally grant job-card
