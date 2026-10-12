@@ -91,12 +91,26 @@
 .portal-updates-carousel { display: grid; align-content: start; width: 100%; min-width: 0; height: auto; min-height: 0; }
 .portal-updates-slide { display: flex; justify-content: space-between; gap: 1rem; align-items: center; min-width: 0; height: auto; min-height: 0; }
 .portal-updates-slide[hidden] { display: none; }
+.portal-updates-slide:not([hidden]) { min-height: 25rem; }
 .portal-updates-task-slide { align-items: flex-start; }
 .portal-updates-task-heading { flex: 0 1 24rem; min-width: 0; }
 .portal-updates-task-content { flex: 1 1 32rem; min-width: 0; }
 .portal-updates-clock-heading { flex: 0 1 20rem; min-width: 0; }
-.portal-updates-clock-slide .clock-card { flex: 1 1 34rem; min-width: 0; max-width: 52rem; margin: 0; padding: .85rem; color: var(--ink); background: #fff; border: 1px solid rgba(255,255,255,.65); }
-.portal-updates-clock-slide .clock-card label { margin: .4rem 0; }
+.portal-updates-clock-slide .clock-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; align-items: end; gap: .3rem .7rem; flex: 1 1 34rem; min-width: 0; max-width: 52rem; margin: 0; padding: .75rem; color: var(--ink); background: #fff; border: 1px solid rgba(255,255,255,.65); }
+.portal-updates-clock-slide .clock-card > * { min-width: 0; }
+.portal-updates-clock-slide .clock-card label { margin: .1rem 0; }
+.portal-updates-clock-slide .clock-card-heading,
+.portal-updates-clock-slide .clock-actions,
+.portal-updates-clock-slide .portal-clock-date-time,
+.portal-updates-clock-slide .clock-location-control,
+.portal-updates-clock-slide .clock-location-status,
+.portal-updates-clock-slide .clock-card > [data-absence-field],
+.portal-updates-clock-slide .clock-full-day,
+.portal-updates-clock-slide .clock-note-details,
+.portal-updates-clock-slide .clock-card > [data-clock-submit],
+.portal-updates-clock-slide .clock-card > .clock-status { grid-column: 1 / -1; }
+.portal-updates-clock-slide .clock-card [data-clock-identity] { align-self: center; margin: 0; font-size: .78rem; }
+.portal-updates-clock-slide .clock-location-control button { width: auto; margin-top: 0; }
 .portal-clock-date-time { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .65rem; }
 .portal-updates-clock-slide .clock-actions { gap: .3rem; }
 .portal-updates-clock-slide .clock-actions button { min-height: 36px; padding: .35rem .5rem; }
@@ -1016,11 +1030,13 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-action-grid, .portal-overview-grid { grid-template-columns: 1fr; }
   .portal-updates { align-items: flex-start; flex-direction: column; }
   .portal-updates-slide { align-items: flex-start; flex: 0 0 auto; flex-direction: column; }
+  .portal-updates-slide:not([hidden]) { min-height: 0; }
   /* The task slide is a column on phones. Its desktop flex bases are widths
      in the row layout; retaining them here creates a large empty panel. */
   .portal-updates-task-heading, .portal-updates-task-content { width: 100%; flex: 0 1 auto; }
   .portal-updates-clock-heading, .portal-updates-clock-slide .clock-card { width: 100%; max-width: none; flex: 0 1 auto; }
-  .portal-updates-clock-slide .clock-card { padding: .75rem; }
+  .portal-updates-clock-slide .clock-card { grid-template-columns: minmax(0, 1fr); padding: .75rem; }
+  .portal-updates-clock-slide .clock-card > * { grid-column: 1 / -1; }
   .portal-clock-date-time { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
   .portal-task-board { grid-template-columns: 1fr; }
   .portal-updates-controls { justify-content: space-between; width: 100%; }
