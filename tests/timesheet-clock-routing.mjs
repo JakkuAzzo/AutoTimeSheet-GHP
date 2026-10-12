@@ -63,7 +63,9 @@ try {
   });
   page.on('pageerror', (error) => logs.push(`pageerror: ${error.message}`));
 
-  await page.goto(`http://127.0.0.1:${port}/timesheets/`, { waitUntil: 'load' });
+  // The daily clock-in form lives on the authenticated dashboard; the weekly
+  // timesheet landing page does not render it.
+  await page.goto(`http://127.0.0.1:${port}/portal/`, { waitUntil: 'load' });
   await page.evaluate(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Clock Profile Tester', username: 'clock.tester@gmt-services.co.uk' })));
   await page.reload({ waitUntil: 'load' });
   // This suite inspects the multipart contents. The native iframe fallback is
