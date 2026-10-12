@@ -159,3 +159,24 @@ DELETE is a soft delete: submitted records remain in `record_versions` and
 are removed from ordinary history responses. The attachment route replaces the
 queued files for the same stable record ID, so a correction edited again before
 dispatch sends only the latest version.
+
+### Xero invoice history archive
+
+`GET /api/xero/invoices` reads a validated page from the SharePoint document
+library first. A page miss is fetched from Xero and saved as
+`Invoices/Xero/<xero-tenant-id>/page-<page>-<page-size>-<status>.json` using
+Microsoft Graph app-only credentials. The envelope records its tenant, page,
+filter, schema version, and cache time; invoice rows contain the portal's
+existing read projection. This cache does not copy or delete Xero source
+invoices. An empty page is stored too, so the end of the register does not
+trigger another Xero request on each visit.
+
+The Accounts “Refresh from Xero” action adds `refresh=1`, bypasses cached pages,
+and replaces each SharePoint page with the current Xero result. Ordinary visits
+read the SharePoint pages. The response's `archive.source` and `archive.stored`
+fields distinguish archive hits, live Xero reads, and a successful Xero read
+whose SharePoint write failed. Only a SharePoint 404 is treated as a cache
+miss; authentication or service errors are surfaced instead of silently
+re-reading old history from Xero. The endpoint remains restricted to the
+authenticated Accounts administrator check and requires the configured
+`SHAREPOINT_GRAPH_CLIENT_SECRET`, site, and drive settings.

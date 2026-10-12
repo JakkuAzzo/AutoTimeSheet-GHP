@@ -191,7 +191,7 @@
     return '<strong>Related GMT records</strong><p class="small-text">These records may share the same work even when Xero invoice numbers change or more than one invoice is used.</p><ul class="xero-related-record-list">' + cards + estimateCards + jobCardCards + emails + '</ul>';
   }
 
-  async function loadInvoices() {
+  async function loadInvoices(refreshFromXero) {
     if (!loadButton || !api.xeroInvoices) return;
     var list = connectionList();
     if (!list.length) { renderInvoices([]); if (listStatus) listStatus.textContent = "Connect Xero to load the invoice register."; return; }
@@ -204,12 +204,17 @@
       if (listStatus) listStatus.textContent = cached.invoices.length + " cached invoice" + (cached.invoices.length === 1 ? "" : "s") + " shown · refreshing from Xero…";
     }
     if (progress) { progress.hidden = false; progress.removeAttribute("value"); }
-    if (listStatus) listStatus.textContent = "Loading all invoices from Xero…";
+    if (listStatus) listStatus.textContent = refreshFromXero ? "Refreshing invoice history from Xero and updating the SharePoint archive…" : "Loading invoice history from the SharePoint archive…";
     try {
-      var all = [], page = 1, batch = [];
+      var all = [], page = 1, batch = [], archivedPages = 0, xeroPages = 0, unarchivedPages = 0;
       do {
-        var result = await api.xeroInvoices(tenantId, 100, page, "");
+        var result = await api.xeroInvoices(tenantId, 100, page, "", refreshFromXero === true);
         batch = result && Array.isArray(result.invoices) ? result.invoices : [];
+        if (result && result.archive && result.archive.source === "sharepoint") archivedPages += 1;
+        else if (result && result.archive && result.archive.source === "xero") {
+          xeroPages += 1;
+          if (!result.archive.stored) unarchivedPages += 1;
+        }
         all = all.concat(batch);
         invoiceRows = all;
         renderInvoices(all);
@@ -218,8 +223,15 @@
         page += 1;
       } while (batch.length === 100 && page <= 1000);
       if (progress) { progress.hidden = true; progress.removeAttribute("value"); }
+      if (accessGate) accessGate.hidden = true;
+      renderConnections();
       writeInvoiceCache(all, result && result.tenant && result.tenant.tenant_name || "Xero");
-      if (listStatus) listStatus.textContent = all.length + " invoice" + (all.length === 1 ? "" : "s") + " loaded from " + safe(result && result.tenant && result.tenant.tenant_name || "Xero") + ".";
+      if (listStatus) {
+        if (unarchivedPages) listStatus.textContent = all.length + " invoices loaded; " + unarchivedPages + " page(s) could not be saved to the SharePoint archive. Retry refresh to archive them.";
+        else if (xeroPages) listStatus.textContent = all.length + " invoices loaded; " + xeroPages + " page(s) fetched from Xero and saved to SharePoint, " + archivedPages + " page(s) served from the archive.";
+        else if (archivedPages) listStatus.textContent = all.length + " invoices loaded from the SharePoint archive.";
+        else listStatus.textContent = all.length + " invoices loaded; archive status is unavailable from the portal service.";
+      }
     } catch (error) {
       // Keep the pages already received visible. Xero can throttle a long
       // all-time walk, and clearing the register makes a recoverable partial
@@ -428,7 +440,10 @@
     try { var result = await api.xeroConnect(); if (result && result.authorization_url) window.location.assign(result.authorization_url); else if (status) status.textContent = "Xero authorisation URL was not returned."; }
     catch (error) { if (status) status.textContent = error && error.message ? error.message : "Xero could not be connected."; connect.disabled = false; }
   });
-  if (refresh) refresh.addEventListener("click", function () { try { sessionStorage.removeItem(invoiceCacheKey()); } catch (_) {} loadStatus(); });
+  if (refresh) refresh.addEventListener("click", function () {
+    try { sessionStorage.removeItem(invoiceCacheKey()); } catch (_) {}
+    loadInvoices(true);
+  });
   if (loadButton) loadButton.addEventListener("click", loadInvoices);
   if (statusFilter) statusFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (invoiceSearch) invoiceSearch.addEventListener("input", function () { renderInvoices(invoiceRows); });
@@ -452,7 +467,7 @@
       var result = editingInvoiceId ? await api.xeroUpdateInvoice(editingInvoiceId, requestBody) : await api.xeroCreateInvoice(requestBody);
       editingInvoiceId = result && result.invoice ? result.invoice.invoice_id : editingInvoiceId;
       if (editorStatus) editorStatus.textContent = "Draft saved in Xero. The GMT audit trail has been updated.";
-      await loadInvoices();
+      await loadInvoices(true);
       if (editingInvoiceId) await openInvoice(editingInvoiceId);
     } catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice could not be saved to Xero."; }
     finally { if (saveButton) saveButton.disabled = false; }
@@ -462,7 +477,7 @@
     if (!editingInvoiceId || !window.confirm("Approve this draft invoice if needed and send it to the customer using Xero?")) return;
     sendButton.disabled = true;
     if (editorStatus) editorStatus.textContent = "Approving and sending through Xero…";
-    try { await api.xeroSendInvoice(editingInvoiceId, selectedTenant()); if (editorStatus) editorStatus.textContent = "Invoice sent through Xero."; await loadInvoices(); await openInvoice(editingInvoiceId); }
+    try { await api.xeroSendInvoice(editingInvoiceId, selectedTenant()); if (editorStatus) editorStatus.textContent = "Invoice sent through Xero."; await loadInvoices(true); await openInvoice(editingInvoiceId); }
     catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice was not sent."; }
     finally { sendButton.disabled = false; }
   });
@@ -480,7 +495,7 @@
     if (!editingInvoiceId || !window.confirm("Delete this draft invoice in Xero? Authorised invoices are voided instead. Paid or part-paid invoices are protected.")) return;
     deleteButton.disabled = true;
     if (editorStatus) editorStatus.textContent = "Updating invoice in Xero…";
-    try { await api.xeroDeleteInvoice(editingInvoiceId, selectedTenant()); if (editorStatus) editorStatus.textContent = "Invoice removal recorded in Xero and GMT."; resetEditor(); await loadInvoices(); }
+    try { await api.xeroDeleteInvoice(editingInvoiceId, selectedTenant()); if (editorStatus) editorStatus.textContent = "Invoice removal recorded in Xero and GMT."; resetEditor(); await loadInvoices(true); }
     catch (error) { if (editorStatus) editorStatus.textContent = error && error.message ? error.message : "Invoice could not be removed."; }
     finally { deleteButton.disabled = false; }
   });

@@ -354,12 +354,13 @@
     return request("/api/xero/status", { method: "GET" });
   }
 
-  function xeroInvoices(tenantId, limit, page, status) {
+  function xeroInvoices(tenantId, limit, page, status, refresh) {
     var params = new URLSearchParams();
     if (tenantId) params.set("tenantId", tenantId);
     if (limit) params.set("limit", String(limit));
     if (page) params.set("page", String(page));
     if (status) params.set("status", status);
+    if (refresh) params.set("refresh", "1");
     return request("/api/xero/invoices" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
   }
 

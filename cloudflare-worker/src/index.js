@@ -3354,12 +3354,27 @@ async function lookupXeroInvoiceEndpoint(request, env, identity, origin) {
 }
 
 async function listXeroInvoices(env, tenantId = '', options = {}) {
-  const settings = xeroSettings(env);
   const connection = await selectXeroConnection(env, tenantId);
-  const token = await refreshXeroAccessToken(env, connection);
   const limit = Math.min(Math.max(Number(options.limit || 50), 1), 100);
   const page = Math.min(Math.max(Number(options.page || 1), 1), 1000);
   const status = text(options.status, '', 40);
+  const cachePath = xeroInvoiceArchivePagePath(connection.tenant_id, page, limit, status);
+  if (options.refresh !== true) {
+    const cached = await readXeroInvoiceArchivePage(env, connection, page, limit, status);
+    if (cached) {
+      return {
+        tenant: { tenant_id: connection.tenant_id, tenant_name: connection.tenant_name },
+        invoices: cached.invoices,
+        page,
+        page_size: limit,
+        refreshed_at: cached.cached_at,
+        archive: { source: 'sharepoint', stored: true, cached_at: cached.cached_at }
+      };
+    }
+  }
+
+  const settings = xeroSettings(env);
+  const token = await refreshXeroAccessToken(env, connection);
   const params = new URLSearchParams({ page: String(page), pageSize: String(limit) });
   if (status) params.set('where', `Status=="${status.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
   const endpoint = `${settings.apiUrl}/api.xro/2.0/Invoices?${params.toString()}`;
@@ -3369,13 +3384,63 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
   if (!response.ok) throw Object.assign(new Error(xeroErrorMessage(body, `Xero invoice list failed (${response.status})`)), { status: 502 });
   const invoices = Array.isArray(body?.Invoices) ? body.Invoices : [];
+  const cachedAt = now();
+  let stored = false;
+  try {
+    await writeXeroInvoiceArchivePage(env, cachePath, {
+      schema_version: 1,
+      tenant_id: connection.tenant_id,
+      page,
+      page_size: limit,
+      status,
+      cached_at: cachedAt,
+      invoices: invoices.slice(0, limit).map(xeroInvoiceProjection)
+    });
+    stored = true;
+  } catch (_) {
+    // Keep the Accounts register usable when SharePoint is temporarily
+    // unavailable, while making it clear that this page is not archived yet.
+  }
   return {
     tenant: { tenant_id: connection.tenant_id, tenant_name: connection.tenant_name },
     invoices: invoices.slice(0, limit).map(xeroInvoiceProjection),
     page,
     page_size: limit,
-    refreshed_at: now()
+    refreshed_at: cachedAt,
+    archive: { source: 'xero', stored, cached_at: stored ? cachedAt : '' }
   };
+}
+
+function xeroInvoiceArchivePagePath(tenantId, page, pageSize, status = '') {
+  const tenant = archiveFilename(text(tenantId, '', 160));
+  const filter = archiveFilename(text(status, 'all', 40).toLowerCase());
+  return `Invoices/Xero/${tenant}/page-${page}-${pageSize}-${filter}.json`;
+}
+
+async function readXeroInvoiceArchivePage(env, connection, page, pageSize, status = '') {
+  const path = `/root:/${encodeDrivePath(xeroInvoiceArchivePagePath(connection.tenant_id, page, pageSize, status))}:/content`;
+  const response = await graphSharePointRequest(env, path, { headers: { accept: 'application/json' } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw Object.assign(new Error('SharePoint invoice archive could not be read'), { status: 503 });
+  let archived;
+  try { archived = await response.json(); } catch (_) {
+    throw Object.assign(new Error('SharePoint invoice archive page is invalid'), { status: 503 });
+  }
+  if (archived?.schema_version !== 1 || archived.tenant_id !== connection.tenant_id ||
+      Number(archived.page) !== page || Number(archived.page_size) !== pageSize ||
+      String(archived.status || '') !== status || !Array.isArray(archived.invoices) || !archived.cached_at) return null;
+  return archived;
+}
+
+async function writeXeroInvoiceArchivePage(env, path, archived) {
+  const folder = path.slice(0, path.lastIndexOf('/'));
+  await ensureSharePointFolder(env, folder);
+  const response = await graphSharePointRequest(env, `/root:/${encodeDrivePath(path)}:/content`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(archived)
+  });
+  if (!response.ok) throw Object.assign(new Error('SharePoint invoice archive could not be written'), { status: 503 });
 }
 
 async function listXeroInvoicesEndpoint(request, env, identity, origin) {
@@ -3384,7 +3449,8 @@ async function listXeroInvoicesEndpoint(request, env, identity, origin) {
   return json(await listXeroInvoices(env, url.searchParams.get('tenantId') || url.searchParams.get('tenant_id') || '', {
     limit: url.searchParams.get('limit') || 50,
     page: url.searchParams.get('page') || 1,
-    status: url.searchParams.get('status') || ''
+    status: url.searchParams.get('status') || '',
+    refresh: url.searchParams.get('refresh') === '1'
   }), 200, origin || '');
 }
 
