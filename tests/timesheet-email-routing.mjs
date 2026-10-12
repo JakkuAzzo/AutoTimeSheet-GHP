@@ -75,7 +75,7 @@ try {
   await page.evaluate(() => {
     window.__submittedForms = [];
     window.__submittedRawForms = [];
-    window.fetch = async (url, options = {}) => {
+    window.__captureSubmission = async (url, options = {}) => {
       const fields = {};
       const filesByName = {};
       for (const [name, value] of options.body.entries()) {
@@ -103,6 +103,19 @@ try {
       return new Response(JSON.stringify({ success: 'true', message: 'Accepted by test FormSubmit endpoint' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
+      });
+    };
+    window.fetch = async (url, options = {}) => window.__captureSubmission(url, options);
+    // Exercise native multipart delivery without sending test data outside
+    // this browser fixture; the iframe follows the expected same-origin hop.
+    HTMLFormElement.prototype.submit = function () {
+      const form = this;
+      window.__captureSubmission(form.action, {
+        body: new FormData(form),
+        referrerPolicy: form.referrerPolicy
+      }).then(() => {
+        const frame = document.querySelector('#gmt-timesheet-submit-frame');
+        frame.src = `${location.origin}/timesheets/submit-success.html?gmt_formsubmit=success`;
       });
     };
   });
@@ -144,7 +157,7 @@ try {
   assert.equal(config.fallbackFormSubmitEndpoint, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(config.legacyPersonalAccountsEmail, 'acc.gmtelect@outlook.com');
   assert.equal(config.formSubmitCc, 'acc.gmtelect@outlook.com');
-  assert.equal(result.action, 'https://formsubmit.co/ajax/7aa066a9c2d177d1c0702281ab88d0fe');
+  assert.equal(result.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
   assert.equal(result.referrerPolicy, 'strict-origin-when-cross-origin');
   assert.equal(result.subject, '[GMT][TIMESHEET][SUBMISSION] Routing Tester | Week 2026-06-22');
   assert.equal(result.cc, 'acc.gmtelect@outlook.com,routing.tester@example.com');
@@ -156,7 +169,7 @@ try {
   assert.ok(result.files[0].files[0].size > 100);
   const recordEnvelope = JSON.parse(result.files[0].files[0].content);
   const firstSubmissionId = result.fields.gmt_record_id;
-  assert.match(firstSubmissionId, /^timesheet-routing-tester-example-com-2026-06-22-2026-06-22-[0-9a-f-]{36}$/);
+  assert.match(firstSubmissionId, /^timesheet-routing-tester-example-com-2026-06-22-[0-9a-f]{24}$/);
   assert.equal(recordEnvelope.recordId, `${firstSubmissionId}|2026-06-22`);
   assert.equal(recordEnvelope.date, '2026-06-22');
   assert.equal(recordEnvelope.startTime, '08:00');
@@ -219,7 +232,7 @@ try {
   await page.waitForFunction(() => window.__submittedForms.length === 2, null, { timeout: 15000 });
   const secondFields = new Map(Object.entries(await page.evaluate(() => window.__submittedForms[1].fields)));
   const secondSubmissionId = secondFields.get('gmt_record_id');
-  assert.match(secondSubmissionId, /^timesheet-routing-tester-example-com-2026-06-22-2026-06-22-[0-9a-f-]{36}$/);
+  assert.match(secondSubmissionId, /^timesheet-routing-tester-example-com-2026-06-22-[0-9a-f]{24}$/);
   assert.notEqual(secondSubmissionId, firstSubmissionId, 'a new submission for the same form week must not overwrite the earlier one');
   const absenceCalendarSync = JSON.parse(secondFields.get('gmt_calendar_sync_payload'));
   assert.equal(absenceCalendarSync.events.length, 2);

@@ -1308,6 +1308,19 @@ function ajaxFormSubmitEndpoint(endpoint) {
 }
 
 async function submitMultipartForm(emailForm) {
+  // FormSubmit's AJAX endpoint accepts FormData but silently drops file
+  // inputs. Weekly submissions always include generated source attachments,
+  // so use the same native multipart transport as the daily clock form.
+  const transport = window.GMTClockTransport;
+  if (transport && typeof transport.shouldUseNativeFallback === 'function'
+      && transport.shouldUseNativeFallback(emailForm.action, emailForm)) {
+    return transport.submitNativeForm(emailForm, ensureTimesheetSubmitFrame(), {
+      location: window.location,
+      document,
+      htmlForm: HTMLFormElement
+    });
+  }
+
   try {
     const response = await fetch(emailForm.action, {
       method: 'POST',
@@ -1399,6 +1412,7 @@ function createEmailForm() {
   const emailForm = document.createElement('form');
   emailForm.method = 'POST';
   emailForm.enctype = 'multipart/form-data';
+  emailForm.referrerPolicy = 'strict-origin-when-cross-origin';
   emailForm.hidden = true;
   emailForm.innerHTML = `
     <input type="hidden" name="_subject" data-clean-field="subject">
