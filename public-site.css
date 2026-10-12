@@ -3257,6 +3257,18 @@ body {
   line-height: 1.35;
 }
 
+/* Keep navigation labels intact if the available layout viewport is narrow. */
+.site-nav {
+  width: 100%;
+}
+
+.site-nav a {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 .service-card > .service-enquiry-link {
   align-self: flex-start;
   width: auto;
