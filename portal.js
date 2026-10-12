@@ -384,7 +384,8 @@
       const customer = confirmed.customer || candidates.customer || 'Customer needs review';
       const date = confirmed.date || candidates.date || 'Date needs review';
       const confidence = record.mean_ocr_confidence == null ? 'OCR confidence unavailable' : `OCR confidence ${Math.round(Number(record.mean_ocr_confidence))}%`;
-      const review = record.review_state === 'confirmed' ? 'Accounts confirmed' : 'Accounts review needed';
+      const isConfirmed = record.review_state === 'confirmed';
+      const review = isConfirmed ? 'Accounts confirmed' : 'OCR candidate · Accounts review needed';
       return `<button type="button" class="job-card-archive-result" data-job-archive-select="${safe(record.record_id)}" aria-current="${String(record.record_id === selectedJobCardArchiveId)}"><strong>${safe(reference)}</strong><span>${safe(customer)}</span><small>${safe(record.card_type)} · ${safe(record.source_file)} page ${safe(record.source_page)} · ${safe(date)}</small><small>${safe(review)} · ${safe(confidence)}</small></button>`;
     }).join('');
     if (append) list.insertAdjacentHTML('beforeend', markup);
@@ -413,7 +414,10 @@
       <label data-wide>Accounts review note<textarea name="note" maxlength="2000">${safe(record.review_note || '')}</textarea></label>
       <div class="job-card-archive-review-actions"><button type="submit">Save Accounts review</button><span class="small-text" data-job-card-review-status role="status"></span></div>
     </form>` : '';
-    detail.innerHTML = `<header><p class="portal-card-kicker">${safe(record.review_state === 'confirmed' ? 'Accounts confirmed record' : 'OCR suggestions · review required')}</p><h3>${safe(record.source_file)} · page ${safe(record.source_page)}</h3><p>${safe(record.card_type)} job card · ${safe(record.record_id)}</p></header>
+    const displayName = confirmed.cardNumber || candidates.cardNumber || `${record.card_type || 'Job'} card · ${record.source_file || 'scanned record'} page ${record.source_page || ''}`;
+    const displayCustomer = confirmed.customer || candidates.customer || 'Customer needs review';
+    const displayDate = confirmed.date || candidates.date || 'Date needs review';
+    detail.innerHTML = `<header><p class="portal-card-kicker">${safe(record.review_state === 'confirmed' ? 'Accounts confirmed record' : 'OCR candidate · review required')}</p><h3>${safe(displayName)} · ${safe(displayCustomer)}</h3><p>${safe(record.card_type)} job card · ${safe(displayDate)} · ${safe(record.source_file)} page ${safe(record.source_page)}</p><details><summary>Stable archive ID</summary><code>${safe(record.record_id)}</code></details></header>
       <dl class="job-card-archive-meta">${values}<div><dt>Mean OCR confidence</dt><dd>${safe(record.mean_ocr_confidence == null ? 'Unavailable' : `${Number(record.mean_ocr_confidence).toFixed(1)}%`)}</dd></div></dl>
       <a class="job-card-archive-open-preview" id="job-card-archive-open-preview" href="#" target="_blank" rel="noopener noreferrer" hidden>Open full-page PDF</a>
       <iframe class="job-card-archive-preview" id="job-card-archive-preview" title="Scanned job card page" referrerpolicy="no-referrer"></iframe>

@@ -242,6 +242,10 @@ try {
 
   await page.goto(`${baseUrl}/jobs/`, { waitUntil: 'load' });
   await page.waitForFunction(() => document.querySelectorAll('.job-card-archive-result').length === 1, null, { timeout: 10000 });
+  assert.match(await page.locator('#job-card-archive-results').innerText(), /EC09200[\s\S]*ACME Bearings Ltd/, 'scanned job cards are named by useful OCR reference and customer');
+  assert.match(await page.locator('#job-card-archive-results').innerText(), /OCR candidate/, 'unconfirmed OCR labels remain explicitly marked as candidates');
+  assert.doesNotMatch(await page.locator('#job-card-archive-detail header').innerText(), new RegExp(archiveId), 'the stable hash ID is not presented as the job-card name');
+  assert.match(await page.locator('#job-card-archive-detail header').innerText(), /EC09200[\s\S]*ACME Bearings Ltd/, 'the selected-card heading shows the readable reference and customer');
   await page.locator('#job-card-archive-preview').waitFor({ state: 'attached' });
   await page.waitForFunction(() => document.querySelector('#job-card-archive-preview')?.src.startsWith('blob:'), null, { timeout: 5000 });
   await page.waitForTimeout(700);
@@ -332,7 +336,7 @@ try {
   await page.locator('#job-card-archive-search button[type="submit"]').click();
   await page.waitForFunction(() => document.querySelector('#job-card-archive-status')?.textContent.includes('1 scanned records loaded'));
   assert.match(await page.locator('#job-card-archive-results').innerText(), /OCR confidence 23%/);
-  await page.locator('#job-card-archive-detail details summary').click();
+  await page.locator('#job-card-archive-detail details summary').filter({ hasText: 'Raw OCR text' }).click();
   assert.equal(await page.locator('#job-card-archive-detail img').count(), 0, 'OCR text is rendered as inert escaped text');
   assert.match(await page.locator('#job-card-archive-detail').innerText(), /<img src=x onerror=window.__jobCardXss=1>/);
   assert.equal(await page.evaluate(() => window.__jobCardXss === true), false);
