@@ -31,6 +31,10 @@ try {
   assert.ok(fs.existsSync(path.join(output, 'public-site-mapfix-20260928.js')));
   assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));
   assert.ok(fs.existsSync(path.join(output, 'pay-periods.js')));
+  assert.ok(fs.existsSync(path.join(output, 'responsive-tables.js')));
+  assert.ok(fs.existsSync(path.join(output, 'responsive-tables.css')));
+  assert.match(portalRoot, /responsive-tables\.js\?v=/);
+  assert.match(portalRoot, /responsive-tables\.css\?v=/);
   assert.ok(fs.existsSync(path.join(output, 'timesheet-clock-transport.js')));
   assert.ok(fs.existsSync(path.join(output, 'timesheet-row-policy.js')));
   assert.ok(!fs.existsSync(path.join(output, 'calendar', 'index.html')));
