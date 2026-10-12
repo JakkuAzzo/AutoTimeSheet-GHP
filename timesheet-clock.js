@@ -528,6 +528,7 @@
   async function handleSubmit(event) {
     event.preventDefault();
     const card = event.currentTarget;
+    if (card.dataset.submitting === 'true') return;
     const payload = buildPayload(card);
     const endpoint = timesheetEndpoint();
     if (!payload.employeeName) {
@@ -547,6 +548,9 @@
       showStatus(card, 'error', fullDayError);
       return;
     }
+    card.dataset.submitting = 'true';
+    const submitButton = card.querySelector('[data-clock-submit]');
+    if (submitButton) { submitButton.disabled = true; submitButton.dataset.originalText = submitButton.textContent; submitButton.textContent = 'Submitting…'; }
     let protectedRecord = null;
     let protectedRecordSaved = false;
     let portalSyncIssue = '';
@@ -592,6 +596,9 @@
         }
       }
       showStatus(card, 'error', error && error.message ? error.message : 'Clock submission could not be sent.');
+    } finally {
+      card.dataset.submitting = 'false';
+      if (submitButton) { submitButton.disabled = false; submitButton.textContent = submitButton.dataset.originalText || 'Submit clock in'; delete submitButton.dataset.originalText; }
     }
   }
 

@@ -139,13 +139,16 @@ function tokenIdentity(claims, env) {
   const oid = String(claims.oid || '').trim();
   const upn = String(claims.preferred_username || claims.upn || claims.email || '').trim().toLowerCase();
   if (!oid || !upn) throw new Error('Token has no employee identity');
-  const adminUpns = csvSet(env.ADMIN_UPNS);
+  const adminUpns = new Set([...csvSet(env.ADMIN_UPNS), ...csvSet(env.ADDITIONAL_ADMIN_UPNS)]);
   const adminOids = csvSet(env.ADMIN_OIDS);
   const adminGroups = csvSet(env.ADMIN_GROUP_IDS);
   const jobCardAdminUpns = csvSet(env.JOB_CARD_ADMIN_UPNS);
   const operationsAdminUpns = csvSet(env.OPERATIONS_ADMIN_UPNS);
+  const hrAdminUpns = csvSet(env.HR_ADMIN_UPNS);
+  const xeroAdminUpns = csvSet(env.XERO_ADMIN_UPNS);
   const groups = Array.isArray(claims.groups) ? claims.groups.map((item) => String(item).toLowerCase()) : [];
   const isAdmin = adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group));
+  const isHrAdmin = isAdmin || hrAdminUpns.has(upn);
   return {
     oid,
     upn,
@@ -153,14 +156,16 @@ function tokenIdentity(claims, env) {
     aud: audienceValue(claims.aud),
     tid: tokenTenant,
     isAdmin,
+    isHrAdmin,
+    isXeroAdmin: isAdmin || xeroAdminUpns.has(upn),
     isOperationsAdmin: isAdmin || operationsAdminUpns.has(upn),
     isJobCardAdmin: isAdmin || operationsAdminUpns.has(upn) || jobCardAdminUpns.has(upn)
   };
 }
 
 function canViewAllRecords(identity, kind = '') {
-  const sharedKinds = new Set(['estimates', 'job-cards', 'conversations', 'email-conversations']);
-  return Boolean(identity && (sharedKinds.has(canonicalKind(kind)) || identity.isAdmin || (identity.isOperationsAdmin && kind !== 'timesheets' && kind !== 'clock') || (kind === 'job-cards' && identity.isJobCardAdmin)));
+  const category = canonicalKind(kind);
+  return Boolean(identity && (identity.isAdmin || (category === 'job-cards' && !identity.isHrAdmin) || (identity.isHrAdmin && ['timesheets', 'clock', 'calendar'].includes(category)) || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin)));
 }
 
 function canAccessRecord(identity, row) {
@@ -195,7 +200,21 @@ async function authenticateToken(token, env) {
 }
 
 async function authenticate(request, env) {
-  return authenticateToken(bearerToken(request), env);
+  const identity = await authenticateToken(bearerToken(request), env);
+  if (!env.DB) return identity;
+  try {
+    const result = await env.DB.prepare('SELECT role FROM portal_access_assignments WHERE owner_oid = ? AND owner_upn = ?').bind(identity.oid, identity.upn).all();
+    const roles = new Set((result.results || []).map((row) => String(row.role || '')));
+    identity.assignedRoles = Array.from(roles);
+    identity.isHrAdmin = identity.isHrAdmin || roles.has('hr');
+    identity.isXeroAdmin = identity.isXeroAdmin || roles.has('xero');
+    identity.isOperationsAdmin = identity.isOperationsAdmin || roles.has('operations');
+    identity.isJobCardAdmin = identity.isJobCardAdmin || roles.has('job-card');
+  } catch (_) {
+    // Missing migration or temporary D1 failure grants no additional roles.
+    identity.assignedRoles = [];
+  }
+  return identity;
 }
 
 async function authenticateFlowToken(request, env, portalIdentity) {
@@ -992,6 +1011,7 @@ async function estimateArchiveIngestEndpoint(request, env, origin) {
 }
 
 async function sendClientEstimateEndpoint(request, env, identity, origin) {
+  if (!identity?.isAdmin) throw Object.assign(new Error('Client estimate delivery is restricted to portal administrators'), { status: 403 });
   const flowToken = await authenticateFlowToken(request, env, identity);
   const flowUrl = text(env.ESTIMATE_SEND_FLOW_URL, '', 3000);
   if (!flowUrl) throw Object.assign(new Error('The approved Accounts estimate-send flow is not configured'), { status: 503 });
@@ -3136,7 +3156,50 @@ async function adminQueueStatus(env, identity) {
 }
 
 function requireXeroAdmin(identity) {
-  if (!identity?.isAdmin) throw Object.assign(new Error('Xero access is restricted to the Accounts administrator'), { status: 403 });
+  if (!identity?.isXeroAdmin) throw Object.assign(new Error('Xero access is restricted to approved Accounts users'), { status: 403 });
+}
+
+function requireEstimateArchiveAccess(identity) {
+  if (!identity?.isAdmin) throw Object.assign(new Error('Estimate archive access is restricted to portal administrators'), { status: 403 });
+}
+
+async function adminUsersEndpoint(request, env, identity, origin) {
+  if (!identity?.isAdmin) throw Object.assign(new Error('User management is restricted to portal administrators'), { status: 403 });
+  if (request.method === 'GET') {
+    const result = await env.DB.prepare(`SELECT owner_oid, owner_upn, display_name, role, created_at, updated_at
+      FROM portal_access_assignments ORDER BY owner_upn, role`).all();
+    const names = new Map(staffDirectory(env).map((entry) => [entry.upn, entry.name]));
+    const configured = [];
+    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS']]) {
+      for (const upn of csvSet(env[variable])) configured.push({ owner_upn: upn, display_name: names.get(upn) || upn, role, updated_at: 'Worker configuration', managed: false });
+    }
+    if (csvSet(env.ADMIN_GROUP_IDS).size) configured.push({ owner_upn: 'Configured Entra group', display_name: 'GMT portal administrator group', role: 'admin', updated_at: 'Entra group configuration', managed: false });
+    return json({ users: result.results || [], configured, allowedRoles: ['hr', 'xero', 'operations', 'job-card'] }, 200, origin || '');
+  }
+  const body = await readJson(request);
+  const upn = text(body.upn, '', 254).toLowerCase();
+  const oid = text(body.oid, '', 80).toLowerCase();
+  const name = text(body.name, '', 160);
+  const role = text(body.role, '', 40);
+  const action = text(body.action, 'grant', 20);
+  if (!/^[^\s@]+@gmt-services\.co\.uk$/.test(upn) || !/^[0-9a-f-]{16,80}$/.test(oid)) {
+    throw Object.assign(new Error('Enter the exact GMT sign-in address and Microsoft Entra object ID'), { status: 400 });
+  }
+  if (!['hr', 'xero', 'operations', 'job-card'].includes(role)) throw Object.assign(new Error('This role cannot be assigned here'), { status: 400 });
+  if (!['grant', 'revoke'].includes(action)) throw Object.assign(new Error('Choose grant or revoke'), { status: 400 });
+  const timestamp = now();
+  const auditId = randomBase64Url(18);
+  const statement = action === 'grant'
+    ? env.DB.prepare(`INSERT INTO portal_access_assignments (owner_oid, owner_upn, display_name, role, created_by_oid, created_by_upn, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_oid, role) DO UPDATE SET owner_upn=excluded.owner_upn,
+      display_name=excluded.display_name, updated_at=excluded.updated_at`).bind(oid, upn, name, role, identity.oid, identity.upn, timestamp, timestamp)
+    : env.DB.prepare('DELETE FROM portal_access_assignments WHERE owner_oid = ? AND owner_upn = ? AND role = ?').bind(oid, upn, role);
+  await env.DB.batch([statement, env.DB.prepare(`INSERT INTO portal_access_audit
+    (audit_id, actor_oid, actor_upn, target_oid, target_upn, role, action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(auditId, identity.oid, identity.upn, oid, upn, role, action, timestamp)]);
+  const current = await env.DB.prepare(`SELECT owner_oid, owner_upn, display_name, role, created_at, updated_at
+    FROM portal_access_assignments WHERE owner_oid = ? AND owner_upn = ? ORDER BY role`).bind(oid, upn).all();
+  return json({ ok: true, user: current.results || [] }, 200, origin || '');
 }
 
 function xeroRedirectResponse(returnUrl, result, reason = '', tenantName = '') {
@@ -3889,13 +3952,16 @@ async function listRecords(request, env, identity) {
     FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
   const viewAll = canViewAllRecords(identity, kind);
   const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
+  const hrAdminAcrossKinds = !kind && identity.isHrAdmin && !identity.isAdmin && !identity.isOperationsAdmin;
   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
   const ownRecords = "(r.owner_oid = ? OR (r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND lower(r.owner_upn) = ?))";
-  const sharedRecordKinds = "r.kind IN ('estimates', 'job-cards', 'conversations', 'email-conversations')";
+  const sharedRecordKinds = "r.kind IN ('job-cards')";
   const sql = identity.isAdmin
     ? (kind ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`)
     : operationsAdminAcrossKinds
       ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
+    : hrAdminAcrossKinds
+      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock', 'calendar') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
     : viewAll
       ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`
     : jobCardAdminAcrossKinds
@@ -3906,6 +3972,8 @@ async function listRecords(request, env, identity) {
   const bindings = identity.isAdmin
     ? (kind ? [kind, limit] : [limit])
     : operationsAdminAcrossKinds
+      ? [identity.oid, identity.upn, limit]
+    : hrAdminAcrossKinds
       ? [identity.oid, identity.upn, limit]
     : viewAll
       ? [kind || 'job-cards', limit]
@@ -3947,7 +4015,7 @@ async function listRecords(request, env, identity) {
             upstreamSourceRowCount = sourceRows.length;
             const normalisedRows = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env));
             upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
-            const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
+            const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || identity.isHrAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
             upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
             const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
@@ -3973,7 +4041,7 @@ async function listRecords(request, env, identity) {
   } else if (upstreamUrl && !upstreamEnabledForKind) {
     upstream = 'not-requested-for-category';
   }
-  const completion = identity.isAdmin && (!kind || kind === 'timesheets')
+  const completion = (identity.isAdmin || identity.isHrAdmin) && (!kind || kind === 'timesheets')
     ? completionSummary(records, env)
     : null;
   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
@@ -3988,12 +4056,14 @@ async function listRecords(request, env, identity) {
       upstream_employee_matched_record_count: upstreamEmployeeMatchedRecordCount,
       synthetic_record_count: syntheticRecordCount,
       synthetic_included: includeSynthetic,
-      role: identity.isAdmin ? 'accounts-admin' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee')),
+      role: identity.isAdmin ? 'accounts-admin' : (identity.isHrAdmin ? 'accounts-hr' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee'))),
       is_admin: identity.isAdmin,
+      is_hr_admin: identity.isHrAdmin,
+      is_xero_admin: identity.isXeroAdmin,
       is_operations_admin: identity.isOperationsAdmin,
       is_job_card_admin: identity.isJobCardAdmin,
       editable_pay_months: editablePayCycleKeys(),
-      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isOperationsAdmin ? 'all non-timesheet submissions; this account timesheets and clock records' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions')),
+      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isHrAdmin ? 'all employee timesheets, clock records and calendar requests; other records owner-filtered' : (identity.isOperationsAdmin ? 'all non-timesheet submissions; this account timesheets and clock records' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions'))),
       completion
     }
   };
@@ -4016,6 +4086,13 @@ async function handle(request, env, ctx) {
   }
   const identity = await authenticate(request, env);
   if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
+
+  if (url.pathname === '/api/access' && request.method === 'GET') {
+    return json({ isAdmin: identity.isAdmin, isHrAdmin: identity.isHrAdmin, isXeroAdmin: identity.isXeroAdmin,
+      isOperationsAdmin: identity.isOperationsAdmin, isJobCardAdmin: identity.isJobCardAdmin,
+      roles: identity.assignedRoles || [] }, 200, origin || '');
+  }
+  if (url.pathname === '/api/admin/users' && ['GET', 'POST'].includes(request.method)) return adminUsersEndpoint(request, env, identity, origin || '');
 
   if (url.pathname === '/api/admin/job-card-batches/start' && request.method === 'POST') return jobCardBatchStartEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/job-cards/archive/access' && request.method === 'GET') {
@@ -4042,20 +4119,20 @@ async function handle(request, env, ctx) {
     return jobCardArchiveDetailEndpoint(env, identity, decodeURIComponent(jobCardArchiveDetailMatch[1]), origin || '');
   }
 
-  if (url.pathname === '/api/archive/estimates' && request.method === 'GET') return listEstimateArchiveEndpoint(request, env, origin || '');
-  if (url.pathname === '/api/archive/estimates/app' && request.method === 'POST') return createAppEstimateEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/archive/estimates' && request.method === 'GET') { requireEstimateArchiveAccess(identity); return listEstimateArchiveEndpoint(request, env, origin || ''); }
+  if (url.pathname === '/api/archive/estimates/app' && request.method === 'POST') { requireEstimateArchiveAccess(identity); return createAppEstimateEndpoint(request, env, identity, origin || ''); }
   if (url.pathname === '/api/estimates/send' && request.method === 'POST') return sendClientEstimateEndpoint(request, env, identity, origin || '');
   const archiveContentMatch = url.pathname.match(/^\/api\/archive\/estimates\/([^/]+)\/content\/([^/]+)$/);
   if (archiveContentMatch && request.method === 'GET') {
+    requireEstimateArchiveAccess(identity);
     return estimateArchiveContentEndpoint(env, decodeURIComponent(archiveContentMatch[1]), decodeURIComponent(archiveContentMatch[2]), origin || '');
   }
   const archiveDetailMatch = url.pathname.match(/^\/api\/archive\/estimates\/([^/]+)$/);
-  if (archiveDetailMatch && request.method === 'GET') return estimateArchiveDetailEndpoint(env, origin || '', decodeURIComponent(archiveDetailMatch[1]));
+  if (archiveDetailMatch && request.method === 'GET') { requireEstimateArchiveAccess(identity); return estimateArchiveDetailEndpoint(env, origin || '', decodeURIComponent(archiveDetailMatch[1])); }
 
   if (url.pathname === '/api/xero/connect' && request.method === 'POST') return startXeroConnection(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
-  if (url.pathname === '/api/estimates/index' && request.method === 'GET') return estimateIndexListEndpoint(request, env, identity, origin || '');
-  if (url.pathname === '/api/estimates/index' && request.method === 'POST') return estimateIndexUpsertEndpoint(request, env, identity, origin || '');
+  if (url.pathname === '/api/estimates/index' && ['GET', 'POST'].includes(request.method)) { requireEstimateArchiveAccess(identity); return request.method === 'GET' ? estimateIndexListEndpoint(request, env, identity, origin || '') : estimateIndexUpsertEndpoint(request, env, identity, origin || ''); }
   if (url.pathname === '/api/xero/setup-data' && request.method === 'GET') return xeroSetupDataEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');

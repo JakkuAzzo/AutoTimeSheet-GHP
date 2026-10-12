@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>User management | GMT Staff Portal</title>
+<link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914"><link rel="stylesheet" href="../portal.css?v=paymonth-calendar-20260928a">
+<script src="../config.js?v=portal-api-live-20260915"></script><script defer src="auth.js?v=entra-auth-20260914-signout-dashboard"></script>
+</head>
+<body>
+<header class="app-header portal-header"><div class="brand-block"><img src="../image.webp" alt="GMT Electrical Services Ltd logo" class="site-logo" width="1536" height="1024"><div><p class="eyebrow">GMT Staff Portal</p><h1>User management</h1><p class="portal-header-subtitle">Assign or remove staff portal permissions</p></div></div><nav class="header-actions"><a href="index.html">Dashboard</a><a href="submissions.html">Submitted documents</a><button type="button" id="portal-sign-out" hidden>Sign out</button></nav></header>
+<main class="app-main" hidden>
+  <section class="card portal-user-manager" aria-labelledby="user-manager-title">
+    <div class="portal-section-heading"><div><p class="eyebrow">Administrator tools</p><h2 id="user-manager-title">Staff role assignments</h2></div><button type="button" class="secondary" data-users-refresh>Refresh list</button></div>
+    <p class="small-text">Enter the staff member’s GMT sign-in address and Microsoft Entra object ID. Roles here cannot grant full administrator access. Full administrator access stays controlled by GMT’s existing Entra/Worker administrator configuration.</p>
+    <form class="portal-user-form" data-user-form>
+      <label>Name<input name="name" autocomplete="name" maxlength="160" required></label>
+      <label>GMT sign-in address<input name="upn" type="email" autocomplete="off" required placeholder="name@gmt-services.co.uk"></label>
+      <label>Entra object ID<input name="oid" autocomplete="off" required placeholder="Microsoft Entra user object ID"></label>
+      <label>Role<select name="role"><option value="hr">HR: all staff timesheets and calendar requests</option><option value="xero">Xero invoice access</option><option value="operations">Operations: shared non-timesheet records</option><option value="job-card">Job cards across staff</option></select></label>
+      <button type="submit">Grant role</button>
+    </form>
+    <p class="small-text" data-users-status role="status" aria-live="polite">Loading assignments…</p>
+    <div class="table-scroll"><table class="portal-table"><thead><tr><th>Name</th><th>GMT account</th><th>Role</th><th>Updated</th><th>Action</th></tr></thead><tbody data-users-list><tr><td colspan="5">Loading…</td></tr></tbody></table></div>
+    <p class="small-text">Role changes are recorded in the portal access audit. Removing a role does not remove the user’s regular GMT sign-in access.</p>
+  </section>
+</main>
+<script defer src="../portal-api.js?v=portal-api-access-control-20261012"></script><script defer src="users.js?v=portal-access-control-20261012"></script>
+</body></html>

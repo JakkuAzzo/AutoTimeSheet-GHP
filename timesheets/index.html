@@ -13,60 +13,18 @@
 </head>
 <body>
 <header class="app-header">
-<div class="brand-block"><img src="../image.png" alt="GMT Electrical Services Ltd logo" class="site-logo"><div><p class="eyebrow">93-95 Gloucester Rd, Croydon CR0 2DN</p><h1>Timesheets</h1><p>Enter daily or weekly timesheets and review completed records.</p></div></div>
+<div class="brand-block"><img src="../image.png" alt="GMT Electrical Services Ltd logo" class="site-logo"><div><p class="eyebrow">93-95 Gloucester Rd, Croydon CR0 2DN</p><h1>Timesheets</h1><p>Enter weekly hours and review completed records. Daily clock-in is on the dashboard.</p></div></div>
 <nav class="header-actions"><a href="../portal/">Dashboard</a><a href="../jobs/">Job Cards</a><a href="../tools/">Tools</a></nav>
 </header>
 <main class="app-main" hidden>
 <section class="portal-card-grid">
-<a class="portal-feature-card" href="create.html"><span>Daily/Weekly Timesheet Entry</span><small>Enter daily or weekly hours and route them to the right pay month.</small></a>
+<a class="portal-feature-card" href="create.html"><span>Weekly Timesheet Entry</span><small>Enter weekly hours and route them to the right pay month.</small></a>
 <a class="portal-feature-card portal-action-gold" href="../portal/timesheets.html"><span>View my completed timesheets</span><small>Open your identity-filtered portal history.</small></a>
 
-<form class="portal-feature-card clock-card" data-clock-form data-default-action="clock_in">
-<div class="clock-card-heading"><span data-clock-title>Clock In</span><small data-clock-description>Record an arrival time and send it to accounts.</small></div>
-<label>Full name<input name="employee_name" autocomplete="name" required placeholder="Your name"></label>
-<input name="employee_email" type="hidden" autocomplete="email">
-<p class="small-text" data-clock-identity aria-live="polite">Your signed-in GMT email will be attached to this record.</p>
-<input name="clock_action" type="hidden" value="clock_in">
-<fieldset class="clock-actions" aria-label="What are you recording?">
-<legend>Record</legend>
-<button type="button" data-clock-action="clock_in" aria-pressed="true">Clock in</button>
-<button type="button" data-clock-action="lunch_start" aria-pressed="false">Lunch start</button>
-<button type="button" data-clock-action="lunch_end" aria-pressed="false">Lunch end</button>
-<button type="button" data-clock-action="clock_out" aria-pressed="false">Clock out</button>
-<button type="button" data-clock-action="absent" aria-pressed="false">Absent</button>
-<button type="button" class="clock-full-day-button" data-clock-action="full_day" aria-pressed="false" aria-label="Fill out a whole day" title="Fill out a whole day">+</button>
-</fieldset>
-<label>Date<input name="clock_date" type="date" required></label>
-<label data-clock-time-field>Time<input name="clock_time" type="time" required></label>
-<div class="clock-location-control">
-<label>Location / site <span class="small-text">optional</span><input name="clock_location" type="text" autocomplete="off" placeholder="Workshop, client site or current location"></label>
-<button type="button" class="secondary" data-use-location>Use current location</button>
-</div>
-<p class="small-text clock-location-status" data-location-status aria-live="polite">Only captured when you choose this button.</p>
-<label data-absence-field hidden>Absence reason<select name="absence_reason" disabled><option value="Sick">Sick</option><option value="Holiday">Holiday</option><option value="Time Off">Time Off</option><option value="Other">Other</option></select></label>
-<section class="clock-full-day" data-full-day-fields hidden aria-label="Full day details">
-<p>Whole day details</p>
-<div class="clock-full-day-grid">
-<label>Start<input name="day_start" type="time" disabled></label>
-<label>Lunch start<input name="day_lunch_start" type="time" disabled></label>
-<label>Lunch end<input name="day_lunch_end" type="time" disabled></label>
-<label>Finish<input name="day_finish" type="time" disabled></label>
-</div>
-</section>
-<details class="clock-note-details">
-<summary>Add a note (optional)</summary>
-<label>Note<textarea name="clock_note" rows="3" placeholder="Add a note for accounts, if needed."></textarea></label>
-</details>
-<button type="submit" data-clock-submit>Submit clock in</button>
-<p class="small-text clock-status" aria-live="polite"></p>
-</form>
 </section>
 </main>
 <script src="../portal-api.js?v=portal-api-20260910"></script>
-<script src="../lazy-xlsx.js"></script>
-<script src="../timesheet-clock-transport.js?v=gmt-clock-native-transport-20260922"></script>
 <script src="../pay-periods.js?v=gmt-pay-periods-20260921c"></script>
 <script src="../timesheet-coverage.js?v=gmt-timesheet-coverage-20260927"></script>
-<script src="../timesheet-clock.js?v=future-work-weekends-20260927"></script>
 </body>
 </html>

@@ -18,14 +18,15 @@
 </header>
 <main class="app-main" hidden>
 <section class="portal-card-grid">
-<a class="portal-feature-card portal-estimate-card" href="estimates.html"><span>Estimates</span><small>Create a branded estimate, preview it, and send it through the protected client workflow.</small></a>
-<a class="portal-feature-card portal-action-gold" href="../jobs/"><span>Job Cards</span><small>Create EC or MTA cards, preview the paper layout, and review submitted job history.</small></a>
-<a class="portal-feature-card" href="../tasks/"><span>Tasks</span><small>Manage task progress.</small><strong class="in-progress-badge">In progress</strong></a>
+<a class="portal-feature-card portal-estimate-card" href="estimates.html" data-hide-for-hr><span>Estimates</span><small>Create a branded estimate, preview it, and send it through the protected client workflow.</small></a>
+<a class="portal-feature-card portal-action-gold" href="../jobs/" data-hide-for-hr><span>Job Cards</span><small>Create EC or MTA cards, preview the paper layout, and review submitted job history.</small></a>
+<a class="portal-feature-card" href="../tasks/" data-hide-for-hr><span>Tasks</span><small>Manage task progress.</small><strong class="in-progress-badge">In progress</strong></a>
 <a class="portal-feature-card" href="../portal/#portal-calendar-title"><span>Calendar</span><small>Review the shared schedule and request time off from a day.</small></a>
-<a class="portal-feature-card portal-action-gold" id="xero-invoices-card" href="invoices.html" hidden aria-hidden="true"><span>Invoices</span><small>Accounts-only listing and Xero invoice tracking. Create invoices in the connected Xero organisation.</small></a>
+<a class="portal-feature-card portal-action-gold" id="xero-invoices-card" href="invoices.html" hidden aria-hidden="true"><span>Invoices</span><small>Review and manage invoices in the connected Xero organisation.</small></a>
 </section>
 </main>
 <script defer src="../portal-api.js?v=portal-api-xero-invoices-20260915"></script>
+<script defer src="access-ui.js?v=portal-access-control-20261012"></script>
 <script defer src="invoices.js?v=xero-invoice-list-20260915"></script>
 </body>
 </html>

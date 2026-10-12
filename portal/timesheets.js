@@ -55,6 +55,10 @@
     return lastMeta && lastMeta.is_admin === true;
   }
 
+  function hasEmployeeReviewAccess() {
+    return hasAdminAccess() || lastMeta && lastMeta.is_hr_admin === true;
+  }
+
   function queryValue(name) {
     var search = window.location ? String(window.location.search || '') : '';
     var match = search.match(new RegExp('[?&]' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^&]*)', 'i'));
@@ -98,15 +102,16 @@
     lastMeta = meta || {};
     lastCompletion = lastMeta.completion || null;
     var isAdmin = hasAdminAccess();
+    var canReviewEmployees = hasEmployeeReviewAccess();
     if (scope) {
       scope.hidden = false;
-      scope.textContent = isAdmin ? "Accounts admin view: all employee submissions are visible." : "Showing this account's authorised submissions only.";
+      scope.textContent = isAdmin ? "Accounts admin view: all employee submissions are visible." : (canReviewEmployees ? "HR view: all employee timesheets and calendar requests are visible." : "Showing this account's authorised submissions only.");
     }
     if (editPolicy) editPolicy.textContent = isAdmin
       ? "Accounts admin can edit any employee's current or previous pay-month timesheet. All pay months remain viewable, and new entries can be filed for any date."
       : "Current and previous pay-month timesheets can be corrected. All pay months remain viewable, and new entries can be filed for any date.";
-    if (employeeFilterWrap) employeeFilterWrap.hidden = !isAdmin;
-    if (employeeControl && isAdmin) {
+    if (employeeFilterWrap) employeeFilterWrap.hidden = !canReviewEmployees;
+    if (employeeControl && canReviewEmployees) {
       populateEmployees(meta.completion && meta.completion.employees || []);
     }
     if (historyLink) {

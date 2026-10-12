@@ -13,7 +13,7 @@ assert.match(workflow, /cloudflare\/wrangler-action@v4/);
 assert.match(workflow, /secrets\.CLOUDFLARE_API_TOKEN/);
 assert.match(workflow, /vars\.CLOUDFLARE_ACCOUNT_ID/);
 assert.match(workflow, /d1 migrations apply gmt-portal --remote/);
-assert.match(workflow, /command:\s*deploy --config cloudflare-worker\/wrangler\.toml/);
+assert.match(workflow, /command:\s*deploy --config cloudflare-worker\/wrangler\.toml --keep-vars/);
 assert.match(workflow, /npm run test:xero:integration-contract/);
 
 console.log('Cloudflare Worker GitHub deployment workflow contract: PASS');
