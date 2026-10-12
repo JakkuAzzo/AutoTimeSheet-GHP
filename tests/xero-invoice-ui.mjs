@@ -11,7 +11,7 @@ const [page, ui, css] = await Promise.all([
 const [jobs, portal, estimates] = await Promise.all([
   readFile(resolve(root, 'jobs/index.html'), 'utf8'),
   readFile(resolve(root, 'portal.js'), 'utf8'),
-  readFile(resolve(root, 'tools/estimates.html'), 'utf8')
+  readFile(resolve(root, 'tools/estimates.js'), 'utf8')
 ]);
 
 assert.match(page, /id="xero-invoice-search"/);
@@ -23,6 +23,10 @@ assert.doesNotMatch(page, /xero-invoice-lookup/);
 assert.doesNotMatch(page, /xero-status/);
 assert.match(page, /id="xero-record-search"/);
 assert.match(ui, /function filterInvoiceRows/);
+assert.match(ui, /function linkNewestInvoices/);
+assert.match(ui, /selectNewest\(invoiceRows/);
+assert.match(page, /id="xero-invoice-link-newest"/);
+assert.match(page, /Link newest 10 exact matches/);
 assert.match(ui, /data-xero-selected/);
 assert.match(ui, /xero-invoice-links-chips/);
 assert.match(ui, /sessionStorage/);
@@ -32,6 +36,6 @@ assert.match(css, /\.xero-invoice-workspace/);
 assert.match(css, /@media[^{]*max-width/);
 assert.match(jobs, /id="job-card-invoice-links"/);
 assert.match(portal, /recordInvoiceLinks/);
-assert.match(estimates, /id="estimate-invoice-links"/);
+assert.match(estimates, /No linked job card, estimate, or invoice record yet/);
 
 console.log('Invoice workspace UI contract: PASS');
