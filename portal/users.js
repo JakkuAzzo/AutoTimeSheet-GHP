@@ -4,7 +4,7 @@
   var list = document.querySelector("[data-users-list]");
   var status = document.querySelector("[data-users-status]");
   var main = document.querySelector("main");
-  var labels = { admin: "Full administrator", hr: "HR", xero: "Xero", operations: "Operations", "job-card": "Job cards" };
+  var labels = { admin: "Full administrator", hr: "HR", timesheets: "All timesheets (read-only)", xero: "Xero", operations: "Operations", "job-card": "Job cards" };
   function safe(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
   function message(text, error) { if (!status) return; status.textContent = text; status.classList.toggle("error", !!error); }
   async function refresh() {

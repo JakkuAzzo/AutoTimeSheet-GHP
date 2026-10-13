@@ -228,6 +228,19 @@
     var direct = directValue === "" ? NaN : Number(directValue);
     return Number.isFinite(direct) ? Math.max(0, direct) : start !== null && finish !== null && finish >= start ? finish - start : null;
   }
+  function dailyRollupDetail(record) {
+    var payload = payloadFor(record);
+    if (payload.dailyRollup !== true) return "";
+    var row = recordRows(record)[0] || {};
+    var start = rowValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in"], "");
+    var finish = rowValue(row, ["finish", "finishTime", "finish_time", "clockOut", "clock_out"], "");
+    var lunchStart = rowValue(row, ["lunchStart", "lunch_start", "breakStart", "break_start"], "");
+    var lunchEnd = rowValue(row, ["lunchEnd", "lunch_end", "breakEnd", "break_end"], "");
+    var breakTotal = breakMinutes(row);
+    var worked = rowTotalMinutes(row);
+    var sourceCount = Array.isArray(record.source_record_ids) ? record.source_record_ids.length : 0;
+    return '<div class="portal-timesheet-daily-rollup"><p><strong>Clock in and out:</strong> ' + safe(start || "Not recorded") + '–' + safe(finish || "Not recorded") + '</p><p><strong>Lunch:</strong> ' + safe(lunchStart || "Not recorded") + '–' + safe(lunchEnd || "Not recorded") + (breakTotal === null ? "" : ' · ' + safe(displayHours(breakTotal))) + '</p><p><strong>Worked:</strong> ' + safe(worked === null ? "Not calculated" : displayHours(worked)) + '</p><p class="small-text">Combined from ' + sourceCount + ' source entr' + (sourceCount === 1 ? "y" : "ies") + '; original entries remain available for audit.</p></div>';
+  }
   function rowWorkedMinutes(row) { var total = rowTotalMinutes(row); return total === null ? 0 : total; }
   function displayHours(minutes) { var value = Math.max(0, Math.round(Number(minutes) || 0)); var hours = Math.floor(value / 60); var rest = value % 60; return hours + "h" + (rest ? " " + rest + "m" : ""); }
   function rowMetrics(row) {
@@ -316,7 +329,11 @@
     var selectedType = currentTab && currentTab !== "all" ? currentTab : "";
     var selectedEmployee = currentEmployee();
     var selectedMonth = payMonthFilter && payMonthFilter.value ? String(payMonthFilter.value) : "";
-    return records.filter(function (record) {
+    var dailyRecords = window.GMTCalendarData && typeof window.GMTCalendarData.combineDailyRecords === "function"
+      ? window.GMTCalendarData.combineDailyRecords(records, { employees: historyMeta && historyMeta.completion && historyMeta.completion.employees || [] })
+      : [];
+    var displayRecords = records.filter(function (record) { return !isTimesheetLike(record) || record.is_demo; }).concat(dailyRecords);
+    return displayRecords.filter(function (record) {
       if (selectedType === "timesheets" ? !isTimesheetLike(record) : (selectedType && actionKey(record) !== selectedType)) return false;
       if (selectedEmployee && employeeKey(record) !== selectedEmployee) return false;
       if (selectedMonth && payMonthForRecord(record) !== selectedMonth) return false;
@@ -346,7 +363,7 @@
     // Keep the control visible on every authorised document view. Accounts
     // receives the full roster; other identities simply see the employees
     // present in their authorised history (often just themselves).
-    if (employeeFilterWrap) employeeFilterWrap.hidden = !(historyMeta && (historyMeta.is_admin === true || historyMeta.is_hr_admin === true));
+    if (employeeFilterWrap) employeeFilterWrap.hidden = !(historyMeta && historyMeta.can_view_all_timesheets === true);
     return sorted.length;
   }
   function populatePayMonths() {
@@ -995,7 +1012,7 @@
     var timesheetAction = actionKey(record) === "timesheets"
       ? '<a class="button button-link" href="' + safe(timesheetHref(record, day)) + '">Open pay-month spreadsheet</a>'
       : '';
-    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + sparseDetail + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions">' + timesheetAction + '<a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
+    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + sparseDetail + dailyRollupDetail(record) + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions">' + timesheetAction + '<a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
   }
   function filteredSheets() {
     var month = payMonthFilter && payMonthFilter.value ? String(payMonthFilter.value) : "";

@@ -56,7 +56,7 @@
   }
 
   function hasEmployeeReviewAccess() {
-    return hasAdminAccess() || lastMeta && lastMeta.is_hr_admin === true;
+    return lastMeta && lastMeta.can_view_all_timesheets === true;
   }
 
   function queryValue(name) {
@@ -105,7 +105,7 @@
     var canReviewEmployees = hasEmployeeReviewAccess();
     if (scope) {
       scope.hidden = false;
-      scope.textContent = isAdmin ? "Accounts admin view: all employee submissions are visible." : (canReviewEmployees ? "HR view: all employee timesheets and calendar requests are visible." : "Showing this account's authorised submissions only.");
+      scope.textContent = canReviewEmployees ? "Authorised staff view: all employee timesheets are visible." : (lastMeta && lastMeta.is_hr_admin ? "HR view: shared calendar requests and this account's timesheets are visible." : (isAdmin ? "Administrator view: shared records and this account's timesheets are visible." : "Showing this account's authorised submissions only."));
     }
     if (editPolicy) editPolicy.textContent = isAdmin
       ? "Accounts admin can edit any employee's current or previous pay-month timesheet. All pay months remain viewable, and new entries can be filed for any date."

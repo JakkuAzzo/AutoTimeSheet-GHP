@@ -1,0 +1,71 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const calendarSource = fs.readFileSync(new URL('../portal/calendar-data.js', import.meta.url), 'utf8');
+const calendarContext = { window: {} };
+vm.runInNewContext(calendarSource, calendarContext, { filename: 'portal/calendar-data.js' });
+const calendar = calendarContext.window.GMTCalendarData;
+const source = fs.readFileSync(new URL('../portal/submissions.js', import.meta.url), 'utf8');
+
+function element(id, attributes = {}) {
+  return {
+    id, value: '', hidden: false, disabled: false, textContent: '', innerHTML: '', attributes,
+    listeners: {}, classList: { toggle() {}, add() {}, remove() {} }, dataset: {},
+    addEventListener(name, callback) { this.listeners[name] = callback; },
+    getAttribute(name) { return this.attributes[name] || null; },
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    querySelectorAll() { return []; }, querySelector() { return null; },
+    insertAdjacentHTML() {}
+  };
+}
+
+const ids = [
+  'submissions-status', 'submissions-list', 'submissions-preview', 'submissions-filter',
+  'submissions-pay-month', 'submissions-day', 'pay-month-list-title', 'pay-month-list-count',
+  'submissions-employee-filter', 'submissions-employee', 'submissions-refresh',
+  'submissions-delivery-trigger', 'submissions-delivery-dialog', 'submissions-delivery-details',
+  'download-all-sheets', 'download-all-sheets-status'
+];
+const elements = Object.fromEntries(ids.map((id) => [id, element(id)]));
+const tabs = ['all', 'timesheets', 'calendar'].map((value) => element('tab-' + value, { 'data-submission-tab': value }));
+const kicker = element('pay-month-kicker');
+let domReady;
+const employee = { employee_name: 'Michelle Reid', employee_upn: 'MichelleR.admin@gmt-services.co.uk' };
+const roster = [{ employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk' }];
+const records = [
+  { employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk', kind: 'timesheets', action: 'submission', status: 'Queued for Accounts', record_date: '2026-10-13', source_record_id: 'timesheet-week', updated_at: '2026-10-13T16:09:00Z', payload: { rows: [{ Date: '2026-10-13', Start: '08:45', Finish: '17:00', 'Lunch start': '14:00', 'Lunch end': '14:30', Break: 30, 'Worked hours': 7.75 }] } },
+  { ...employee, kind: 'clock', action: 'clock_in', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-in', updated_at: '2026-10-13T08:45:00Z', payload: { row: { Date: '2026-10-13', Start: '08:45' } } },
+  { ...employee, kind: 'clock', action: 'lunch_start', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'lunch-start', updated_at: '2026-10-13T14:00:00Z', payload: { row: { Date: '2026-10-13', 'Lunch start': '14:00' } } },
+  { ...employee, kind: 'clock', action: 'lunch_end', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'lunch-end', updated_at: '2026-10-13T14:30:00Z', payload: { row: { Date: '2026-10-13', 'Lunch end': '14:30' } } },
+  { ...employee, kind: 'clock', action: 'clock_out', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-out', updated_at: '2026-10-13T17:00:00Z', payload: { row: { Date: '2026-10-13', Finish: '17:00' } } }
+];
+const context = {
+  window: {
+    location: { search: '?day=2026-10-13' },
+    GMTCalendarData: calendar,
+    GMTPayPeriods: { payMonthKeyForDate(date) { return String(date).slice(0, 7); } },
+    GMTPortalApi: { enabled() { return true; }, async history() { return { records, meta: { can_view_all_timesheets: false, visible_scope: 'this account submissions', completion: { employees: roster } } }; } }
+  },
+  document: {
+    getElementById(id) { return elements[id] || null; },
+    querySelectorAll(selector) { return selector === '[data-submission-tab]' ? tabs : []; },
+    querySelector(selector) { return selector === '[data-pay-month-list-kicker]' ? kicker : null; },
+    addEventListener(name, callback) { if (name === 'DOMContentLoaded') domReady = callback; }
+  }
+};
+
+vm.runInNewContext(source, context, { filename: 'portal/submissions.js' });
+await domReady();
+assert.equal(elements['submissions-status'].textContent, '5 authorised records loaded. Access: this account submissions.');
+tabs[0].listeners.click();
+assert.equal(elements['pay-month-list-count'].textContent, '1 item', 'the all-records view displays one combined entry');
+assert.match(elements['submissions-list'].innerHTML, /Timesheet/);
+assert.doesNotMatch(elements['submissions-list'].innerHTML, /Clock \/ breaks/);
+assert.match(elements['submissions-preview'].innerHTML, /08:45/);
+assert.match(elements['submissions-preview'].innerHTML, /17:00/);
+assert.match(elements['submissions-preview'].innerHTML, /7h 45m/);
+assert.match(elements['submissions-preview'].innerHTML, /5 source entries/);
+assert.match(elements['submissions-preview'].innerHTML, /Queued for Accounts/);
+
+console.log('Submitted Documents clock rollup UI: PASS');
