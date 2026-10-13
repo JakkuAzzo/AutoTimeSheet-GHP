@@ -247,33 +247,41 @@
     sheetMonth = sheetMonth || payMonthForRecord(sourceRecords[0]);
     var rowsByDate = {};
     var deletedDays = {};
+    var roster = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
+    var employee = roster.find(function (entry) { return String(entry.employee_upn || entry.upn || "").trim().toLowerCase() === employeeIdentity; });
+    var employeeSchedule = employee && Array.isArray(employee.schedule_weekdays) ? employee.schedule_weekdays : [];
     sourceRecords.forEach(function (record) {
       if (String(record.action || "") === "pay_month_correction") {
         (payloadFor(record).deletedDays || []).forEach(function (date) { if (window.GMTPayPeriods.payMonthKeyForDate(date) === sheetMonth) deletedDays[date] = true; });
       }
       recordRows(record).forEach(function (row, index) {
         var date = rowDate(row);
-        var scheduledDays = Array.isArray(record.schedule_weekdays) ? record.schedule_weekdays : [];
+        var recordPayload = payloadFor(record);
+        var scheduledDays = Array.isArray(record.schedule_weekdays) ? record.schedule_weekdays
+          : Array.isArray(record.scheduleWeekdays) ? record.scheduleWeekdays
+            : Array.isArray(record.workdays) ? record.workdays
+              : Array.isArray(recordPayload.scheduleWeekdays) ? recordPayload.scheduleWeekdays
+                : Array.isArray(recordPayload.workdays) ? recordPayload.workdays : employeeSchedule;
         var weekday = date ? (new Date(date + "T12:00:00Z").getUTCDay() || 7) : 0;
-        // Keep generated off-roster cards in source history for audit, but
-        // show the same scheduled day set as the shared calendar.
-        if (row.scheduled === false || (scheduledDays.length && scheduledDays.indexOf(weekday) === -1)) return;
         var rowMonth = window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
           ? window.GMTPayPeriods.payMonthKeyForDate(date)
           : payMonthForRecord({ payload: { rows: [row] }, start_date: date });
         if (!date || (sheetMonth && rowMonth && rowMonth !== sheetMonth)) return;
-        var candidate = { row: Object.assign({}, row), date: date, sourceRecordId: recordId(record), sourceIndex: index, sourceRecord: record };
+        var candidate = { row: Object.assign({}, row), date: date, scheduled: row.scheduled !== false && (!scheduledDays.length || scheduledDays.indexOf(weekday) !== -1), scheduleWeekdays: scheduledDays.slice(), sourceRecordId: recordId(record), sourceIndex: index, sourceRecord: record };
         var existing = rowsByDate[date];
         if (!existing || sourcePriority(record) > sourcePriority(existing.sourceRecord) || (sourcePriority(record) === sourcePriority(existing.sourceRecord) && recordUpdated(record) > recordUpdated(existing.sourceRecord))) rowsByDate[date] = candidate;
       });
     });
-    var rows = Object.keys(rowsByDate).sort().filter(function (date) { return !deletedDays[date]; }).map(function (date) { return rowsByDate[date]; });
+    var reviewRows = Object.keys(rowsByDate).sort().filter(function (date) { return !deletedDays[date]; }).map(function (date) { return rowsByDate[date]; });
+    // Accounts needs to see off-roster source rows in the editable sheet so
+    // they can remove erroneous weekend entries. Keep the calendar/pay-month
+    // row set on the configured schedule, and retain all source rows separately
+    // for the editor.
+    var rows = reviewRows.filter(function (item) { return item.scheduled; });
     var first = sourceRecords[0];
     var identified = sourceRecords.find(function (record) { return String(record.employee_upn || record.employee_email || "").trim(); }) || first;
-    var roster = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
-    var employee = roster.find(function (entry) { return String(entry.employee_upn || entry.upn || "").trim().toLowerCase() === employeeIdentity; });
     var totals = rows.reduce(function (sum, item) { var metrics = rowMetrics(item.row); Object.keys(metrics).forEach(function (key) { sum[key] = (sum[key] || 0) + (Number(metrics[key]) || 0); }); return sum; }, {});
-    var sheet = { key: (employeeIdentity || sheetEmployeeKey(first) || "all") + "|" + sheetMonth, employeeName: employee && (employee.employee_name || employee.name) || first.employee_name || identified.employee_name || first.employee_upn || "GMT staff", employeeUpn: employee && (employee.employee_upn || employee.upn) || identified.employee_upn || identified.employee_email || "", payMonth: sheetMonth, records: sourceRecords, rows: rows, totals: totals, updatedAt: recordUpdated(first) };
+    var sheet = { key: (employeeIdentity || sheetEmployeeKey(first) || "all") + "|" + sheetMonth, employeeName: employee && (employee.employee_name || employee.name) || first.employee_name || identified.employee_name || first.employee_upn || "GMT staff", employeeUpn: employee && (employee.employee_upn || employee.upn) || identified.employee_upn || identified.employee_email || "", payMonth: sheetMonth, records: sourceRecords, rows: rows, reviewRows: reviewRows, totals: totals, updatedAt: recordUpdated(first) };
     sheet.canEdit = canEditSheet(sheet);
     return sheet;
   }
@@ -507,7 +515,7 @@
     var input = container && container.querySelector('[data-sheet-field="' + field + '"]');
     return input ? String(input.value || "") : "";
   }
-  function sheetRowMarkup(row, index, editable, isNew) {
+  function sheetRowMarkup(row, index, editable, isNew, isOffSchedule) {
     row = row || {};
     var date = rowDate(row);
     var start = rowValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in"], "");
@@ -521,8 +529,8 @@
     var totalLabel = totalMinutes === null ? "—" : displayHours(totalMinutes) + (provisional ? " · provisional" : breakValue === null ? " · break not recorded" : "");
     var disabled = editable ? "" : " disabled";
     var weekend = date && [0, 6].indexOf(new Date(date + 'T12:00:00Z').getUTCDay()) !== -1;
-    return '<tr data-sheet-row="' + index + '"' + (isNew ? ' data-new-row="true"' : '') + ' class="' + (editable ? '' : 'is-read-only ') + (weekend ? 'is-weekend' : '') + '">'
-      + '<td data-label="Date"><input data-sheet-field="date" type="date" value="' + safe(date) + '"' + disabled + '></td>'
+    return '<tr data-sheet-row="' + index + '"' + (isNew ? ' data-new-row="true"' : '') + (isOffSchedule ? ' data-off-schedule="true"' : '') + ' class="' + (editable ? '' : 'is-read-only ') + (weekend ? 'is-weekend ' : '') + (isOffSchedule ? 'is-off-schedule' : '') + '">'
+      + '<td data-label="Date"><input data-sheet-field="date" type="date" value="' + safe(date) + '"' + disabled + '>' + (isOffSchedule ? '<small class="pay-month-off-schedule">Outside configured workdays</small>' : '') + '</td>'
       + '<td data-label="Start"><input data-sheet-field="start" type="time" value="' + safe(start) + '"' + disabled + '></td>'
       + '<td data-label="Finish"><input data-sheet-field="finish" type="time" value="' + safe(finish) + '"' + disabled + '></td>'
       + '<td data-label="Break"><input data-sheet-field="break" type="number" min="0" max="1440" step="1" inputmode="numeric" aria-label="Break minutes" placeholder="—" value="' + (breakValue === null ? '' : safe(breakValue)) + '"' + disabled + '></td>'
@@ -540,8 +548,11 @@
     var editable = sheet.canEdit === true;
     var unrecordedBreaks = sheet.rows.filter(function (item) { return breakMinutes(item.row) === null && rowTotalMinutes(item.row) !== null; }).length;
     var provisionalTotals = sheet.rows.filter(function (item) { var api = payMonthWorkbookApi(); return api && api.provisionalForRow && api.provisionalForRow(item.row); }).length;
-    var visibleRows = selectedDay ? sheet.rows.filter(function (item) { return item.date === selectedDay; }) : sheet.rows;
-    var rows = visibleRows.map(function (item) { return sheetRowMarkup(item.row, sheet.rows.indexOf(item), editable, false); }).join("");
+    var editorRows = editable && Array.isArray(sheet.reviewRows) ? sheet.reviewRows : sheet.rows;
+    var visibleRows = selectedDay ? editorRows.filter(function (item) { return item.date === selectedDay; }) : editorRows;
+    var rows = visibleRows.map(function (item) { return sheetRowMarkup(item.row, editorRows.indexOf(item), editable, false, item.scheduled === false); }).join("");
+    var offScheduleCount = editable ? editorRows.filter(function (item) { return item.scheduled === false; }).length : 0;
+    var offScheduleNote = offScheduleCount ? '<p class="pay-month-edit-note" data-off-schedule-note>' + offScheduleCount + ' row(s) fall outside the configured workdays and are excluded from calendar and pay-month totals. Remove any row that should not be on this timesheet.</p>' : '';
     var canOpenFull = sheet.records.length ? timesheetHref(sheet.records[0], "", sheet.payMonth) : "timesheets.html";
     var roster = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
     var employeeSchedule = roster.find(function (entry) { return String(entry.employee_upn || "").toLowerCase() === String(sheet.employeeUpn || "").toLowerCase(); });
@@ -552,7 +563,7 @@
       var outstanding = coverage.overdue.concat(coverage.upcoming);
       coverageNote = '<details class="pay-month-edit-note" data-pay-month-coverage><summary>' + completed + ' of ' + coverage.expected.length + ' scheduled days recorded or explained' + (outstanding.length ? ' · ' + outstanding.length + ' need attention' : ' · complete') + '</summary><p>' + (outstanding.length ? 'Still needing an entry or a user-entered absence reason: ' + safe(outstanding.join(', ')) + '. ' : '') + 'Missing days are never marked absent automatically.</p></details>';
     }
-    preview.innerHTML = '<div class="pay-month-sheet-preview"><div class="timesheet-paper-header"><div><p class="portal-card-kicker">' + safe(monthLabel(sheet.payMonth)) + '</p><h2>' + safe(sheet.employeeName) + '</h2><p class="small-text">' + safe(sheet.employeeUpn) + ' · ' + sheet.rows.length + ' daily row' + (sheet.rows.length === 1 ? '' : 's') + '</p></div><span class="portal-status ' + (editable ? 'approved' : 'pending') + '">' + (editable ? 'Editable' : 'Read only') + '</span></div><div class="timesheet-paper-meta"><p><strong>Pay month:</strong> ' + safe(sheet.payMonth) + '</p><p><strong>Window:</strong> ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).start || '') + ' to ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).end || '') + '</p><p><strong>Month total hours:</strong> ' + safe(displayHours(sheet.totals.workedActual)) + '</p><p><strong>Updated:</strong> ' + safe(latest.updated_at || latest.submitted_at || 'Not recorded') + '</p></div>' + (selectedDay ? '<p class="small-text">Showing entries for ' + safe(selectedDay) + '. Month total remains for the full pay month.</p>' : '') + coverageNote + (editNotice ? '<p class="pay-month-edit-note"><strong>Change note:</strong> ' + safe(editNotice) + '</p>' : '') + (unrecordedBreaks ? '<p class="pay-month-edit-note">' + unrecordedBreaks + ' row(s) have no recorded break. ' + provisionalTotals + ' total(s) show elapsed time before any break deduction and need review.</p>' : '') + '<form data-pay-month-edit-form><div class="pay-month-table-scroll"><table class="timesheet-paper-rows pay-month-edit-table"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Total hours</th><th>Notes</th><th>Actions</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8">' + (selectedDay ? 'No daily rows are available for this day.' : 'No daily rows are available.') + '</td></tr>') + '</tbody></table></div><div class="pay-month-sheet-total"><span>Pay month total</span><strong data-pay-month-total-hours>' + safe(displayHours(sheet.totals.workedActual)) + '</strong></div><div class="pay-month-edit-actions">' + (editable ? '<button type="button" class="secondary" data-add-day>Add day</button><button type="submit">Save changes</button>' : '<span class="small-text">This pay month is read-only for your account.</span>') + '<a class="button button-link secondary" href="' + safe(canOpenFull) + '">Open full editor</a><button type="button" class="secondary pay-month-download" data-pay-month-download>Download full pay-month spreadsheet</button><span class="small-text pay-month-download-status" data-pay-month-download-status role="status"></span><span class="small-text" data-pay-month-save-status role="status"></span></div></form></div>';
+    preview.innerHTML = '<div class="pay-month-sheet-preview"><div class="timesheet-paper-header"><div><p class="portal-card-kicker">' + safe(monthLabel(sheet.payMonth)) + '</p><h2>' + safe(sheet.employeeName) + '</h2><p class="small-text">' + safe(sheet.employeeUpn) + ' · ' + editorRows.length + ' daily row' + (editorRows.length === 1 ? '' : 's') + '</p></div><span class="portal-status ' + (editable ? 'approved' : 'pending') + '">' + (editable ? 'Editable' : 'Read only') + '</span></div><div class="timesheet-paper-meta"><p><strong>Pay month:</strong> ' + safe(sheet.payMonth) + '</p><p><strong>Window:</strong> ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).start || '') + ' to ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).end || '') + '</p><p><strong>Month total hours:</strong> ' + safe(displayHours(sheet.totals.workedActual)) + '</p><p><strong>Updated:</strong> ' + safe(latest.updated_at || latest.submitted_at || 'Not recorded') + '</p></div>' + (selectedDay ? '<p class="small-text">Showing entries for ' + safe(selectedDay) + '. Month total remains for the full pay month.</p>' : '') + offScheduleNote + coverageNote + (editNotice ? '<p class="pay-month-edit-note"><strong>Change note:</strong> ' + safe(editNotice) + '</p>' : '') + (unrecordedBreaks ? '<p class="pay-month-edit-note">' + unrecordedBreaks + ' row(s) have no recorded break. ' + provisionalTotals + ' total(s) show elapsed time before any break deduction and need review.</p>' : '') + '<form data-pay-month-edit-form><div class="pay-month-table-scroll"><table class="timesheet-paper-rows pay-month-edit-table"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Total hours</th><th>Notes</th><th>Actions</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8">' + (selectedDay ? 'No daily rows are available for this day.' : 'No daily rows are available.') + '</td></tr>') + '</tbody></table></div><div class="pay-month-sheet-total"><span>Pay month total</span><strong data-pay-month-total-hours>' + safe(displayHours(sheet.totals.workedActual)) + '</strong></div><div class="pay-month-edit-actions">' + (editable ? '<button type="button" class="secondary" data-add-day>Add day</button><button type="submit">Save changes</button>' : '<span class="small-text">This pay month is read-only for your account.</span>') + '<a class="button button-link secondary" href="' + safe(canOpenFull) + '">Open full editor</a><button type="button" class="secondary pay-month-download" data-pay-month-download>Download full pay-month spreadsheet</button><span class="small-text pay-month-download-status" data-pay-month-download-status role="status"></span><span class="small-text" data-pay-month-save-status role="status"></span></div></form></div>';
     var form = preview.querySelector("[data-pay-month-edit-form]");
     var targetDay = requestedDay();
     if (targetDay && requestedRecordId() && sheet.records.some(function (record) { return recordId(record) === requestedRecordId(); })) {
@@ -560,7 +571,7 @@
         if (rowInputValue(row, "date") === targetDay) row.classList.add("is-target-day");
       });
     }
-    if (form && editable) form.addEventListener("submit", function (event) { savePayMonthSheet(event, sheet); });
+    if (form && editable) form.addEventListener("submit", function (event) { savePayMonthSheet(event, sheet, editorRows); });
     var downloadButton = preview.querySelector("[data-pay-month-download]");
     if (downloadButton) downloadButton.addEventListener("click", function () { downloadPayMonthSheet(sheet, preview.querySelector("[data-pay-month-download-status]"), downloadButton); });
     if (form) {
@@ -573,7 +584,7 @@
             rowOverrides[rowIndex] = null;
             return;
           }
-          var originalItem = sheet.rows[rowIndex];
+          var originalItem = editorRows[rowIndex];
           var original = originalItem && originalItem.row || {};
           var start = rowInputValue(entry, "start");
           var finish = rowInputValue(entry, "finish");
@@ -590,9 +601,9 @@
           if (hours) hours.textContent = minutes === null ? "—" : displayHours(minutes) + (provisional ? " · provisional" : breakMinutes(live) === null ? " · break not recorded" : "");
         });
         var total = 0;
-        sheet.rows.forEach(function (item, index) {
+        editorRows.forEach(function (item, index) {
           var live = Object.prototype.hasOwnProperty.call(rowOverrides, index) ? rowOverrides[index] : item.row;
-          if (!live) return;
+          if (!live || item.scheduled === false) return;
           var minutes = rowTotalMinutes(live);
           if (minutes !== null) total += minutes;
         });
@@ -621,7 +632,7 @@
       });
       if (addDayButton) addDayButton.addEventListener("click", function () {
         var tbody = form.querySelector("tbody");
-        var next = sheet.rows.length + form.querySelectorAll("[data-new-row]").length;
+        var next = editorRows.length + form.querySelectorAll("[data-new-row]").length;
         if (tbody.querySelector('td[colspan]')) tbody.innerHTML = "";
         tbody.insertAdjacentHTML("beforeend", sheetRowMarkup({}, next, true, true));
         var addedDate = tbody.lastElementChild.querySelector('[data-sheet-field="date"]');
@@ -882,7 +893,7 @@
     var encoded = Array.prototype.map.call(email, function (character) { return character.charCodeAt(0).toString(16).padStart(2, "0"); }).join("");
     return "gmt-paymonth-" + sheet.payMonth + "-" + encoded;
   }
-  async function savePayMonthSheet(event, sheet) {
+  async function savePayMonthSheet(event, sheet, editorRows) {
     event.preventDefault();
     var form = event.currentTarget;
     var feedback = form.querySelector("[data-pay-month-save-status]");
@@ -900,7 +911,7 @@
       var changedRows = [];
       form.querySelectorAll("[data-sheet-row]").forEach(function (container) {
         var index = Number(container.getAttribute("data-sheet-row"));
-        var item = sheet.rows[index];
+        var item = (Array.isArray(editorRows) ? editorRows : sheet.rows)[index];
         var isNew = container.dataset.newRow === "true";
         var original = item && item.row || {};
         var oldDate = rowDate(original);

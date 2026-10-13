@@ -283,6 +283,8 @@
 .pay-month-edit-table th, .pay-month-edit-table td { padding: .55rem .45rem; border-bottom: 1px solid #e0e5dd; vertical-align: middle; text-align: left; }
 .pay-month-edit-table tbody tr:last-child td { border-bottom: 0; }
 .pay-month-edit-table tbody tr.is-read-only { opacity: .72; }
+.pay-month-edit-table tbody tr.is-off-schedule td { background: #fff8dc; }
+.pay-month-edit-table .pay-month-off-schedule { display: block; margin-top: .2rem; color: #694d00; font-size: .68rem; line-height: 1.25; }
 .pay-month-edit-table input, .pay-month-edit-table select { width: 100%; min-width: 0; padding: .45rem .5rem; font-size: .82rem; }
 .pay-month-edit-table input[type="date"] { min-width: 9.3rem; }
 .pay-month-edit-table input[type="time"] { min-width: 6.4rem; }
