@@ -10,6 +10,7 @@
   var next = carousel.querySelector("[data-updates-next]");
   var board = document.getElementById("portal-task-board");
   var status = document.getElementById("portal-task-board-status");
+  var notificationStatus = document.getElementById("portal-notification-status");
   var notificationList = document.getElementById("portal-notifications");
   var current = 0;
   var notificationRecords = [];
@@ -101,15 +102,25 @@
     // Timesheets remain visible in the dedicated history/calendar views. The
     // dashboard updates feed is reserved for operational updates such as
     // enquiries, tasks, calendar requests, job cards, estimates and invoices.
-    notificationRecords = (Array.isArray(records) ? records : []).filter(function (record) {
+    var availableNotifications = (Array.isArray(records) ? records : []).filter(function (record) {
       var payload = payloadFor(record);
       var kind = notificationKind(record, payload);
       return kind !== "Timesheet" && kind !== "Clock / break";
     }).slice().sort(function (left, right) {
       return String(right.updated_at || right.submitted_at || "").localeCompare(String(left.updated_at || left.submitted_at || ""));
-    }).slice(0, 8);
+    });
+    notificationRecords = availableNotifications.slice(0, 8);
+    if (notificationStatus) {
+      if (!availableNotifications.length) {
+        notificationStatus.textContent = "No new notifications.";
+      } else if (availableNotifications.length > notificationRecords.length) {
+        notificationStatus.textContent = "Showing the 8 most recent of " + availableNotifications.length + " updates.";
+      } else {
+        notificationStatus.textContent = "Showing " + availableNotifications.length + " recent update" + (availableNotifications.length === 1 ? "." : "s.");
+      }
+    }
     if (!notificationRecords.length) {
-      notificationList.innerHTML = '<div class="portal-notification-empty" role="status"><span aria-hidden="true">✓</span><div><strong>No new notifications</strong><small>You are up to date.</small></div></div>';
+      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">✓</span><div><strong>You\'re all caught up</strong><small>There are no new notifications right now.</small></div></div>';
       return;
     }
     notificationList.innerHTML = notificationRecords.map(function (record, index) {
@@ -225,14 +236,19 @@
   async function loadNotifications() {
     if (!notificationList) return;
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.history !== "function" || !window.GMTPortalApi.enabled || !window.GMTPortalApi.enabled()) {
-      renderNotifications([]);
+      if (notificationStatus) notificationStatus.textContent = "Notifications are not connected.";
+      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications are not connected</strong><small>Protected notifications are unavailable in this portal.</small></div></div>';
       return;
     }
     try {
       var body = await window.GMTPortalApi.history("all");
-      renderNotifications(body && Array.isArray(body.records) ? body.records : []);
+      if (!body || typeof body !== "object" || !Array.isArray(body.records)) {
+        throw new Error("History response was not valid");
+      }
+      renderNotifications(body.records);
     } catch (_) {
-      renderNotifications([]);
+      if (notificationStatus) notificationStatus.textContent = "Notifications could not be loaded.";
+      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
     }
   }
 
