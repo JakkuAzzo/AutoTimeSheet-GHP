@@ -142,6 +142,7 @@ function tokenIdentity(claims, env) {
   const adminUpns = new Set([...csvSet(env.ADMIN_UPNS), ...csvSet(env.ADDITIONAL_ADMIN_UPNS)]);
   const adminOids = csvSet(env.ADMIN_OIDS);
   const adminGroups = csvSet(env.ADMIN_GROUP_IDS);
+  const timesheetViewerUpns = csvSet(env.TIMESHEET_VIEWER_UPNS);
   const jobCardAdminUpns = csvSet(env.JOB_CARD_ADMIN_UPNS);
   const operationsAdminUpns = csvSet(env.OPERATIONS_ADMIN_UPNS);
   const hrAdminUpns = csvSet(env.HR_ADMIN_UPNS);
@@ -157,6 +158,7 @@ function tokenIdentity(claims, env) {
     tid: tokenTenant,
     isAdmin,
     isHrAdmin,
+    isTimesheetViewer: timesheetViewerUpns.has(upn),
     isXeroAdmin: isAdmin || xeroAdminUpns.has(upn),
     isOperationsAdmin: isAdmin || operationsAdminUpns.has(upn),
     isJobCardAdmin: isAdmin || operationsAdminUpns.has(upn) || jobCardAdminUpns.has(upn)
@@ -165,11 +167,31 @@ function tokenIdentity(claims, env) {
 
 function canViewAllRecords(identity, kind = '') {
   const category = canonicalKind(kind);
-  return Boolean(identity && (identity.isAdmin || (category === 'job-cards' && !identity.isHrAdmin) || (identity.isHrAdmin && ['timesheets', 'clock', 'calendar'].includes(category)) || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin)));
+  if (!identity) return false;
+  if (category === 'timesheets' || category === 'clock') return identity.isTimesheetViewer === true;
+  return Boolean(identity.isAdmin || (category === 'job-cards' && !identity.isHrAdmin) || (identity.isHrAdmin && category === 'calendar') || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin));
 }
 
 function canAccessRecord(identity, row) {
-  return Boolean(row && (row.owner_oid === identity.oid || identity.isAdmin || (row.kind === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase()) || (identity.isOperationsAdmin && row.kind !== 'timesheets' && row.kind !== 'clock') || (row.kind === 'job-cards' && identity.isJobCardAdmin)));
+  if (!identity || !row) return false;
+  const category = canonicalKind(row.kind);
+  const ownRecord = row.owner_oid === identity.oid || (category === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase());
+  if (category === 'timesheets' || category === 'clock') return Boolean(ownRecord || (identity.isAdmin && identity.isTimesheetViewer === true));
+  return Boolean(ownRecord || identity.isAdmin || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin));
+}
+
+function canReadHistoryRecord(identity, row) {
+  if (!identity || !row) return false;
+  const category = canonicalKind(row.kind || row.action);
+  const employeeUpn = text(row.employee_upn || row.employee_email || row.employeeEmail || row.owner_upn, '', 320).toLowerCase();
+  const employeeName = text(row.employee_name || row.employeeName, '', 240).toLowerCase();
+  const ownRecord = employeeUpn
+    ? employeeUpn === identity.upn
+    : Boolean(identity.name && employeeName && employeeName === identity.name.toLowerCase());
+  if (category === 'timesheets' || category === 'clock') return identity.isTimesheetViewer === true || ownRecord;
+  if (identity.isAdmin || identity.isOperationsAdmin) return true;
+  if (category === 'job-cards' || (identity.isHrAdmin && category === 'calendar')) return true;
+  return ownRecord;
 }
 
 function canViewRecord(identity, row) {
@@ -2397,8 +2419,9 @@ function normaliseUpstreamRecord(row, identity, env) {
   const initialEmail = text(explicitEmail, '', 320).toLowerCase();
   const directoryEntry = directoryEntryFor(directory, initialName, initialEmail)
     || directoryEntryFor(historicalEmployeeAliases(env), initialName, initialEmail);
-  const employeeName = text(directoryEntry?.name || initialName || (identity.isAdmin ? '' : identity.name || identity.upn), '', 240);
-  const employeeUpn = text(directoryEntry?.upn || initialEmail || (identity.isAdmin ? '' : identity.upn), '', 320).toLowerCase();
+  const viewerHasImplicitIdentity = identity.isAdmin || identity.isTimesheetViewer;
+  const employeeName = text(directoryEntry?.name || initialName || (viewerHasImplicitIdentity ? '' : identity.name || identity.upn), '', 240);
+  const employeeUpn = text(directoryEntry?.upn || initialEmail || (viewerHasImplicitIdentity ? '' : identity.upn), '', 320).toLowerCase();
   if (!employeeName && !employeeUpn) return null;
   const titleKind = /\[(?:CLOCK|DAY)\]/i.test(String(title || '')) ? 'clock' : '';
   const rawKind = text(upstreamValue(row, ['kind', 'category', 'record_type', 'recordType', 'action', 'gmt_type']) || titleKind || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
@@ -2777,7 +2800,7 @@ async function fetchUpstreamHistory(upstreamUrl, token, kind, identity) {
       headers: { ...headers, 'content-type': 'application/json' },
       body: JSON.stringify({
         kind: kind || 'all',
-        scope: identity.isAdmin ? 'all' : 'own',
+        scope: upstreamHistoryScope(identity),
         employeeEmail: identity.upn
       }),
       signal: AbortSignal.timeout(15000),
@@ -2785,6 +2808,10 @@ async function fetchUpstreamHistory(upstreamUrl, token, kind, identity) {
     });
   }
   return response;
+}
+
+function upstreamHistoryScope(identity) {
+  return identity && (identity.isAdmin || identity.isTimesheetViewer) ? 'all' : 'own';
 }
 
 function sameRecord(a, b) {
@@ -3170,7 +3197,7 @@ async function adminUsersEndpoint(request, env, identity, origin) {
       FROM portal_access_assignments ORDER BY owner_upn, role`).all();
     const names = new Map(staffDirectory(env).map((entry) => [entry.upn, entry.name]));
     const configured = [];
-    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS']]) {
+    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['timesheets', 'TIMESHEET_VIEWER_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS']]) {
       for (const upn of csvSet(env[variable])) configured.push({ owner_upn: upn, display_name: names.get(upn) || upn, role, updated_at: 'Worker configuration', managed: false });
     }
     if (csvSet(env.ADMIN_GROUP_IDS).size) configured.push({ owner_upn: 'Configured Entra group', display_name: 'GMT portal administrator group', role: 'admin', updated_at: 'Entra group configuration', managed: false });
@@ -3984,18 +4011,28 @@ async function listRecords(request, env, identity) {
       q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
       q.last_error AS dispatch_last_error
     FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
-  const viewAll = canViewAllRecords(identity, kind);
+  const viewAll = Boolean(kind) && canViewAllRecords(identity, kind);
+  const isTimesheetViewer = identity.isTimesheetViewer === true;
+  const timesheetViewerAcrossKinds = !kind && isTimesheetViewer && !identity.isAdmin;
   const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
   const hrAdminAcrossKinds = !kind && identity.isHrAdmin && !identity.isAdmin && !identity.isOperationsAdmin;
   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
   const ownRecords = "(r.owner_oid = ? OR (r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND lower(r.owner_upn) = ?))";
   const sharedRecordKinds = "r.kind IN ('job-cards')";
-  const sql = identity.isAdmin
-    ? (kind ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`)
+  const sql = !kind && identity.isAdmin
+    ? (isTimesheetViewer
+      ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
+      : `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`)
+    : timesheetViewerAcrossKinds
+      ? (identity.isOperationsAdmin
+        ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
+        : identity.isHrAdmin
+          ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock', 'calendar') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
+          : `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock') OR ${ownRecords} OR ${sharedRecordKinds}) ORDER BY r.updated_at DESC LIMIT ?`)
     : operationsAdminAcrossKinds
       ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
     : hrAdminAcrossKinds
-      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock', 'calendar') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
+      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind = 'calendar' OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
     : viewAll
       ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`
     : jobCardAdminAcrossKinds
@@ -4003,8 +4040,10 @@ async function listRecords(request, env, identity) {
         : (kind
           ? (viewAll ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`)
           : `${projection} WHERE (${ownRecords} OR ${sharedRecordKinds}) AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
-  const bindings = identity.isAdmin
-    ? (kind ? [kind, limit] : [limit])
+  const bindings = !kind && identity.isAdmin
+    ? (isTimesheetViewer ? [limit] : [identity.oid, identity.upn, limit])
+    : timesheetViewerAcrossKinds
+      ? (identity.isOperationsAdmin ? [limit] : [identity.oid, identity.upn, limit])
     : operationsAdminAcrossKinds
       ? [identity.oid, identity.upn, limit]
     : hrAdminAcrossKinds
@@ -4049,7 +4088,7 @@ async function listRecords(request, env, identity) {
             upstreamSourceRowCount = sourceRows.length;
             const normalisedRows = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env));
             upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
-            const employeeMatchedRows = normalisedRows.filter((row) => row && (identity.isAdmin || identity.isHrAdmin || row.employee_upn === identity.upn || (identity.name && row.employee_name.toLowerCase() === identity.name.toLowerCase())));
+            const employeeMatchedRows = normalisedRows.filter((row) => canReadHistoryRecord(identity, row));
             upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
             const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
             const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
@@ -4075,7 +4114,7 @@ async function listRecords(request, env, identity) {
   } else if (upstreamUrl && !upstreamEnabledForKind) {
     upstream = 'not-requested-for-category';
   }
-  const completion = (identity.isAdmin || identity.isHrAdmin) && (!kind || kind === 'timesheets')
+  const completion = identity.isTimesheetViewer && (!kind || kind === 'timesheets')
     ? completionSummary(records, env)
     : null;
   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
@@ -4093,11 +4132,22 @@ async function listRecords(request, env, identity) {
       role: identity.isAdmin ? 'accounts-admin' : (identity.isHrAdmin ? 'accounts-hr' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee'))),
       is_admin: identity.isAdmin,
       is_hr_admin: identity.isHrAdmin,
+      can_view_all_timesheets: identity.isTimesheetViewer,
       is_xero_admin: identity.isXeroAdmin,
       is_operations_admin: identity.isOperationsAdmin,
       is_job_card_admin: identity.isJobCardAdmin,
       editable_pay_months: editablePayCycleKeys(),
-      visible_scope: identity.isAdmin ? 'all employee submissions' : (identity.isHrAdmin ? 'all employee timesheets, clock records and calendar requests; other records owner-filtered' : (identity.isOperationsAdmin ? 'all non-timesheet submissions; this account timesheets and clock records' : (identity.isJobCardAdmin ? 'all job cards; this account submissions for other categories' : 'this account submissions'))),
+      visible_scope: identity.isTimesheetViewer
+        ? 'all employee timesheets and clock records'
+        : identity.isAdmin
+          ? 'all non-timesheet submissions; this account timesheets and clock records'
+          : identity.isHrAdmin
+            ? 'shared calendar requests and this account submissions'
+            : identity.isOperationsAdmin
+              ? 'all non-timesheet submissions; this account timesheets and clock records'
+              : identity.isJobCardAdmin
+                ? 'all job cards; this account submissions for other categories'
+                : 'this account submissions',
       completion
     }
   };
@@ -4328,6 +4378,8 @@ export {
   canViewAllRecords,
   canViewRecord,
   canAccessRecord,
+  canReadHistoryRecord,
+  upstreamHistoryScope,
   tokenIdentity,
   profileView,
   getProfileSettings,

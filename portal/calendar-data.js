@@ -32,7 +32,7 @@
     try { return JSON.parse(raw); } catch (_) { return null; }
   }
   var ROW_KEYS = [
-    "rows", "daily_rows", "dailyRows", "records", "values", "data", "items",
+    "rows", "row", "daily_rows", "dailyRows", "records", "values", "data", "items",
     "entries", "dayRows", "daily", "timesheet", "timesheets"
   ];
   var ENVELOPE_KEYS = ["payload", "body", "result", "response", "content", "value", "item", "fields", "properties"];
@@ -353,6 +353,110 @@
     if (displayKey) return 'name|' + displayKey;
     return wanted;
   }
+  function clockAction(record) {
+    return text(record && (record.action || record.clock_action || record.clockAction)).toLowerCase().replace(/[\s-]+/g, "_");
+  }
+  function combineDailyRecords(records, options) {
+    var groups = {};
+    var candidates = (Array.isArray(records) ? records : []).filter(function (record) {
+      return record && !record.is_demo && ["timesheets", "clock"].indexOf(kind(record)) !== -1;
+    }).slice().sort(function (left, right) { return recordUpdatedAt(left) - recordUpdatedAt(right); });
+    candidates.forEach(function (record) {
+      var recordKind = kind(record);
+      var action = clockAction(record);
+      var payload = parsed(record && record.payload) || parsed(record && record.payload_json) || {};
+      var rows = rowsFor(record);
+      if (!rows.length && recordKind === "clock") {
+        var fallbackDate = key(record.record_date || record.recordDate || payload.recordDate || payload.date || payload.eventDate);
+        var fallbackTime = objectValue(payload, ["time", "timestamp", "clockTime", "clock_time"]);
+        if (fallbackDate) {
+          var fallbackRow = { date: fallbackDate };
+          if (action === "clock_in") fallbackRow.start = fallbackTime;
+          else if (action === "clock_out") fallbackRow.finish = fallbackTime;
+          else if (action === "lunch_start") fallbackRow.lunchStart = fallbackTime;
+          else if (action === "lunch_end") fallbackRow.lunchEnd = fallbackTime;
+          rows = [fallbackRow];
+        }
+      }
+      rows.forEach(function (sourceRow) {
+        var date = rowDateValue(sourceRow);
+        if (!date) return;
+        var displayName = employee(record);
+        var identity = eventEmployeeKey({ record: record, title: displayName, owner: displayName }, options);
+        if (!identity) return;
+        var groupKey = identity + "|" + date;
+        var group = groups[groupKey] || (groups[groupKey] = { identity: identity, date: date, row: { date: date }, records: [], latest: null, timesheetRecord: null, hasTimesheet: false });
+        var existingId = recordId(record);
+        if (!group.records.some(function (entry) { return recordId(entry) === existingId; })) group.records.push(record);
+        if (recordKind === "timesheets") {
+          group.hasTimesheet = true;
+          if (!group.timesheetRecord || recordUpdatedAt(record) >= recordUpdatedAt(group.timesheetRecord)) group.timesheetRecord = record;
+        }
+        if (!group.latest || recordUpdatedAt(record) >= recordUpdatedAt(group.latest)) group.latest = record;
+
+        var start = objectValue(sourceRow, ["start", "startTime", "start_time", "clockIn", "clock_in", "dayStart", "day_start", "Start"]);
+        var finish = objectValue(sourceRow, ["finish", "finishTime", "finish_time", "clockOut", "clock_out", "dayFinish", "day_finish", "Finish"]);
+        var lunchStart = objectValue(sourceRow, ["lunchStart", "lunch_start", "breakStart", "break_start", "Lunch start"]);
+        var lunchEnd = objectValue(sourceRow, ["lunchEnd", "lunch_end", "breakEnd", "break_end", "Lunch end"]);
+        var actionTime = objectValue(payload, ["time", "timestamp", "clockTime", "clock_time"]);
+        if (recordKind === "clock") {
+          if (action === "clock_in") start = start || actionTime;
+          else if (action === "clock_out") finish = finish || actionTime;
+          else if (action === "lunch_start") lunchStart = lunchStart || actionTime;
+          else if (action === "lunch_end") lunchEnd = lunchEnd || actionTime;
+        }
+        if (start !== "" && start != null) group.row.start = text(start);
+        if (finish !== "" && finish != null) group.row.finish = text(finish);
+        if (lunchStart !== "" && lunchStart != null) group.row.lunchStart = text(lunchStart);
+        if (lunchEnd !== "" && lunchEnd != null) group.row.lunchEnd = text(lunchEnd);
+
+        var absence = objectValue(sourceRow, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence", "Absence reason"]);
+        if (absence !== "" && absence != null) group.row.absenceStatus = absence;
+        var note = objectValue(sourceRow, ["note", "notes", "description", "Note"]);
+        if (note !== "" && note != null) group.row.note = note;
+        var rawBreak = objectValue(sourceRow, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "Break"]);
+        var breakIsRelevant = recordKind !== "clock" || !action || action === "lunch_end" || action === "break" || action === "clock_break";
+        var parsedBreak = breakIsRelevant ? breakMinutes(rawBreak) : null;
+        if (parsedBreak !== null) group.row.lunchMinutes = parsedBreak;
+        var directWorked = objectValue(sourceRow, ["workedMinutes", "worked_minutes"]);
+        if (directWorked === "") {
+          var hours = number(objectValue(sourceRow, ["workedHours", "worked_hours", "hours", "totalHours", "Worked hours"]));
+          if (hours !== null) directWorked = hours * 60;
+        }
+        if (directWorked !== "" && directWorked != null && Number.isFinite(Number(directWorked))) group.row.workedMinutes = Number(directWorked);
+        if (recordKind === "clock" && action === "lunch_end" && group.row.lunchStart && group.row.lunchEnd && timeMinutes(group.row.lunchStart) !== null && timeMinutes(group.row.lunchEnd) !== null) {
+          group.row.lunchMinutes = Math.max(0, timeMinutes(group.row.lunchEnd) - timeMinutes(group.row.lunchStart));
+        }
+      });
+    });
+    return Object.keys(groups).map(function (keyValue) {
+      var group = groups[keyValue];
+      if (group.row.start && group.row.finish && timeMinutes(group.row.start) !== null && timeMinutes(group.row.finish) !== null && timeMinutes(group.row.finish) >= timeMinutes(group.row.start) && group.row.lunchMinutes !== undefined) {
+        group.row.workedMinutes = Math.max(0, timeMinutes(group.row.finish) - timeMinutes(group.row.start) - group.row.lunchMinutes);
+      }
+      var latest = group.latest || {};
+      var primary = group.timesheetRecord || latest;
+      var ids = group.records.map(recordId).filter(Boolean);
+      return {
+        kind: "timesheets",
+        action: "submission",
+        status: text(primary.status) || "Submitted",
+        employee_name: primary.employee_name || primary.employeeName || employee(primary),
+        employee_upn: primary.employee_upn || primary.employee_email || primary.employeeEmail || "",
+        record_date: group.date,
+        start_date: group.date,
+        end_date: group.date,
+        source: "portal-daily-rollup",
+        record_id: "daily-rollup|" + group.identity + "|" + group.date,
+        source_record_id: "daily-rollup|" + group.identity + "|" + group.date,
+        source_record_ids: ids,
+        source_records: group.records,
+        submitted_at: primary.submitted_at || primary.submittedAt || latest.submitted_at || latest.submittedAt || "",
+        updated_at: latest.updated_at || latest.updatedAt || latest.submitted_at || "",
+        payload: { dailyRollup: true, containsTimesheet: group.hasTimesheet, sourceRecordIds: ids, rows: [group.row] }
+      };
+    });
+  }
   function eventValidity(event) {
     var issue = text(event && event.issue);
     if (/same time|earlier than clock|clock in missing|clock out missing/i.test(issue)) return 0;
@@ -460,7 +564,14 @@
   function recordsToEvents(records, options) {
     var events = [];
     var deleted = deletedDayKeys(records);
-    authoritativeTimesheetRecords(records).forEach(function (record) {
+    var timeRecords = combineDailyRecords(records, options);
+    (Array.isArray(records) ? records : []).forEach(function (record) {
+      if (kind(record) === "clock" && !rowsFor(record).length) timeRecords.push(record);
+    });
+    var calendarRecords = timeRecords.concat((Array.isArray(records) ? records : []).filter(function (record) {
+      return ["timesheets", "clock"].indexOf(kind(record)) === -1;
+    }));
+    authoritativeTimesheetRecords(calendarRecords).forEach(function (record) {
       var recordKind = kind(record);
       if (recordKind === "timesheets" || recordKind === "clock") {
         var rows = rowsFor(record);
@@ -535,5 +646,5 @@
       return [];
     }
   }
-  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, authoritativeTimesheetRecords: authoritativeTimesheetRecords, localEvents: localEvents, mergeEvents: mergeEvents };
+  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, combineDailyRecords: combineDailyRecords, authoritativeTimesheetRecords: authoritativeTimesheetRecords, localEvents: localEvents, mergeEvents: mergeEvents };
 }());

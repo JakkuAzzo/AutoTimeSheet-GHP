@@ -32,8 +32,12 @@ details, Outlook conversation ID/link, and an append-only message projection.
    the client bundle. The Worker deployment workflow uses `--keep-vars`, so
    existing Cloudflare admin UPN, object ID, group, operations, and job-card
    variables remain authoritative. `ADDITIONAL_ADMIN_UPNS` adds administrators
-   without replacing that existing list. `HR_ADMIN_UPNS` grants read access to
-   all employee timesheets, clock records, and calendar requests.
+   without replacing that existing list. `HR_ADMIN_UPNS` grants access to
+   shared calendar requests and each HR user's own submissions.
+   `TIMESHEET_VIEWER_UPNS` grants read-only access to all employee timesheets
+   and clock records without granting portal administrator access. Set its
+   production value in the Cloudflare Worker dashboard so staff UPNs stay out
+   of this public repository; the deploy workflow preserves dashboard vars.
    `XERO_ADMIN_UPNS` grants Xero invoice access without broader portal
    administration. The checked-in GMT defaults include Michelle and Lidia for
    HR and Xero and `accounts@gmt-services.co.uk` as an additional full admin.
