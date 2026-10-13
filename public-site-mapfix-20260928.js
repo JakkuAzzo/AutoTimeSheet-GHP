@@ -380,17 +380,20 @@
       if (!track || !panels.length || (tabs.length ? tabs.length !== panels.length : !previous || !next)) return;
 
       var index = 0;
-      var mobileLayout = window.matchMedia('(max-width: 820px)');
       function sizeActivePanel() {
-        if (root.classList.contains('is-carousel-enhanced') && (mobileLayout.matches || root.classList.contains('content-carousel-wide'))) {
-          if (root.classList.contains('content-carousel-wide')) track.style.height = 'auto';
-          var visiblePanelHeights = root.classList.contains('content-carousel-wide')
-            ? panels.map(function (panel) { return panel.scrollHeight; })
-            : [panels[index].scrollHeight];
-          track.style.height = Math.max.apply(Math, visiblePanelHeights) + 'px';
-        } else {
-          track.style.removeProperty('height');
+        if (!root.classList.contains('is-carousel-enhanced')) return;
+
+        var matchPanelHeights = root.classList.contains('content-carousel-wide');
+        panels.forEach(function (panel) { panel.style.removeProperty('height'); });
+        track.style.height = 'auto';
+        var visiblePanelHeights = matchPanelHeights
+          ? panels.map(function (panel) { return panel.scrollHeight; })
+          : [panels[index].scrollHeight];
+        var panelHeight = Math.max.apply(Math, visiblePanelHeights);
+        if (matchPanelHeights) {
+          panels.forEach(function (panel) { panel.style.height = panelHeight + 'px'; });
         }
+        track.style.height = panelHeight + 'px';
       }
 
       root.addEventListener('gmt:panel-resize', sizeActivePanel);
