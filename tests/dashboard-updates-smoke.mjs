@@ -59,24 +59,33 @@ async function createDashboardPage(viewport, scenario) {
   const page = await browser.newPage({ viewport });
   pages.push(page);
   await page.setContent(`<style>${stylesheet}</style><main class="app-main portal-dashboard-main">${dashboardSection}</main>`);
+  const empty = scenario === 'empty';
+  const disconnected = scenario === 'disconnected';
+  const failTasks = scenario === 'error' || scenario === 'task-error';
+  const failNotifications = scenario === 'error' || scenario === 'notification-error';
+  const invalidNotifications = scenario === 'invalid-notifications';
   await page.evaluate(({ fixtureTasks, fixtureNotifications, failure }) => {
     window.GMTPortalApi = {
-      enabled: () => true,
+      enabled: () => !failure.disconnected,
       history: async (kind) => {
-        if (failure) throw new Error('Protected history unavailable for this check.');
+        if ((kind === 'tasks' && failure.tasks) || (kind !== 'tasks' && failure.notifications)) {
+          throw new Error('Protected history unavailable for this check.');
+        }
+        if (kind !== 'tasks' && failure.invalidNotifications) return { unexpected: true };
         if (kind === 'tasks') return { records: fixtureTasks };
         return { records: fixtureNotifications };
       }
     };
   }, {
-    fixtureTasks: scenario === 'empty' ? [] : tasks,
-    fixtureNotifications: scenario === 'empty' ? [] : notificationRecords,
-    failure: scenario === 'error'
+    fixtureTasks: empty ? [] : tasks,
+    fixtureNotifications: empty ? [] : notificationRecords,
+    failure: { tasks: failTasks, notifications: failNotifications, invalidNotifications, disconnected }
   });
   await page.addScriptTag({ path: resolve(repoRoot, 'portal/dashboard-updates.js') });
   await page.waitForFunction(() => {
-    const status = document.querySelector('#portal-task-board-status');
-    return status && !status.textContent.startsWith('Loading');
+    const taskStatus = document.querySelector('#portal-task-board-status');
+    const notificationStatus = document.querySelector('#portal-notification-status');
+    return taskStatus && notificationStatus && !taskStatus.textContent.startsWith('Loading') && !notificationStatus.textContent.startsWith('Loading');
   });
   return page;
 }
@@ -93,21 +102,30 @@ try {
   assert.equal(await page.locator('[data-updates-dot="1"]').getAttribute('tabindex'), '-1');
   assert.equal(await page.locator('#portal-updates-slide-1 #portal-notifications').count(), 1, 'Updates should be on page 2');
   assert.equal(await page.locator('#portal-updates-slide-1 #portal-task-board').count(), 1, 'Task Board should share page 2');
+  assert.equal(await page.locator('#portal-notification-status').innerText(), 'Showing the 8 most recent of 22 updates.', 'the eight-notification limit should be visible to users');
 
+  await page.locator('input[name="employee_name"]').fill('Retained dashboard entry');
   await page.locator('[data-updates-next]').click();
   assert.equal(await page.locator('[data-updates-slide="0"]').getAttribute('hidden'), '');
   assert.equal(await page.locator('[data-updates-slide="1"]').getAttribute('hidden'), null);
   assert.equal(await page.locator('[data-updates-dot="1"]').getAttribute('aria-selected'), 'true');
   assert.equal(await page.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'every task should remain available');
   assert.equal(await page.locator('#portal-notifications [data-notification-index]').count(), 8, 'Updates should be capped at eight notifications');
+  const firstTask = page.locator('#portal-task-board .portal-task-card').first();
+  assert.match(await firstTask.innerText(), /Replace motor bearings at north wing/);
+  assert.match(await firstTask.innerText(), /GMT-reference-/);
+  assert.match(await firstTask.innerText(), /Engineer with an intentionally long assigned name/);
+  assert.match(await firstTask.innerText(), /Sample Engineer/);
+  assert.match(await firstTask.innerText(), /Due 2026-10-01/);
+  assert.match(await firstTask.innerText(), /50%/);
   assert.match(await page.locator('#portal-task-board').innerText(), /Task 12/);
-  assert.match(await page.locator('#portal-task-board').innerText(), /50%/);
 
   await page.locator('[data-notification-index="0"]').click();
   assert.equal(await page.locator('.portal-notification-dialog[open]').count(), 1, 'notification details should still open');
   await page.locator('[data-notification-close]').click();
   await page.locator('[data-updates-prev]').click();
   assert.equal(await page.locator('[data-updates-slide="0"]').getAttribute('hidden'), null);
+  assert.equal(await page.locator('input[name="employee_name"]').inputValue(), 'Retained dashboard entry', 'changing carousel pages should preserve clock-in form data');
   await page.locator('[data-updates-dot="0"]').focus();
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.locator('[data-updates-dot="1"]').getAttribute('aria-selected'), 'true', 'ArrowRight should navigate the carousel');
@@ -137,11 +155,31 @@ try {
   const emptyPage = await createDashboardPage({ width: 390, height: 844 }, 'empty');
   assert.equal(await emptyPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
   assert.equal(await emptyPage.locator('#portal-task-board-status').innerText(), 'No submitted tasks yet.');
+  assert.equal(await emptyPage.locator('#portal-notification-status').innerText(), 'No new notifications.');
   assert.match(await emptyPage.locator('#portal-notifications').innerText(), /No new notifications/);
 
   const errorPage = await createDashboardPage({ width: 390, height: 844 }, 'error');
   assert.equal(await errorPage.locator('#portal-task-board-status').innerText(), 'Protected history unavailable for this check.');
   assert.equal(await errorPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
+
+  const notificationsErrorPage = await createDashboardPage({ width: 390, height: 844 }, 'notification-error');
+  assert.equal(await notificationsErrorPage.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'task cards should remain available when Updates fail independently');
+  assert.equal(await notificationsErrorPage.locator('#portal-notification-status').innerText(), 'Notifications could not be loaded.');
+  assert.match(await notificationsErrorPage.locator('#portal-notifications').innerText(), /Task Board status is shown separately/);
+  assert.doesNotMatch(await notificationsErrorPage.locator('#portal-notifications').innerText(), /No new notifications/);
+
+  const tasksErrorPage = await createDashboardPage({ width: 390, height: 844 }, 'task-error');
+  assert.equal(await tasksErrorPage.locator('#portal-task-board-status').innerText(), 'Protected history unavailable for this check.');
+  assert.equal(await tasksErrorPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
+  assert.equal(await tasksErrorPage.locator('#portal-notifications [data-notification-index]').count(), 8, 'Updates should remain available when the Task Board fails independently');
+
+  const disconnectedPage = await createDashboardPage({ width: 390, height: 844 }, 'disconnected');
+  assert.equal(await disconnectedPage.locator('#portal-notification-status').innerText(), 'Notifications are not connected.');
+  assert.match(await disconnectedPage.locator('#portal-notifications').innerText(), /Protected notifications are unavailable in this portal/);
+
+  const invalidNotificationsPage = await createDashboardPage({ width: 390, height: 844 }, 'invalid-notifications');
+  assert.equal(await invalidNotificationsPage.locator('#portal-notification-status').innerText(), 'Notifications could not be loaded.');
+  assert.doesNotMatch(await invalidNotificationsPage.locator('#portal-notifications').innerText(), /No new notifications/);
 
   console.log(`Dashboard updates and task board acceptance: PASS (${responsiveResults.map((result) => `${result.width}px/${result.columns}col`).join(', ')})`);
 } finally {
