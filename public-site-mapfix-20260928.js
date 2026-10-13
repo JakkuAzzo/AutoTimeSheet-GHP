@@ -758,6 +758,7 @@
         form.classList.add('is-submitted');
         form.setAttribute('aria-hidden', 'true');
         toggle.hidden = true;
+        window.location.hash = 'submission-received';
         window.setTimeout(function () {
           form.hidden = true;
         }, 480);
