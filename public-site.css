@@ -699,7 +699,7 @@ footer {
   min-width: 0;
   grid-column: 1;
   grid-row: 1;
-  align-items: stretch;
+  align-items: flex-start;
   overflow: hidden;
   transition: transform .68s cubic-bezier(.22, .75, .26, 1);
   will-change: transform;
@@ -708,17 +708,12 @@ footer {
 .content-carousel.is-carousel-enhanced .content-carousel-panel {
   box-sizing: border-box;
   min-width: 0;
-  align-self: stretch;
+  align-self: flex-start;
 }
 
 @media (max-width: 820px) {
   .content-carousel.is-carousel-enhanced .content-carousel-track {
-    align-items: flex-start;
     transition: transform .68s cubic-bezier(.22, .75, .26, 1), height .28s ease;
-  }
-
-  .content-carousel.is-carousel-enhanced .content-carousel-panel {
-    align-self: flex-start;
   }
 }
 
@@ -2878,6 +2873,8 @@ body {
 .marketing-trust-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 1rem;
 }
 
@@ -3070,6 +3067,8 @@ body {
 .marketing-capabilities-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: .8rem;
 }
 .marketing-capabilities-grid a {
@@ -3183,10 +3182,6 @@ body {
   .marketing-related ul,
   .marketing-list-grid { grid-template-columns: 1fr; }
   .marketing-capabilities-grid { grid-template-columns: 1fr; }
-  .marketing-capabilities-grid {
-    align-content: start;
-    grid-auto-rows: max-content;
-  }
   .marketing-capabilities-grid > a {
     align-self: start;
     height: auto;
