@@ -156,7 +156,9 @@ try {
   assert.equal(await emptyPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
   assert.equal(await emptyPage.locator('#portal-task-board-status').innerText(), 'No submitted tasks yet.');
   assert.equal(await emptyPage.locator('#portal-notification-status').innerText(), 'No new notifications.');
-  assert.match(await emptyPage.locator('#portal-notifications').innerText(), /No new notifications/);
+  assert.match(await emptyPage.locator('#portal-notifications').innerText(), /no new notifications/i);
+  assert.equal(await emptyPage.locator('#portal-notifications').getAttribute('aria-live'), null, 'notification count should be the only live announcement');
+  assert.equal(await emptyPage.locator('#portal-notifications [role="status"]').count(), 0, 'the visual empty card should not create a second live announcement');
 
   const errorPage = await createDashboardPage({ width: 390, height: 844 }, 'error');
   assert.equal(await errorPage.locator('#portal-task-board-status').innerText(), 'Protected history unavailable for this check.');

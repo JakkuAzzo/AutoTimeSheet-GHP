@@ -120,7 +120,7 @@
       }
     }
     if (!notificationRecords.length) {
-      notificationList.innerHTML = '<div class="portal-notification-empty" role="status"><span aria-hidden="true">✓</span><div><strong>No new notifications</strong><small>You are up to date.</small></div></div>';
+      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">✓</span><div><strong>You\'re all caught up</strong><small>There are no new notifications right now.</small></div></div>';
       return;
     }
     notificationList.innerHTML = notificationRecords.map(function (record, index) {
@@ -237,7 +237,7 @@
     if (!notificationList) return;
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.history !== "function" || !window.GMTPortalApi.enabled || !window.GMTPortalApi.enabled()) {
       if (notificationStatus) notificationStatus.textContent = "Notifications are not connected.";
-      notificationList.innerHTML = '<div class="portal-notification-empty" role="status"><span aria-hidden="true">!</span><div><strong>Notifications are not connected</strong><small>Protected notifications are unavailable in this portal.</small></div></div>';
+      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications are not connected</strong><small>Protected notifications are unavailable in this portal.</small></div></div>';
       return;
     }
     try {
@@ -248,7 +248,7 @@
       renderNotifications(body.records);
     } catch (_) {
       if (notificationStatus) notificationStatus.textContent = "Notifications could not be loaded.";
-      notificationList.innerHTML = '<div class="portal-notification-empty" role="status"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
+      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
     }
   }
 
