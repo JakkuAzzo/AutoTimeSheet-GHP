@@ -92,6 +92,12 @@
 .portal-updates-slide { display: flex; justify-content: space-between; gap: 1rem; align-items: center; min-width: 0; height: auto; min-height: 0; }
 .portal-updates-slide[hidden] { display: none; }
 .portal-updates-slide:not([hidden]) { min-height: 25rem; }
+.portal-updates-feed-slide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; align-items: start; }
+.portal-updates-feed-panel { min-width: 0; }
+.portal-updates-feed-slide .portal-notifications { max-width: none; }
+.portal-updates-task-panel { display: grid; align-content: start; gap: .8rem; }
+.portal-updates-task-panel .portal-updates-task-heading,
+.portal-updates-task-panel .portal-updates-task-content { width: auto; flex: initial; min-width: 0; }
 .portal-updates-task-slide { align-items: flex-start; }
 .portal-updates-task-heading { flex: 0 1 24rem; min-width: 0; }
 .portal-updates-task-content { flex: 1 1 32rem; min-width: 0; }
@@ -966,6 +972,7 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-calendar-day { min-height: 6rem; }
 }
 @media (max-width: 850px) {
+  .portal-updates-feed-slide { grid-template-columns: minmax(0, 1fr); }
   .portal-two-column,
   .kanban-board,
   .portal-profile-card {
@@ -1031,6 +1038,7 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-updates { align-items: flex-start; flex-direction: column; }
   .portal-updates-slide { align-items: flex-start; flex: 0 0 auto; flex-direction: column; }
   .portal-updates-slide:not([hidden]) { min-height: 0; }
+  .portal-updates-feed-slide { display: grid; grid-template-columns: minmax(0, 1fr); }
   /* The task slide is a column on phones. Its desktop flex bases are widths
      in the row layout; retaining them here creates a large empty panel. */
   .portal-updates-task-heading, .portal-updates-task-content { width: 100%; flex: 0 1 auto; }
