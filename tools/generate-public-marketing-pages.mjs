@@ -277,6 +277,7 @@ function renderPage(page) {
   <link rel="canonical" href="${canonical}">
   <link rel="icon" type="image/png" sizes="256x256" href="/assets/brand/gmt-icon-256.png">
   <link rel="stylesheet" href="/public-site.css?v=marketing-refresh-20261012-desktop-nav-v31">
+  <script defer src="/viewport-effects.js"></script>
   <meta property="og:title" content="${escapeHtml(page.title)}">
   <meta property="og:description" content="${escapeHtml(page.description)}">
   <meta property="og:type" content="website">
@@ -293,13 +294,13 @@ function renderPage(page) {
   </nav></div>
   <main id="main-content" class="marketing-page-main">
     <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">›</span><a href="/${page.route.split('/')[0]}/">${page.route.startsWith('process/') ? 'Repair process' : 'Services'}</a><span aria-hidden="true">›</span><span aria-current="page">${escapeHtml(page.heading)}</span></nav>
-    <section class="marketing-page-hero">
+    <section class="marketing-page-hero" data-scroll-reveal>
       <div class="marketing-page-copy"><p class="eyebrow">GMT Electrical Services · Croydon</p><h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(page.intro)}</p><div class="hero-actions"><a class="button primary" href="/#workshop-enquiry">Make an enquiry</a><a class="button secondary" href="tel:02086830464">Call 0208 683 0464</a></div></div>
       <img src="/${page.image}" alt="${escapeHtml(page.imageAlt)}" width="1280" height="960" fetchpriority="high" decoding="async">
     </section>
-    <div class="marketing-detail-grid">${sections}</div>
-    <section class="marketing-related"><h2>Related services and guidance</h2><ul>${related}</ul></section>
-    <section class="marketing-page-cta"><h2>Get advice from the workshop</h2><p>Send GMT the equipment details and fault symptoms. The workshop team will review your enquiry, advise on a suitable next step and confirm scope before any work proceeds.</p><div class="hero-actions"><a class="button primary" href="/#workshop-enquiry">Make an enquiry</a><a class="button secondary" href="tel:02086830464">0208 683 0464</a></div></section>
+    <div class="marketing-detail-grid" data-scroll-reveal>${sections}</div>
+    <section class="marketing-related" data-scroll-reveal><h2>Related services and guidance</h2><ul>${related}</ul></section>
+    <section class="marketing-page-cta" data-scroll-reveal><h2>Get advice from the workshop</h2><p>Send GMT the equipment details and fault symptoms. The workshop team will review your enquiry, advise on a suitable next step and confirm scope before any work proceeds.</p><div class="hero-actions"><a class="button primary" href="/#workshop-enquiry">Make an enquiry</a><a class="button secondary" href="tel:02086830464">0208 683 0464</a></div></section>
   </main>
   <footer class="site-footer"><p>GMT Electrical Services Ltd · 93-95 Gloucester Rd, Croydon CR0 2DN · <a href="mailto:info@gmt-services.co.uk">info@gmt-services.co.uk</a></p></footer>
 </body>
@@ -332,9 +333,9 @@ function renderLandingPage(type, definition) {
     </article>`).join('');
   const canonical = `${siteRoot}/${type}/`;
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="${escapeHtml(definition.description)}"><link rel="canonical" href="${canonical}"><link rel="icon" type="image/png" sizes="256x256" href="/assets/brand/gmt-icon-256.png"><link rel="stylesheet" href="/public-site.css?v=marketing-refresh-20261012-desktop-nav-v31"><title>${escapeHtml(definition.title)}</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="${escapeHtml(definition.description)}"><link rel="canonical" href="${canonical}"><link rel="icon" type="image/png" sizes="256x256" href="/assets/brand/gmt-icon-256.png"><link rel="stylesheet" href="/public-site.css?v=marketing-refresh-20261012-desktop-nav-v31"><script defer src="/viewport-effects.js"></script><title>${escapeHtml(definition.title)}</title></head>
 <body class="marketing-page"><a class="skip-link" href="#main-content">Skip to content</a><header class="site-header"><a class="brand" href="/" aria-label="GMT Electrical Services home"><img src="/image.webp" alt="GMT Electrical Services Ltd" width="300" height="78"></a></header><div class="site-nav-bar"><nav class="site-nav" aria-label="Main navigation"><a href="/">Home</a><a href="/services/">Services</a><a href="/process/">Repair process</a><a href="/#why-gmt">Why GMT</a><a href="/#workshop-enquiry">Make an enquiry</a><a class="portal-link" href="/portal/">Login</a></nav></div>
-<main id="main-content" class="marketing-page-main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">›</span><span aria-current="page">${escapeHtml(definition.heading)}</span></nav><section class="marketing-list-hero"><p class="eyebrow">GMT Electrical Services · Croydon</p><h1>${escapeHtml(definition.heading)}</h1><p>${escapeHtml(definition.description)}</p></section><div class="marketing-list-grid">${cards}</div><section class="marketing-page-cta"><h2>Get advice from the workshop</h2><p>Send GMT the equipment details and fault symptoms. The workshop team will review your enquiry, advise on a suitable next step and confirm scope before any work proceeds.</p><div class="hero-actions"><a class="button primary" href="/#workshop-enquiry">Make an enquiry</a><a class="button secondary" href="tel:02086830464">0208 683 0464</a></div></section></main><footer class="site-footer"><p>GMT Electrical Services Ltd · 93-95 Gloucester Rd, Croydon CR0 2DN · <a href="mailto:info@gmt-services.co.uk">info@gmt-services.co.uk</a></p></footer></body></html>`;
+<main id="main-content" class="marketing-page-main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">›</span><span aria-current="page">${escapeHtml(definition.heading)}</span></nav><section class="marketing-list-hero" data-scroll-reveal><p class="eyebrow">GMT Electrical Services · Croydon</p><h1>${escapeHtml(definition.heading)}</h1><p>${escapeHtml(definition.description)}</p></section><div class="marketing-list-grid" data-scroll-reveal>${cards}</div><section class="marketing-page-cta" data-scroll-reveal><h2>Get advice from the workshop</h2><p>Send GMT the equipment details and fault symptoms. The workshop team will review your enquiry, advise on a suitable next step and confirm scope before any work proceeds.</p><div class="hero-actions"><a class="button primary" href="/#workshop-enquiry">Make an enquiry</a><a class="button secondary" href="tel:02086830464">0208 683 0464</a></div></section></main><footer class="site-footer"><p>GMT Electrical Services Ltd · 93-95 Gloucester Rd, Croydon CR0 2DN · <a href="mailto:info@gmt-services.co.uk">info@gmt-services.co.uk</a></p></footer></body></html>`;
 }
 
 const allRoutes = [...Object.keys(landing).map((type) => `${type}/`), ...pages.map((page) => page.route)];
