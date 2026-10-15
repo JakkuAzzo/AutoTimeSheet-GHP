@@ -553,7 +553,7 @@
     placeholder.className = 'hero-copy workshop-enquiry-card workshop-enquiry-prompt';
     placeholder.id = 'workshop-enquiry';
     placeholder.setAttribute('aria-labelledby', 'workshop-enquiry-prompt-title');
-    placeholder.innerHTML = '<p class="eyebrow">Make an enquiry</p><h3 id="workshop-enquiry-prompt-title">Talk to the workshop</h3><p>Tell GMT about the equipment, the fault and the support you need.</p><a class="button primary" href="#workshop-enquiry" data-enquire-nav>Make an enquiry</a>';
+    placeholder.innerHTML = '<p class="eyebrow">Make an enquiry</p><h3 id="workshop-enquiry-prompt-title">Get advice from the workshop</h3><p>Provide the equipment details and fault symptoms. GMT’s workshop team will review your enquiry, advise on a suitable route and confirm the next step.</p><a class="button primary" href="#workshop-enquiry" data-enquire-nav>Make an enquiry</a>';
     card.removeAttribute('id');
     card.parentNode.replaceChild(placeholder, card);
     slot.appendChild(card);
@@ -572,7 +572,7 @@
         var heading = serviceCard.querySelector('h3');
         if (heading) topic = heading.textContent.trim();
       }
-      var detail = trigger && trigger.getAttribute('data-enquiry-offering') || 'Tell GMT what equipment you need help with and what has changed.';
+      var detail = trigger && trigger.getAttribute('data-enquiry-offering') || 'Provide the equipment details and fault symptoms. GMT’s workshop team will assess your enquiry and advise on the next step.';
       var points = trigger && trigger.getAttribute('data-enquiry-concerns');
       var imageSource = trigger && trigger.getAttribute('data-enquiry-image');
       var imageAlt = trigger && trigger.getAttribute('data-enquiry-image-alt');
@@ -585,7 +585,7 @@
       }
       var defaultPoints = ['Equipment type and make or model, if known', 'What the equipment does and when the issue occurs', 'Photos or nameplate details, where available'];
 
-      if (topicTitle) topicTitle.textContent = topic === 'General enquiry' ? 'Talk to the workshop' : topic;
+      if (topicTitle) topicTitle.textContent = topic === 'General enquiry' ? 'Get advice from the workshop' : topic;
       if (offering) offering.textContent = detail;
       if (imageWrap && contextImage) {
         if (imageSource) {
@@ -617,8 +617,8 @@
         topicSelect.value = option ? option.value : 'General enquiry';
       }
       if (message) message.placeholder = topic === 'General enquiry'
-        ? 'Tell us what equipment you need help with and what has changed.'
-        : 'Tell us more about your ' + topic.toLowerCase() + ' enquiry.';
+        ? 'Describe the equipment, fault symptoms and any relevant site details.'
+        : 'Provide the details of your ' + topic.toLowerCase() + ' enquiry.';
     }
 
     function close() {
@@ -697,7 +697,7 @@
         var input = form.querySelector('[name="' + name + '"]');
         if (input) input.required = !!booking;
       });
-      if (booking && form.querySelector('[name="message"]') && !form.querySelector('[name="message"]').value.trim()) form.querySelector('[name="message"]').placeholder = 'Tell us what you would like to discuss.';
+      if (booking && form.querySelector('[name="message"]') && !form.querySelector('[name="message"]').value.trim()) form.querySelector('[name="message"]').placeholder = 'Tell us what you need advice on.';
     }
     if (requestType) { requestType.addEventListener('change', syncBookingFields); syncBookingFields(); }
 
