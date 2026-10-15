@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="../portal.css?v=responsive-tables-20261012">
 <link rel="stylesheet" href="estimates.css?v=estimate-conversation-filters-20261008">
 <script src="../config.js?v=portal-api-live-20260915"></script>
+<script defer src="../viewport-effects.js"></script>
 <script defer src="../auth.js?v=entra-auth-20260914-signout-dashboard"></script>
 <link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
 <script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
@@ -20,8 +21,8 @@
   <nav class="header-actions"><a href="../portal/">Dashboard</a><a href="../timesheets/">Timesheets</a><a href="./">Tools</a><a href="../jobs/">Job Cards</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main estimate-main" hidden>
-  <section class="estimate-intro card"><div><p class="portal-card-kicker">Client workflow</p><h2>Build, review and send an estimate</h2><p>Draft the estimate in the browser, check the client-facing preview, then send it through the protected Microsoft 365 route. Accounts is BCC’d for filing when the approved route is configured.</p></div><span class="estimate-status-chip">Preview first</span></section>
-  <div class="estimate-layout">
+  <section class="estimate-intro card" data-scroll-reveal><div><p class="portal-card-kicker">Client workflow</p><h2>Build, review and send an estimate</h2><p>Draft the estimate in the browser, check the client-facing preview, then send it through the protected Microsoft 365 route. Accounts is BCC’d for filing when the approved route is configured.</p></div><span class="estimate-status-chip">Preview first</span></section>
+  <div class="estimate-layout" data-scroll-reveal>
     <form id="estimate-form" class="card estimate-form" novalidate>
       <div class="estimate-form-heading"><div><p class="portal-card-kicker">1 · Details</p><h2>Estimate details</h2></div><button type="button" id="clear-estimate" class="secondary">Clear</button></div>
       <div class="form-grid">

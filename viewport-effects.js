@@ -61,6 +61,13 @@
     targetsWithin(root).forEach(reveal);
   }
 
+  function isInHiddenTree(target) {
+    for (var node = target; node && node !== document.documentElement; node = node.parentElement) {
+      if (node.hidden) return true;
+    }
+    return false;
+  }
+
   function initPublicSnapActivation() {
     if (!document.querySelector('.site-nav-bar')) return;
 
@@ -112,7 +119,7 @@
       }
 
       targets.forEach(function (target) {
-        if (observedTargets.has(target)) return;
+        if (observedTargets.has(target) || isInHiddenTree(target)) return;
         revealObserver.observe(target);
         observedTargets.add(target);
       });

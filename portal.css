@@ -25,6 +25,24 @@
   background: var(--green);
   color: #fff;
 }
+
+/* Progressive, section-level reveals. The page stays complete if the shared
+   helper is unavailable, and reduced-motion preferences always win. */
+html[data-viewport-effects-ready="true"] [data-scroll-reveal] {
+  transition: opacity .34s ease, transform .34s ease;
+}
+html[data-viewport-effects-ready="true"] [data-scroll-reveal]:not(.is-visible):not(:focus-within) {
+  opacity: 0;
+  transform: translateY(10px);
+}
+html[data-viewport-effects-ready="true"] [data-scroll-reveal].is-visible,
+html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-scroll-reveal] { opacity: 1 !important; transform: none !important; transition: none !important; }
+}
 .portal-panel, .portal-subpanel {
   display: none;
 }

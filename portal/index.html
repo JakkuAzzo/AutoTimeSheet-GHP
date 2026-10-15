@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="portal-dashboard-document">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="../portal.css?v=dashboard-notification-limit-20261013">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
+<script defer src="../viewport-effects.js"></script>
 <script defer src="auth.js?v=entra-auth-20260914-signout-dashboard"></script>
 <link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
 <script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
@@ -42,7 +43,7 @@
   </nav>
 </header>
 <main class="app-main portal-dashboard-main" hidden>
-  <section class="portal-updates" aria-labelledby="portal-updates-title">
+  <section class="portal-updates" data-scroll-reveal aria-labelledby="portal-updates-title">
     <div class="portal-updates-carousel" data-updates-carousel aria-roledescription="carousel" aria-label="Dashboard pages">
       <div id="portal-updates-slide-0" class="portal-updates-slide portal-updates-clock-slide" data-updates-slide="0" role="group" aria-roledescription="slide" aria-label="Page 1 of 2">
         <div class="portal-updates-clock-heading"><p class="eyebrow">Daily clock-in</p><h2 id="portal-updates-title">Record your day</h2><p>Submit clock events, breaks, absence or a full day from the dashboard.</p><a class="portal-updates-task-link" href="../timesheets/">Open weekly timesheets →</a></div>
@@ -93,7 +94,7 @@
     </div>
   </section>
 
-  <section class="portal-quick-actions" aria-labelledby="portal-actions-title">
+  <section class="portal-quick-actions" data-scroll-reveal aria-labelledby="portal-actions-title">
     <div class="portal-section-heading">
       <div>
         <p class="eyebrow">Quick actions</p>
@@ -126,7 +127,7 @@
     </div>
   </section>
 
-  <section class="portal-dashboard-grid" aria-label="Shared information">
+  <section class="portal-dashboard-grid" data-scroll-reveal aria-label="Shared information">
     <section class="portal-calendar-preview" aria-labelledby="portal-calendar-title">
       <div class="portal-calendar-preview-heading">
         <div><span class="portal-card-kicker">Shared information</span><h2 id="portal-calendar-title">Calendar</h2></div>

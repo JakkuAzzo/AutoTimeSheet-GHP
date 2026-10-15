@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="../tools/estimates.css?v=timesheet-estimate-layout-20260914">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
+<script defer src="../viewport-effects.js"></script>
 <script defer src="auth.js?v=entra-auth-20260914-signout-dashboard"></script>
 <link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
 <script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
@@ -23,7 +24,7 @@
   <nav class="header-actions" aria-label="Timesheet navigation"><a href="index.html">Dashboard</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main timesheet-main" hidden>
-  <section class="card portal-history-card" aria-labelledby="history-title">
+  <section class="card portal-history-card" data-scroll-reveal aria-labelledby="history-title">
     <p class="portal-card-kicker">Identity-filtered history</p>
     <h2 id="history-title">My completed timesheets</h2>
     <div class="portal-history-toolbar">
