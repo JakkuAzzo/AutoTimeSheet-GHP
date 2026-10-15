@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const siteRoot = 'https://gmt-services.co.uk';
+const publicCssHref = '/public-site.css?v=responsive-layout-20261015-v35';
+const viewportEffectsSrc = '/viewport-effects.js?v=responsive-layout-20261015-v1';
 
 const pages = [
   {
@@ -276,8 +278,8 @@ function renderPage(page) {
   <meta name="description" content="${escapeHtml(page.description)}">
   <link rel="canonical" href="${canonical}">
   <link rel="icon" type="image/png" sizes="256x256" href="/assets/brand/gmt-icon-256.png">
-  <link rel="stylesheet" href="/public-site.css?v=marketing-refresh-20261012-desktop-nav-v31">
-  <script defer src="/viewport-effects.js"></script>
+  <link rel="stylesheet" href="${publicCssHref}">
+  <script defer src="${viewportEffectsSrc}"></script>
   <meta property="og:title" content="${escapeHtml(page.title)}">
   <meta property="og:description" content="${escapeHtml(page.description)}">
   <meta property="og:type" content="website">
@@ -333,7 +335,7 @@ function renderLandingPage(type, definition) {
     </article>`).join('');
   const canonical = `${siteRoot}/${type}/`;
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="${escapeHtml(definition.description)}"><link rel="canonical" href="${canonical}"><link rel="icon" type="image/png" sizes="256x256" href="/assets/brand/gmt-icon-256.png"><link rel="stylesheet" href="/public-site.css?v=marketing-refresh-20261012-desktop-nav-v31"><script defer src="/viewport-effects.js"></script><title>${escapeHtml(definition.title)}</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="${escapeHtml(definition.description)}"><link rel="canonical" href="${canonical}"><link rel="icon" type="image/png" sizes="256x256" href="/assets/brand/gmt-icon-256.png"><link rel="stylesheet" href="${publicCssHref}"><script defer src="${viewportEffectsSrc}"></script><title>${escapeHtml(definition.title)}</title></head>
 <body class="marketing-page"><a class="skip-link" href="#main-content">Skip to content</a><header class="site-header"><a class="brand" href="/" aria-label="GMT Electrical Services home"><img src="/image.webp" alt="GMT Electrical Services Ltd" width="300" height="78"></a></header><div class="site-nav-bar"><nav class="site-nav" aria-label="Main navigation"><a href="/">Home</a><a href="/services/">Services</a><a href="/process/">Repair process</a><a href="/#why-gmt">Why GMT</a><a href="/#workshop-enquiry">Make an enquiry</a><a class="portal-link" href="/portal/">Login</a></nav></div>
 <main id="main-content" class="marketing-page-main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">›</span><span aria-current="page">${escapeHtml(definition.heading)}</span></nav><section class="marketing-list-hero" data-scroll-reveal data-scroll-snap><p class="eyebrow">GMT Electrical Services · Croydon</p><h1>${escapeHtml(definition.heading)}</h1><p>${escapeHtml(definition.description)}</p></section><div class="marketing-list-grid" data-scroll-reveal data-scroll-snap>${cards}</div><section class="marketing-page-cta" data-scroll-reveal data-scroll-snap><h2>Get advice from the workshop</h2><p>Send GMT the equipment details and fault symptoms. The workshop team will review your enquiry, advise on a suitable next step and confirm scope before any work proceeds.</p><div class="hero-actions"><a class="button primary" href="/#workshop-enquiry">Make an enquiry</a><a class="button secondary" href="tel:02086830464">0208 683 0464</a></div></section></main><footer class="site-footer"><p>GMT Electrical Services Ltd · 93-95 Gloucester Rd, Croydon CR0 2DN · <a href="mailto:info@gmt-services.co.uk">info@gmt-services.co.uk</a></p></footer></body></html>`;
 }
