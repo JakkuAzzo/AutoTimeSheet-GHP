@@ -3776,15 +3776,15 @@ body {
 
 .content-carousel-wide > .content-carousel-track > .workshop-motion {
   grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr) minmax(220px, .75fr);
-  grid-template-rows: 1fr;
-  align-items: center;
+  grid-template-rows: auto auto;
+  align-items: start;
   gap: clamp(1rem, 2.2vw, 2rem);
 }
 
 .content-carousel-wide .workshop-motion-content {
   grid-column: 1;
   grid-row: 1;
-  align-self: center;
+  align-self: start;
   max-width: none;
 }
 
@@ -3795,12 +3795,92 @@ body {
 .content-carousel-wide .workshop-enquiry-card {
   grid-column: 2;
   grid-row: 1;
-  align-self: center;
+  align-self: start;
+}
+
+.content-carousel-wide .workshop-repair-guide {
+  z-index: 2;
+  grid-column: 1 / 3;
+  grid-row: 2;
+  min-width: 0;
+  color: var(--ink);
+}
+
+.workshop-repair-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .75rem;
+}
+
+.workshop-repair-step {
+  min-width: 0;
+  padding: .85rem;
+  border: 1px solid rgba(18, 61, 29, .13);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .94);
+}
+
+.workshop-repair-step h3 {
+  margin: 0 0 .4rem;
+  color: var(--green);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.workshop-repair-step p {
+  margin: 0 0 .45rem;
+  color: var(--ink);
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+.workshop-repair-step ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workshop-repair-step li {
+  padding: .2rem .4rem;
+  border-radius: 999px;
+  background: rgba(18, 61, 29, .07);
+  color: var(--green);
+  font-size: .75rem;
+  line-height: 1.25;
+}
+
+.workshop-repair-related {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem .9rem;
+  margin-top: .6rem;
+  padding: .65rem .85rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .94);
+}
+
+.workshop-repair-related h3 {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--green);
+  font-size: .86rem;
+}
+
+.workshop-repair-related a {
+  color: var(--green);
+  font-size: .82rem;
+  font-weight: 750;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
 .content-carousel-wide .workshop-motion-media {
   grid-column: 3;
-  grid-row: 1;
+  grid-row: 1 / 3;
   align-self: stretch;
   width: 100%;
   height: auto;
@@ -3836,8 +3916,8 @@ body {
 
   .content-carousel-wide > .content-carousel-track > .workshop-motion {
     grid-template-columns: minmax(0, 1fr) minmax(220px, .72fr);
-    grid-template-rows: auto auto;
-    align-items: center;
+    grid-template-rows: auto auto auto;
+    align-items: start;
     gap: .75rem 1.25rem;
   }
 
@@ -3849,6 +3929,11 @@ body {
   .content-carousel-wide .workshop-enquiry-card {
     grid-column: 1;
     grid-row: 2;
+  }
+
+  .content-carousel-wide .workshop-repair-guide {
+    grid-column: 1 / -1;
+    grid-row: 3;
   }
 
   .content-carousel-wide .workshop-motion-media {
@@ -3864,27 +3949,48 @@ body {
   }
 
   .content-carousel-wide > .content-carousel-track > .marketing-story-section {
-    grid-template-columns: minmax(0, 1.25fr) minmax(112px, .72fr);
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
-    gap: .75rem;
+    gap: 0;
+    background: #fff;
+  }
+
+  .content-carousel-wide .marketing-story-copy {
+    position: relative;
+    z-index: 1;
+    max-width: 52rem;
+    padding-bottom: 1.5rem;
   }
 
   .content-carousel-wide .marketing-story-image {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
     width: 100%;
+    height: 100%;
     max-width: none;
-    justify-self: stretch;
-    align-self: center;
+    margin: 0;
+    opacity: .16;
+    pointer-events: none;
   }
 
   .content-carousel-wide .marketing-story-image img {
-    height: clamp(190px, 58vw, 300px);
+    height: 100%;
     max-height: none;
     object-fit: cover;
+    border-radius: 0;
+  }
+
+  .content-carousel-wide .marketing-story-image figcaption {
+    display: none;
   }
 
   .content-carousel-wide > .content-carousel-track > .workshop-motion {
     grid-template-columns: minmax(0, 1.15fr) minmax(112px, .72fr);
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
     align-items: start;
     gap: .85rem .75rem;
   }
@@ -3893,18 +3999,33 @@ body {
     grid-column: 1;
     grid-row: 1;
     min-width: 0;
+    align-self: start;
   }
 
   .content-carousel-wide .workshop-enquiry-card {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 3;
     min-width: 0;
+  }
+
+  .content-carousel-wide .workshop-repair-guide {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .workshop-repair-steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: .5rem;
+  }
+
+  .workshop-repair-step {
+    padding: .75rem;
   }
 
   .content-carousel-wide .workshop-motion-media {
     grid-column: 2;
     grid-row: 1;
-    align-self: stretch;
+    align-self: start;
     width: 100%;
     height: clamp(250px, 76vw, 390px);
     max-height: none;
@@ -3915,31 +4036,55 @@ body {
   .content-carousel-wide .workshop-motion-image {
     object-fit: cover;
   }
+
+  .content-carousel-wide > .content-carousel-track > .workshop-motion {
+    color: var(--ink);
+  }
+
+  .content-carousel-wide .workshop-motion-backdrop {
+    filter: none;
+    opacity: .16;
+    transform: none;
+  }
+
+  .content-carousel-wide .workshop-motion::after {
+    background: transparent;
+  }
+
+  .content-carousel-wide .workshop-motion-content > .eyebrow {
+    color: var(--green-2);
+  }
+
+  .content-carousel-wide .workshop-motion-content h2 {
+    color: var(--green);
+  }
+
+  .content-carousel-wide .workshop-motion-content > p:not(.eyebrow) {
+    color: var(--ink);
+  }
 }
 
 @media (max-width: 360px) {
-  .content-carousel-wide > .content-carousel-track > .marketing-story-section,
-  .content-carousel-wide > .content-carousel-track > .workshop-motion {
+  .content-carousel-wide > .content-carousel-track > .marketing-story-section {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .content-carousel-wide .marketing-story-image {
-    justify-self: start;
-    max-width: 240px;
+    max-width: none;
   }
 
-  .content-carousel-wide .marketing-story-image img {
-    height: 190px;
+  .content-carousel-wide > .content-carousel-track > .workshop-motion {
+    grid-template-columns: minmax(0, 1fr) minmax(96px, .68fr);
   }
 
   .content-carousel-wide .workshop-enquiry-card {
-    grid-column: 1;
-    grid-row: 2;
+    grid-column: 1 / -1;
+    grid-row: 3;
   }
 
   .content-carousel-wide .workshop-motion-media {
-    grid-column: 1;
-    grid-row: 3;
+    grid-column: 2;
+    grid-row: 1;
     height: 220px;
   }
 }
