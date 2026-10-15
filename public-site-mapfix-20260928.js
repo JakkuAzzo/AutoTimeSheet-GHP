@@ -383,17 +383,9 @@
       function sizeActivePanel() {
         if (!root.classList.contains('is-carousel-enhanced')) return;
 
-        var matchPanelHeights = root.classList.contains('content-carousel-wide');
         panels.forEach(function (panel) { panel.style.removeProperty('height'); });
         track.style.height = 'auto';
-        var visiblePanelHeights = matchPanelHeights
-          ? panels.map(function (panel) { return panel.scrollHeight; })
-          : [panels[index].scrollHeight];
-        var panelHeight = Math.max.apply(Math, visiblePanelHeights);
-        if (matchPanelHeights) {
-          panels.forEach(function (panel) { panel.style.height = panelHeight + 'px'; });
-        }
-        track.style.height = panelHeight + 'px';
+        track.style.height = panels[index].scrollHeight + 'px';
       }
 
       root.addEventListener('gmt:panel-resize', sizeActivePanel);
