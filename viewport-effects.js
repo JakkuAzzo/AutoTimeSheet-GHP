@@ -37,12 +37,19 @@
     if (!nav) return;
 
     var height = nav.getBoundingClientRect().height || nav.offsetHeight;
-    if (height > 0) document.documentElement.style.setProperty('--gmt-scroll-offset', height + 'px');
+    if (height > 0) {
+      var header = document.querySelector('.site-header');
+      var headerHeight = header ? (header.getBoundingClientRect().height || header.offsetHeight) : 0;
+      document.documentElement.style.setProperty('--gmt-scroll-offset', height + 'px');
+      document.documentElement.style.setProperty('--gmt-page-top-height', (height + headerHeight) + 'px');
+    }
 
     if (typeof window.ResizeObserver === 'function') {
       if (!navResizeObserver) {
         navResizeObserver = new window.ResizeObserver(syncNavOffset);
         navResizeObserver.observe(nav);
+        var siteHeader = document.querySelector('.site-header');
+        if (siteHeader) navResizeObserver.observe(siteHeader);
       }
     } else if (!navResizeListenerAdded) {
       navResizeListenerAdded = true;
@@ -52,6 +59,30 @@
 
   function showAll(root) {
     targetsWithin(root).forEach(reveal);
+  }
+
+  function initPublicSnapActivation() {
+    if (!document.querySelector('.site-nav-bar')) return;
+
+    var enabled = false;
+    function enable() {
+      if (enabled) return;
+      enabled = true;
+      document.documentElement.setAttribute('data-public-scroll-snap-ready', 'true');
+    }
+
+    window.addEventListener('wheel', enable, { passive: true, once: true });
+    window.addEventListener('touchstart', enable, { passive: true, once: true });
+    window.addEventListener('keydown', function (event) {
+      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].indexOf(event.key) !== -1) enable();
+    }, true);
+    document.addEventListener('click', function (event) {
+      var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+      if (!link) return;
+
+      var target = new URL(link.href, window.location.href);
+      if (target.origin === window.location.origin && target.pathname === window.location.pathname && target.hash) enable();
+    }, true);
   }
 
   function init(root) {
@@ -96,6 +127,7 @@
   }
 
   syncNavOffset();
+  initPublicSnapActivation();
   window.GMTViewportEffects = { init: init };
   init(document);
 })();
