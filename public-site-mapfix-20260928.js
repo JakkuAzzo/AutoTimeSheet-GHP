@@ -467,6 +467,7 @@
       window.requestAnimationFrame(function () {
         sizeTrack();
         track.style.removeProperty('transition');
+        if (hashPanel) root.scrollIntoView({ behavior: 'auto', block: 'start' });
       });
       window.addEventListener('resize', sizeTrack);
     });

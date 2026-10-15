@@ -16,6 +16,18 @@ html {
   max-width: 100%;
   overflow-x: hidden;
   scroll-behavior: smooth;
+  scroll-padding-block-start: var(--gmt-scroll-offset);
+  scroll-snap-type: y proximity;
+}
+
+[data-scroll-snap] {
+  scroll-snap-align: start;
+  scroll-margin-block-start: .75rem;
+}
+
+:target,
+:focus {
+  scroll-margin-block-start: .75rem;
 }
 
 body {
@@ -1717,6 +1729,7 @@ body.modal-open {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+    scroll-snap-type: none;
   }
 
   .hero-media-track,
