@@ -7,6 +7,8 @@
   var observerUnavailable = typeof window.IntersectionObserver !== 'function';
   var navResizeObserver = null;
   var navResizeListenerAdded = false;
+  var portalTabsResizeObserver = null;
+  var portalResizeListenerAdded = false;
   var readyAttribute = 'data-viewport-effects-ready';
 
   function setReady() {
@@ -57,6 +59,24 @@
     }
   }
 
+  function syncPortalTabsOffset() {
+    var tabs = document.querySelector('.portal-tabs');
+    if (!tabs) return;
+
+    var height = tabs.getBoundingClientRect().height || tabs.offsetHeight;
+    if (height > 0) document.documentElement.style.setProperty('--gmt-portal-tabs-height', height + 'px');
+
+    if (typeof window.ResizeObserver === 'function') {
+      if (!portalTabsResizeObserver) {
+        portalTabsResizeObserver = new window.ResizeObserver(syncPortalTabsOffset);
+        portalTabsResizeObserver.observe(tabs);
+      }
+    } else if (!portalResizeListenerAdded) {
+      portalResizeListenerAdded = true;
+      window.addEventListener('resize', syncPortalTabsOffset, { passive: true });
+    }
+  }
+
   function showAll(root) {
     targetsWithin(root).forEach(reveal);
   }
@@ -92,8 +112,41 @@
     }, true);
   }
 
+  function initPortalSnapActivation() {
+    if (!document.documentElement.classList.contains('portal-dashboard-document')) return;
+
+    var enabled = false;
+    function enable() {
+      if (enabled) return;
+      enabled = true;
+      document.documentElement.setAttribute('data-portal-scroll-snap-ready', 'true');
+      window.removeEventListener('wheel', enable);
+      window.removeEventListener('touchstart', enable);
+      window.removeEventListener('keydown', onKeydown, true);
+      document.removeEventListener('click', onLinkClick, true);
+    }
+    function onKeydown(event) {
+      var target = event.target;
+      if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].indexOf(event.key) !== -1) enable();
+    }
+    function onLinkClick(event) {
+      var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+      if (!link) return;
+
+      var target = new URL(link.href, window.location.href);
+      if (target.origin === window.location.origin && target.pathname === window.location.pathname && target.hash) enable();
+    }
+
+    window.addEventListener('wheel', enable, { passive: true, once: true });
+    window.addEventListener('touchstart', enable, { passive: true, once: true });
+    window.addEventListener('keydown', onKeydown, true);
+    document.addEventListener('click', onLinkClick, true);
+  }
+
   function init(root) {
     syncNavOffset();
+    syncPortalTabsOffset();
 
     var targets = targetsWithin(root || document);
     if (!targets.length) {
@@ -134,7 +187,9 @@
   }
 
   syncNavOffset();
+  syncPortalTabsOffset();
   initPublicSnapActivation();
+  initPortalSnapActivation();
   window.GMTViewportEffects = { init: init };
   init(document);
 })();

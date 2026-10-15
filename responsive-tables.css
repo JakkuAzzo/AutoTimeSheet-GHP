@@ -5,7 +5,9 @@
 .pay-month-table-scroll {
   max-width: 100%;
   min-width: 0;
-  overflow-x: clip !important;
+  overflow-x: auto !important;
+  overflow-y: visible;
+  overscroll-behavior-inline: contain;
 }
 
 table.responsive-data-table {
