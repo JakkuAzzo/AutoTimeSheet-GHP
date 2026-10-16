@@ -54,7 +54,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .day-title-block { grid-column: 2; grid-row: 1; min-width: 0; padding: 0; }
 .day-card .remove-day { grid-column: 2; grid-row: 2; justify-self: start; }
 .day-title-block h3 { margin: 0; color: var(--green); font-size: 1.15rem; line-height: 1.2; }
-.day-mini-summary { display: none; min-width: 0; margin: .25rem 0 0; color: var(--muted); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.day-mini-summary { display: none; min-width: 0; margin: .25rem 0 0; color: var(--muted); line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
 .day-card.is-collapsed .day-mini-summary { display: block; }
 .day-card-body { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; min-width: 0; margin: 0; }
 .day-card .day-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; min-width: 0; }

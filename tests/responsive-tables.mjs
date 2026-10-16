@@ -89,16 +89,18 @@ try {
   }
   const routeFailures = [];
   for (const route of pageRoutes) {
-    await page.goto(`http://127.0.0.1:${server.address().port}${route}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`http://127.0.0.1:${server.address().port}${route}`, { waitUntil: 'load' });
+    await page.locator('body').waitFor({ state: 'attached', timeout: 5000 });
     for (const width of [320, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       const layout = await page.evaluate(() => {
         document.querySelectorAll('main[hidden]').forEach((main) => { main.hidden = false; });
+        const main = document.querySelector('main');
         return {
           documentWidth: document.documentElement.scrollWidth,
           body: { clientWidth: document.body.clientWidth, scrollWidth: document.body.scrollWidth },
           html: { clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth },
-          mainChildren: [...document.querySelector('main').children].map((element) => ({
+          mainChildren: [...(main ? main.children : [])].map((element) => ({
             tag: element.tagName.toLowerCase(),
             className: typeof element.className === 'string' ? element.className : '',
             clientWidth: element.clientWidth,
