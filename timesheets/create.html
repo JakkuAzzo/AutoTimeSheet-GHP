@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="../favicon.svg?v=timesheets-favicon-20260818">
 <title>Daily/Weekly Timesheet Entry</title>
-<link rel="stylesheet" href="../styles.css?v=future-work-weekends-20260927">
-<link rel="stylesheet" href="../portal.css?v=responsive-tables-20261012">
+<link rel="stylesheet" href="../styles.css?v=portal-responsive-motion-20261015-v1">
+<link rel="stylesheet" href="../portal.css?v=portal-responsive-motion-20261015-v1">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
-<script defer src="../auth.js?v=entra-auth-20260914-signout-dashboard"></script>
-<link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
-<script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
+<script defer src="../viewport-effects.js?v=portal-responsive-motion-20261015-v1"></script>
+<script defer src="../auth.js?v=portal-responsive-motion-20261015-v1"></script>
+<link rel="stylesheet" href="../responsive-tables.css?v=portal-responsive-motion-20261015-v1">
+<script defer src="../responsive-tables.js?v=portal-responsive-motion-20261015-v1"></script>
 </head>
 <body>
 <header class="app-header">
@@ -19,7 +20,7 @@
 <nav class="header-actions"><a href="../portal/">Dashboard</a><a href="./">Timesheets</a><a href="../jobs/">Job Cards</a><a href="../tools/">Tools</a></nav>
 </header>
 <main class="app-main timesheet-create-main" hidden>
-<section class="card intro-card"><h2 id="timesheet-entry-title">Your timesheet</h2><p id="timesheet-entry-copy">Your GMT sign-in supplies your name and email. Enter any dated week; the app assigns each submission to the correct GMT pay-month workbook automatically.</p><p id="timesheet-edit-status" class="notice" hidden></p><p class="notice"><strong>Overtime rules:</strong> overtime is only applied once Monday-Friday basic hours reach 40h. If the threshold is not met, weekday excess and weekend hours count as basic. Holiday counts as basic.</p><details class="timesheet-analysis-option"><summary>Analyse or upload an existing timesheet</summary><p>Open the spreadsheet checker to upload and review an existing timesheet file before entering the verified daily rows here.</p><a class="secondary button-link" href="../audit/index.html">Open timesheet analysis</a></details></section>
+<section class="card intro-card" data-scroll-reveal><h2 id="timesheet-entry-title">Your timesheet</h2><p id="timesheet-entry-copy">Your GMT sign-in supplies your name and email. Enter any dated week; the app assigns each submission to the correct GMT pay-month workbook automatically.</p><p id="timesheet-edit-status" class="notice" hidden></p><p class="notice"><strong>Overtime rules:</strong> overtime is only applied once Monday-Friday basic hours reach 40h. If the threshold is not met, weekday excess and weekend hours count as basic. Holiday counts as basic.</p><details class="timesheet-analysis-option"><summary>Analyse or upload an existing timesheet</summary><p>Open the spreadsheet checker to upload and review an existing timesheet file before entering the verified daily rows here.</p><a class="secondary button-link" href="../audit/index.html">Open timesheet analysis</a></details></section>
 <form id="timesheet-form" class="card" enctype="multipart/form-data" novalidate>
 <h2>1. Employee details</h2>
 <div class="form-grid">
@@ -47,7 +48,7 @@
 </div>
 <div id="days-container" class="days-container" aria-live="polite"></div>
 </div>
-<section class="summary-card" aria-labelledby="summary-title"><h2 id="summary-title">4. Calculated totals</h2><div id="summary-output" class="summary-grid">No days entered yet.</div></section>
+<section class="summary-card" data-scroll-reveal aria-labelledby="summary-title"><h2 id="summary-title">4. Calculated totals</h2><div id="summary-output" class="summary-grid">No days entered yet.</div></section>
 <input type="hidden" id="timesheet-payload"><input type="hidden" id="calculated-summary">
 <div id="form-error" class="banner hidden" role="alert"></div>
 <div class="day-entry-actions day-entry-actions-bottom" aria-label="Add timesheet days"><button id="add-day-btn" type="button" class="round-btn" aria-label="Add next weekday">+ Add weekday</button><button id="add-weekend-btn" type="button" class="secondary" aria-label="Add weekend day">Add weekend</button></div>

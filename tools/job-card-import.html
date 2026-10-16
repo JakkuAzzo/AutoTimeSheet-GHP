@@ -6,13 +6,14 @@
 <meta name="robots" content="noindex,nofollow">
 <link rel="icon" type="image/svg+xml" href="../favicon.svg">
 <title>GMT Scanned Job Card Import</title>
-<link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=responsive-tables-20261012">
+<link rel="stylesheet" href="../styles.css?v=portal-responsive-motion-20261015-v1">
+<link rel="stylesheet" href="../portal.css?v=portal-responsive-motion-20261015-v1">
 <link rel="stylesheet" href="../tools/estimates.css?v=jobs-estimate-layout-20260914">
 <script src="../config.js?v=portal-api-live-20260915"></script>
-<script defer src="../auth.js?v=entra-auth-20260914-signout-dashboard"></script>
-<link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
-<script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
+<script defer src="../viewport-effects.js?v=portal-responsive-motion-20261015-v1"></script>
+<script defer src="../auth.js?v=portal-responsive-motion-20261015-v1"></script>
+<link rel="stylesheet" href="../responsive-tables.css?v=portal-responsive-motion-20261015-v1">
+<script defer src="../responsive-tables.js?v=portal-responsive-motion-20261015-v1"></script>
 </head>
 <body>
 <header class="app-header">
@@ -20,8 +21,8 @@
   <nav class="header-actions"><a href="../jobs/">Job Cards</a><a href="../portal/">Dashboard</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main estimate-main job-card-import-main" id="job-card-import-main" hidden>
-  <section class="estimate-intro card"><div><p class="portal-card-kicker">Accounts only · source-preserving import</p><h2>Import the scanned job-card archive</h2><p>Select the original PDFs, the OCR manifest, and the 559 one-page scans from the pages folder. Each file is checked against the manifest before it is sent to SharePoint.</p></div><span class="estimate-status-chip">Resumable by batch</span></section>
-  <section class="card job-card-import-panel" id="job-card-import-panel">
+  <section class="estimate-intro card" data-scroll-reveal><div><p class="portal-card-kicker">Accounts only · source-preserving import</p><h2>Import the scanned job-card archive</h2><p>Select the original PDFs, the OCR manifest, and the 559 one-page scans from the pages folder. Each file is checked against the manifest before it is sent to SharePoint.</p></div><span class="estimate-status-chip">Resumable by batch</span></section>
+  <section class="card job-card-import-panel" data-scroll-reveal id="job-card-import-panel">
     <div class="estimate-form-heading"><div><p class="portal-card-kicker">1 · Select local files</p><h2>Choose the archive files</h2></div></div>
     <div class="job-card-import-pickers">
       <label>Original source PDFs<input id="job-card-source-folder" type="file" multiple accept="application/pdf,.pdf"><span class="small-text">Select the 13 unchanged EC and MTA source PDFs.</span></label>
@@ -31,7 +32,7 @@
     <p class="small-text" id="job-card-import-file-summary" aria-live="polite">Select the source PDFs, manifest, and page PDFs to check the batch inventory.</p>
     <div class="job-card-import-actions"><button type="button" id="job-card-import-start" disabled>Verify and import archive</button><a class="secondary" href="../jobs/">Return to job-card search</a></div>
   </section>
-  <section class="card job-card-import-progress" aria-labelledby="job-card-import-progress-title">
+  <section class="card job-card-import-progress" data-scroll-reveal aria-labelledby="job-card-import-progress-title">
     <p class="portal-card-kicker">2 · Transfer and index</p><h2 id="job-card-import-progress-title">Import progress</h2>
     <p id="job-card-import-status" class="small-text" role="status" aria-live="polite">Checking Accounts access…</p>
     <progress id="job-card-import-progress" max="559" value="0" aria-label="Job-card page records imported"></progress>
@@ -39,7 +40,7 @@
   </section>
 </main>
 <main class="app-main estimate-main job-card-import-denied" id="job-card-import-denied" hidden>
-  <section class="card"><p class="portal-card-kicker">Restricted area</p><h2>Accounts access required</h2><p>This import screen is available to the configured GMT job-card Accounts identities.</p><a class="secondary" href="../jobs/">Return to job cards</a></section>
+  <section class="card" data-scroll-reveal><p class="portal-card-kicker">Restricted area</p><h2>Accounts access required</h2><p>This import screen is available to the configured GMT job-card Accounts identities.</p><a class="secondary" href="../jobs/">Return to job cards</a></section>
 </main>
 <script src="../portal-api.js?v=scanned-job-card-archive-20261006"></script>
 <script defer src="job-card-import.js?v=scanned-job-card-archive-20261006"></script>

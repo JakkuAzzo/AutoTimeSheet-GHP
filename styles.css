@@ -141,3 +141,35 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 360px) {
   .day-card .day-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Shared portal shell: allow text and controls to size with their content. */
+html { scroll-behavior: smooth; scroll-padding-block-start: .75rem; }
+body { min-width: 0; overflow-x: hidden; overflow-x: clip; }
+.app-header { padding: clamp(.65rem, 2.2vw, 1.2rem) clamp(.65rem, 2.6vw, 1.25rem); }
+.app-header .brand-block > div { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.logo-crop, .brand-block .site-logo { object-fit: contain; }
+.app-main, .card, .summary-card, .planner-panel, form, section, article, fieldset { min-width: 0; }
+.app-main { width: 100%; }
+img, video, iframe, canvas { max-width: 100%; }
+input, textarea, select { min-width: 0; max-width: 100%; }
+label, p, h1, h2, h3, td, th, dd { overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .app-header .brand-block .site-logo,
+  .app-header .logo-crop { width: min(18rem, 84vw); height: clamp(3.75rem, 18vw, 5.4rem); }
+  .app-main { padding: .65rem; }
+}
+
+@media (max-width: 900px) and (max-height: 430px) {
+  .app-header { padding-block: .45rem; }
+  .app-header .brand-block .site-logo,
+  .app-header .logo-crop { width: min(13rem, 34vw); height: 3.4rem; }
+  .app-header h1 { font-size: clamp(1.2rem, 3vw, 1.6rem); }
+  .header-actions { gap: .35rem; }
+  .header-actions a { padding: .4rem .6rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { scroll-behavior: auto !important; }
+}

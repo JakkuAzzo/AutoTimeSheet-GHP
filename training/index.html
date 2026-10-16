@@ -6,13 +6,14 @@
 <meta name="robots" content="noindex,nofollow">
 <link rel="icon" type="image/svg+xml" href="../favicon.svg?v=training-favicon-20260818">
 <title>GMT Staff Portal Training</title>
-<link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=responsive-tables-20261012">
+<link rel="stylesheet" href="../styles.css?v=portal-responsive-motion-20261015-v1">
+<link rel="stylesheet" href="../portal.css?v=portal-responsive-motion-20261015-v1">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
-<script defer src="../auth.js?v=entra-auth-20260914-signout-dashboard"></script>
-<link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
-<script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
+<script defer src="../viewport-effects.js?v=portal-responsive-motion-20261015-v1"></script>
+<script defer src="../auth.js?v=portal-responsive-motion-20261015-v1"></script>
+<link rel="stylesheet" href="../responsive-tables.css?v=portal-responsive-motion-20261015-v1">
+<script defer src="../responsive-tables.js?v=portal-responsive-motion-20261015-v1"></script>
 </head>
 <body>
 <header class="app-header">
@@ -27,11 +28,11 @@
   <nav class="header-actions"><a href="../portal/">Dashboard</a><a href="../timesheets/">Timesheets</a></nav>
 </header>
 <main class="app-main" hidden>
-  <section class="card training-intro">
+  <section class="card training-intro" data-scroll-reveal>
     <h2>Choose the task you need</h2>
     <p>Each video uses sample data, shows the cursor and highlights the next control. Nothing shown in a video is sent to accounts.</p>
   </section>
-  <section class="training-video-grid" aria-label="Staff portal training videos">
+  <section class="training-video-grid" data-scroll-reveal aria-label="Staff portal training videos">
     <article class="training-video-card">
       <h2>Using your portal profile</h2>
       <p>Sign in with your GMT account and confirm the details reused by portal forms.</p>

@@ -10,11 +10,19 @@
   window.GMT_PORTAL_PROFILE_READY = new Promise(function (resolve) {
     profileReadyResolve = resolve;
   });
+  function initViewportEffects(root) {
+    var viewportEffects = window.GMTViewportEffects;
+    if (viewportEffects && typeof viewportEffects.init === "function") viewportEffects.init(root);
+  }
+
   if (!config || !config.enabled) {
     authReadyResolve({});
     profileReadyResolve({});
     var unavailableMain = document.querySelector("main");
-    if (unavailableMain && !unavailableMain.hasAttribute("data-xero-accounts-gated")) unavailableMain.hidden = false;
+    if (unavailableMain && !unavailableMain.hasAttribute("data-xero-accounts-gated")) {
+      unavailableMain.hidden = false;
+      initViewportEffects(unavailableMain);
+    }
     return;
   }
 
@@ -52,6 +60,7 @@
       appMain.hidden = false;
       appMain.removeAttribute("hidden");
       appMain.style.removeProperty("display");
+      initViewportEffects(appMain);
     }
     if (status.isConnected) status.remove();
   }

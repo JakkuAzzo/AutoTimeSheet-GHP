@@ -6,14 +6,15 @@
 <meta name="robots" content="noindex,nofollow">
 <title>Invoices | GMT Accounts</title>
 <link rel="icon" type="image/svg+xml" href="../favicon.svg?v=invoices-favicon-20260915">
-<link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=responsive-tables-20261012">
+<link rel="stylesheet" href="../styles.css?v=portal-responsive-motion-20261015-v1">
+<link rel="stylesheet" href="../portal.css?v=portal-responsive-motion-20261015-v1">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
-<script defer src="../auth.js?v=entra-auth-20260929-xero-accounts-gate"></script>
+<script defer src="../viewport-effects.js?v=portal-responsive-motion-20261015-v1"></script>
+<script defer src="../auth.js?v=portal-responsive-motion-20261015-v1"></script>
 <script defer src="./invoice-order.js?v=xero-newest-first-20261012"></script>
-<link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
-<script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
+<link rel="stylesheet" href="../responsive-tables.css?v=portal-responsive-motion-20261015-v1">
+<script defer src="../responsive-tables.js?v=portal-responsive-motion-20261015-v1"></script>
 </head>
 <body>
 <header class="app-header portal-header">
@@ -22,13 +23,13 @@
 </header>
 <p id="xero-access-gate" class="portal-auth-status" role="status">Checking authenticated Accounts access…</p>
 <main id="xero-invoice-main" class="app-main estimate-main" hidden aria-hidden="true" data-xero-accounts-gated>
-  <section class="estimate-intro card xero-invoice-intro"><div><p class="portal-card-kicker">Accounts-only workflow</p><h2>Invoices in Xero</h2><p>GMT Accounts invoice access.</p></div><div class="xero-connection-summary"><span id="xero-connection-chip" class="estimate-status-chip">Checking connection…</span><div id="xero-connections" class="xero-connections"></div><div class="xero-connection-controls"><button type="button" id="xero-refresh" class="secondary">Refresh from Xero</button><button type="button" id="xero-connect" class="button button-link">Connect Xero</button></div></div></section>
-  <section class="card xero-invoice-panel xero-invoice-workspace" aria-labelledby="invoice-list-title">
+  <section class="estimate-intro card xero-invoice-intro" data-scroll-reveal><div><p class="portal-card-kicker">Accounts-only workflow</p><h2>Invoices in Xero</h2><p>GMT Accounts invoice access.</p></div><div class="xero-connection-summary"><span id="xero-connection-chip" class="estimate-status-chip">Checking connection…</span><div id="xero-connections" class="xero-connections"></div><div class="xero-connection-controls"><button type="button" id="xero-refresh" class="secondary">Refresh from Xero</button><button type="button" id="xero-connect" class="button button-link">Connect Xero</button></div></div></section>
+  <section class="card xero-invoice-panel xero-invoice-workspace" data-scroll-reveal aria-labelledby="invoice-list-title">
     <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">2 · Register</p><h2 id="invoice-list-title">Invoice register</h2></div><div class="xero-invoice-actions"><label>Search invoices<input id="xero-invoice-search" type="search" placeholder="Number or customer" autocomplete="off"></label><label>Customer<select id="xero-invoice-customer"><option value="">All customers</option></select></label><label>Status<select id="xero-invoice-status"><option value="">All statuses</option><option value="DRAFT">Draft</option><option value="SUBMITTED">Awaiting approval</option><option value="AUTHORISED">Authorised</option><option value="PAID">Paid</option><option value="DELETED">Deleted</option><option value="VOIDED">Voided</option></select></label><label>From<input id="xero-invoice-from" type="date"></label><label>To<input id="xero-invoice-to" type="date"></label><button type="button" id="xero-invoice-load" class="secondary">Load all invoices</button></div></div>
     <p id="xero-invoice-status-message" class="small-text" role="status">Connect Xero to load the invoice register.</p><progress id="xero-invoice-progress" class="xero-invoice-progress" max="1" value="0" hidden></progress>
     <div class="table-scroll"><table id="xero-invoice-table" class="portal-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Date</th><th>Due</th><th>Total</th><th>Amount due</th><th>Actions</th></tr></thead><tbody><tr><td colspan="8">No invoices loaded.</td></tr></tbody></table></div>
   </section>
-  <section class="card xero-invoice-panel" aria-labelledby="invoice-editor-title">
+  <section class="card xero-invoice-panel" data-scroll-reveal aria-labelledby="invoice-editor-title">
     <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">3 · Accounts actions</p><h2 id="invoice-editor-title">Create or edit a Xero invoice</h2></div><button type="button" id="xero-invoice-reset" class="secondary">New invoice</button></div>
     <p id="xero-invoice-editor-status" class="small-text" role="status">Choose a customer and add at least one line. New invoices are saved as drafts in Xero.</p>
     <div id="xero-invoice-selected" class="xero-invoice-result" hidden aria-live="polite"></div>
@@ -52,6 +53,6 @@
   </section>
 </main>
 <script defer src="../portal-api.js?v=xero-invoice-management-20260929c"></script>
-<script defer src="invoices.js?v=xero-newest-link-pass-20261012"></script>
+<script defer src="invoices.js?v=portal-responsive-motion-20261015-v1"></script>
 </body>
 </html>

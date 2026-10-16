@@ -6,14 +6,15 @@
 <meta name="robots" content="noindex,nofollow">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/brand/gmt-icon-256.png?v=gmt-logo-favicon-20260901">
 <title>Submitted documents | GMT Staff Portal</title>
-<link rel="stylesheet" href="../styles.css?v=portal-auth-dashboard-20260914">
-<link rel="stylesheet" href="../portal.css?v=responsive-tables-20261012">
+<link rel="stylesheet" href="../styles.css?v=portal-responsive-motion-20261015-v1">
+<link rel="stylesheet" href="../portal.css?v=portal-responsive-motion-20261015-v1">
   <link rel="stylesheet" href="../tools/estimates.css?v=paymonth-weekend-removal-20261013">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
-<script defer src="auth.js?v=entra-auth-20260914-signout-dashboard"></script>
-<link rel="stylesheet" href="../responsive-tables.css?v=responsive-tables-20261012">
-<script defer src="../responsive-tables.js?v=responsive-tables-20261012"></script>
+<script defer src="../viewport-effects.js?v=portal-responsive-motion-20261015-v1"></script>
+<script defer src="auth.js?v=portal-responsive-motion-20261015-v1"></script>
+<link rel="stylesheet" href="../responsive-tables.css?v=portal-responsive-motion-20261015-v1">
+<script defer src="../responsive-tables.js?v=portal-responsive-motion-20261015-v1"></script>
 </head>
 <body>
 <header class="app-header portal-header">
@@ -21,8 +22,8 @@
   <nav class="header-actions" aria-label="Submitted documents navigation"><a href="index.html">Dashboard</a><span class="portal-identity-name" data-portal-identity-name hidden></span><button type="button" id="portal-sign-out" hidden>Sign out</button></nav>
 </header>
 <main class="app-main estimate-main" hidden>
-  <section class="estimate-intro card submissions-intro"><div><p class="portal-card-kicker">Identity-filtered workspace</p><h2>Shared work history</h2><p>Choose a pay month or record type below. Access and edit actions follow your signed-in GMT permissions.</p></div><span class="estimate-status-chip">Protected history</span></section>
-  <section class="card estimate-history-panel pay-month-workspace" aria-labelledby="submissions-title">
+  <section class="estimate-intro card submissions-intro" data-scroll-reveal><div><p class="portal-card-kicker">Identity-filtered workspace</p><h2>Shared work history</h2><p>Choose a pay month or record type below. Access and edit actions follow your signed-in GMT permissions.</p></div><span class="estimate-status-chip">Protected history</span></section>
+  <section class="card estimate-history-panel pay-month-workspace" data-scroll-reveal aria-labelledby="submissions-title">
     <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Pay month workspace</p><h2 id="submissions-title">Timesheets and records</h2></div><div class="submissions-toolbar-actions"><button type="button" id="submissions-delivery-trigger" class="secondary" aria-haspopup="dialog" aria-controls="submissions-delivery-dialog" hidden>Correction delivery status</button><button type="button" id="submissions-refresh" class="secondary">Refresh</button></div></div>
     <div class="portal-history-toolbar"><p id="submissions-status" class="small-text" role="status">Loading authorised records…</p></div>
     <p id="submissions-admin-timesheet-notice" class="portal-history-warning" hidden></p>

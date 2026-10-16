@@ -41,6 +41,11 @@
   var recordRows = [];
   var invoiceCacheKey = function () { return "gmt-xero-invoice-index:" + selectedTenant(); };
 
+  function initViewportEffects(root) {
+    var viewportEffects = window.GMTViewportEffects;
+    if (viewportEffects && typeof viewportEffects.init === "function") viewportEffects.init(root);
+  }
+
   function readInvoiceCache() {
     try { var raw = sessionStorage.getItem(invoiceCacheKey()); var parsed = raw ? JSON.parse(raw) : null; return parsed && Array.isArray(parsed.invoices) ? parsed : null; } catch (_) { return null; }
   }
@@ -418,7 +423,11 @@
     }
     try {
       xeroBody = await api.xeroStatus();
-      if (invoiceMain) { invoiceMain.hidden = false; invoiceMain.removeAttribute("aria-hidden"); }
+      if (invoiceMain) {
+        invoiceMain.hidden = false;
+        invoiceMain.removeAttribute("aria-hidden");
+        initViewportEffects(invoiceMain);
+      }
       if (accessGate) accessGate.hidden = true;
       renderConnections();
       await refreshTenantData();

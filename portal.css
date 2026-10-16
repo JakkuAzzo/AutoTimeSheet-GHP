@@ -11,6 +11,20 @@
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(8px);
 }
+
+html.portal-dashboard-document {
+  scroll-padding-block-start: calc(var(--gmt-portal-tabs-height, 0px) + .75rem);
+}
+html.portal-dashboard-document[data-portal-scroll-snap-ready="true"] {
+  scroll-snap-type: y proximity;
+}
+html.portal-dashboard-document [data-scroll-snap] {
+  scroll-snap-align: start;
+  scroll-snap-stop: normal;
+}
+#portal-calendar-title {
+  scroll-margin-block-start: calc(var(--gmt-portal-tabs-height, 0px) + .75rem);
+}
 .portal-tab {
   flex: 0 1 auto;
   min-width: 0;
@@ -24,6 +38,24 @@
 .portal-tab.active {
   background: var(--green);
   color: #fff;
+}
+
+/* Progressive, section-level reveals. The page stays complete if the shared
+   helper is unavailable, and reduced-motion preferences always win. */
+html[data-viewport-effects-ready="true"] [data-scroll-reveal] {
+  transition: opacity .34s ease, transform .34s ease;
+}
+html[data-viewport-effects-ready="true"] [data-scroll-reveal]:not(.is-visible):not(:focus-within) {
+  opacity: 0;
+  transform: translateY(10px);
+}
+html[data-viewport-effects-ready="true"] [data-scroll-reveal].is-visible,
+html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-scroll-reveal] { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
 .portal-panel, .portal-subpanel {
   display: none;
@@ -1261,3 +1293,95 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .job-card-archive-review-form label[data-wide], .job-card-archive-review-actions { grid-column: auto; }
   .job-card-archive-meta { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Portal layouts stay content-sized at narrow widths and high zoom. */
+html { scroll-behavior: smooth; scroll-padding-block-start: .75rem; }
+body { min-width: 0; overflow-x: hidden; overflow-x: clip; }
+.app-main { width: 100%; min-width: 0; }
+.app-main > *, .portal-header > *, .brand-block > *, .portal-two-column > *,
+.estimate-layout > *, .portal-dashboard-grid > *, .portal-card-grid > *,
+.portal-action-grid > *, .portal-updates > *, .calendar-board > * { min-width: 0; }
+.portal-header { align-items: center; }
+.portal-header .brand-block { flex: 1 1 30rem; }
+.portal-header .brand-block > div { min-width: 0; overflow-wrap: anywhere; }
+.portal-header .brand-block .site-logo { width: min(15rem, 28vw); height: clamp(3.8rem, 7vw, 5rem); object-fit: contain; }
+.portal-header .header-actions { flex: 0 1 auto; min-width: 0; }
+.portal-header .header-actions a, .portal-header .header-actions button { white-space: normal; overflow-wrap: anywhere; }
+.portal-secure-chip { white-space: normal; }
+.portal-history-frame { min-height: 0; }
+.portal-history-card .timesheet-history-preview { min-height: 0; }
+.timesheet-calendar-grid { max-height: none; overflow: visible; }
+.table-scroll { overflow-x: auto; overscroll-behavior-inline: contain; }
+.xero-invoice-workspace, .calendar-board { overflow: visible; }
+.calendar-day { min-height: 0; overflow: visible; }
+.calendar-event { width: 100%; max-width: 100%; overflow: visible; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; line-height: 1.2; }
+.portal-calendar-day { min-width: 0; overflow-wrap: anywhere; }
+.portal-calendar-day .calendar-event { overflow: visible; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
+.portal-calendar-day .calendar-event strong { display: block; overflow: visible; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
+.portal-calendar-day .calendar-event small { display: block; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+
+@media (max-width: 700px) {
+  .portal-header { align-items: center; }
+  .portal-header .brand-block { flex: 0 1 auto; width: 100%; }
+  .portal-header .brand-block .site-logo { width: min(14rem, 72vw); height: 4.4rem; }
+  .portal-header .header-actions { width: 100%; justify-content: center; }
+  .portal-tabs { position: sticky; top: 0; }
+  .portal-history-card .timesheet-calendar-grid .calendar-day { overflow: visible; }
+}
+
+@media (max-width: 600px) {
+  /* The operational month becomes a readable day list; every event remains
+     available in full and keeps its existing click/action behavior. */
+  .calendar-weekdays { display: none; }
+  .calendar-month-grid { grid-template-columns: minmax(0, 1fr); gap: .4rem; border: 0; }
+  .calendar-month-grid .calendar-day-empty { display: none; }
+  .calendar-month-grid .calendar-day {
+    display: grid;
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+    align-items: start;
+    gap: .25rem .55rem;
+    min-height: 0;
+    padding: .5rem;
+    border: 1px solid var(--line);
+    border-radius: .65rem;
+  }
+  .calendar-month-grid .calendar-day > time,
+  .calendar-month-grid .calendar-day > .calendar-day-date,
+  .calendar-month-grid .calendar-day > .calendar-week-badge { grid-column: 1; }
+  .calendar-month-grid .calendar-day > .calendar-event,
+  .calendar-month-grid .calendar-day > .calendar-more { grid-column: 2; }
+  .calendar-month-grid .calendar-day > .calendar-event,
+  .calendar-month-grid .calendar-day > .calendar-more { min-width: 0; text-align: left; }
+  .portal-calendar-grid { gap: .18rem; }
+  .portal-calendar-day { min-height: 0; padding: .22rem; }
+  .portal-calendar-day .calendar-event { padding: .12rem .15rem; font-size: .59rem; line-height: 1.1; }
+  .portal-calendar-day .calendar-event small { display: none; }
+  .portal-calendar-day .calendar-more { font-size: .57rem; white-space: normal; }
+  .portal-history-card .timesheet-calendar-grid { max-height: none; }
+  .timesheet-submit-success-main { padding-top: 1rem; }
+}
+
+@media (max-width: 900px) and (max-height: 430px) {
+  .portal-header { padding-block: .45rem; }
+  .portal-header .brand-block .site-logo { width: min(11rem, 25vw); height: 3.25rem; }
+  .portal-header h1 { font-size: 1.3rem; }
+  .portal-updates-slide:not([hidden]) { min-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  html.portal-dashboard-document { scroll-snap-type: none !important; }
+  .portal-action-card { transition: none; }
+  .portal-action-card:hover, .portal-action-card:focus-visible { transform: none; }
+}
+
+.timesheet-submit-success-main {
+  display: grid;
+  align-content: center;
+  width: 100%;
+  max-width: 44rem;
+  min-height: calc(100vh - 2rem);
+  min-height: calc(100svh - 2rem);
+  margin-inline: auto;
+}
+.timesheet-submit-success-main .card { margin: .5rem 0; }
