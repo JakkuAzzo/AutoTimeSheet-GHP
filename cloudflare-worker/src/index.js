@@ -1,4 +1,4 @@
-import '../../pay-periods.js';
+import payPeriods from '../../pay-periods.js';
 import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
 import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
@@ -668,7 +668,7 @@ function recordMonthKey(value, timeZone = 'Europe/London') {
 // edit window tied to that workbook month, while history reads remain open
 // for every authorised record.
 function defaultPayPeriods() {
-  return globalThis.GMTPayPeriods;
+  return payPeriods;
 }
 
 async function loadPayPeriods(env) {
