@@ -4242,3 +4242,41 @@ body {
   }
 
 }
+
+/* Keep each public snap section inside the device viewport. Long sections and
+   carousels remain fully readable through their own vertical scroll area. */
+[data-scroll-snap] {
+  box-sizing: border-box;
+  height: calc(100vh - var(--gmt-scroll-offset, 0px));
+  height: calc(100svh - var(--gmt-scroll-offset, 0px));
+  min-height: 0 !important;
+  max-height: calc(100vh - var(--gmt-scroll-offset, 0px));
+  max-height: calc(100svh - var(--gmt-scroll-offset, 0px));
+  margin-block: 0 !important;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  scroll-snap-align: start;
+  scroll-margin-block-start: var(--gmt-scroll-offset, 0px);
+}
+
+[data-public-first-snap="true"] {
+  height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
+  height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
+  max-height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
+  max-height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
+}
+
+.content-carousel.is-carousel-enhanced {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.content-carousel.is-carousel-enhanced .content-carousel-track {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-scroll-snap] { scroll-behavior: auto; }
+}

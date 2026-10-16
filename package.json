@@ -18,6 +18,7 @@
     "test:calendar:day-actions": "node tests/calendar-day-actions.mjs",
     "test:pages:public-root": "node tests/cloudflare-pages-public-root.mjs",
     "test:responsive-tables": "node tests/responsive-tables.mjs",
+    "test:viewport-fit": "node tests/viewport-fit-responsive.mjs",
     "test:weekly-correction-dispatch": "node tests/weekly-correction-dispatch.mjs",
     "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
     "test:jobs:access-policy": "node tests/job-card-access-policy.mjs",

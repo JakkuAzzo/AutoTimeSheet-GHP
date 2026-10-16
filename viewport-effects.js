@@ -8,6 +8,7 @@
   var navResizeObserver = null;
   var navResizeListenerAdded = false;
   var portalTabsResizeObserver = null;
+  var portalHeaderResizeObserver = null;
   var portalResizeListenerAdded = false;
   var readyAttribute = 'data-viewport-effects-ready';
 
@@ -46,6 +47,18 @@
       document.documentElement.style.setProperty('--gmt-page-top-height', (height + headerHeight) + 'px');
     }
 
+    var firstPanel = document.querySelector('main [data-scroll-snap]');
+    if (firstPanel && window.scrollY < 2 && document.documentElement.getAttribute('data-public-scroll-snap-ready') !== 'true') {
+      firstPanel.setAttribute('data-public-first-snap', 'true');
+      var firstPanelTop = Math.max(0, firstPanel.getBoundingClientRect().top);
+      document.documentElement.style.setProperty('--gmt-public-first-section-offset', firstPanelTop + 'px');
+    }
+
+    if (!navResizeListenerAdded) {
+      navResizeListenerAdded = true;
+      window.addEventListener('resize', syncNavOffset, { passive: true });
+    }
+
     if (typeof window.ResizeObserver === 'function') {
       if (!navResizeObserver) {
         navResizeObserver = new window.ResizeObserver(syncNavOffset);
@@ -53,21 +66,35 @@
         var siteHeader = document.querySelector('.site-header');
         if (siteHeader) navResizeObserver.observe(siteHeader);
       }
-    } else if (!navResizeListenerAdded) {
-      navResizeListenerAdded = true;
-      window.addEventListener('resize', syncNavOffset, { passive: true });
     }
   }
 
   function syncPortalTabsOffset() {
     var tabs = document.querySelector('.portal-tabs');
-    if (!tabs) return;
+    var header = document.querySelector('.portal-header, .app-header');
+    var portalAuthScript = Array.prototype.some.call(document.scripts, function (script) {
+      return /(?:^|\/)portal\/auth\.js(?:[?#]|$)/.test(script.getAttribute('src') || '');
+    });
+    var historyFrame = document.body && document.body.classList.contains('portal-history-frame-body');
+    if (!header && !portalAuthScript && !historyFrame) return;
+    if (!header && portalAuthScript) header = document.querySelector('header');
 
-    var height = tabs.getBoundingClientRect().height || tabs.offsetHeight;
-    if (height > 0) document.documentElement.style.setProperty('--gmt-portal-tabs-height', height + 'px');
+    document.documentElement.setAttribute('data-portal-viewport-shell', 'true');
+
+    var headerHeight = header ? (header.getBoundingClientRect().height || header.offsetHeight) : 0;
+    if (headerHeight > 0) document.documentElement.style.setProperty('--gmt-portal-header-height', headerHeight + 'px');
+
+    if (tabs) {
+      var height = tabs.getBoundingClientRect().height || tabs.offsetHeight;
+      if (height > 0) document.documentElement.style.setProperty('--gmt-portal-tabs-height', height + 'px');
+    }
 
     if (typeof window.ResizeObserver === 'function') {
-      if (!portalTabsResizeObserver) {
+      if (header && !portalHeaderResizeObserver) {
+        portalHeaderResizeObserver = new window.ResizeObserver(syncPortalTabsOffset);
+        portalHeaderResizeObserver.observe(header);
+      }
+      if (tabs && !portalTabsResizeObserver) {
         portalTabsResizeObserver = new window.ResizeObserver(syncPortalTabsOffset);
         portalTabsResizeObserver.observe(tabs);
       }
@@ -115,11 +142,14 @@
   function initPortalSnapActivation() {
     if (!document.documentElement.classList.contains('portal-dashboard-document')) return;
 
+    var dashboard = document.querySelector('.portal-dashboard-main');
+    if (!dashboard) return;
+
     var enabled = false;
     function enable() {
       if (enabled) return;
       enabled = true;
-      document.documentElement.setAttribute('data-portal-scroll-snap-ready', 'true');
+      dashboard.setAttribute('data-portal-scroll-snap-ready', 'true');
       window.removeEventListener('wheel', enable);
       window.removeEventListener('touchstart', enable);
       window.removeEventListener('keydown', onKeydown, true);
