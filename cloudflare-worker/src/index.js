@@ -1,3 +1,4 @@
+import '../../pay-periods.js';
 import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
 import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
@@ -143,6 +144,7 @@ function tokenIdentity(claims, env) {
   const adminOids = csvSet(env.ADMIN_OIDS);
   const adminGroups = csvSet(env.ADMIN_GROUP_IDS);
   const timesheetViewerUpns = csvSet(env.TIMESHEET_VIEWER_UPNS);
+  const payMonthStartAdminUpns = csvSet(env.PAY_MONTH_START_ADMIN_UPNS);
   const jobCardAdminUpns = csvSet(env.JOB_CARD_ADMIN_UPNS);
   const operationsAdminUpns = csvSet(env.OPERATIONS_ADMIN_UPNS);
   const hrAdminUpns = csvSet(env.HR_ADMIN_UPNS);
@@ -159,6 +161,7 @@ function tokenIdentity(claims, env) {
     isAdmin,
     isHrAdmin,
     isTimesheetViewer: timesheetViewerUpns.has(upn),
+    canManagePayMonthStarts: payMonthStartAdminUpns.has(upn),
     isXeroAdmin: isAdmin || xeroAdminUpns.has(upn),
     isOperationsAdmin: isAdmin || operationsAdminUpns.has(upn),
     isJobCardAdmin: isAdmin || operationsAdminUpns.has(upn) || jobCardAdminUpns.has(upn)
@@ -664,43 +667,52 @@ function recordMonthKey(value, timeZone = 'Europe/London') {
 // GMT filing uses one employee workbook per YYYY-MM pay month. Keep the
 // edit window tied to that workbook month, while history reads remain open
 // for every authorised record.
-function payCycleKeyForDate(value) {
-  const match = String(value || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return '';
-  const date = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  if (!Number.isFinite(date)) return '';
-  const validated = new Date(date);
-  if (validated.getUTCFullYear() !== Number(match[1]) || validated.getUTCMonth() + 1 !== Number(match[2]) || validated.getUTCDate() !== Number(match[3])) return '';
-  const anchor = Date.UTC(2026, 7, 24);
-  const cycle = Math.floor((date - anchor) / (28 * 86400000));
-  const payday = new Date(anchor + (cycle * 28 + 25) * 86400000);
-  return `${payday.getUTCFullYear()}-${String(payday.getUTCMonth() + 1).padStart(2, '0')}`;
+function defaultPayPeriods() {
+  return globalThis.GMTPayPeriods;
 }
 
-function editablePayCycleKeys(nowDate = new Date(), timeZone = 'Europe/London') {
+async function loadPayPeriods(env) {
+  const result = await env.DB.prepare('SELECT month_key AS monthKey, start_date AS startDate FROM pay_month_start_settings ORDER BY month_key').all();
+  return defaultPayPeriods().createPayPeriods(result.results || []);
+}
+
+function londonDateKey(nowDate = new Date(), timeZone = 'Europe/London') {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(nowDate);
   const value = (kind) => String(parts.find((part) => part.type === kind)?.value || '');
-  const today = `${value('year')}-${value('month')}-${value('day')}`;
-  const current = payCycleKeyForDate(today);
-  const previous = new Date(`${today}T12:00:00Z`);
-  previous.setUTCDate(previous.getUTCDate() - 28);
-  return [current, payCycleKeyForDate(previous.toISOString().slice(0, 10))].filter(Boolean);
+  return `${value('year')}-${value('month')}-${value('day')}`;
 }
 
-function isCurrentPayMonthRecord(row, timeZone = 'Europe/London', nowDate = new Date()) {
+function payCycleKeyForDate(value, payPeriods = defaultPayPeriods()) {
+  return payPeriods && typeof payPeriods.payMonthKeyForDate === 'function' ? payPeriods.payMonthKeyForDate(value) : '';
+}
+
+function payMonthForPayload(payload, fallbackDate, payPeriods = defaultPayPeriods()) {
+  const dailyRows = [payload?.rows, payload?.dailyRows, payload?.daily_rows, payload?.gmtDailyRows].find(Array.isArray) || [];
+  const firstDailyDate = dailyRows.map((row) => text(row?.date, '', 10)).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort()[0];
+  return payCycleKeyForDate(firstDailyDate || fallbackDate, payPeriods);
+}
+
+function editablePayCycleKeys(nowDate = new Date(), timeZone = 'Europe/London', payPeriods = defaultPayPeriods()) {
+  const today = londonDateKey(nowDate, timeZone);
+  const current = payCycleKeyForDate(today, payPeriods);
+  const previous = payPeriods && typeof payPeriods.previousPayMonthKey === 'function' ? payPeriods.previousPayMonthKey(current) : '';
+  return [current, previous].filter(Boolean);
+}
+
+function isCurrentPayMonthRecord(row, timeZone = 'Europe/London', nowDate = new Date(), payPeriods = defaultPayPeriods()) {
   if (!row) return false;
   const payload = payloadObject(row);
   const declared = text(payload.payMonth || payload.pay_month, '', 7);
   const dates = Array.isArray(payload.rows) ? payload.rows.map((entry) => text(entry?.date, '', 10)).filter(Boolean) : [];
-  const dateMonth = payCycleKeyForDate(dates[0] || row.record_date || row.start_date || row.end_date);
+  const dateMonth = payCycleKeyForDate(dates[0] || row.record_date || row.start_date || row.end_date, payPeriods);
   const month = row.action === 'pay_month_correction' && /^\d{4}-\d{2}$/.test(declared) ? declared : (dateMonth || declared);
-  return editablePayCycleKeys(nowDate, timeZone).includes(month);
+  return editablePayCycleKeys(nowDate, timeZone, payPeriods).includes(month);
 }
 
-function validatePayMonthCorrection(body, nowDate = new Date()) {
+function validatePayMonthCorrection(body, nowDate = new Date(), payPeriods = defaultPayPeriods()) {
   const payload = body?.payload && typeof body.payload === 'object' ? body.payload : {};
   const month = text(payload.payMonth, '', 7);
-  if (!/^\d{4}-\d{2}$/.test(month) || !editablePayCycleKeys(nowDate).includes(month)) {
+  if (!/^\d{4}-\d{2}$/.test(month) || !editablePayCycleKeys(nowDate, 'Europe/London', payPeriods).includes(month)) {
     throw Object.assign(new Error('Only the current and previous pay months are editable'), { status: 409 });
   }
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
@@ -709,7 +721,7 @@ function validatePayMonthCorrection(body, nowDate = new Date()) {
   const seen = new Set();
   [...rows.map((row) => row?.date), ...deletedDays].forEach((date) => {
     const key = text(date, '', 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || payCycleKeyForDate(key) !== month) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || payCycleKeyForDate(key, payPeriods) !== month) {
       throw Object.assign(new Error('Every corrected date must belong to the selected pay month'), { status: 400 });
     }
     if (seen.has(key)) throw Object.assign(new Error('Each corrected date must be unique'), { status: 400 });
@@ -798,7 +810,7 @@ function parsePayload(body) {
   return safe;
 }
 
-function normaliseInput(body, identity, existing = null, env = null) {
+function normaliseInput(body, identity, existing = null, env = null, payPeriods = defaultPayPeriods()) {
   const payload = parsePayload(body);
   const kind = canonicalKind(body.kind || body.type || payload.kind);
   if (!ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
@@ -816,6 +828,10 @@ function normaliseInput(body, identity, existing = null, env = null) {
   const syntheticTestName = /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
   const action = text(body.action || body.gmtAction || payload.action || (kind === 'clock' ? 'clock_event' : 'submission'), 'submission', 100);
   validateNoFutureWork(kind, action, payload);
+  if (kind === 'timesheets' && action !== 'pay_month_correction') {
+    const computedPayMonth = payMonthForPayload(payload, payload.weekStart || body.weekStart || body.startDate || body.start_date, payPeriods);
+    if (computedPayMonth) payload.payMonth = computedPayMonth;
+  }
   const correctionOnBehalf = kind === 'timesheets' && action === 'pay_month_correction' && body.editMode === true && identity.isAdmin && !existing;
   const requestedUpn = text(body.employeeEmail || body.employee_upn, '', 320).toLowerCase();
   const rosterTarget = correctionOnBehalf ? directoryEntryFor(staffDirectory(env || {}), requestedEmployeeName, requestedUpn) : null;
@@ -1800,7 +1816,7 @@ function enquiryProjection(row, payload) {
   };
 }
 
-function projectRow(row, includeDetails = true, env = null) {
+function projectRow(row, includeDetails = true, env = null, payPeriods = defaultPayPeriods()) {
   const rawPayload = payloadObject(row);
   const payload = rawPayload && typeof rawPayload === 'object' ? { ...rawPayload } : {};
   const result = {
@@ -1816,7 +1832,7 @@ function projectRow(row, includeDetails = true, env = null) {
     updated_at: row.updated_at,
     issue: row.issue || '',
     source_record_id: row.record_id,
-    can_edit: row.kind === 'timesheets' && isCurrentPayMonthRecord(row),
+    can_edit: row.kind === 'timesheets' && isCurrentPayMonthRecord(row, 'Europe/London', new Date(), payPeriods),
     source: 'portal-d1',
     synthetic: syntheticRecord(row, payload)
   };
@@ -2955,7 +2971,7 @@ function decodeBase64(value) {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function dispatchForm(record, attachments) {
+function dispatchForm(record, attachments, payPeriods = defaultPayPeriods()) {
   const payload = payloadObject(record);
   const calendarSync = payload.calendarSync && typeof payload.calendarSync === 'object' ? payload.calendarSync : {};
   const totals = payload.totals && typeof payload.totals === 'object' ? payload.totals : {};
@@ -2972,9 +2988,10 @@ function dispatchForm(record, attachments) {
   // The first daily date may be in August while the pay month ends in
   // September. Never use the form's week-start field as the workbook month.
   const declaredMonth = text(payload.payMonth || payload.pay_month, '', 7);
-  const month = /^\d{4}-\d{2}$/.test(declaredMonth)
+  const calculatedMonth = payMonthForPayload(payload, weekStart, payPeriods);
+  const month = record.action === 'pay_month_correction' && /^\d{4}-\d{2}$/.test(declaredMonth)
     ? declaredMonth
-    : payCycleKeyForDate(weekStart) || 'unspecified';
+    : calculatedMonth || declaredMonth || 'unspecified';
   const workbookKey = `timesheet-${submissionKeyPart(employeeUpn || employeeEmail || employeeName)}-${month}`;
   const form = new FormData();
   const set = (name, value) => form.set(name, String(value == null ? '' : value));
@@ -3049,6 +3066,7 @@ function rateLimitRetryAt(timestamp, retryAfter) {
 async function dispatchQueued(env, options = {}) {
   const endpoint = dispatchEndpoint(env);
   if (!endpoint) return { status: 'not-configured', sent: 0, failed: 0, skipped: 0 };
+  const payPeriods = await loadPayPeriods(env);
   const timestamp = options.now || now();
   const limit = Math.min(Math.max(Number(options.limit || MAX_QUEUE_BATCH), 1), MAX_QUEUE_BATCH);
   const targetRecordId = text(options.recordId, '', MAX_RECORD_ID);
@@ -3098,7 +3116,7 @@ async function dispatchQueued(env, options = {}) {
       }
       const response = await (options.fetchImpl || fetch)(endpoint, {
         method: 'POST',
-        body: dispatchForm(row, attachments),
+        body: dispatchForm(row, attachments, payPeriods),
         headers: { Accept: 'application/json' }
       });
       const responseText = await response.text();
@@ -3227,6 +3245,89 @@ async function adminUsersEndpoint(request, env, identity, origin) {
   const current = await env.DB.prepare(`SELECT owner_oid, owner_upn, display_name, role, created_at, updated_at
     FROM portal_access_assignments WHERE owner_oid = ? AND owner_upn = ? ORDER BY role`).bind(oid, upn).all();
   return json({ ok: true, user: current.results || [] }, 200, origin || '');
+}
+
+async function payMonthStartsEndpoint(request, env, identity, origin) {
+  const payPeriods = await loadPayPeriods(env);
+  const today = londonDateKey();
+  const currentMonthKey = payPeriods.payMonthKeyForDate(today);
+  const currentPeriod = payPeriods.periodForMonth(currentMonthKey);
+  const nextMonthKey = currentPeriod ? payPeriods.payMonthKeyForDate(currentPeriod.nextStart) : '';
+  const nextPeriod = payPeriods.periodForMonth(nextMonthKey);
+  const settings = () => ({
+    startDates: payPeriods.getStartDates(),
+    canManage: identity.canManagePayMonthStarts === true,
+    currentMonthKey,
+    currentStart: currentPeriod && currentPeriod.start || '',
+    nextMonthKey,
+    nextStart: nextPeriod && nextPeriod.start || ''
+  });
+
+  if (request.method === 'GET') return json(settings(), 200, origin || '');
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, origin || '');
+  if (!identity.canManagePayMonthStarts) throw Object.assign(new Error('Pay-month start changes are restricted to approved Accounts users'), { status: 403 });
+
+  const body = await readJson(request);
+  const monthKey = text(body.monthKey, '', 7);
+  const startDate = text(body.startDate, '', 10);
+  const expectedOldStart = text(body.expectedOldStart, '', 10);
+  if (![currentMonthKey, nextMonthKey].includes(monthKey)) throw Object.assign(new Error('Choose the current or next pay month'), { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !payPeriods.periodForDate(startDate)) throw Object.assign(new Error('Choose a valid calendar date'), { status: 400 });
+  const oldPeriod = payPeriods.periodForMonth(monthKey);
+  if (!oldPeriod || oldPeriod.start !== expectedOldStart) throw Object.assign(new Error('This pay-month boundary changed since you opened the calendar. Reload and review it again.'), { status: 409 });
+  const previousMonthKey = payPeriods.previousPayMonthKey(monthKey);
+  const previousPeriod = payPeriods.periodForMonth(previousMonthKey);
+  const lowerBound = previousPeriod && previousPeriod.start || '';
+  const upperBound = monthKey === currentMonthKey
+    ? (nextPeriod && nextPeriod.start || oldPeriod.nextStart)
+    : (nextPeriod && nextPeriod.nextStart || oldPeriod.nextStart);
+  if ((lowerBound && startDate <= lowerBound) || (upperBound && startDate >= upperBound)) {
+    throw Object.assign(new Error(`Choose a date after ${lowerBound || 'the previous pay-month start'} and before ${upperBound || 'the following pay-month start'}`), { status: 400 });
+  }
+  if (monthKey === currentMonthKey && startDate > today) throw Object.assign(new Error('The current pay-month start cannot be in the future'), { status: 400 });
+  if (monthKey === nextMonthKey && startDate <= today) throw Object.assign(new Error('The next pay-month start must be in the future'), { status: 400 });
+  const proposedStarts = { ...payPeriods.getStartDates(), [monthKey]: startDate };
+  const proposedPeriods = defaultPayPeriods().createPayPeriods(proposedStarts);
+  if (proposedPeriods.payMonthKeyForDate(today) !== currentMonthKey
+      || proposedPeriods.payMonthKeyForDate(startDate) !== monthKey
+      || proposedPeriods.periodForDate(startDate)?.start !== startDate) {
+    throw Object.assign(new Error('That date would move the active pay-month window. Choose another date within the current or next pay-month range.'), { status: 400 });
+  }
+  if (startDate === oldPeriod.start) return json({ ok: true, changed: false, ...settings() }, 200, origin || '');
+
+  const timestamp = now();
+  const auditId = randomBase64Url(18);
+  const results = await env.DB.batch([
+    env.DB.prepare(`INSERT INTO pay_month_start_settings (month_key, start_date, actor_oid, actor_upn, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(month_key) DO UPDATE SET start_date=excluded.start_date, actor_oid=excluded.actor_oid,
+        actor_upn=excluded.actor_upn, updated_at=excluded.updated_at
+      WHERE pay_month_start_settings.start_date = ?`)
+      .bind(monthKey, startDate, identity.oid, identity.upn, timestamp, expectedOldStart),
+    env.DB.prepare(`INSERT INTO pay_month_start_audit (audit_id, actor_oid, actor_upn, month_key, old_start_date, new_start_date, created_at)
+      SELECT ?, ?, ?, ?, ?, ?, ? FROM pay_month_start_settings
+      WHERE month_key = ? AND start_date = ? AND updated_at = ? AND actor_oid = ? AND actor_upn = ?`)
+      .bind(auditId, identity.oid, identity.upn, monthKey, oldPeriod.start, startDate, timestamp,
+        monthKey, startDate, timestamp, identity.oid, identity.upn)
+  ]);
+  if (!(results[0] && results[0].meta && results[0].meta.changes > 0)) {
+    throw Object.assign(new Error('This pay-month boundary changed while you were saving. Reload and review it again.'), { status: 409 });
+  }
+  const updatedPeriods = await loadPayPeriods(env);
+  const updatedCurrentMonthKey = updatedPeriods.payMonthKeyForDate(today);
+  const updatedCurrentPeriod = updatedPeriods.periodForMonth(updatedCurrentMonthKey);
+  const updatedNextMonthKey = updatedCurrentPeriod ? updatedPeriods.payMonthKeyForDate(updatedCurrentPeriod.nextStart) : '';
+  const updatedNextPeriod = updatedPeriods.periodForMonth(updatedNextMonthKey);
+  return json({
+    ok: true,
+    changed: true,
+    startDates: updatedPeriods.getStartDates(),
+    canManage: true,
+    currentMonthKey: updatedCurrentMonthKey,
+    currentStart: updatedCurrentPeriod && updatedCurrentPeriod.start || '',
+    nextMonthKey: updatedNextMonthKey,
+    nextStart: updatedNextPeriod && updatedNextPeriod.start || ''
+  }, 200, origin || '');
 }
 
 function xeroRedirectResponse(returnUrl, result, reason = '', tenantName = '') {
@@ -4001,7 +4102,7 @@ async function syncXeroJobCard(request, env, identity, origin, recordId) {
   return json({ ok: true, record: projectRow(updated, true, env), invoice }, 200, origin || '');
 }
 
-async function listRecords(request, env, identity) {
+async function listRecords(request, env, identity, payPeriods = defaultPayPeriods()) {
   const url = new URL(request.url);
   const requestedKind = url.searchParams.get('kind') || 'all';
   const kind = requestedKind === 'all' ? '' : canonicalKind(requestedKind);
@@ -4055,7 +4156,7 @@ async function listRecords(request, env, identity) {
         : (kind ? (viewAll ? [kind, limit] : [identity.oid, identity.upn, kind, limit]) : [identity.oid, identity.upn, limit]);
   const result = await env.DB.prepare(sql).bind(...bindings).all();
   const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
-  const projectedLocalRecords = (result.results || []).map((row) => projectRow(row, true, env));
+  const projectedLocalRecords = (result.results || []).map((row) => projectRow(row, true, env, payPeriods));
   const syntheticRecordCount = projectedLocalRecords.filter((row) => row.synthetic).length;
   let records = includeSynthetic ? projectedLocalRecords : projectedLocalRecords.filter((row) => !row.synthetic);
   const localRecordCount = records.length;
@@ -4136,7 +4237,7 @@ async function listRecords(request, env, identity) {
       is_xero_admin: identity.isXeroAdmin,
       is_operations_admin: identity.isOperationsAdmin,
       is_job_card_admin: identity.isJobCardAdmin,
-      editable_pay_months: editablePayCycleKeys(),
+      editable_pay_months: editablePayCycleKeys(new Date(), 'Europe/London', payPeriods),
       visible_scope: identity.isTimesheetViewer
         ? 'all employee timesheets and clock records'
         : identity.isAdmin
@@ -4174,7 +4275,11 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/access' && request.method === 'GET') {
     return json({ isAdmin: identity.isAdmin, isHrAdmin: identity.isHrAdmin, isXeroAdmin: identity.isXeroAdmin,
       isOperationsAdmin: identity.isOperationsAdmin, isJobCardAdmin: identity.isJobCardAdmin,
+      canManagePayMonthStarts: identity.canManagePayMonthStarts,
       roles: identity.assignedRoles || [] }, 200, origin || '');
+  }
+  if (url.pathname === '/api/pay-month-starts' && ['GET', 'POST'].includes(request.method)) {
+    return payMonthStartsEndpoint(request, env, identity, origin || '');
   }
   if (url.pathname === '/api/admin/users' && ['GET', 'POST'].includes(request.method)) return adminUsersEndpoint(request, env, identity, origin || '');
 
@@ -4257,20 +4362,22 @@ async function handle(request, env, ctx) {
   }
 
   if (url.pathname === '/api/history' && request.method === 'GET') {
-    return json(await listRecords(request, env, identity), 200, origin || '');
+    const payPeriods = await loadPayPeriods(env);
+    return json(await listRecords(request, env, identity, payPeriods), 200, origin || '');
   }
 
   if (url.pathname === '/api/records' && request.method === 'POST') {
+    const payPeriods = await loadPayPeriods(env);
     const body = await readJson(request);
-    if (body.action === 'pay_month_correction') validatePayMonthCorrection(body);
+    if (body.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods);
     const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
     if (existing && !canAccessRecord(identity, existing)) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
     if (existing?.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
     if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
-    if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
-    const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env);
+    if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing, 'Europe/London', new Date(), payPeriods)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
+    const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
@@ -4309,14 +4416,18 @@ async function handle(request, env, ctx) {
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
     if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
-    if (request.method === 'GET') return json({ record: projectRow(existing, true, env), payload: payloadObject(existing) }, 200, origin || '');
+    if (request.method === 'GET') {
+      const payPeriods = await loadPayPeriods(env);
+      return json({ record: projectRow(existing, true, env, payPeriods), payload: payloadObject(existing) }, 200, origin || '');
+    }
     if (existing.action === 'archive_import' && (request.method === 'PATCH' || request.method === 'DELETE')) return json({ error: 'Scanned job-card records are managed through Accounts review' }, 409, origin || '');
     if (request.method === 'PATCH') {
-      if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing)) return json({ error: 'Only the current and previous pay months may be edited.' }, 409, origin || '');
+      const payPeriods = await loadPayPeriods(env);
+      if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing, 'Europe/London', new Date(), payPeriods)) return json({ error: 'Only the current and previous pay months may be edited.' }, 409, origin || '');
       const body = await readJson(request);
       if (existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') return json({ error: 'A pay-month correction cannot change record type' }, 400, origin || '');
-      if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body);
-      const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env);
+      if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods);
+      const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
       const result = await saveRecord(env, input, identity, existing);
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
     }

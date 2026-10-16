@@ -1797,29 +1797,35 @@ formToastDismiss?.addEventListener('click', hideToast);
 document.addEventListener('gmtportalidentity', (event) => applyPortalProfile(event.detail, true));
 document.addEventListener('gmtportalprofile', (event) => applyPortalProfile(event.detail, true));
 
-loadPortalProfile();
-syncPortalProfileWhenReady();
-// Safari can visually restore native date controls while their DOM values are blank.
-// A concrete current-week default keeps the form state and visible controls aligned.
-initialiseWeekDates();
-const loadedSubmittedDraft = loadSubmittedDraft();
-const loadedSavedDraft = !loadedSubmittedDraft && !requestedDay && loadSavedDraft();
-if (!loadedSubmittedDraft && !loadedSavedDraft) {
-  renderAbsenceRanges();
-  // Start with the current Monday-to-Friday period so weekend work is opt-in.
-  applyRequestedDayPeriod();
-  generateDaysFromRange();
-  window.setTimeout(focusRequestedDay, 0);
+async function startTimesheetPage() {
+  if (window.GMTPayPeriods && window.GMTPayPeriods.ready) await window.GMTPayPeriods.ready;
+  loadPortalProfile();
+  syncPortalProfileWhenReady();
+  // Safari can visually restore native date controls while their DOM values are blank.
+  // A concrete current-week default keeps the form state and visible controls aligned.
+  initialiseWeekDates();
+  const loadedSubmittedDraft = loadSubmittedDraft();
+  const loadedSavedDraft = !loadedSubmittedDraft && !requestedDay && loadSavedDraft();
+  if (!loadedSubmittedDraft && !loadedSavedDraft) {
+    renderAbsenceRanges();
+    // Start with the current Monday-to-Friday period so weekend work is opt-in.
+    applyRequestedDayPeriod();
+    generateDaysFromRange();
+    window.setTimeout(focusRequestedDay, 0);
+  }
+
+  // A protected record can be edited from a different browser. The local copy
+  // above remains the fast path; this route fills the form when only the durable
+  // portal record is available.
+  loadProtectedSubmittedDraft();
+
+  if (requestedDay) window.setTimeout(focusRequestedDay, 100);
 }
 
-// A protected record can be edited from a different browser. The local copy
-// above remains the fast path; this route fills the form when only the durable
-// portal record is available.
-loadProtectedSubmittedDraft();
+startTimesheetPage();
 
-if (requestedDay) window.setTimeout(focusRequestedDay, 100);
-
-window.addEventListener('pageshow', () => {
+window.addEventListener('pageshow', async () => {
+  if (window.GMTPayPeriods && window.GMTPayPeriods.ready) await window.GMTPayPeriods.ready;
   window.setTimeout(() => {
     const needsDateRecovery = !weekStart.value || !weekEnd.value || getRows().some((row) => !row.date);
     if (!needsDateRecovery) return;

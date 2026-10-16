@@ -17,6 +17,12 @@
   var eventsLink = null;
   var taskLink = null;
   var timeOffLink = null;
+  var payMonthStartButton = null;
+  var payMonthStartPanel = null;
+  var payMonthStartForm = null;
+  var payMonthStartLabel = null;
+  var payMonthStartStatus = null;
+  var selectedCalendarDay = '';
   var activeRecord = null;
   var requestDialog = null;
 
@@ -46,6 +52,31 @@
     return helper && typeof helper.payMonthKeyForDate === "function"
       ? helper.payMonthKeyForDate(value)
       : (validDay(value) ? String(value).slice(0, 7) : "");
+  }
+
+  function monthLabel(value) {
+    if (!/^\d{4}-\d{2}$/.test(String(value || ''))) return String(value || 'pay month');
+    return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(value + '-01T12:00:00Z'));
+  }
+
+  function fullDateLabel(value) {
+    if (!validDay(value)) return String(value || '');
+    return new Intl.DateTimeFormat('en-GB', { dateStyle: 'full', timeZone: 'UTC' }).format(new Date(value + 'T12:00:00Z'));
+  }
+
+  function refreshPayMonthStartPrompt() {
+    if (!payMonthStartForm || !payMonthStartLabel) return;
+    var helper = window.GMTPayPeriods;
+    var select = payMonthStartForm.elements.monthKey;
+    var key = String(select && select.value || '');
+    var choice = select && select.selectedOptions && select.selectedOptions[0];
+    var prefix = choice && choice.getAttribute('data-choice-label') || 'the selected pay month';
+    payMonthStartLabel.textContent = 'Confirm: set ' + fullDateLabel(selectedCalendarDay) + ' as the start of ' + prefix + ' (' + monthLabel(key) + ').';
+    var period = helper && helper.periodForMonth && helper.periodForMonth(key);
+    var current = period && period.start || '';
+    var old = payMonthStartForm.querySelector('[data-pay-month-start-current]');
+    if (old) old.textContent = current ? 'Current start: ' + current + '.' : '';
   }
 
   function href(path, params, hash) {
@@ -180,10 +211,12 @@
         '<a class="calendar-day-action" data-calendar-action-timesheet><strong>Create timesheet</strong><small>Open the daily entry for this pay month.</small></a>' +
         '<a class="calendar-day-action" data-calendar-action-edit-entry hidden><strong>Edit entry</strong><small>Open the permitted editor for this protected record.</small></a>' +
         '<button type="button" class="calendar-day-action calendar-day-action-danger" data-calendar-action-delete hidden><strong>Delete entry</strong><small>Remove this entry from active history and the calendar.</small></button>' +
+        '<button type="button" class="calendar-day-action" data-calendar-action-paymonth hidden><strong>Set pay-month start day</strong><small>Choose whether this date starts the current or next pay month.</small></button>' +
         '<a class="calendar-day-action" data-calendar-action-events><strong>View this day’s events</strong><small>Review dated timesheets and calendar requests.</small></a>' +
         '<a class="calendar-day-action" data-calendar-action-task><strong>Create task</strong><small>Start a task with this date as its due date.</small></a>' +
         '<a class="calendar-day-action" data-calendar-action-time-off><strong>Request time off</strong><small>Open a dated absence or leave request.</small></a>' +
-      '</div><p class="calendar-day-actions-status" data-calendar-action-status role="status" hidden></p></div><article class="calendar-day-actions-preview" data-calendar-action-preview aria-live="polite"><p class="portal-card-kicker">Entry preview</p><h3>No entry selected</h3><p class="small-text">Tap or click a dated entry to preview its details here.</p></article></div>';
+      '</div><section class="calendar-pay-month-start-panel" data-pay-month-start-panel hidden><form data-pay-month-start-form><label for="calendar-pay-month-choice">Apply this date to</label><select id="calendar-pay-month-choice" name="monthKey" required></select><p class="small-text" data-pay-month-start-current></p><p class="small-text" data-pay-month-start-confirm></p><div class="pay-month-edit-actions"><button type="submit">Confirm and save start day</button><button type="button" class="secondary" data-pay-month-start-cancel>Cancel</button></div><p class="calendar-day-actions-status" data-pay-month-start-status role="status"></p></form></section>' +
+      '<p class="calendar-day-actions-status" data-calendar-action-status role="status" hidden></p></div><article class="calendar-day-actions-preview" data-calendar-action-preview aria-live="polite"><p class="portal-card-kicker">Entry preview</p><h3>No entry selected</h3><p class="small-text">Tap or click a dated entry to preview its details here.</p></article></div>';
     document.body.appendChild(dialog);
     dialogHeading = dialog.querySelector("#calendar-day-actions-title");
     dialogDate = dialog.querySelector("#calendar-day-actions-date");
@@ -196,6 +229,54 @@
     eventsLink = dialog.querySelector("[data-calendar-action-events]");
     taskLink = dialog.querySelector("[data-calendar-action-task]");
     timeOffLink = dialog.querySelector("[data-calendar-action-time-off]");
+    payMonthStartButton = dialog.querySelector("[data-calendar-action-paymonth]");
+    payMonthStartPanel = dialog.querySelector("[data-pay-month-start-panel]");
+    payMonthStartForm = dialog.querySelector("[data-pay-month-start-form]");
+    payMonthStartLabel = dialog.querySelector("[data-pay-month-start-confirm]");
+    payMonthStartStatus = dialog.querySelector("[data-pay-month-start-status]");
+    payMonthStartButton.addEventListener("click", function () {
+      if (!payMonthStartPanel) return;
+      payMonthStartPanel.hidden = false;
+      payMonthStartStatus.textContent = "";
+      refreshPayMonthStartPrompt();
+      var select = payMonthStartForm.elements.monthKey;
+      if (select && typeof select.focus === "function") select.focus();
+    });
+    payMonthStartForm.elements.monthKey.addEventListener("change", refreshPayMonthStartPrompt);
+    payMonthStartForm.querySelector("[data-pay-month-start-cancel]").addEventListener("click", function () {
+      payMonthStartPanel.hidden = true;
+      payMonthStartStatus.textContent = "";
+    });
+    payMonthStartForm.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      var helper = window.GMTPayPeriods;
+      var portalApi = window.GMTPortalApi;
+      var monthKey = String(payMonthStartForm.elements.monthKey.value || "");
+      var period = helper && helper.periodForMonth ? helper.periodForMonth(monthKey) : null;
+      if (!helper || !helper.canManagePayMonthStarts || !period || !portalApi || typeof portalApi.setPayMonthStart !== "function") {
+        payMonthStartStatus.textContent = "Pay-month start changes are unavailable for this signed-in account.";
+        return;
+      }
+      var saveButton = payMonthStartForm.querySelector('button[type="submit"]');
+      saveButton.disabled = true;
+      payMonthStartStatus.textContent = "Saving the " + monthLabel(monthKey) + " boundary…";
+      try {
+        var response = await portalApi.setPayMonthStart({ monthKey: monthKey, startDate: selectedCalendarDay, expectedOldStart: period.start });
+        helper.replaceStartDates(response.startDates || {});
+        helper.currentMonthKey = String(response.currentMonthKey || "");
+        helper.nextMonthKey = String(response.nextMonthKey || "");
+        helper.settingsLoaded = true;
+        document.dispatchEvent(new CustomEvent("gmt:pay-month-start-updated", { detail: response }));
+        payMonthStartStatus.textContent = response.changed === false
+          ? monthLabel(monthKey) + " already starts on " + selectedCalendarDay + "."
+          : monthLabel(monthKey) + " now starts on " + selectedCalendarDay + ". Refreshing sheets…";
+        if (response.changed !== false) window.setTimeout(function () { window.location.reload(); }, 1200);
+      } catch (error) {
+        payMonthStartStatus.textContent = error && error.message ? error.message : "The pay-month start could not be saved.";
+      } finally {
+        saveButton.disabled = false;
+      }
+    });
     dialog.addEventListener("click", function (event) {
       if (event.target === dialog || event.target.closest("[data-calendar-actions-close]")) dialog.close();
     });
@@ -331,15 +412,17 @@
     else target.setAttribute("open", "");
   }
 
-  function open(day, options) {
+  async function open(day, options) {
     if (!validDay(day)) return;
+    var helper = window.GMTPayPeriods;
+    if (helper && helper.ready && typeof helper.ready.then === "function") await helper.ready;
     var target = ensureDialog();
     var selectedEntry = options && options.selectedEntry || null;
     var entries = options && Array.isArray(options.entries) ? options.entries : [];
-    var formatted = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "Europe/London" }).format(new Date(day + "T12:00:00Z"));
+    selectedCalendarDay = day;
+    var formatted = fullDateLabel(day);
     dialogHeading.textContent = "Actions for " + formatted;
     dialogDate.textContent = day;
-    var helper = window.GMTPayPeriods;
     var period = helper && typeof helper.periodForDate === "function" ? helper.periodForDate(day) : null;
     dialogNote.textContent = period
       ? "Choose an action for this date. New timesheet entries are always accepted and filed to the " + period.key + " pay-month workbook (" + period.start + " to " + period.end + ")."
@@ -359,6 +442,19 @@
     eventsLink.href = href("/portal/timesheets", { day: day, month: day.slice(0, 7) });
     taskLink.href = href("/tasks/", { date: day });
     timeOffLink.href = href("/portal/submissions", { request: "time-off", date: day });
+    if (payMonthStartButton) payMonthStartButton.hidden = !(helper && helper.settingsLoaded && helper.canManagePayMonthStarts === true);
+    if (payMonthStartPanel) payMonthStartPanel.hidden = true;
+    if (payMonthStartForm && helper && helper.settingsLoaded) {
+      var currentKey = String(helper.currentMonthKey || currentPayMonth());
+      var nextKey = String(helper.nextMonthKey || helper.nextPayMonthKey && helper.nextPayMonthKey(currentKey) || "");
+      var choice = payMonthStartForm.elements.monthKey;
+      if (choice) {
+        choice.innerHTML = '<option value="' + currentKey + '" data-choice-label="Current pay month">Current ' + monthLabel(currentKey) + '</option>' +
+          (nextKey ? '<option value="' + nextKey + '" data-choice-label="Next pay month">Next month ' + monthLabel(nextKey) + '</option>' : '');
+      }
+      if (payMonthStartStatus) payMonthStartStatus.textContent = "";
+      refreshPayMonthStartPrompt();
+    }
     timesheetLink.classList.remove("is-disabled");
     timesheetLink.removeAttribute("aria-disabled");
     timesheetLink.removeAttribute("tabindex");

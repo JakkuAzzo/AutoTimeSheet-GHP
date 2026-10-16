@@ -1515,7 +1515,8 @@
     });
   }
 
-  document.addEventListener("DOMContentLoaded", function () {
+  document.addEventListener("DOMContentLoaded", async function () {
+    if (window.GMTPayPeriods && window.GMTPayPeriods.ready) await window.GMTPayPeriods.ready;
     applyRouteState();
     if (frame) sendCurrentFilter();
     else return loadDirect();

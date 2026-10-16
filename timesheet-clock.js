@@ -623,7 +623,8 @@
     });
   }
 
-  init();
+  Promise.resolve(window.GMTPayPeriods && window.GMTPayPeriods.ready)
+    .then(init);
   document.addEventListener('gmtportalidentity', (event) => {
     document.querySelectorAll('[data-clock-form]').forEach((card) => prefillClockIdentity(card, event.detail, true));
   });

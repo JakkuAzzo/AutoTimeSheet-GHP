@@ -199,7 +199,8 @@
     }
   }
 
-  function init() {
+  async function init() {
+    if (window.GMTPayPeriods && window.GMTPayPeriods.ready) await window.GMTPayPeriods.ready;
     const outlook = $('#open-outlook-calendar');
     if (outlook) outlook.href = outlookUrl;
     const params = new URLSearchParams(window.location.search || '');

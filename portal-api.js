@@ -85,6 +85,14 @@
     return request('/api/admin/users', { method: 'POST', body: body || {} });
   }
 
+  function payMonthStarts() {
+    return request('/api/pay-month-starts', { method: 'GET' });
+  }
+
+  function setPayMonthStart(body) {
+    return request('/api/pay-month-starts', { method: 'POST', body: body || {} });
+  }
+
   function saveRecord(record) {
     return request("/api/records", { method: "POST", body: record });
   }
@@ -440,6 +448,8 @@
     access: access,
     adminUsers: adminUsers,
     updateUserAccess: updateUserAccess,
+    payMonthStarts: payMonthStarts,
+    setPayMonthStart: setPayMonthStart,
     saveRecord: saveRecord,
     updateRecord: updateRecord,
     queueAttachments: queueAttachments,

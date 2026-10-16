@@ -38,7 +38,7 @@
 
   function summarize(options) {
     var period = options && options.period;
-    if (!period || !dateKey(period.start) || !dateKey(period.end)) return null;
+    if (!period || !dateKey(period.start) || !dateKey(period.cycleEnd || period.end)) return null;
     var email = String(options.employeeEmail || '').trim().toLowerCase();
     var workdays = Array.isArray(options.workdays) && options.workdays.length ? options.workdays : [1, 2, 3, 4, 5];
     var states = {};
@@ -62,7 +62,7 @@
     });
     var today = dateKey(options.today || new Date().toISOString());
     var expected = [];
-    for (var date = new Date(period.start + 'T12:00:00Z'), end = new Date(period.end + 'T12:00:00Z'); date <= end; date.setUTCDate(date.getUTCDate() + 1)) {
+    for (var date = new Date(period.start + 'T12:00:00Z'), end = new Date((period.cycleEnd || period.end) + 'T12:00:00Z'); date <= end; date.setUTCDate(date.getUTCDate() + 1)) {
       var weekday = date.getUTCDay() || 7;
       if (workdays.indexOf(weekday) !== -1) expected.push(date.toISOString().slice(0, 10));
     }

@@ -117,7 +117,7 @@
     var items = Array.isArray(sheet && sheet.rows) ? sheet.rows : [];
     var weeks = {};
     var firstWeek = weekBounds(period && period.start);
-    var lastWeek = weekBounds(period && period.end);
+    var lastWeek = weekBounds(period && (period.cycleEnd || period.end));
     if (firstWeek && lastWeek && firstWeek.start <= lastWeek.start) {
       var cursor = new Date(firstWeek.start + "T00:00:00Z");
       while (cursor.toISOString().slice(0, 10) <= lastWeek.start) {
