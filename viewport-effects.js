@@ -144,6 +144,7 @@
 
     var dashboard = document.querySelector('.portal-dashboard-main');
     if (!dashboard) return;
+    if (!dashboard.querySelector('[data-scroll-snap]')) return;
 
     var enabled = false;
     function enable() {

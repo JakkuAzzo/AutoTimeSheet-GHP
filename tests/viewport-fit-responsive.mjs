@@ -123,6 +123,43 @@ try {
           failures.push(`${route} at ${width}x${height}: ${panel.className} clips ${panel.scrollHeight - panel.clientHeight}px of content`);
         }
       }
+      if (route === '/portal/' && ((width === 1280 && height === 720) || (width === 1440 && height === 900))) {
+        const viewportLabel = `${width}x${height}`;
+        await page.evaluate(() => {
+          const main = document.querySelector('main.app-main:not([hidden])');
+          const quickActions = main?.querySelector('.portal-quick-actions');
+          if (main) main.style.scrollBehavior = 'auto';
+          if (main && quickActions) main.scrollTop += quickActions.getBoundingClientRect().top - main.getBoundingClientRect().top;
+        });
+        const dashboard = await page.evaluate(() => {
+          const main = document.querySelector('main.app-main:not([hidden])');
+          const quickActions = main?.querySelector('.portal-quick-actions');
+          const cards = [...(quickActions?.querySelectorAll('.portal-action-card') || [])]
+            .filter((card) => getComputedStyle(card).display !== 'none');
+          return {
+            snapPanelCount: main?.querySelectorAll('[data-scroll-snap]').length || 0,
+            snapType: main ? getComputedStyle(main).scrollSnapType : 'none',
+            mainScrollTop: main?.scrollTop || 0,
+            mainTop: main?.getBoundingClientRect().top || 0,
+            mainBottom: main?.getBoundingClientRect().bottom || 0,
+            mainHeight: main?.clientHeight || 0,
+            mainScrollHeight: main?.scrollHeight || 0,
+            updates: (() => {
+              const rect = main?.querySelector('.portal-updates')?.getBoundingClientRect();
+              return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null;
+            })(),
+            quickActionsTop: quickActions?.getBoundingClientRect().top || 0,
+            quickActionsBottom: quickActions?.getBoundingClientRect().bottom || 0,
+            quickActionsHeight: quickActions?.getBoundingClientRect().height || 0,
+            actionCardBottoms: cards.map((card) => card.getBoundingClientRect().bottom)
+          };
+        });
+        if (dashboard.snapPanelCount) failures.push(`/portal/ at ${viewportLabel}: dashboard still uses full-screen snap panels`);
+        if (dashboard.snapType.includes('y')) failures.push(`/portal/ at ${viewportLabel}: dashboard still snaps between full-screen panels`);
+        if (dashboard.quickActionsTop < dashboard.mainTop - 1) failures.push(`/portal/ at ${viewportLabel}: quick actions begin above the visible dashboard viewport`);
+        if (dashboard.quickActionsBottom > dashboard.mainBottom + 1) failures.push(`/portal/ at ${viewportLabel}: quick actions ${JSON.stringify(dashboard)} exceed main bottom`);
+        if (dashboard.actionCardBottoms.some((bottom) => bottom > dashboard.mainBottom + 1)) failures.push(`/portal/ at ${viewportLabel}: quick-action cards end at ${Math.max(...dashboard.actionCardBottoms)}px below main bottom ${dashboard.mainBottom}px`);
+      }
       if (route === '/') {
         await page.mouse.move(Math.floor(width / 2), Math.floor(height / 2));
         await page.mouse.wheel(0, 24);
@@ -144,7 +181,7 @@ try {
           const main = document.querySelector('main.app-main:not([hidden])');
           return { ready: main?.getAttribute('data-portal-scroll-snap-ready'), type: main ? getComputedStyle(main).scrollSnapType : 'none' };
         });
-        if (activeSnap.ready !== 'true' || !activeSnap.type.includes('y')) failures.push(`/portal/ at ${width}x${height}: dashboard scroll does not activate vertical snap`);
+        if (activeSnap.ready === 'true' || activeSnap.type.includes('y')) failures.push(`/portal/ at ${width}x${height}: dashboard unexpectedly activates full-screen snapping`);
       }
     }
 
@@ -169,7 +206,7 @@ try {
         const main = document.querySelector('main.app-main:not([hidden])');
         return { ready: main?.getAttribute('data-portal-scroll-snap-ready'), type: main ? getComputedStyle(main).scrollSnapType : 'none' };
       });
-      if (snap.ready !== 'true' || !snap.type.includes('y')) failures.push('/portal/: dashboard does not enable vertical section snapping after user scroll');
+      if (snap.ready === 'true' || snap.type.includes('y')) failures.push('/portal/: dashboard unexpectedly enables vertical section snapping after user scroll');
     }
   }
 
