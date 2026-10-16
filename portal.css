@@ -284,6 +284,10 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .calendar-day-actions-close { flex: 0 0 auto; min-height: 38px; }
 .calendar-day-actions-note { margin: .9rem 0 .7rem; color: var(--muted); font-size: .9rem; line-height: 1.4; }
 .calendar-day-actions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.calendar-pay-month-start-panel { margin-top: .75rem; padding: .8rem; border: 1px solid var(--line); border-radius: .7rem; background: #f7faf5; }
+.calendar-pay-month-start-panel label { display: block; margin: 0 0 .35rem; font-weight: 700; }
+.calendar-pay-month-start-panel select { width: 100%; min-height: 42px; padding: .5rem .65rem; border: 1px solid var(--line); border-radius: .45rem; background: #fff; }
+.calendar-pay-month-start-panel p { margin: .55rem 0; }
 .calendar-day-action {
   display: grid;
   gap: .25rem;

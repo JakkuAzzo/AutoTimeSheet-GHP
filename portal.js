@@ -1374,7 +1374,8 @@
     $('#export-ics-btn')?.addEventListener('click', exportCalendarIcs);
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (window.GMTPayPeriods && window.GMTPayPeriods.ready) await window.GMTPayPeriods.ready;
     bindTabs(); bindJobs(); bindTasks(); bindOrg(); bindNotifications(); bindCalendar();
     renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
     prefillPortalIdentity();
