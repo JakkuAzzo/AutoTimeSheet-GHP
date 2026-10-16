@@ -1033,13 +1033,13 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .job-card-preview-toggle button { flex: 1 1 0; }
   .job-card-preview { padding: .35rem; }
   .job-card-sheet { padding: .6rem; }
-  .job-sheet-topline { gap: .5rem; }
-  .job-sheet-branding { gap: .35rem; }
+  .job-sheet-topline { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: .5rem; }
+  .job-sheet-branding { gap: .35rem; min-width: 0; }
   .job-card-sheet .job-sheet-logo { width: 1.65rem; height: 1.65rem; max-width: 1.65rem; max-height: 1.65rem; }
-  .job-sheet-brand { font-size: .88rem; }
-  .job-sheet-number { min-width: 5.5rem; }
+  .job-sheet-brand { min-width: 0; overflow-wrap: anywhere; font-size: .88rem; }
+  .job-sheet-number { min-width: 0; }
   .job-sheet-number span, .job-sheet-field span, .job-sheet-box > span { font-size: .58rem; }
-  .job-sheet-number strong { font-size: .8rem; }
+  .job-sheet-number strong { display: block; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; font-size: .8rem; }
   .job-sheet-meta-ec, .job-sheet-mta-meta, .job-sheet-footer-grid, .job-sheet-mta-parties, .job-sheet-mta-report, .job-sheet-mta-footer { grid-template-columns: 1fr; }
   .job-sheet-mta-meta .job-sheet-field { grid-template-columns: max-content minmax(0, 1fr); }
   .job-sheet-footer-grid .job-sheet-field { grid-template-columns: 1fr; }
