@@ -22,7 +22,7 @@ assert.match(mobileTopline, /grid-template-columns:\s*minmax\(0,\s*[\d.]+fr\)\s+
 assert.match(mobileNumber, /min-width:\s*0/, 'the mobile job-card number can shrink below its prior fixed minimum');
 assert.match(miniSummary, /white-space:\s*normal/, 'collapsed timesheet summaries wrap so their details remain visible');
 assert.doesNotMatch(miniSummary, /overflow:\s*hidden|text-overflow:\s*ellipsis/, 'collapsed timesheet summaries do not silently truncate details');
-assert.match(jobsPageHtml, /portal\.css\?v=portal-responsive-layout-20261016-v4/, 'job history loads the cache-busted portal stylesheet that contains its shrinkable layout');
+assert.match(jobsPageHtml, /portal\.css\?v=portal-responsive-layout-20261016-v6/, 'job history loads the cache-busted portal stylesheet that contains its shrinkable layout');
 
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');

@@ -1396,3 +1396,97 @@ body { min-width: 0; overflow-x: hidden; overflow-x: clip; }
   margin-inline: auto;
 }
 .timesheet-submit-success-main .card { margin: .5rem 0; }
+
+/* Fit the complete staff workspace inside the available device viewport.
+   Each dashboard panel gets its own contained scroll area so no record or
+   clock-in control is clipped on short phone and laptop screens. */
+html[data-portal-viewport-shell="true"] {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+html[data-portal-viewport-shell="true"] body {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+html[data-portal-viewport-shell="true"] body > header {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+html[data-portal-viewport-shell="true"] .portal-tabs {
+  position: sticky;
+  top: 0;
+  flex: 0 0 auto;
+  max-height: 24vh;
+  max-height: 24svh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html[data-portal-viewport-shell="true"] .app-main:not([hidden]),
+html[data-portal-viewport-shell="true"] main:not([hidden]) {
+  flex: 1 1 0%;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  scroll-behavior: smooth;
+  scroll-padding-block-start: .75rem;
+}
+
+html[data-portal-viewport-shell="true"] .portal-dashboard-main {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: .75rem;
+}
+
+html[data-portal-viewport-shell="true"] .portal-dashboard-main [data-scroll-snap] {
+  box-sizing: border-box;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  margin-block: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  scroll-snap-align: start;
+}
+
+html[data-portal-viewport-shell="true"] .portal-dashboard-main[data-portal-scroll-snap-ready="true"] {
+  scroll-snap-type: y proximity;
+}
+
+html[data-portal-viewport-shell="true"] .portal-updates {
+  align-items: stretch;
+}
+
+html[data-portal-viewport-shell="true"] .portal-updates-slide:not([hidden]) {
+  min-height: 0;
+}
+
+html[data-portal-viewport-shell="true"] .portal-quick-actions,
+html[data-portal-viewport-shell="true"] .portal-dashboard-grid {
+  margin-block: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-portal-viewport-shell="true"] .app-main:not([hidden]) { scroll-behavior: auto; }
+  html[data-portal-viewport-shell="true"] .portal-dashboard-main { scroll-snap-type: none !important; }
+  html[data-portal-viewport-shell="true"] .portal-dashboard-main [data-scroll-snap] { scroll-behavior: auto; }
+}
