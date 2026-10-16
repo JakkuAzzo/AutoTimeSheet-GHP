@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 const portalCss = await readFile(new URL('../portal.css', import.meta.url), 'utf8');
 const stylesCss = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
 const estimateCss = await readFile(new URL('../tools/estimates.css', import.meta.url), 'utf8');
+const jobsPageHtml = await readFile(new URL('../jobs/index.html', import.meta.url), 'utf8');
 const numberField = portalCss.match(/\.job-sheet-number\s*\{([^}]*)\}/)?.[1] || '';
 const reference = portalCss.match(/\.job-sheet-number\s+strong\s*\{([^}]*)\}/)?.[1] || '';
 const miniSummary = stylesCss.match(/\.day-mini-summary\s*\{([^}]*)\}/)?.[1] || '';
@@ -21,6 +22,7 @@ assert.match(mobileTopline, /grid-template-columns:\s*minmax\(0,\s*[\d.]+fr\)\s+
 assert.match(mobileNumber, /min-width:\s*0/, 'the mobile job-card number can shrink below its prior fixed minimum');
 assert.match(miniSummary, /white-space:\s*normal/, 'collapsed timesheet summaries wrap so their details remain visible');
 assert.doesNotMatch(miniSummary, /overflow:\s*hidden|text-overflow:\s*ellipsis/, 'collapsed timesheet summaries do not silently truncate details');
+assert.match(jobsPageHtml, /portal\.css\?v=portal-responsive-layout-20261016-v3/, 'job history loads the cache-busted portal stylesheet that contains its shrinkable layout');
 
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
