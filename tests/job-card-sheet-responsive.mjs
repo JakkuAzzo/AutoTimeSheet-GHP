@@ -22,7 +22,7 @@ assert.match(mobileTopline, /grid-template-columns:\s*minmax\(0,\s*[\d.]+fr\)\s+
 assert.match(mobileNumber, /min-width:\s*0/, 'the mobile job-card number can shrink below its prior fixed minimum');
 assert.match(miniSummary, /white-space:\s*normal/, 'collapsed timesheet summaries wrap so their details remain visible');
 assert.doesNotMatch(miniSummary, /overflow:\s*hidden|text-overflow:\s*ellipsis/, 'collapsed timesheet summaries do not silently truncate details');
-assert.match(jobsPageHtml, /portal\.css\?v=portal-responsive-layout-20261016-v3/, 'job history loads the cache-busted portal stylesheet that contains its shrinkable layout');
+assert.match(jobsPageHtml, /portal\.css\?v=portal-responsive-layout-20261016-v4/, 'job history loads the cache-busted portal stylesheet that contains its shrinkable layout');
 
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
@@ -95,6 +95,45 @@ try {
     assert.equal(layout.referenceText, longReference, `${width}px full job reference remains available`);
     assert.equal(layout.referenceOverflow, false, `${width}px long job reference wraps without clipping`);
     if (width <= 700) assert.equal(layout.topline, 'grid', `${width}px job-card header uses shrinkable grid columns`);
+  }
+
+  await page.setContent(`<!doctype html><html><head><style>${stylesCss}\n${portalCss}\n${estimateCss}</style></head><body>
+    <header class="app-header portal-header"><div class="brand-block"><div><p class="eyebrow">GMT Accounts</p><h1>Invoices</h1></div></div>
+      <nav class="header-actions"><span class="portal-identity-name">acc.gmtelect@outlook.com</span><a href="/portal/">Dashboard</a><button id="portal-sign-out">Sign out</button></nav>
+    </header>
+    <main class="app-main estimate-main"><section class="estimate-intro card xero-invoice-intro"><div><p class="portal-card-kicker">Accounts-only workflow</p><h2>Invoices in Xero</h2><p>GMT Accounts invoice access.</p></div>
+      <div class="xero-connection-summary"><span class="estimate-status-chip">Not connected</span><div class="xero-connections"><p class="portal-history-empty">No Xero organisation is connected.</p></div>
+        <div class="xero-connection-controls"><button class="secondary">Refresh from Xero</button><button class="button button-link">Connect Xero</button></div>
+      </div></section></main></body></html>`);
+
+  for (const [width, height] of viewports) {
+    await page.setViewportSize({ width, height });
+    const layout = await page.evaluate(() => {
+      const rect = (selector) => {
+        const box = document.querySelector(selector).getBoundingClientRect();
+        return { left: box.left, right: box.right, width: box.width };
+      };
+      const identity = document.querySelector('.portal-identity-name');
+      const controls = document.querySelector('.xero-connection-controls');
+      const summary = document.querySelector('.xero-connection-summary');
+      return {
+        document: { client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth },
+        identity: { rect: rect('.portal-identity-name'), client: identity.clientWidth, scroll: identity.scrollWidth,
+          whiteSpace: getComputedStyle(identity).whiteSpace, textOverflow: getComputedStyle(identity).textOverflow,
+          text: identity.textContent },
+        controls: rect('.xero-connection-controls'), summary: rect('.xero-connection-summary'),
+        intro: rect('.xero-invoice-intro')
+      };
+    });
+    assert.equal(layout.document.scroll, layout.document.client, `${width}px portal header and invoice introduction do not widen the page`);
+    assert.ok(layout.controls.left >= layout.summary.left - 1 && layout.controls.right <= layout.summary.right + 1,
+      `${width}px Xero connection actions stay inside their summary`);
+    assert.ok(layout.controls.left >= 0 && layout.controls.right <= width + 1,
+      `${width}px Xero connection actions stay inside the viewport`);
+    assert.equal(layout.identity.scroll <= layout.identity.client + 1, true, `${width}px signed-in account name is fully visible`);
+    assert.equal(layout.identity.whiteSpace, 'normal', `${width}px signed-in account name can wrap instead of truncating`);
+    assert.equal(layout.identity.textOverflow, 'clip', `${width}px signed-in account name does not use an ellipsis`);
+    assert.equal(layout.identity.text, 'acc.gmtelect@outlook.com', `${width}px full signed-in account name remains in the portal`);
   }
 } finally {
   await browser.close();
