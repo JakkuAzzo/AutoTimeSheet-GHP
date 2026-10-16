@@ -15,13 +15,6 @@
 html.portal-dashboard-document {
   scroll-padding-block-start: calc(var(--gmt-portal-tabs-height, 0px) + .75rem);
 }
-html.portal-dashboard-document[data-portal-scroll-snap-ready="true"] {
-  scroll-snap-type: y proximity;
-}
-html.portal-dashboard-document [data-scroll-snap] {
-  scroll-snap-align: start;
-  scroll-snap-stop: normal;
-}
 #portal-calendar-title {
   scroll-margin-block-start: calc(var(--gmt-portal-tabs-height, 0px) + .75rem);
 }
@@ -1397,9 +1390,8 @@ body { min-width: 0; overflow-x: hidden; overflow-x: clip; }
 }
 .timesheet-submit-success-main .card { margin: .5rem 0; }
 
-/* Fit the complete staff workspace inside the available device viewport.
-   Each dashboard panel gets its own contained scroll area so no record or
-   clock-in control is clipped on short phone and laptop screens. */
+/* Keep the staff workspace inside the device viewport while letting the
+   dashboard sections use their natural height in the shared scroll area. */
 html[data-portal-viewport-shell="true"] {
   width: 100%;
   height: 100%;
@@ -1450,26 +1442,9 @@ html[data-portal-viewport-shell="true"] .portal-dashboard-main {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0;
+  gap: .75rem;
   padding: .75rem;
-}
-
-html[data-portal-viewport-shell="true"] .portal-dashboard-main [data-scroll-snap] {
-  box-sizing: border-box;
-  flex: 0 0 100%;
-  width: 100%;
-  height: 100%;
-  min-height: 100%;
-  max-height: 100%;
-  margin-block: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: auto;
-  scroll-snap-align: start;
-}
-
-html[data-portal-viewport-shell="true"] .portal-dashboard-main[data-portal-scroll-snap-ready="true"] {
-  scroll-snap-type: y proximity;
+  scroll-snap-type: none;
 }
 
 html[data-portal-viewport-shell="true"] .portal-updates {
@@ -1480,6 +1455,7 @@ html[data-portal-viewport-shell="true"] .portal-updates-slide:not([hidden]) {
   min-height: 0;
 }
 
+html[data-portal-viewport-shell="true"] .portal-updates,
 html[data-portal-viewport-shell="true"] .portal-quick-actions,
 html[data-portal-viewport-shell="true"] .portal-dashboard-grid {
   margin-block: 0;
@@ -1488,5 +1464,4 @@ html[data-portal-viewport-shell="true"] .portal-dashboard-grid {
 @media (prefers-reduced-motion: reduce) {
   html[data-portal-viewport-shell="true"] .app-main:not([hidden]) { scroll-behavior: auto; }
   html[data-portal-viewport-shell="true"] .portal-dashboard-main { scroll-snap-type: none !important; }
-  html[data-portal-viewport-shell="true"] .portal-dashboard-main [data-scroll-snap] { scroll-behavior: auto; }
 }
