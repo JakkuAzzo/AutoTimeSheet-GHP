@@ -42,10 +42,10 @@ assert.match(homepage, /Why Choose GMT\?/i);
 assert.match(homepage, /id="services"/);
 assert.doesNotMatch(homepage, /Trusted Across London|useful turnaround/i,
   'Unverified trust and turnaround claims must stay out of public copy');
-assert.match(homepage, /public-site-mapfix-20260928\.js\?v=carousel-track-20261006-v4/);
+assert.match(homepage, /public-site-mapfix-20260928\.js\?v=active-panel-sizing-20261015-v11/);
 assert.match(publicSiteScript, /function updateMobileHeroHeight\(/,
   'The hero must size itself to the visible mobile viewport below the site header and nav');
-assert.match(publicStyles, /height:\s*var\(--gmt-mobile-hero-height(?:,[^)]+)?\)/,
+assert.match(publicStyles, /min-height:\s*max\([^;]*var\(--gmt-mobile-hero-height/,
   'The mobile hero must occupy only the viewport area below the measured site header and nav');
 assert.match(publicStyles, /\.hero\.is-hero-intro-active \.hero-inner\s*\{[^}]*position:\s*absolute/s,
   'Hidden hero copy must not stretch the intro stage and push the logo below the fold');
@@ -53,10 +53,10 @@ assert.match(publicStyles.slice(publicStyles.lastIndexOf('.workshop-motion-conte
   /grid-row:\s*1\s*;/,
   'The workshop motion heading and copy must precede its photo in the mobile slide');
 assert.match(publicStyles.slice(publicStyles.lastIndexOf('.workshop-motion-media {')),
-  /grid-row:\s*2\s*;/,
-  'The workshop motion photo must follow its heading and copy in the mobile slide');
-assert.match(homepage, /role="tablist"[^>]*aria-label="Our story and workshop pages"/,
-  'The story and workshop carousel must expose its page selector as a labeled tab list');
+  /grid-row:\s*1\s*;/,
+  'The workshop motion photo must align with its heading and copy in the mobile slide');
+assert.match(homepage, /role="tablist"[^>]*aria-label="Our story and how to reach out"/,
+  'The story and how-to-reach-out carousel must expose its page selector as a labeled tab list');
 assert.match(homepage, /role="tab"[^>]*aria-controls="about"[^>]*data-content-tab="about"/,
   'The first carousel tab must target the Our story panel');
 assert.match(homepage, /role="tab"[^>]*aria-controls="workshop-motion"[^>]*data-content-tab="workshop-motion"/,

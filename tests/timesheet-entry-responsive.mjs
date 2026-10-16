@@ -104,8 +104,14 @@ try {
           };
         }),
         collapsedSummaries: [...document.querySelectorAll('.day-card.is-collapsed .day-mini-summary')].map((element) => {
-          const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-          return { height: element.getBoundingClientRect().height, lineHeight };
+          const style = getComputedStyle(element);
+          return {
+            height: element.getBoundingClientRect().height,
+            clientHeight: element.clientHeight,
+            scrollHeight: element.scrollHeight,
+            textOverflow: style.textOverflow,
+            overflowY: style.overflowY
+          };
         }),
         dayGridColumns: new Set(controls.slice(0, 5).map((element) => Math.round(element.getBoundingClientRect().left))).size,
         buttons: buttons.map((element) => ({ name: element.getAttribute('aria-label') || element.textContent.trim(), ...rect(element) }))
@@ -120,7 +126,7 @@ try {
     if (layout.bodyResults.some(({ bodyBottom, resultTop }) => resultTop + 1 < bodyBottom)) failures.push(`${width}px: a calculated result overlaps its day controls or optional fields`);
     if (width <= 360 && layout.dayGridColumns !== 1) failures.push(`${width}px: narrow mobile controls used ${layout.dayGridColumns} columns from ${layout.controlCount} controls, expected one`);
     if (width > 360 && width <= 640 && layout.dayGridColumns !== 2) failures.push(`${width}px: mobile controls used ${layout.dayGridColumns} columns from ${layout.controlCount} controls, expected two`);
-    if (width >= 1024 && layout.collapsedSummaries.some(({ height, lineHeight }) => height > lineHeight * 1.5)) failures.push(`${width}px: a collapsed day summary wraps into multiple lines`);
+    if (layout.collapsedSummaries.some(({ clientHeight, scrollHeight, textOverflow, overflowY }) => scrollHeight > clientHeight + 1 || textOverflow === 'ellipsis' || overflowY === 'hidden' || overflowY === 'clip')) failures.push(`${width}px: a collapsed day summary is clipped or truncated`);
     layout.cards.forEach((card, index) => {
       if (card.scrollWidth > card.clientWidth + 1) failures.push(`${width}px: day ${index + 1} scrolls horizontally`);
     });

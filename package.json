@@ -23,6 +23,7 @@
     "test:jobs:access-policy": "node tests/job-card-access-policy.mjs",
     "test:jobs:archive": "node tests/job-card-archive.test.mjs",
     "test:jobs:archive-ui": "node tests/job-card-archive-ui.mjs",
+    "test:jobs:sheet-responsive": "node tests/job-card-sheet-responsive.mjs",
     "test:enquiries": "node tests/enquiry-contract.mjs",
     "test:submissions-ui": "node tests/submissions-ui-smoke.mjs",
     "test:dashboard-updates": "node tests/dashboard-updates-smoke.mjs",
