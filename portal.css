@@ -338,13 +338,20 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .calendar-more:hover, .calendar-more:focus-visible { color: var(--green); text-decoration: underline; }
 .portal-calendar-empty { margin: .65rem 0 0; color: var(--muted); font-size: .9rem; }
 .portal-dashboard-help { grid-column: 1 / -1; margin: 0; }
-.estimate-history-panel { container-type: inline-size; }
+.estimate-history-panel { container-type: inline-size; grid-template-columns: minmax(0, 1fr); min-width: 0; }
 @container (max-width: 1100px) {
   .portal-history-card .timesheet-history-layout,
-  .estimate-history-layout { grid-template-columns: 1fr; }
+  .estimate-history-layout { grid-template-columns: minmax(0, 1fr); }
   .timesheet-calendar-grid,
   .estimate-history-list { max-height: none; }
 }
+.job-card-history-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: .75rem; width: 100%; min-width: 0; }
+.job-card-history-layout > * { min-width: 0; }
+.job-card-history-layout > .record-invoice-links { grid-column: 1 / -1; }
+.estimate-history-panel .estimate-history-list { grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; }
+.estimate-history-panel .estimate-history-item { box-sizing: border-box; width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.estimate-history-panel .estimate-history-item strong,
+.estimate-history-panel .estimate-history-item small { overflow-wrap: anywhere; }
 .submission-demo-item { border-style: dashed; background: #fffdf3; }
 .submission-demo-item strong { color: #7a5a00; }
 .portal-history-demo { margin: .6rem 0; padding: .55rem .7rem; color: #5a4100; background: #fff1b8; border: 1px solid #d5b64a; border-radius: .45rem; font-weight: 800; }

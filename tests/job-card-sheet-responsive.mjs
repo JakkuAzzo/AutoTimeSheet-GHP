@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 
 const portalCss = await readFile(new URL('../portal.css', import.meta.url), 'utf8');
 const stylesCss = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
+const estimateCss = await readFile(new URL('../tools/estimates.css', import.meta.url), 'utf8');
 const numberField = portalCss.match(/\.job-sheet-number\s*\{([^}]*)\}/)?.[1] || '';
 const reference = portalCss.match(/\.job-sheet-number\s+strong\s*\{([^}]*)\}/)?.[1] || '';
 const miniSummary = stylesCss.match(/\.day-mini-summary\s*\{([^}]*)\}/)?.[1] || '';
@@ -28,13 +29,47 @@ const browser = await chromium.launch({ headless: true, ...(existsSync(chromePat
 try {
   const page = await browser.newPage({ viewport: { width: 320, height: 568 } });
   const longReference = `jobcard-${'a'.repeat(64)}-0001`;
+  const viewports = [[320, 568], [390, 844], [667, 375], [768, 1024], [1280, 720], [1440, 900]];
+  const historyReference = `jobcard-${'b'.repeat(64)}-0001`;
+  await page.setContent(`<!doctype html><html><head><style>${stylesCss}\n${portalCss}\n${estimateCss}</style></head><body>
+    <main class="app-main"><section class="card estimate-history-panel"><div class="estimate-history-layout job-card-history-layout">
+      <div class="estimate-history-list"><button class="estimate-history-item"><strong>${historyReference}</strong><span>Customer</span><small>MTA card · no date · Archived</small></button></div>
+      <article class="job-card-history-preview">Select a card</article><section class="record-invoice-links card">Invoices</section>
+    </div></section></main></body></html>`);
+
+  for (const [width, height] of viewports) {
+    await page.setViewportSize({ width, height });
+    const history = await page.evaluate(() => {
+      const rect = (selector) => {
+        const box = document.querySelector(selector).getBoundingClientRect();
+        return { left: box.left, right: box.right, width: box.width };
+      };
+      const root = document.documentElement;
+      const reference = document.querySelector('.estimate-history-item strong');
+      return {
+        viewport: innerWidth,
+        document: { client: root.clientWidth, scroll: root.scrollWidth },
+        layoutDisplay: getComputedStyle(document.querySelector('.job-card-history-layout')).display,
+        list: rect('.estimate-history-list'),
+        reference: rect('.estimate-history-item strong'),
+        referenceOverflow: reference.scrollWidth > reference.clientWidth + 1,
+        referenceText: reference.textContent
+      };
+    });
+    assert.equal(history.document.scroll, history.document.client, `${width}px job-card history has no horizontal page overflow`);
+    assert.equal(history.layoutDisplay, 'grid', `${width}px job-card history uses its responsive grid layout`);
+    assert.ok(history.list.left >= -1 && history.list.right <= width + 1, `${width}px job-card list remains inside the screen`);
+    assert.ok(history.reference.left >= history.list.left && history.reference.right <= history.list.right + 1, `${width}px full history reference stays inside the list`);
+    assert.equal(history.referenceText, historyReference, `${width}px full history reference remains available`);
+    assert.equal(history.referenceOverflow, false, `${width}px history reference wraps without clipping`);
+  }
+
   await page.setContent(`<!doctype html><html><head><style>${stylesCss}\n${portalCss}</style></head><body>
     <main class="app-main"><section class="app-card"><div class="job-card-preview"><article class="job-card-sheet job-card-sheet-mta">
       <div class="job-sheet-topline"><div class="job-sheet-branding"><img class="job-sheet-logo" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt=""><span class="job-sheet-brand job-sheet-brand-wide">GMT Electrical Services Ltd.</span></div>
       <div class="job-sheet-number"><span>MTA No.</span><strong>${longReference}</strong></div></div>
     </article></div></section></main></body></html>`);
 
-  const viewports = [[320, 568], [390, 844], [667, 375], [768, 1024], [1280, 720], [1440, 900]];
   for (const [width, height] of viewports) {
     await page.setViewportSize({ width, height });
     const layout = await page.evaluate(() => {
