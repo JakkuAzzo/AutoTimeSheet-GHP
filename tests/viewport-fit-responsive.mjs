@@ -134,31 +134,32 @@ try {
         const dashboard = await page.evaluate(() => {
           const main = document.querySelector('main.app-main:not([hidden])');
           const quickActions = main?.querySelector('.portal-quick-actions');
+          const adminLink = quickActions?.querySelector('[data-admin-users-link]');
+          if (adminLink) {
+            adminLink.hidden = false;
+            adminLink.removeAttribute('aria-hidden');
+          }
           const cards = [...(quickActions?.querySelectorAll('.portal-action-card') || [])]
             .filter((card) => getComputedStyle(card).display !== 'none');
+          const actionCardBottoms = cards.map((card) => card.getBoundingClientRect().bottom);
+          const quickActionsRect = quickActions?.getBoundingClientRect();
           return {
             snapPanelCount: main?.querySelectorAll('[data-scroll-snap]').length || 0,
             snapType: main ? getComputedStyle(main).scrollSnapType : 'none',
-            mainScrollTop: main?.scrollTop || 0,
             mainTop: main?.getBoundingClientRect().top || 0,
             mainBottom: main?.getBoundingClientRect().bottom || 0,
-            mainHeight: main?.clientHeight || 0,
-            mainScrollHeight: main?.scrollHeight || 0,
-            updates: (() => {
-              const rect = main?.querySelector('.portal-updates')?.getBoundingClientRect();
-              return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null;
-            })(),
-            quickActionsTop: quickActions?.getBoundingClientRect().top || 0,
-            quickActionsBottom: quickActions?.getBoundingClientRect().bottom || 0,
-            quickActionsHeight: quickActions?.getBoundingClientRect().height || 0,
-            actionCardBottoms: cards.map((card) => card.getBoundingClientRect().bottom)
+            quickActionsTop: quickActionsRect?.top || 0,
+            quickActionsBottom: quickActionsRect?.bottom || 0,
+            cardTailGap: actionCardBottoms.length ? quickActionsRect.bottom - Math.max(...actionCardBottoms) : Infinity,
+            actionCardBottoms
           };
         });
         if (dashboard.snapPanelCount) failures.push(`/portal/ at ${viewportLabel}: dashboard still uses full-screen snap panels`);
         if (dashboard.snapType.includes('y')) failures.push(`/portal/ at ${viewportLabel}: dashboard still snaps between full-screen panels`);
         if (dashboard.quickActionsTop < dashboard.mainTop - 1) failures.push(`/portal/ at ${viewportLabel}: quick actions begin above the visible dashboard viewport`);
-        if (dashboard.quickActionsBottom > dashboard.mainBottom + 1) failures.push(`/portal/ at ${viewportLabel}: quick actions ${JSON.stringify(dashboard)} exceed main bottom`);
+        if (dashboard.quickActionsBottom > dashboard.mainBottom + 1) failures.push(`/portal/ at ${viewportLabel}: quick actions extend below the visible dashboard viewport`);
         if (dashboard.actionCardBottoms.some((bottom) => bottom > dashboard.mainBottom + 1)) failures.push(`/portal/ at ${viewportLabel}: quick-action cards end at ${Math.max(...dashboard.actionCardBottoms)}px below main bottom ${dashboard.mainBottom}px`);
+        if (dashboard.cardTailGap > 16) failures.push(`/portal/ at ${viewportLabel}: Quick Actions has ${dashboard.cardTailGap}px of empty space below its last card`);
       }
       if (route === '/') {
         await page.mouse.move(Math.floor(width / 2), Math.floor(height / 2));
