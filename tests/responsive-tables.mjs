@@ -12,8 +12,9 @@ const { chromium } = require('playwright');
 const mime = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml' };
 async function htmlFiles(directory) {
   const entries = await readdirAsync(directory, { withFileTypes: true });
+  const ignoredDirectories = new Set(['.git', '.superpowers', 'node_modules', 'dist', 'output', 'coverage']);
   const files = await Promise.all(entries.map((entry) => entry.isDirectory()
-    ? htmlFiles(join(directory, entry.name))
+    ? ignoredDirectories.has(entry.name) ? [] : htmlFiles(join(directory, entry.name))
     : entry.name.endsWith('.html') ? [join(directory, entry.name)] : []));
   return files.flat();
 }
