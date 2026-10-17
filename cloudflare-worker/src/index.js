@@ -810,7 +810,7 @@ function parsePayload(body) {
   return safe;
 }
 
-function validatePortalRequestMutation(body, existing = null) {
+function validatePortalRequestMutation(body, existing = null, identity = null) {
   const request = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   const payload = request.payload && typeof request.payload === 'object' && !Array.isArray(request.payload) ? request.payload : {};
   const kind = canonicalKind(request.kind || request.type || existing?.kind || '');
@@ -830,7 +830,13 @@ function validatePortalRequestMutation(body, existing = null) {
   const hasRequestedStatus = Object.hasOwn(request, 'status') || Object.hasOwn(payload, 'status');
   const requestedStatus = text(request.status ?? payload.status ?? '', '', 100).toLowerCase();
   if (hasRequestedStatus) {
-    const allowed = requestedStatus === 'pending approval' || (Boolean(existing) && requestedStatus === 'cancelled');
+    const cancellationAllowed = Boolean(existing)
+      && kind === 'calendar'
+      && requestedStatus === 'cancelled'
+      && ['pending approval', 'submitted', 'saved'].includes(text(existing.status, '', 100).toLowerCase())
+      && Boolean(identity?.oid)
+      && identity.oid === existing.owner_oid;
+    const allowed = requestedStatus === 'pending approval' || cancellationAllowed;
     if (!allowed) throw Object.assign(new Error('Request status is controlled by Microsoft 365'), { status: 403 });
   }
 
@@ -839,6 +845,12 @@ function validatePortalRequestMutation(body, existing = null) {
     if (!['pending approval', 'submitted', 'saved'].includes(currentStatus)) {
       throw Object.assign(new Error('Only pending requests can be edited or cancelled'), { status: 409 });
     }
+  }
+}
+
+function validatePortalRequestDeletion(existing) {
+  if (['calendar', 'tasks'].includes(canonicalKind(existing?.kind))) {
+    throw Object.assign(new Error('Calendar and task requests cannot be deleted through the portal'), { status: 409 });
   }
 }
 
@@ -2868,9 +2880,8 @@ function sameRecord(a, b) {
 
 async function saveRecord(env, input, identity, existing = null) {
   const changed = existing && !sameRecord(existing, input);
-  if (changed) {
-    await env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
-      .bind(existing.record_id, existing.owner_oid, JSON.stringify({
+  const writeVersion = async () => env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
+    .bind(existing.record_id, existing.owner_oid, JSON.stringify({
         employee_name: existing.employee_name,
         kind: existing.kind,
         action: existing.action,
@@ -2883,18 +2894,28 @@ async function saveRecord(env, input, identity, existing = null) {
         issue: existing.issue,
         payload: payloadObject(existing)
       }), now(), identity.oid).run();
-  }
   if (!existing) {
     await env.DB.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name, kind, action, status, start_date, end_date, record_date, submitted_at, updated_at, issue, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(input.recordId, input.ownerOid, input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson).run();
     return { created: true, changed: false };
   }
+  if (['calendar', 'tasks'].includes(canonicalKind(existing.kind))) {
+    const result = await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ? AND owner_oid = ? AND status = ?`)
+      .bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId, existing.owner_oid, existing.status).run();
+    if (Number(result?.meta?.changes ?? 0) < 1) {
+      throw Object.assign(new Error('The request changed while it was being saved. Refresh the calendar and try again.'), { status: 409 });
+    }
+    if (changed) await writeVersion();
+    return { created: false, changed };
+  }
+  if (changed) await writeVersion();
   await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ?`)
     .bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId).run();
   return { created: false, changed };
 }
 
 async function deleteRecord(env, existing, identity) {
+  validatePortalRequestDeletion(existing);
   const deletableStatuses = new Set(['draft', 'pending delivery', 'delivery failed']);
   if (!identity.isAdmin && !deletableStatuses.has(String(existing.status || '').toLowerCase())) {
     throw Object.assign(new Error('Submitted records cannot be deleted'), { status: 409 });
@@ -4409,7 +4430,7 @@ async function handle(request, env, ctx) {
     if (existing?.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
     if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
     if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing, 'Europe/London', new Date(), payPeriods)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
-    validatePortalRequestMutation(body, existing);
+    validatePortalRequestMutation(body, existing, identity);
     const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
@@ -4460,7 +4481,7 @@ async function handle(request, env, ctx) {
       const body = await readJson(request);
       if (existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') return json({ error: 'A pay-month correction cannot change record type' }, 400, origin || '');
       if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods);
-      validatePortalRequestMutation(body, existing);
+      validatePortalRequestMutation(body, existing, identity);
       const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
       const result = await saveRecord(env, input, identity, existing);
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
@@ -4502,6 +4523,7 @@ export {
   adminQueueStatus,
   normaliseInput,
   validatePortalRequestMutation,
+  validatePortalRequestDeletion,
   validateNoFutureWork,
   validatePayMonthCorrection,
   dispatchEndpoint,

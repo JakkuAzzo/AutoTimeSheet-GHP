@@ -65,9 +65,9 @@
     return true;
   }
 
-  async function updateProtectedRecord(record, status, issue = '') {
+  async function updateProtectedRecord(record, status, issue = '', updatedAt = new Date().toISOString()) {
     if (!portalApiEnabled()) return false;
-    await window.GMTPortalApi.updateRecord(record.recordId, { ...record, status, issue, updatedAt: new Date().toISOString() });
+    await window.GMTPortalApi.updateRecord(record.recordId, { ...record, status, issue, updatedAt });
     return true;
   }
 
@@ -248,6 +248,7 @@
       add('gmt_month', parts.month);
       add('gmt_calendar_name', 'GMT Operational Calendar');
       add('gmt_submitted_at', submittedAt);
+      if (fields.updated_at) add('gmt_updated_at', fields.updated_at);
     }
     Object.entries(fields).forEach(([name, value]) => add(name, value));
     if (!('submitted_at' in fields) && !('updated_at' in fields)) add('submitted_at', submittedAt);
@@ -676,8 +677,32 @@
       </article>`).join('') : '<p class="small-text">No notification log entries yet.</p>';
   }
 
+  function calendarRequestStatus(status) {
+    const value = String(status || 'Pending approval').trim();
+    return ['submitted', 'saved'].includes(value.toLowerCase()) ? 'Pending approval' : value;
+  }
+
+  function calendarStatusMessage(status) {
+    const value = calendarRequestStatus(status);
+    switch (value.toLowerCase()) {
+      case 'pending approval': return 'Awaiting licensed accounts approval.';
+      case 'cancelled': return 'Cancellation recorded in portal history; Microsoft 365 processing is not confirmed.';
+      case 'approved': return 'Approved in portal history; shared-calendar publication is shown in the published feed.';
+      case 'rejected': return 'Request marked rejected in portal history.';
+      default: return `Status is recorded as ${value}; publication is not confirmed.`;
+    }
+  }
+
   function renderCalendar() {
-    const events = store.get(keys.calendar, []).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const uniqueEvents = new Map();
+    store.get(keys.calendar, []).forEach((event) => {
+      const key = String(event.recordId || event.id || '');
+      const current = uniqueEvents.get(key);
+      if (!current) uniqueEvents.set(key, event);
+      else if (calendarRequestStatus(current.status).toLowerCase() === 'pending approval'
+        && calendarRequestStatus(event.status).toLowerCase() === 'cancelled') uniqueEvents.set(key, event);
+    });
+    const events = [...uniqueEvents.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
     const list = $('#calendar-list');
     if (!list) return;
     if (!events.length) {
@@ -685,7 +710,11 @@
       return;
     }
     calendarIndex.clear();
-    events.forEach((event) => calendarIndex.set(String(event.id || event.recordId), event));
+    events.forEach((event) => {
+      event.status = calendarRequestStatus(event.status);
+      calendarIndex.set(String(event.id || event.recordId), event);
+    });
+    store.set(keys.calendar, events);
     list.innerHTML = events.map((event) => `
       <article class="portal-item calendar-date-group">
         <strong>${safe(event.date)} · ${safe(event.title)}</strong>
@@ -693,7 +722,7 @@
         <p class="portal-item-meta">${safe(event.type)} · ${safe(event.owner || 'No owner')}</p>
         <p>${safe(event.notes || 'No notes')}</p>
         <div class="portal-item-actions">
-          <span class="small-text">${event.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Published from the approved calendar feed.'}</span>
+          <span class="small-text">${safe(calendarStatusMessage(event.status))}</span>
           ${event.status === 'Pending approval' ? `<button type="button" class="secondary" data-calendar-edit="${event.id}">Edit</button>` : ''}
           ${event.status === 'Pending approval' ? `<button type="button" class="secondary danger" data-calendar-delete="${event.id}">Cancel request</button>` : ''}
         </div>
@@ -842,7 +871,7 @@
   }
 
   async function loadProtectedCalendar() {
-    if (!portalApiEnabled()) return;
+    if (!$('#calendar-form') || !portalApiEnabled()) return;
     try {
       const body = await window.GMTPortalApi.history('calendar');
       const remoteEvents = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
@@ -852,12 +881,15 @@
         type: record.event_type || 'General',
         owner: record.owner || record.employee_name || '',
         notes: record.notes || '',
-        status: record.status || 'Pending approval',
+        status: calendarRequestStatus(record.status),
         requestedBy: record.employee_name || '',
-        recordId: record.source_record_id
+        recordId: record.source_record_id,
+        submittedAt: record.submitted_at || '',
+        updatedAt: record.updated_at || ''
       }));
       const localEvents = store.get(keys.calendar, []);
-      store.set(keys.calendar, [...remoteEvents, ...localEvents.filter((local) => !remoteEvents.some((remote) => String(remote.id) === String(local.id)))]);
+      const remoteRecordIds = new Set(remoteEvents.map((remote) => String(remote.recordId || remote.id)));
+      store.set(keys.calendar, [...remoteEvents, ...localEvents.filter((local) => !remoteRecordIds.has(String(local.recordId || local.id)))]);
       renderCalendar();
     } catch (_) {
       // Local calendar requests remain visible if the protected service is unavailable.
@@ -1251,8 +1283,9 @@
       const editingId = $('#calendar-edit-id')?.value.trim() || '';
       const previous = editingId ? events.find((item) => String(item.id || item.recordId) === editingId) : null;
       const entryId = editingId || id();
-      const submittedAt = new Date().toISOString();
-      const entry = { id: entryId, title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: previous?.requestedBy || portalProfileName(), recordId: previous?.recordId || `calendar-${entryId}` };
+      const submittedAt = previous?.submittedAt || new Date().toISOString();
+      const updatedAt = previous ? new Date().toISOString() : '';
+      const entry = { id: entryId, title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: previous?.requestedBy || portalProfileName(), recordId: previous?.recordId || `calendar-${entryId}`, submittedAt, ...(previous ? { updatedAt } : {}) };
       if (!entry.title || !entry.date) return;
       const existingIndex = events.findIndex((item) => String(item.id || item.recordId) === String(entry.id));
       if (existingIndex >= 0) events[existingIndex] = entry;
@@ -1264,6 +1297,7 @@
         action: previous ? 'update_request' : 'create_request',
         status: entry.status,
         submittedAt,
+        ...(previous ? { updatedAt } : {}),
         employeeName: entry.requestedBy,
         employeeEmail: portalProfile().username || '',
         recordDate: entry.date,
@@ -1287,7 +1321,8 @@
         requested_by_upn: portalProfile().username || '',
         status: entry.status,
         notes: entry.notes,
-        submitted_at: submittedAt
+        submitted_at: submittedAt,
+        ...(previous ? { updated_at: updatedAt } : {})
       });
       const requestLabel = previous ? 'Calendar update' : 'Calendar request';
       logNotification('Calendar', protectedSaved
@@ -1322,23 +1357,45 @@
         return;
       }
       if (del) {
-        const item = calendarIndex.get(String(del.dataset.calendarDelete)) || events.find((entry) => String(entry.id || entry.recordId) === String(del.dataset.calendarDelete));
-        if (item) {
-          sendPortalFormSubmit('Calendar Update', { event_id: item.recordId || `calendar-${item.id}`, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
-          try {
-            await updateProtectedRecord({
-              recordId: item.recordId || `calendar-${item.id}`,
-              kind: 'calendar',
-              action: 'update_request',
-              employeeName: item.requestedBy || portalProfileName(),
-              employeeEmail: portalProfile().username || '',
-              recordDate: item.date,
-              payload: { title: item.title, date: item.date, type: item.type, owner: item.owner, notes: item.notes }
-            }, 'Cancelled');
-          } catch (_) {}
+        const item = events.find((entry) => [entry.id, entry.recordId].some((value) => String(value || '') === String(del.dataset.calendarDelete))) || calendarIndex.get(String(del.dataset.calendarDelete));
+        if (!item || item.status !== 'Pending approval') {
+          logNotification('Calendar', 'Only a pending calendar request can be cancelled.');
+          return;
         }
-        store.set(keys.calendar, events.filter((entry) => entry.id !== del.dataset.calendarDelete));
-        logNotification('Calendar', 'Calendar request cancelled.');
+        const recordId = item.recordId || `calendar-${item.id}`;
+        try {
+          let submittedAt = item.submittedAt || item.submitted_at || '';
+          if (!submittedAt && portalApiEnabled() && typeof window.GMTPortalApi.getRecord === 'function') {
+            const response = await window.GMTPortalApi.getRecord(recordId);
+            submittedAt = response?.record?.submitted_at || response?.record?.submittedAt || '';
+          }
+          if (!submittedAt) throw new Error('Original submission time is unavailable. Refresh the calendar requests and try again.');
+          const updatedAt = new Date().toISOString();
+          const saved = await updateProtectedRecord({
+            recordId,
+            kind: 'calendar',
+            action: 'update_request',
+            employeeName: item.requestedBy || portalProfileName(),
+            employeeEmail: portalProfile().username || '',
+            recordDate: item.date,
+            payload: { title: item.title, date: item.date, type: item.type, owner: item.owner, notes: item.notes }
+          }, 'Cancelled', '', updatedAt);
+          if (!saved) throw new Error('Protected request service is unavailable.');
+          const cancellationIds = new Set([del.dataset.calendarDelete, item.id, item.recordId].filter(Boolean).map(String));
+          const updatedEvents = events.map((entry) => ([entry.id, entry.recordId].some((value) => cancellationIds.has(String(value || '')))
+            ? { ...entry, status: 'Cancelled', updatedAt }
+            : entry));
+          if (!updatedEvents.some((entry) => [entry.id, entry.recordId].some((value) => cancellationIds.has(String(value || ''))))) {
+            updatedEvents.push({ ...item, status: 'Cancelled', updatedAt });
+          }
+          store.set(keys.calendar, updatedEvents);
+          const sent = sendPortalFormSubmit('Calendar Update', { event_id: recordId, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, submitted_at: submittedAt, updated_at: updatedAt });
+          logNotification('Calendar', sent
+            ? 'Cancellation saved for Accounts review. Email submission attempted; delivery is not confirmed.'
+            : 'Cancellation saved in protected history, but no email route is configured. Accounts may still see the request as pending.');
+        } catch (error) {
+          logNotification('Calendar', 'Cancellation could not be saved; the request remains unchanged. ' + (error.message || 'Protected request service unavailable.'));
+        }
       }
       renderCalendar();
     });
@@ -1350,6 +1407,7 @@
       prefillPortalIdentity();
     });
     $('#export-ics-btn')?.addEventListener('click', exportCalendarIcs);
+    loadProtectedCalendar();
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -1363,6 +1421,6 @@
   window.addEventListener('beforeunload', () => {
     if (selectedJobCardArchiveContentUrl) URL.revokeObjectURL(selectedJobCardArchiveContentUrl);
   });
-  document.addEventListener('gmtportalidentity', prefillPortalIdentity);
+  document.addEventListener('gmtportalidentity', () => { prefillPortalIdentity(); loadProtectedCalendar(); });
   document.addEventListener('gmtportalprofile', prefillPortalIdentity);
 })();
