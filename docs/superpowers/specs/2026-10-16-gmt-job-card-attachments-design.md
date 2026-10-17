@@ -10,14 +10,18 @@ The portal already creates protected job-card records with stable record IDs, li
 
 ## Chosen design
 
-Reuse the existing SharePoint Graph app identity and resumable upload-session pattern. The browser asks the Worker to create an upload session for a validated file and protected job-card record. The Worker derives the SharePoint path under `JobCards/Attachments/<record-id>/`, stores only session metadata, and returns the preauthenticated upload URL once. The browser uploads directly to that URL, then asks the Worker to complete the session. The Worker checks the SharePoint file size and QuickXorHash before inserting attachment metadata and an audit event in D1.
+Reuse the existing SharePoint Graph app identity and resumable upload-session protocol behind a bounded Worker proxy. The browser asks the Worker to atomically reserve revision quota and receives an attachment ID and expiry, then sends the file bytes to the authenticated Worker content route. The Worker derives the SharePoint path under `JobCards/Attachments/<record-id>/`, bounds and counts the actual request body, verifies its SHA-256 and recognizable file signature against the reservation, and only then creates a Graph upload session and forwards bounded chunks. It verifies the resulting SharePoint size and QuickXorHash before inserting attachment metadata and an audit event in D1.
 
-The upload URL is never stored, logged, or returned after session creation. SharePoint item IDs and paths remain server-side. The Worker streams attachment bytes through an authenticated content route. The browser receives only safe file metadata and a Blob URL created from the authenticated response.
+The preauthenticated Graph upload URL exists only in Worker memory during the upload and is never persisted, logged, or returned to the browser. If a provider mismatch is detected, the Worker deletes the SharePoint object before expiring the reservation. SharePoint item IDs and paths remain server-side. The browser receives only safe file metadata and a Blob URL created from the authenticated response.
+
+If a file already occupies a reservation's unique expected path, the Worker does not adopt it based on SharePoint name, size, or QuickXorHash metadata. It replaces an existing file with the newly validated request bytes and rejects unexpected non-file path collisions.
+
+If two reservations for the same file complete concurrently, the later session is marked duplicate and its temporary SharePoint object is deleted before the duplicate is reported as settled. If deletion is unavailable, the D1 session retains the private item ID so a later retry can finish cleanup.
 
 ## Access policy
 
-- Attachment listing and content access use the existing shared job-card history read policy for authenticated GMT portal users.
-- Upload-session creation and completion use the existing `canAccessRecord` policy: the record owner or an already-authorized administrator for that record can upload.
+- Attachment listing and content access use the existing `canReadHistoryRecord` shared job-card history policy for authenticated GMT portal users.
+- Upload reservation and content upload use the existing `canAccessRecord` policy: the record owner or an already-authorized administrator for that record can upload.
 - Archive import and OCR review keep their existing Accounts/job-card-admin restrictions.
 - Xero controls keep their current Accounts/Xero role checks. This feature does not call Xero or change invoice relationships.
 - The existing SharePoint application identity and library permissions are unchanged. No public or anonymous SharePoint links are created.
@@ -28,8 +32,9 @@ Attachment metadata references the exact protected `record_id`, which is unique 
 
 ## API contract
 
-- `POST /api/records/:recordId/attachments` accepts a filename, allowed content type, byte size, SHA-256, and QuickXorHash; it returns an opaque attachment/session ID and one-time upload URL.
-- `POST /api/records/:recordId/attachments/:attachmentId/complete` verifies the uploaded SharePoint item, then commits metadata and an upload audit row. Repeating completion is idempotent.
+- `POST /api/records/:recordId/attachments` accepts a filename, allowed content type, byte size, SHA-256, and QuickXorHash; it atomically reserves the revision's count and total-size quota, then returns an opaque attachment ID and expiry. It does not return a SharePoint URL.
+- `PUT /api/records/:recordId/attachments/:attachmentId/content` accepts the file body. The Worker checks actual body length and SHA-256 before contacting Graph, uploads with bounded Graph chunks, verifies the resulting item, then commits metadata and one audit row. Repeating the same upload after a lost response is idempotent.
+- `POST /api/records/:recordId/attachments/:attachmentId/complete` returns metadata only for an already-completed or duplicate session and remains idempotent. Active sessions return `409`; only the actual-byte content route completes them.
 - `GET /api/records/:recordId/attachments` returns safe attachment metadata only.
 - `GET /api/records/:recordId/attachments/:attachmentId/content` streams the file through the Worker after record and attachment authorization checks.
 
@@ -37,8 +42,8 @@ Accept image and PDF files, with bounded per-file, per-record count, and aggrega
 
 ## Portal behavior
 
-The create form accepts multiple image or PDF files. It first saves the protected job-card record, then completes each attachment upload, and only then submits the existing internal notification route. If an upload fails, keep the saved record and form state available for retry and do not report that the attachment was archived. The history preview lists attachments for the selected revision and downloads them through the authenticated Worker API.
+The create form accepts multiple image or PDF files. It first saves the protected job-card record, then uploads each bounded file through the Worker, and only then submits the existing internal notification route. If an upload fails, keep the saved record and form state available for retry and do not report that the attachment was archived. The history preview lists attachments for the selected revision and downloads them through the authenticated Worker API.
 
 ## Verification and release boundary
 
-Use local D1 and mocked Microsoft Graph fixtures to cover successful upload, duplicate retry, expired and mismatched sessions, authenticated downloads, role denial, and revision isolation. Keep existing job-card archive/OCR, access-policy, invoice-link, and Xero contract tests as regressions. Do not run an archive import against production, change production archive rows, send email to customers or ordinary staff, write to Xero, change provider permissions or secrets, deploy, or merge. Open a separate reviewable PR after focused local checks pass.
+Use local D1 and mocked Microsoft Graph fixtures to cover successful upload, duplicate retry and cleanup recovery, actual-body size/hash/signature rejection before provider access, concurrent quota reservations, expired and mismatched sessions, provider-object cleanup, authenticated downloads, role denial, and revision isolation. Keep existing job-card archive/OCR, access-policy, invoice-link, and Xero contract tests as regressions. Do not run an archive import against production, change production archive rows, send email to customers or ordinary staff, write to Xero, change provider permissions or secrets, deploy, or merge. Open a separate reviewable PR after focused local checks pass.
