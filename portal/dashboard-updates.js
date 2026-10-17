@@ -173,10 +173,13 @@
       var pendingTask = item && item.task;
       if (!pendingTask || typeof pendingTask !== "object") return;
       var taskId = String(pendingTask.taskId || "");
-      if (taskId && positions[taskId] !== undefined) records[positions[taskId]] = pendingTask;
+      if (taskId && positions[taskId] !== undefined) {
+        var confirmed = records[positions[taskId]];
+        if (!confirmed.pendingSync) records[positions[taskId]] = Object.assign({}, confirmed, { pendingSync: item });
+      }
       else {
         if (taskId) positions[taskId] = records.length;
-        records.push(pendingTask);
+        records.push(Object.assign({}, pendingTask, { pendingSync: item }));
       }
     });
     return records;
@@ -191,10 +194,14 @@
     var taskStatus = String(record.status || payload.status || "Submitted");
     var due = record.dueDate || record.due_date || payload.due || "No due date";
     var job = record.jobReference || record.job_reference || payload.jobReference || "No job reference";
+    var syncNotice = record.pendingSync
+      ? '<p class="portal-task-sync-status">Update not confirmed: ' + safe(record.pendingSync.error || "Open task tools to review this update.") + '</p>'
+      : '';
     var bar = progress.value === null ? "" : '<span class="portal-task-progress-bar" style="width:' + progress.value + '%"></span>';
     return '<article class="portal-task-card">' +
       '<div class="portal-task-card-heading"><h3>' + safe(title) + '</h3><span class="portal-task-status">' + safe(taskStatus) + '</span></div>' +
       '<p class="portal-task-card-reference">' + safe(job) + ' · Due ' + safe(due) + '</p>' +
+      syncNotice +
       '<dl class="portal-task-card-meta">' +
         '<div><dt>Assigned to</dt><dd>' + safe(assignee) + '</dd></div>' +
         '<div><dt>Created by</dt><dd>' + safe(creator) + '</dd></div>' +

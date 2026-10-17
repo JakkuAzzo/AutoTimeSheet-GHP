@@ -93,7 +93,7 @@
 - Review: all files changed by Tasks 1–3
 
 - [x] Run both focused tests and syntax checks for `portal.js`, `portal-api.js`, `cloudflare-worker/src/index.js`, and `cloudflare-worker/src/task-workflow.js`.
-- [x] Review the diff for role bypasses, local-only success states, unstable retry keys, and any provider or customer writes. Review findings were fixed: failed retries now require current action authorization, the dashboard preview uses scoped Worker task records, and an explicit Unassigned approval clears the requester's suggestion.
+- [x] Review the diff for role bypasses, local-only success states, unstable retry keys, and any provider or customer writes. Review findings were fixed: failed retries now require current action authorization; task views preserve confirmed records and show pending sync failures; calendar sync status survives normalization; approval notes are sent and retained in history; and explicit Unassigned approval clears the requester's suggestion.
 - [x] Run task workflow and browser acceptance checks, dashboard task preview checks, portal request routing checks, JSON contract parsing, D1 migration syntax, JavaScript syntax checks, and `git diff --check`.
 - [x] Commit the scoped changes on `codex/gmt-task-workflows` and open a separate PR. Do not merge or deploy.
 

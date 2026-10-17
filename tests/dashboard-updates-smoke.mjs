@@ -74,15 +74,15 @@ async function createDashboardPage(viewport, scenario) {
   const failTasks = scenario === 'error' || scenario === 'task-error';
   const failNotifications = scenario === 'error' || scenario === 'notification-error';
   const invalidNotifications = scenario === 'invalid-notifications';
-  const pendingTask = scenario === 'pending-task'
-    ? { ...workflowTasks[0], title: 'Pending task retry', status: 'Pending approval' }
+  const pendingTaskOperation = scenario === 'pending-task'
+    ? { action: 'transition', error: 'The update was not confirmed.', task: { ...workflowTasks[0], title: 'Unconfirmed completion', status: 'Completed' } }
     : null;
   await page.evaluate(({ fixtureTasks, fixtureNotifications, failure }) => {
     window.GMTPortalApi = {
       enabled: () => !failure.disconnected,
       tasks: async () => {
         if (failure.tasks) throw new Error('Protected tasks unavailable for this check.');
-        return { records: fixtureTasks, pending: failure.pendingTask ? [{ task: failure.pendingTask }] : [] };
+        return { records: fixtureTasks, pending: failure.pendingTaskOperation ? [failure.pendingTaskOperation] : [] };
       },
       history: async (kind) => {
         if (kind !== 'tasks' && failure.notifications) {
@@ -95,7 +95,7 @@ async function createDashboardPage(viewport, scenario) {
   }, {
     fixtureTasks: empty ? [] : workflowTasks,
     fixtureNotifications: empty ? [] : notificationRecords,
-    failure: { tasks: failTasks, notifications: failNotifications, invalidNotifications, disconnected, pendingTask }
+    failure: { tasks: failTasks, notifications: failNotifications, invalidNotifications, disconnected, pendingTaskOperation }
   });
   await page.addScriptTag({ path: resolve(repoRoot, 'portal/dashboard-updates.js') });
   await page.waitForFunction(() => {
@@ -192,8 +192,13 @@ try {
   assert.equal(await tasksErrorPage.locator('#portal-notifications [data-notification-index]').count(), 8, 'Updates should remain available when the Task Board fails independently');
 
   const pendingTaskPage = await createDashboardPage({ width: 390, height: 844 }, 'pending-task');
-  assert.equal(await pendingTaskPage.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'pending sync tasks replace their older board record instead of appearing twice');
-  assert.match(await pendingTaskPage.locator('#portal-task-board .portal-task-card').first().innerText(), /Pending task retry/);
+  assert.equal(await pendingTaskPage.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'a failed update does not add a duplicate task card');
+  const pendingTaskCard = pendingTaskPage.locator('#portal-task-board .portal-task-card').first();
+  const pendingTaskCardText = await pendingTaskCard.innerText();
+  assert.match(pendingTaskCardText, /Replace motor bearings at north wing/, 'a failed update keeps the last confirmed List task visible');
+  assert.match(pendingTaskCardText, /In-Progress/, 'the confirmed status remains visible');
+  assert.doesNotMatch(pendingTaskCardText, /Unconfirmed completion|Completed/, 'the pending operation payload must not replace confirmed task fields');
+  assert.match(pendingTaskCardText, /The update was not confirmed\./, 'the failed sync remains visible alongside the confirmed task');
 
   const disconnectedPage = await createDashboardPage({ width: 390, height: 844 }, 'disconnected');
   assert.equal(await disconnectedPage.locator('#portal-notification-status').innerText(), 'Notifications are not connected.');

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 const loadedWorkflow = await import('../cloudflare-worker/src/task-workflow.js').catch(() => null);
 assert.ok(loadedWorkflow, 'task workflow policy must be available to the protected Worker');
-const { normalizeTaskRequest, applyTaskAction, canReadTask, executeTaskOperation, handleTaskWorkflowRequest, taskWorkflowUrl } = loadedWorkflow;
+const { normalizeTaskRequest, normalizeTaskRecord, applyTaskAction, canReadTask, executeTaskOperation, handleTaskWorkflowRequest, taskWorkflowUrl } = loadedWorkflow;
 assert.equal(typeof handleTaskWorkflowRequest, 'function', 'task board API must enforce the lifecycle around Microsoft 365 calls');
 assert.equal(typeof taskWorkflowUrl, 'function', 'task workflow must validate its protected Power Automate destination');
 assert.throws(() => taskWorkflowUrl({}), { status: 503 });
@@ -28,6 +28,9 @@ assert.equal(task.requestedAssigneeUpn, otherEngineer.upn, 'requested assignee i
 assert.equal(task.requesterUpn, engineer.upn);
 assert.equal(task.dueDate, '2026-10-20');
 assert.equal(task.priority, 'High');
+assert.equal(normalizeTaskRecord({ taskId: 'task-calendar-status', status: 'To-Do', calendarSyncStatus: 'synced' }).calendarSyncStatus, 'synced', 'calendar sync status must survive task normalization');
+assert.equal(normalizeTaskRecord({ taskId: 'task-calendar-failure', status: 'To-Do', calendarSyncStatus: 'failed', calendarSyncError: 'Calendar unavailable' }).calendarSyncStatus, 'failed', 'calendar failures must remain visible after task normalization');
+assert.equal(normalizeTaskRecord({ taskId: 'task-calendar-default', status: 'To-Do' }).calendarSyncStatus, 'pending', 'missing calendar sync status defaults to pending');
 
 const approved = applyTaskAction(task, {
   actionId: 'action-approve-001', action: 'approve', assigneeUpn: otherEngineer.upn, dueDate: '2026-10-22', priority: 'Urgent'
@@ -220,7 +223,7 @@ await assert.rejects(handleTaskWorkflowRequest(request('/api/tasks/task-api-crea
 assert.equal(boardCalls.some((call) => call.action === 'upsert' && call.actionId === 'action-api-unauthorized'), false);
 
 const approvalPayload = {
-  actionId: 'action-api-approve', action: 'approve', assigneeUpn: otherEngineer.upn, dueDate: '2026-10-26', priority: 'Urgent'
+  actionId: 'action-api-approve', action: 'approve', assigneeUpn: otherEngineer.upn, dueDate: '2026-10-26', priority: 'Urgent', reason: 'Proceed after the site visit.'
 };
 const approvalResult = await handleTaskWorkflowRequest(request('/api/tasks/task-api-create/actions', 'POST', approvalPayload), {
   identity: accounts, directory, store: boardStore, workflow: boardWorkflow, timestamp: '2026-10-16T14:10:00.000Z'
@@ -254,6 +257,7 @@ const historyResult = await handleTaskWorkflowRequest(request('/api/tasks/task-a
 });
 assert.equal(historyResult.body.events.length, 4, 'request, approval, scheduling, and cancellation are retained in history');
 assert.equal(historyResult.body.events[1].actorUpn, accounts.upn);
+assert.equal(historyResult.body.events[1].reason, approvalPayload.reason, 'approval decision notes are retained in protected task history');
 await assert.rejects(handleTaskWorkflowRequest(request('/api/tasks/task-api-create/history', 'GET'), {
   identity: stranger, directory, store: boardStore, workflow: boardWorkflow
 }), { status: 403 });

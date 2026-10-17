@@ -1293,7 +1293,7 @@
           if (dueDate) actionBody.dueDate = dueDate.value;
           if (priority) actionBody.priority = priority.value;
         }
-        const reasonKind = action === 'cancel' ? 'cancel' : (action === 'reject' ? 'decision' : '');
+        const reasonKind = action === 'cancel' ? 'cancel' : (action === 'approve' || action === 'reject' ? 'decision' : '');
         const reason = reasonKind ? card.querySelector(`[data-task-reason="${reasonKind}"]`) : null;
         if (reason) actionBody.reason = reason.value.trim();
       }

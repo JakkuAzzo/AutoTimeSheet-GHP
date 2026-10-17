@@ -137,7 +137,7 @@ export function normalizeTaskRecord(source = {}) {
     status,
     sharePointItemId: value(task.sharePointItemId || task.sharepoint_item_id || task.id, 200),
     outlookEventId: value(task.outlookEventId || task.outlook_event_id || task['Outlook Event ID'], 500),
-    calendarSyncStatus: value(task.calendarSyncStatus || task.calendar_sync_status || task['Calendar Sync Status'], 'pending'),
+    calendarSyncStatus: value(task.calendarSyncStatus || task.calendar_sync_status || task['Calendar Sync Status'], 40) || 'pending',
     calendarSyncError: value(task.calendarSyncError || task.calendar_sync_error || task['Calendar Sync Error'], 1000),
     createdAt: value(task.createdAt || task.created_at || task['Created At'], 80),
     updatedAt: value(task.updatedAt || task.updated_at || task['Updated At'], 80)

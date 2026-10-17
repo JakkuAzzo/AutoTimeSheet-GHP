@@ -156,10 +156,12 @@ try {
     }]
   });
   assert.equal(await managerPage.locator('[data-task-action="approve"]').count(), 1, 'manager sees approval control');
+  await managerPage.locator('[data-task-reason="decision"]').fill('Proceed once site access is confirmed.');
   await managerPage.locator('[data-task-action="approve"]').click();
   await managerPage.waitForFunction(() => window.__taskFixture.records[0].status === 'To-Do');
   const approval = await managerPage.evaluate(() => window.__taskFixture.calls.find((call) => call.body.action === 'approve').body);
   assert.equal(approval.assigneeUpn, user.upn);
+  assert.equal(approval.reason, 'Proceed once site access is confirmed.', 'approval decision notes are sent with the action');
   assert.equal(await managerPage.locator('[data-task-action="transition"]').count(), 1, 'manager can move approved work through its lifecycle');
 
   const engineerPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -181,6 +183,48 @@ try {
   assert.match(await engineerPage.locator('[data-task-history-content]').innerText(), /Accounts/);
   const dimensions = await engineerPage.evaluate(() => ({ width: innerWidth, body: document.body.scrollWidth, document: document.documentElement.scrollWidth }));
   assert.ok(dimensions.body <= dimensions.width && dimensions.document <= dimensions.width, `task board overflows at mobile width: ${JSON.stringify(dimensions)}`);
+
+  const failedActions = [
+    { taskId: 'task-failed-approve', status: 'Pending approval', action: 'approve', upn: accounts.upn, manager: true },
+    { taskId: 'task-failed-assign', status: 'To-Do', action: 'assign', upn: accounts.upn, manager: true },
+    { taskId: 'task-failed-cancel', status: 'In-Progress', action: 'cancel', upn: accounts.upn, manager: true },
+    { taskId: 'task-failed-transition', status: 'To-Do', action: 'transition', upn: user.upn, manager: false }
+  ];
+  for (const fixture of failedActions) {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    pages.push(page);
+    const task = {
+      taskId: fixture.taskId,
+      title: `Confirmed ${fixture.action} task`,
+      requesterName: 'Worker',
+      requesterUpn: user.upn,
+      jobReference: 'GMT-FAILURE',
+      status: fixture.status,
+      priority: 'Normal',
+      dueDate: '2026-10-24',
+      requestedAssigneeUpn: user.upn,
+      assigneeUpn: user.upn,
+      sharePointItemId: `sp-${fixture.taskId}`
+    };
+    await mount(page, {
+      access: { actorUpn: fixture.upn, canManage: fixture.manager, staff: [engineer, otherEngineer] },
+      pending: [],
+      records: [task]
+    });
+    await page.evaluate(() => { window.__taskFixture.failNextAction = true; });
+    if (fixture.action === 'assign') await page.locator('[data-task-assignee]').selectOption(otherEngineer.upn);
+    const selector = fixture.action === 'transition' ? '[data-task-action="transition"]' : `[data-task-action="${fixture.action}"]`;
+    await page.locator(selector).click();
+    await page.waitForFunction(() => window.__taskFixture.pending.length === 1);
+    assert.equal(await page.evaluate(() => window.__taskFixture.records[0].status), fixture.status, `${fixture.action} failure leaves the confirmed record status unchanged`);
+    const taskCard = page.locator(`[data-task-card="${fixture.taskId}"]`);
+    const text = await taskCard.innerText();
+    const confirmedStatusLabel = fixture.status === 'Pending approval'
+      ? 'Awaiting Accounts or Operations approval.'
+      : `SharePoint item sp-${fixture.taskId} · ${fixture.status}`;
+    assert.ok(text.includes(confirmedStatusLabel), `${fixture.action} failure keeps the confirmed status on screen`);
+    assert.match(text, /Temporary sync failure/, `${fixture.action} failure is exposed on the card`);
+  }
 
   console.log('Task board empty/populated states, protected actions, same-ID retry, history, and 390px layout: PASS');
 } finally {
