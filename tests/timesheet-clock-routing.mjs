@@ -59,7 +59,11 @@ try {
     const launchOptions = { headless: true };
     if (browserName === 'chromium' && existsSync(chromePath)) launchOptions.executablePath = chromePath;
     browser = await browserType.launch(launchOptions);
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, timezoneId: 'Europe/London' });
+    const pageOptions = { viewport: { width: 390, height: 844 }, timezoneId: 'Europe/London' };
+    // Playwright Firefox does not implement isMobile. Keep its explicit mobile
+    // viewport so responsive CSS is still exercised in the same test matrix.
+    if (browserName !== 'firefox') pageOptions.isMobile = true;
+    const page = await browser.newPage(pageOptions);
     await page.clock.install({ time: new Date('2026-10-16T15:00:00.000Z') });
     await page.addInitScript(() => {
       window.__submittedForms = [];
@@ -99,6 +103,15 @@ try {
     await page.goto(`http://127.0.0.1:${port}/portal/`, { waitUntil: 'load' });
     await page.evaluate(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'TEST Clock QA', username: 'test-clock@example.test' })));
     await page.reload({ waitUntil: 'load' });
+    const responsiveContext = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      mobileBreakpoint: window.matchMedia('(max-width: 600px)').matches,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    }));
+    assert.deepEqual(responsiveContext, {
+      width: 390, height: 844, mobileBreakpoint: true, timeZone: 'Europe/London'
+    }, `${browserName} must run the routing checks with the intended mobile viewport and London timezone`);
     // This suite inspects multipart contents and failure/retry behavior. Keep
     // every submit inside the browser mock, never at the FormSubmit route.
     await page.evaluate(() => { window.GMTClockTransport.shouldUseNativeFallback = () => false; });
@@ -306,7 +319,7 @@ try {
     }
   });
 
-    console.log(JSON.stringify({ browser: browserName, futureTimeAttempt, retryStatus: retryAttempt.status, beforeSubmit, layout, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
+    console.log(JSON.stringify({ browser: browserName, responsiveContext, futureTimeAttempt, retryStatus: retryAttempt.status, beforeSubmit, layout, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
     await browser.close();
     browser = null;
   }
