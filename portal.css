@@ -708,6 +708,15 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .job-card-history-document > .job-card-sheet { margin-top: .25rem; }
 .job-card-history-preview-toolbar { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
 .job-card-history-preview-toolbar h3 { margin: .1rem 0 0; color: var(--green); }
+.job-card-attachments { display: grid; gap: .55rem; min-width: 0; padding: .8rem; border: 1px solid var(--line); border-radius: .7rem; background: #f8faf7; }
+.job-card-attachments h4 { margin: 0; color: var(--green); }
+.job-card-attachment-list { display: grid; gap: .55rem; margin: 0; padding: 0; list-style: none; }
+.job-card-attachment-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .4rem .8rem; min-width: 0; padding: .65rem; border: 1px solid var(--line); border-radius: .6rem; background: #fff; }
+.job-card-attachment-row > div:first-child { display: grid; min-width: 0; }
+.job-card-attachment-row strong, .job-card-attachment-row small { overflow-wrap: anywhere; }
+.job-card-attachment-row small { color: var(--muted); }
+.job-card-attachment-row > .small-text, .job-card-attachment-row > [data-job-attachment-preview] { grid-column: 1 / -1; margin: 0; }
+.job-card-attachment-image { display: block; max-width: min(100%, 720px); max-height: 520px; object-fit: contain; border: 1px solid var(--line); background: #fff; }
 .timesheet-history-preview { min-height: 520px; }
 .timesheet-calendar-panel { min-width: 0; padding: .8rem; border: 1px solid var(--line); border-radius: .85rem; background: #fff; }
 .timesheet-calendar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .65rem; margin-bottom: .45rem; }
