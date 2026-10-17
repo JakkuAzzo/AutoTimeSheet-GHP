@@ -21,7 +21,9 @@ function listHtmlFiles(directory, prefix = '') {
       : `/${relativePath}`];
   });
 }
-const routes = listHtmlFiles(root).sort();
+const allRoutes = listHtmlFiles(root).sort();
+const publicMarketingRoutes = allRoutes.filter((route) => route === '/' || route.startsWith('/services/') || route.startsWith('/process/'));
+const routes = process.env.GMT_PUBLIC_SITE_ONLY === '1' ? publicMarketingRoutes : allRoutes;
 const viewports = [[320, 568], [390, 844], [667, 375], [768, 1024], [1280, 720], [1440, 900]];
 const server = createServer((request, response) => {
   const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname;
@@ -38,11 +40,13 @@ const server = createServer((request, response) => {
 });
 
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
+const localOrigin = `http://127.0.0.1:${server.address().port}`;
 const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
   const page = await browser.newPage({ viewport: { width: viewports[0][0], height: viewports[0][1] } });
+  await page.route('**/*', (route) => new URL(route.request().url()).origin === localOrigin ? route.continue() : route.abort());
   const failures = [];
 
   for (const route of routes) {
@@ -58,11 +62,13 @@ try {
       return {
         ready: document.documentElement.getAttribute('data-viewport-effects-ready') === 'true',
         revealCount: document.querySelectorAll('[data-scroll-reveal]').length,
-        revealTransition: duration
+        revealTransition: duration,
+        rootScrollBehavior: getComputedStyle(document.documentElement).scrollBehavior
       };
     });
     if (!motion.ready) failures.push(`${route}: viewport and reveal effects did not initialize`);
     if (motion.revealCount && motion.revealTransition === '0s') failures.push(`${route}: scroll-reveal targets have no transition`);
+    if (publicMarketingRoutes.includes(route) && motion.rootScrollBehavior !== 'smooth') failures.push(`${route}: public page does not enable smooth anchor scrolling`);
     for (const [width, height] of viewports) {
       await page.setViewportSize({ width, height });
       await page.waitForTimeout(40);
@@ -95,6 +101,7 @@ try {
           documentHeight: root.scrollHeight,
           clientWidth: root.clientWidth,
           rootOverflowY: getComputedStyle(root).overflowY,
+          rootScrollBehavior: getComputedStyle(root).scrollBehavior,
           scrollBehavior: getComputedStyle(main || root).scrollBehavior,
           mainScrollType: main ? getComputedStyle(main).scrollSnapType : 'none',
           mainOverflowY: main ? getComputedStyle(main).overflowY : 'visible',
@@ -114,6 +121,7 @@ try {
       }
       if (layout.hasPortalShell && !['hidden', 'clip'].includes(layout.rootOverflowY)) failures.push(`${route} at ${width}x${height}: portal document root is not constrained to its viewport`);
       if (layout.hasPortalShell && layout.mainOverflowY !== 'auto') failures.push(`${route} at ${width}x${height}: portal content is not contained in a scrollable viewport panel`);
+      if (publicMarketingRoutes.includes(route) && layout.rootScrollBehavior !== 'smooth') failures.push(`${route} at ${width}x${height}: public page does not enable smooth anchor scrolling`);
       if (layout.panels.length && layout.firstPanelBottom > height + 1) failures.push(`${route} at ${width}x${height}: first section ends at ${layout.firstPanelBottom}px (top ${layout.firstPanelTop}px, height ${layout.firstPanelHeight}px, offset ${layout.firstPanelOffset})`);
       for (const panel of layout.panels) {
         if (panel.left < -1 || panel.right > width + 1) failures.push(`${route} at ${width}x${height}: ${panel.className} extends beyond viewport width`);
@@ -161,7 +169,7 @@ try {
         if (dashboard.actionCardBottoms.some((bottom) => bottom > dashboard.mainBottom + 1)) failures.push(`/portal/ at ${viewportLabel}: quick-action cards end at ${Math.max(...dashboard.actionCardBottoms)}px below main bottom ${dashboard.mainBottom}px`);
         if (dashboard.cardTailGap > 16) failures.push(`/portal/ at ${viewportLabel}: Quick Actions has ${dashboard.cardTailGap}px of empty space below its last card`);
       }
-      if (route === '/') {
+      if (publicMarketingRoutes.includes(route)) {
         await page.mouse.move(Math.floor(width / 2), Math.floor(height / 2));
         await page.mouse.wheel(0, 24);
         await page.evaluate(() => window.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 24 })));
@@ -171,8 +179,8 @@ try {
           firstPanelBottom: document.querySelector('[data-scroll-snap]')?.getBoundingClientRect().bottom,
           viewportHeight: innerHeight
         }));
-        if (activeSnap.ready !== 'true' || !activeSnap.type.includes('y')) failures.push(`/${width}x${height}: public scroll does not activate vertical snap`);
-        if (activeSnap.firstPanelBottom > activeSnap.viewportHeight + 1) failures.push(`/${width}x${height}: first public section extends below viewport after snap activation`);
+        if (activeSnap.ready !== 'true' || !activeSnap.type.includes('y')) failures.push(`${route} at ${width}x${height}: public scroll does not activate vertical snap`);
+        if (activeSnap.firstPanelBottom > activeSnap.viewportHeight + 1) failures.push(`${route} at ${width}x${height}: first public section extends below viewport after snap activation`);
       }
       if (route === '/portal/') {
         await page.mouse.move(Math.floor(width / 2), Math.floor(height / 2));
@@ -213,13 +221,15 @@ try {
 
   assert.deepEqual(failures, [], failures.slice(0, 30).join('\n'));
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  const reducedMotion = await page.evaluate(() => ({
-    scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior,
-    snapType: getComputedStyle(document.documentElement).scrollSnapType
-  }));
-  assert.equal(reducedMotion.scrollBehavior, 'auto', 'public site respects reduced motion');
-  assert.ok(!reducedMotion.snapType.includes('y'), 'public site disables snapping for reduced motion');
+  for (const route of publicMarketingRoutes) {
+    await page.goto(`${localOrigin}${route}`);
+    const reducedMotion = await page.evaluate(() => ({
+      scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior,
+      snapType: getComputedStyle(document.documentElement).scrollSnapType
+    }));
+    assert.equal(reducedMotion.scrollBehavior, 'auto', `${route}: public page respects reduced motion`);
+    assert.ok(!reducedMotion.snapType.includes('y'), `${route}: public page disables snapping for reduced motion`);
+  }
   await page.goto(`http://127.0.0.1:${server.address().port}/portal/`);
   await page.evaluate(() => {
     document.querySelectorAll('main[hidden]').forEach((main) => { main.hidden = false; main.removeAttribute('aria-hidden'); });
@@ -231,7 +241,7 @@ try {
   });
   assert.equal(portalReducedMotion.scrollBehavior, 'auto', 'staff portal respects reduced motion');
   assert.ok(!portalReducedMotion.snapType.includes('y'), 'staff portal disables snapping for reduced motion');
-  console.log(`${routes.length} public and staff-portal pages × ${viewports.length} viewports: viewport-fit, no clipped snap content, smooth-scroll, snap activation and reduced-motion: PASS`);
+  console.log(`${routes.length} pages × ${viewports.length} viewports; ${publicMarketingRoutes.length} public marketing routes: viewport-fit, no clipped snap content, smooth-scroll, snap activation and reduced-motion: PASS`);
 } finally {
   if (browser) await browser.close();
   await new Promise((done) => server.close(done));
