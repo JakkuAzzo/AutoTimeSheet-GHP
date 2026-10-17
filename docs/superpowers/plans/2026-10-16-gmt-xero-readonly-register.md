@@ -88,6 +88,6 @@
 - Modify: `cloudflare-worker/README.md`
 - Verify: focused Xero/job-card checks, Worker deployment workflow check, `git diff --check`, and Worker dry-run/build.
 
-- [ ] Document the health fields, tenant verification, page freshness labels, partial-load behavior, job-card search, unchanged scopes, and the no-financial-write boundary.
-- [ ] Run all focused suites, `npm run test:worker:deployment-workflow`, `npx wrangler deploy --dry-run --outdir /tmp/gmt-xero-worker-dry-run`, and `git diff --check`; inspect the diff for financial write calls, scope changes, and SharePoint deletes.
+- [x] Document the health fields, tenant verification, page freshness labels, partial-load behavior, job-card search, unchanged scopes, and the no-financial-write boundary.
+- [x] Run all focused suites, `npm run test:worker:deployment-workflow`, `npx wrangler deploy --dry-run --outdir /tmp/gmt-xero-worker-dry-run`, and `git diff --check`; inspect the diff for financial write calls, scope changes, and SharePoint deletes.
 - [ ] Record live-check boundaries accurately. Do not deploy, merge, or alter provider data; commit and open a separate pull request for the coordinator's release gate.
