@@ -100,7 +100,7 @@ Modify these staff-facing pages, whether they currently use shared styles or hav
 - Modify: `tests/viewport-fit-responsive.mjs`
 - Modify: authenticated portal layout styles only when a route-level check proves clipping or overflow
 
-**Test boundary:** Use a synthetic `.test` identity, a local MSAL stand-in, local GET-only API fixtures, and synthetic records. Reject or block every external request and every API mutation. Do not use production identities, provider data, or submit forms.
+**Test boundary:** Use a synthetic `.test` identity, a local MSAL stand-in, local GET-only API fixtures, and synthetic records. Reject or block every external request and every API mutation, including focused-route runs. A focused initialization probe sends POST, PATCH, and DELETE to the local fixture and verifies each attempt makes the viewport run fail. Do not use production identities, provider data, or submit forms.
 
 - [x] **Step 1: Exercise the real portal sign-in reveal** with the local synthetic identity and assert each protected route becomes authenticated and visible before testing its layout.
 - [x] **Step 2: Seed dynamic states** for long form values and validation messages, table rows, calendar events, job-card archive results, estimate previews and archive dialogs, and invoice rows and editor lines.

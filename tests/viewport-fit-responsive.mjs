@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -37,6 +38,7 @@ assert.ok(!selectedRoute || orderedRoutes.includes(selectedRoute), `GMT_VIEWPORT
 const routesToTest = selectedRoute ? [selectedRoute] : routes;
 const viewports = [[320, 568], [390, 844], [667, 375], [768, 1024], [1280, 720], [1440, 900]];
 const apiMutationAttempts = [];
+const injectApiMutationAttempts = process.env.GMT_VIEWPORT_INJECT_API_MUTATIONS === '1';
 const syntheticMsal = `window.msal = (function () {
   var account;
   function testAccount() {
@@ -317,6 +319,16 @@ try {
     }
     await route.abort('blockedbyclient');
   });
+  if (injectApiMutationAttempts) {
+    await page.addInitScript(() => {
+      const key = 'gmt-viewport-api-mutation-probe';
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, 'pending');
+      Promise.all(['POST', 'PATCH', 'DELETE'].map((method) => fetch('/api/__viewport-mutation-guard__', { method })))
+        .then((responses) => sessionStorage.setItem(key, responses.every((response) => response.status === 405) ? 'blocked' : 'unexpected-response'))
+        .catch(() => sessionStorage.setItem(key, 'request-failed'));
+    });
+  }
   const failures = [];
   const dynamicCoverage = { forms: 0, validationMessages: 0, tableRows: 0, calendarGrids: 0, calendarEvents: 0, jobCardArchiveRows: 0, estimateArchiveRows: 0, historyFrameRows: 0, invoiceRows: 0, dialogs: 0, dialogFixtures: 0 };
 
@@ -651,8 +663,12 @@ try {
     requiredCoverage.forEach(([label, count]) => {
       if (!count) failures.push(`authenticated route inventory did not exercise ${label}`);
     });
-    if (apiMutationAttempts.length) failures.push(`synthetic viewport run attempted API writes: ${apiMutationAttempts.slice(0, 5).join(', ')}`);
   }
+
+  if (injectApiMutationAttempts) {
+    await page.waitForFunction(() => sessionStorage.getItem('gmt-viewport-api-mutation-probe') === 'blocked', { timeout: 5000 });
+  }
+  if (apiMutationAttempts.length) failures.push(`synthetic viewport run attempted API writes: ${apiMutationAttempts.slice(0, 5).join(', ')}`);
 
   assert.deepEqual(failures, [], failures.slice(0, 30).join('\n'));
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -676,4 +692,25 @@ try {
 } finally {
   if (browser) await browser.close();
   await new Promise((done) => server.close(done));
+}
+
+if (!injectApiMutationAttempts) {
+  const probe = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 30000,
+    env: {
+      ...process.env,
+      GMT_VIEWPORT_ROUTE: '/portal/',
+      GMT_VIEWPORT_INJECT_API_MUTATIONS: '1',
+      GMT_VIEWPORT_VERBOSE: ''
+    }
+  });
+  assert.equal(probe.error, undefined, `API mutation guard regression process did not complete: ${probe.error?.message || ''}`);
+  const probeOutput = `${probe.stdout || ''}\n${probe.stderr || ''}`;
+  assert.notEqual(probe.status, 0, 'focused viewport run must fail when API writes are attempted during initialization');
+  for (const method of ['POST', 'PATCH', 'DELETE']) {
+    assert.ok(probeOutput.includes(`${method} /api/__viewport-mutation-guard__`), `${method} initialization attempt was not caught by the write-isolation assertion`);
+  }
+  console.log('API write-isolation regression: injected POST/PATCH/DELETE initialization attempts are blocked and fail the focused run: PASS');
 }
