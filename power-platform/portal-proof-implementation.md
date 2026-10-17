@@ -45,8 +45,8 @@ Use the calendar named `GMT Operational Calendar` owned by
 | --- | --- | --- |
 | Job Card | New/planned date changed | Create or update all-day event |
 | Job Card | Cancelled/completed where policy removes event | Delete event |
-| Task | Created/due date changed | Create or update all-day event |
-| Task | Cancelled/completed where policy removes event | Delete event |
+| Microsoft Lists Task | Approved with due date / schedule changed | Create once or update by stored Outlook Event ID |
+| Microsoft Lists Task | Completed or cancelled | Retain the existing event |
 
 Flows must write the source table row ID and Outlook event ID to Calendar Event
 records. A failed calendar action must be visible for accounts to retry; it
@@ -61,12 +61,15 @@ Use non-sensitive sample records only.
 2. Add a sample job card with a planned date; confirm one all-day event appears
    in `GMT Operational Calendar` and its Outlook event ID is stored.
 3. Move the date; confirm the same event updates rather than duplicates.
-4. Add a sample task with a due date; repeat the create/update checks.
-5. Cancel each sample record; confirm the configured delete behaviour and
-   failure logging.
+4. Add an approved sample Microsoft Lists task with a due date; confirm exactly
+   one event appears, then change its date and confirm that event is updated.
+5. Complete and cancel the task; confirm its event remains and failure logging
+   is visible when the calendar connection is unavailable.
 6. Verify Timesheet, Clock Event and Audit records do not create calendar
    events.
-7. Confirm the existing Timesheet Intake flow and FormSubmit routes still work.
+7. Confirm the existing Timesheet Intake flow and calendar FormSubmit route
+   still work. The Dataverse `Task` proof table remains an isolated prototype;
+   it is not the authoritative task store or production calendar trigger.
 
 ## Promotion gates
 

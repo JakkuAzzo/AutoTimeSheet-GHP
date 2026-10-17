@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GMT portal FormSubmit envelope contract",
-  "description": "Machine-readable fields emitted by the static portal. Power Automate must treat these as untrusted input, validate them, and make Microsoft 365 the authority for status and calendar writes.",
+  "description": "Machine-readable fields emitted by the static portal's FormSubmit routes. Task requests use the protected Worker API described in taskWorkflow and are no longer emitted as FormSubmit envelopes.",
   "version": "1",
   "common": [
     "gmt_schema_version",
@@ -108,13 +108,43 @@
     ]
   },
   "task": {
-    "required": [
-      "gmt_requester_upn",
-      "gmt_status",
-      "gmt_year",
-      "gmt_month"
-    ],
-    "initialStatus": "Pending approval"
+    "transport": "protected-worker-api",
+    "request": {
+      "method": "POST",
+      "path": "/api/tasks",
+      "required": ["taskId", "actionId", "title"],
+      "optional": ["jobReference", "requestedAssigneeUpn", "dueDate", "priority"],
+      "workerDerived": ["requesterOid", "requesterUpn", "requesterName", "status", "assigneeUpn"],
+      "initialStatus": "Pending approval"
+    },
+    "actions": {
+      "method": "POST",
+      "path": "/api/tasks/{taskId}/actions",
+      "allowed": ["approve", "reject", "assign", "schedule", "transition", "cancel", "retry"],
+      "statuses": ["Pending approval", "To-Do", "In-Progress", "Completed", "Cancelled"],
+      "transitionPath": ["To-Do", "In-Progress", "Completed"],
+      "dedupeKey": "actionId",
+      "retryRule": "A retry reuses the original taskId and actionId and returns the original outcome after a confirmed sync."
+    },
+    "authority": "The company-owned Microsoft Tasks List row is authoritative. Worker D1 is a protected mirror, idempotent outbox, and activity log."
+  },
+  "taskWorkflow": {
+    "workerSecret": "TASK_WORKFLOW_URL",
+    "request": {
+      "actions": ["list", "get", "upsert"],
+      "upsertRequired": ["taskId", "actionId", "task", "event", "actor"],
+      "listResponse": {"success": true, "tasks": []},
+      "getResponse": {"success": true, "task": {}},
+      "mutationResponseRequired": ["success", "taskId", "sharePointItemId", "status", "calendarSyncStatus"],
+      "mutationResponseOptional": ["outlookEventId", "calendarSyncError"]
+    },
+    "listKey": "Task ID",
+    "actionDedupeKey": "Action ID",
+    "listColumns": ["Task ID", "Last Action ID", "Task Title", "Requested By UPN", "Assigned To UPN", "Company / Job Ref", "Status", "Priority", "Due Date", "Outlook Event ID", "Calendar Sync Status", "Calendar Sync Error"],
+    "actionLogColumns": ["Action ID", "Task ID", "Action Status", "Outcome JSON", "Last Error", "Started At", "Completed At"],
+    "concurrencyRule": "Compare current List values with event.changes.from and apply updates with the row ETag. On an ETag conflict, re-read and reject stale changes instead of overwriting newer state.",
+    "actionLog": "Task Workflow Actions has a unique Action ID, Started/Completed/Failed status, stored outcome, and error. Return a stored Completed outcome for a retry; resume a Started action by checking Last Action ID and intended values before any repeated write.",
+    "calendarRule": "Create an Outlook event only for an approved dated task; update by stored Outlook Event ID and retain completed or cancelled events."
   },
   "calendar": {
     "required": [
@@ -128,7 +158,8 @@
     "initialStatus": "Pending approval"
   },
   "authority": {
-    "browser": "May submit a request or cancel its own pending request.",
-    "microsoft365": "Approves/rejects requests, writes authoritative List records, stores files and creates/updates Outlook calendar events."
+    "browser": "Submits tasks and calendar requests. The Worker permits requesters to cancel their own pending tasks, assigned staff to progress approved work, and Accounts/Operations to approve, reject, assign, schedule, or cancel.",
+    "worker": "Validates the signed Entra identity, enforces role and task ownership, and calls only the protected Power Automate task endpoint.",
+    "microsoft365": "The Microsoft Tasks List stores authoritative task state. Controlled flows write List records and create/update Outlook calendar events; browser code has no direct List or calendar write path."
   }
 }

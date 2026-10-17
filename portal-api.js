@@ -64,6 +64,8 @@
     if (!response.ok) {
       var error = new Error(body && body.error ? body.error : "Protected portal request failed (" + response.status + ")");
       error.status = response.status;
+      if (body && body.operationId) error.operationId = body.operationId;
+      if (body && body.syncStatus) error.syncStatus = body.syncStatus;
       throw error;
     }
     return body;
@@ -91,6 +93,38 @@
 
   function setPayMonthStart(body) {
     return request('/api/pay-month-starts', { method: 'POST', body: body || {} });
+  }
+
+  function taskRequest(path, options) {
+    var settings = Object.assign({}, options || {});
+    settings.upstreamScopes = Array.isArray(config.taskWorkflowScopes) ? config.taskWorkflowScopes : [];
+    return request(path, settings);
+  }
+
+  async function connectTaskWorkflow() {
+    var requestedScopes = Array.isArray(config.taskWorkflowScopes) ? config.taskWorkflowScopes.filter(Boolean) : [];
+    if (!requestedScopes.length) throw new Error('Task workflow consent is not configured.');
+    var auth = await authContext();
+    if (!auth || typeof auth.acquireToken !== 'function') throw new Error('Sign-in context unavailable');
+    var token = await auth.acquireToken(requestedScopes);
+    if (!token) throw new Error('Microsoft 365 task access token unavailable');
+    return true;
+  }
+
+  function tasks() {
+    return taskRequest('/api/tasks', { method: 'GET' });
+  }
+
+  function createTask(body) {
+    return taskRequest('/api/tasks', { method: 'POST', body: body || {} });
+  }
+
+  function actOnTask(taskId, body) {
+    return taskRequest('/api/tasks/' + encodeURIComponent(String(taskId || '')) + '/actions', { method: 'POST', body: body || {} });
+  }
+
+  function taskHistory(taskId) {
+    return taskRequest('/api/tasks/' + encodeURIComponent(String(taskId || '')) + '/history', { method: 'GET' });
   }
 
   function saveRecord(record) {
@@ -450,6 +484,11 @@
     updateUserAccess: updateUserAccess,
     payMonthStarts: payMonthStarts,
     setPayMonthStart: setPayMonthStart,
+    tasks: tasks,
+    connectTaskWorkflow: connectTaskWorkflow,
+    createTask: createTask,
+    actOnTask: actOnTask,
+    taskHistory: taskHistory,
     saveRecord: saveRecord,
     updateRecord: updateRecord,
     queueAttachments: queueAttachments,
