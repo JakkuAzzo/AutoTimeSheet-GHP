@@ -8,7 +8,6 @@
 
   const keys = {
     jobs: 'gmt_portal_job_cards_v1',
-    tasks: 'gmt_portal_tasks_v1',
     org: 'gmt_portal_org_v1',
     notifications: 'gmt_portal_notifications_v1',
     calendar: 'gmt_portal_calendar_v1',
@@ -35,7 +34,6 @@
     }
   };
   const GMT_JOB_CARD_CC = 'gmtelectricalservices+jobcards@outlook.com';
-  const taskIndex = new Map();
   const calendarIndex = new Map();
   const jobCardIndex = new Map();
   let jobCardRevisionSource = null;
@@ -67,9 +65,9 @@
     return true;
   }
 
-  async function updateProtectedRecord(record, status, issue = '') {
+  async function updateProtectedRecord(record, status, issue = '', updatedAt = new Date().toISOString()) {
     if (!portalApiEnabled()) return false;
-    await window.GMTPortalApi.updateRecord(record.recordId, { ...record, status, issue, updatedAt: new Date().toISOString() });
+    await window.GMTPortalApi.updateRecord(record.recordId, { ...record, status, issue, updatedAt });
     return true;
   }
 
@@ -165,7 +163,7 @@
     const isJobCard = kind.startsWith('Job Card');
     const endpoint = isJobCard ? jobCardFormSubmitEndpoint() : categoryFormSubmitEndpoint(kind);
     if (!endpoint) {
-      logNotification(kind, `${kind} stored locally only. FormSubmit is not configured.`);
+      logNotification(kind, `${kind} was not submitted because FormSubmit is not configured.`);
       return false;
     }
     ensurePortalSubmitFrame();
@@ -175,7 +173,7 @@
     form.target = 'portal-formsubmit-frame';
     form.enctype = 'multipart/form-data';
     form.hidden = true;
-    const submittedAt = new Date().toISOString();
+    const submittedAt = fields.submitted_at || fields.updated_at || new Date().toISOString();
 
     const add = (name, value) => {
       const input = document.createElement('input');
@@ -250,6 +248,7 @@
       add('gmt_month', parts.month);
       add('gmt_calendar_name', 'GMT Operational Calendar');
       add('gmt_submitted_at', submittedAt);
+      if (fields.updated_at) add('gmt_updated_at', fields.updated_at);
     }
     Object.entries(fields).forEach(([name, value]) => add(name, value));
     if (!('submitted_at' in fields) && !('updated_at' in fields)) add('submitted_at', submittedAt);
@@ -629,17 +628,10 @@
   }
 
   function renderTasks(remoteTasks = []) {
-    const localTasks = store.get(keys.tasks, []);
-    const tasks = [...remoteTasks, ...localTasks.filter((local) => !remoteTasks.some((remote) => String(remote.id) === String(local.id)))];
-    taskIndex.clear();
-    tasks.forEach((task) => taskIndex.set(String(task.id || task.recordId), task));
+    const tasks = Array.isArray(remoteTasks) ? remoteTasks : [];
     const board = $('#task-board');
     if (!board) return;
-    const columns = ['Pending approval', 'To-Do', 'In-Progress', 'Completed'];
-    board.innerHTML = columns.map((status) => {
-      const items = tasks.filter((task) => task.status === status);
-      return `<section class="kanban-column"><h3>${status} <span class="portal-status">${items.length}</span></h3>${items.map(renderTask).join('') || '<p class="small-text">No tasks.</p>'}</section>`;
-    }).join('');
+    board.innerHTML = tasks.length ? tasks.map(renderTask).join('') : '<p class="small-text">No task requests are available.</p>';
   }
 
   function renderTask(task) {
@@ -647,8 +639,8 @@
       <h4>${safe(task.title)}</h4>
       <p class="portal-item-meta">${safe(task.jobRef || 'No job ref')} · ${safe(task.assignee || 'Unassigned')}</p>
       <p class="portal-item-meta">Due: ${safe(task.due || 'No due date')} · Priority: <span class="portal-status ${task.priority.toLowerCase()}">${safe(task.priority)}</span></p>
-      <p class="small-text">${task.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Move the task as work progresses.'}</p>
-      <div class="task-card-actions">${['To-Do', 'In-Progress', 'Completed'].map((next) => `<button type="button" class="secondary" data-task-status="${safe(next)}" data-task-id="${safe(task.id)}" ${task.status === next ? 'disabled' : ''}>${safe(next)}</button>`).join('')}</div>
+      <p class="portal-item-meta"><strong>Status:</strong> ${safe(task.status || 'Pending approval')}</p>
+      <p class="small-text">Approval and task status are managed in Microsoft 365.</p>
     </article>`;
   }
 
@@ -685,8 +677,32 @@
       </article>`).join('') : '<p class="small-text">No notification log entries yet.</p>';
   }
 
+  function calendarRequestStatus(status) {
+    const value = String(status || 'Pending approval').trim();
+    return ['submitted', 'saved'].includes(value.toLowerCase()) ? 'Pending approval' : value;
+  }
+
+  function calendarStatusMessage(status) {
+    const value = calendarRequestStatus(status);
+    switch (value.toLowerCase()) {
+      case 'pending approval': return 'Awaiting licensed accounts approval.';
+      case 'cancelled': return 'Cancellation recorded in portal history; Microsoft 365 processing is not confirmed.';
+      case 'approved': return 'Approved in portal history; shared-calendar publication is shown in the published feed.';
+      case 'rejected': return 'Request marked rejected in portal history.';
+      default: return `Status is recorded as ${value}; publication is not confirmed.`;
+    }
+  }
+
   function renderCalendar() {
-    const events = store.get(keys.calendar, []).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const uniqueEvents = new Map();
+    store.get(keys.calendar, []).forEach((event) => {
+      const key = String(event.recordId || event.id || '');
+      const current = uniqueEvents.get(key);
+      if (!current) uniqueEvents.set(key, event);
+      else if (calendarRequestStatus(current.status).toLowerCase() === 'pending approval'
+        && calendarRequestStatus(event.status).toLowerCase() === 'cancelled') uniqueEvents.set(key, event);
+    });
+    const events = [...uniqueEvents.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
     const list = $('#calendar-list');
     if (!list) return;
     if (!events.length) {
@@ -694,7 +710,11 @@
       return;
     }
     calendarIndex.clear();
-    events.forEach((event) => calendarIndex.set(String(event.id || event.recordId), event));
+    events.forEach((event) => {
+      event.status = calendarRequestStatus(event.status);
+      calendarIndex.set(String(event.id || event.recordId), event);
+    });
+    store.set(keys.calendar, events);
     list.innerHTML = events.map((event) => `
       <article class="portal-item calendar-date-group">
         <strong>${safe(event.date)} · ${safe(event.title)}</strong>
@@ -702,8 +722,8 @@
         <p class="portal-item-meta">${safe(event.type)} · ${safe(event.owner || 'No owner')}</p>
         <p>${safe(event.notes || 'No notes')}</p>
         <div class="portal-item-actions">
-          <span class="small-text">${event.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Published from the approved calendar feed.'}</span>
-          ${event.status !== 'Cancelled' ? `<button type="button" class="secondary" data-calendar-edit="${event.id}">Edit</button>` : ''}
+          <span class="small-text">${safe(calendarStatusMessage(event.status))}</span>
+          ${event.status === 'Pending approval' ? `<button type="button" class="secondary" data-calendar-edit="${event.id}">Edit</button>` : ''}
           ${event.status === 'Pending approval' ? `<button type="button" class="secondary danger" data-calendar-delete="${event.id}">Cancel request</button>` : ''}
         </div>
       </article>`).join('');
@@ -823,7 +843,13 @@
   }
 
   async function loadProtectedTasks() {
-    if (!portalApiEnabled()) return;
+    const board = $('#task-board');
+    if (!board) return;
+    if (!portalApiEnabled()) {
+      board.innerHTML = '<p class="small-text" role="status">Protected task history is unavailable in this session.</p>';
+      return;
+    }
+    board.innerHTML = '<p class="small-text" role="status">Loading protected task requests…</p>';
     try {
       const body = await window.GMTPortalApi.history('tasks');
       const remoteTasks = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
@@ -839,12 +865,13 @@
       }));
       renderTasks(remoteTasks);
     } catch (_) {
-      // Local requests remain visible if the protected service is unavailable.
+      const board = $('#task-board');
+      if (board) board.innerHTML = '<p class="small-text" role="status">Task requests are unavailable because protected history could not be loaded.</p>';
     }
   }
 
   async function loadProtectedCalendar() {
-    if (!portalApiEnabled()) return;
+    if (!$('#calendar-form') || !portalApiEnabled()) return;
     try {
       const body = await window.GMTPortalApi.history('calendar');
       const remoteEvents = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
@@ -854,12 +881,15 @@
         type: record.event_type || 'General',
         owner: record.owner || record.employee_name || '',
         notes: record.notes || '',
-        status: record.status || 'Pending approval',
+        status: calendarRequestStatus(record.status),
         requestedBy: record.employee_name || '',
-        recordId: record.source_record_id
+        recordId: record.source_record_id,
+        submittedAt: record.submitted_at || '',
+        updatedAt: record.updated_at || ''
       }));
       const localEvents = store.get(keys.calendar, []);
-      store.set(keys.calendar, [...remoteEvents, ...localEvents.filter((local) => !remoteEvents.some((remote) => String(remote.id) === String(local.id)))]);
+      const remoteRecordIds = new Set(remoteEvents.map((remote) => String(remote.recordId || remote.id)));
+      store.set(keys.calendar, [...remoteEvents, ...localEvents.filter((local) => !remoteRecordIds.has(String(local.recordId || local.id)))]);
       renderCalendar();
     } catch (_) {
       // Local calendar requests remain visible if the protected service is unavailable.
@@ -1150,23 +1180,23 @@
     prefillTaskDate();
     $('#task-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const tasks = store.get(keys.tasks, []);
-      const task = { id: id(), title: $('#task-title').value.trim(), jobRef: $('#task-job-ref').value.trim(), assignee: $('#task-assignee').value.trim(), due: $('#task-due').value, priority: $('#task-priority').value, status: 'Pending approval', requestedBy: portalProfileName() };
+      const taskId = `task-${id()}`;
+      const submittedAt = new Date().toISOString();
+      const task = { id: taskId, recordId: taskId, title: $('#task-title').value.trim(), jobRef: $('#task-job-ref').value.trim(), assignee: $('#task-assignee').value.trim(), due: $('#task-due').value, priority: $('#task-priority').value, status: 'Pending approval', requestedBy: portalProfileName() };
       if (!task.title) return;
-      tasks.unshift(task);
-      store.set(keys.tasks, tasks);
       const protectedRecord = {
-        recordId: `task-${task.id}`,
+        recordId: task.recordId,
         kind: 'tasks',
         action: 'create_request',
         status: task.status,
-        submittedAt: new Date().toISOString(),
+        submittedAt,
         employeeName: task.requestedBy,
         employeeEmail: portalProfile().username || '',
         recordDate: task.due,
         payload: { title: task.title, jobReference: task.jobRef, assignee: task.assignee, due: task.due, priority: task.priority }
       };
-      try { await saveProtectedRecord(protectedRecord); } catch (error) {
+      let protectedSaved = false;
+      try { protectedSaved = await saveProtectedRecord(protectedRecord); } catch (error) {
         logNotification('Task', `Task could not be saved to protected history: ${error.message || 'service unavailable'}.`);
         renderTasks();
         return;
@@ -1175,7 +1205,7 @@
       prefillPortalIdentity();
       const sent = sendPortalFormSubmit('Task', {
         task_title: task.title,
-        task_id: task.id,
+        task_id: task.recordId,
         job_reference: task.jobRef,
         assigned_to: task.assignee,
         due_date: task.due,
@@ -1183,42 +1213,16 @@
         status: task.status,
         requested_by: task.requestedBy,
         requested_by_upn: portalProfile().username || '',
-        submitted_at: new Date().toISOString()
+        submitted_at: submittedAt
       });
-      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
-      logNotification('Task', sent
-        ? `Task request submitted for accounts approval: ${task.title}.`
-        : `Task request stored locally only. It still needs an approved submission route: ${task.title}.`);
-      renderTasks();
-    });
-    $('#task-board')?.addEventListener('click', async (event) => {
-      const button = event.target.closest('[data-task-status]');
-      if (!button) return;
-      const task = taskIndex.get(String(button.dataset.taskId));
-      if (!task) return;
-      const nextStatus = button.dataset.taskStatus;
-      const protectedRecord = {
-        recordId: task.recordId || task.id,
-        kind: 'tasks',
-        action: 'update_request',
-        employeeName: task.employeeName || portalProfileName(),
-        employeeEmail: portalProfile().username || '',
-        recordDate: task.due || '',
-        payload: { title: task.title, jobReference: task.jobRef, assignee: task.assignee, due: task.due, priority: task.priority }
-      };
-      button.disabled = true;
-      try {
-        await updateProtectedRecord(protectedRecord, nextStatus);
-        task.status = nextStatus;
-        const localTasks = store.get(keys.tasks, []);
-        const local = localTasks.find((item) => String(item.id) === String(task.id));
-        if (local) { local.status = nextStatus; store.set(keys.tasks, localTasks); }
-        renderTasks([...taskIndex.values()]);
-        logNotification('Task', 'Task ' + task.title + ' moved to ' + nextStatus + '.');
-      } catch (error) {
-        button.disabled = false;
-        logNotification('Task', 'Task status could not be updated: ' + (error.message || 'service unavailable') + '.');
-      }
+      logNotification('Task', protectedSaved
+        ? (sent
+          ? `Task request saved for Accounts review. Email submission attempted; delivery is not confirmed: ${task.title}.`
+          : `Task request saved for Accounts review. No email route is configured: ${task.title}.`)
+        : (sent
+          ? `Task email submission attempted, but protected history was unavailable. Delivery is not confirmed: ${task.title}.`
+          : `Task request was not saved or emailed because no protected service or email route is configured: ${task.title}.`));
+      loadProtectedTasks();
     });
   }
 
@@ -1279,7 +1283,9 @@
       const editingId = $('#calendar-edit-id')?.value.trim() || '';
       const previous = editingId ? events.find((item) => String(item.id || item.recordId) === editingId) : null;
       const entryId = editingId || id();
-      const entry = { id: entryId, title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: previous?.requestedBy || portalProfileName(), recordId: previous?.recordId || `calendar-${entryId}` };
+      const submittedAt = previous?.submittedAt || new Date().toISOString();
+      const updatedAt = previous ? new Date().toISOString() : '';
+      const entry = { id: entryId, title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: previous?.requestedBy || portalProfileName(), recordId: previous?.recordId || `calendar-${entryId}`, submittedAt, ...(previous ? { updatedAt } : {}) };
       if (!entry.title || !entry.date) return;
       const existingIndex = events.findIndex((item) => String(item.id || item.recordId) === String(entry.id));
       if (existingIndex >= 0) events[existingIndex] = entry;
@@ -1290,13 +1296,15 @@
         kind: 'calendar',
         action: previous ? 'update_request' : 'create_request',
         status: entry.status,
-        submittedAt: new Date().toISOString(),
+        submittedAt,
+        ...(previous ? { updatedAt } : {}),
         employeeName: entry.requestedBy,
         employeeEmail: portalProfile().username || '',
         recordDate: entry.date,
         payload: { title: entry.title, date: entry.date, type: entry.type, owner: entry.owner, notes: entry.notes }
       };
-      try { await saveProtectedRecord(protectedRecord); } catch (error) {
+      let protectedSaved = false;
+      try { protectedSaved = await saveProtectedRecord(protectedRecord); } catch (error) {
         logNotification('Calendar', `Calendar request could not be saved to protected history: ${error.message || 'service unavailable'}.`);
         renderCalendar();
         return;
@@ -1304,7 +1312,7 @@
       event.target.reset();
       prefillPortalIdentity();
       const sent = sendPortalFormSubmit(previous ? 'Calendar Update' : 'Calendar Request', {
-        event_id: entry.id,
+        event_id: entry.recordId,
         event_title: entry.title,
         event_date: entry.date,
         event_type: entry.type,
@@ -1313,12 +1321,17 @@
         requested_by_upn: portalProfile().username || '',
         status: entry.status,
         notes: entry.notes,
-        submitted_at: new Date().toISOString()
+        submitted_at: submittedAt,
+        ...(previous ? { updated_at: updatedAt } : {})
       });
-      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
-      logNotification('Calendar', sent
-        ? `${previous ? 'Calendar update' : 'Calendar request'} submitted for accounts approval: ${entry.title}.`
-        : `${previous ? 'Calendar update' : 'Calendar request'} stored locally only. It still needs an approved submission route: ${entry.title}.`);
+      const requestLabel = previous ? 'Calendar update' : 'Calendar request';
+      logNotification('Calendar', protectedSaved
+        ? (sent
+          ? `${requestLabel} saved for Accounts review. Email submission attempted; delivery is not confirmed: ${entry.title}.`
+          : `${requestLabel} saved for Accounts review. No email route is configured: ${entry.title}.`)
+        : (sent
+          ? `${requestLabel} email submission attempted, but protected history was unavailable. Delivery is not confirmed: ${entry.title}.`
+          : `${requestLabel} was not saved or emailed because no protected service or email route is configured: ${entry.title}.`));
       renderCalendar();
       $('#calendar-edit-id').value = '';
       $('#calendar-submit-button').textContent = 'Submit calendar request';
@@ -1344,23 +1357,45 @@
         return;
       }
       if (del) {
-        const item = calendarIndex.get(String(del.dataset.calendarDelete)) || events.find((entry) => String(entry.id || entry.recordId) === String(del.dataset.calendarDelete));
-        if (item) {
-          sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
-          try {
-            await updateProtectedRecord({
-              recordId: item.recordId || `calendar-${item.id}`,
-              kind: 'calendar',
-              action: 'update_request',
-              employeeName: item.requestedBy || portalProfileName(),
-              employeeEmail: portalProfile().username || '',
-              recordDate: item.date,
-              payload: { title: item.title, date: item.date, type: item.type, owner: item.owner, notes: item.notes }
-            }, 'Cancelled');
-          } catch (_) {}
+        const item = events.find((entry) => [entry.id, entry.recordId].some((value) => String(value || '') === String(del.dataset.calendarDelete))) || calendarIndex.get(String(del.dataset.calendarDelete));
+        if (!item || item.status !== 'Pending approval') {
+          logNotification('Calendar', 'Only a pending calendar request can be cancelled.');
+          return;
         }
-        store.set(keys.calendar, events.filter((entry) => entry.id !== del.dataset.calendarDelete));
-        logNotification('Calendar', 'Calendar request cancelled.');
+        const recordId = item.recordId || `calendar-${item.id}`;
+        try {
+          let submittedAt = item.submittedAt || item.submitted_at || '';
+          if (!submittedAt && portalApiEnabled() && typeof window.GMTPortalApi.getRecord === 'function') {
+            const response = await window.GMTPortalApi.getRecord(recordId);
+            submittedAt = response?.record?.submitted_at || response?.record?.submittedAt || '';
+          }
+          if (!submittedAt) throw new Error('Original submission time is unavailable. Refresh the calendar requests and try again.');
+          const updatedAt = new Date().toISOString();
+          const saved = await updateProtectedRecord({
+            recordId,
+            kind: 'calendar',
+            action: 'update_request',
+            employeeName: item.requestedBy || portalProfileName(),
+            employeeEmail: portalProfile().username || '',
+            recordDate: item.date,
+            payload: { title: item.title, date: item.date, type: item.type, owner: item.owner, notes: item.notes }
+          }, 'Cancelled', '', updatedAt);
+          if (!saved) throw new Error('Protected request service is unavailable.');
+          const cancellationIds = new Set([del.dataset.calendarDelete, item.id, item.recordId].filter(Boolean).map(String));
+          const updatedEvents = events.map((entry) => ([entry.id, entry.recordId].some((value) => cancellationIds.has(String(value || '')))
+            ? { ...entry, status: 'Cancelled', updatedAt }
+            : entry));
+          if (!updatedEvents.some((entry) => [entry.id, entry.recordId].some((value) => cancellationIds.has(String(value || ''))))) {
+            updatedEvents.push({ ...item, status: 'Cancelled', updatedAt });
+          }
+          store.set(keys.calendar, updatedEvents);
+          const sent = sendPortalFormSubmit('Calendar Update', { event_id: recordId, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, submitted_at: submittedAt, updated_at: updatedAt });
+          logNotification('Calendar', sent
+            ? 'Cancellation saved for Accounts review. Email submission attempted; delivery is not confirmed.'
+            : 'Cancellation saved in protected history, but no email route is configured. Accounts may still see the request as pending.');
+        } catch (error) {
+          logNotification('Calendar', 'Cancellation could not be saved; the request remains unchanged. ' + (error.message || 'Protected request service unavailable.'));
+        }
       }
       renderCalendar();
     });
@@ -1372,6 +1407,7 @@
       prefillPortalIdentity();
     });
     $('#export-ics-btn')?.addEventListener('click', exportCalendarIcs);
+    loadProtectedCalendar();
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -1379,11 +1415,12 @@
     bindTabs(); bindJobs(); bindTasks(); bindOrg(); bindNotifications(); bindCalendar();
     renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
     prefillPortalIdentity();
+    loadProtectedTasks();
     loadProtectedJobs().finally(() => loadJobCardArchive());
   });
   window.addEventListener('beforeunload', () => {
     if (selectedJobCardArchiveContentUrl) URL.revokeObjectURL(selectedJobCardArchiveContentUrl);
   });
-  document.addEventListener('gmtportalidentity', prefillPortalIdentity);
+  document.addEventListener('gmtportalidentity', () => { prefillPortalIdentity(); loadProtectedCalendar(); });
   document.addEventListener('gmtportalprofile', prefillPortalIdentity);
 })();
