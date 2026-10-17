@@ -1655,6 +1655,10 @@ async function createAppEstimateEndpoint(request, env, identity, origin) {
   if (!bytes.byteLength || bytes.byteLength > 1_000_000) throw Object.assign(new Error('Estimate document is missing or too large'), { status: 400 });
   const sourceRecordId = text(body.source_record_id || body.sourceRecordId, '', 240);
   if (!sourceRecordId) throw Object.assign(new Error('source_record_id is required for idempotent estimate filing'), { status: 400 });
+  const sourceRecord = await env.DB.prepare('SELECT record_id, owner_oid, kind FROM records WHERE record_id = ?').bind(sourceRecordId).first();
+  if (!sourceRecord || sourceRecord.kind !== 'estimates' || sourceRecord.owner_oid !== identity.oid) {
+    throw Object.assign(new Error('Estimate record not found'), { status: 404 });
+  }
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   const contentHash = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
   const identityBytes = new TextEncoder().encode(`${sourceRecordId}\0${contentHash}`);
