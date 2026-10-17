@@ -348,15 +348,21 @@
       var requesterName = String(profile.name || "");
       var requesterUpn = String(profile.username || profile.upn || "");
       var recordId = String(form.dataset.editRecordId || form.dataset.requestRecordId || "") || "calendar-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      var updated = Boolean(form.dataset.editRecordId);
+      var submittedAt = updated ? String(form.dataset.originalSubmittedAt || "") : new Date().toISOString();
+      var updatedAt = updated ? new Date().toISOString() : "";
+      if (updated && !submittedAt) {
+        status.textContent = "Original request creation time is unavailable. Reload the calendar request before editing.";
+        return;
+      }
       form.dataset.requestRecordId = recordId;
       var payload = { title: title, date: date, type: String(values.get("type") || "Holiday"), notes: String(values.get("notes") || ""), owner: requesterName };
-      var submittedAt = new Date().toISOString();
       button.disabled = true;
       status.textContent = "Saving request…";
       try {
-        var saved = await window.GMTPortalApi.saveRecord({ recordId: recordId, kind: "calendar", action: form.dataset.editRecordId ? "update_request" : "create_request", status: "Pending approval", recordDate: date, submittedAt: submittedAt, employeeName: requesterName, employeeEmail: requesterUpn, payload: payload });
+        var saved = await window.GMTPortalApi.saveRecord({ recordId: recordId, kind: "calendar", action: updated ? "update_request" : "create_request", status: "Pending approval", recordDate: date, submittedAt: submittedAt, ...(updated ? { updatedAt: updatedAt } : {}), employeeName: requesterName, employeeEmail: requesterUpn, payload: payload });
         if (saved === null) throw new Error("Protected request service is unavailable.");
-        var attempted = queueCalendarRequestEmail(recordId, payload, Boolean(form.dataset.editRecordId), requesterName, requesterUpn, submittedAt);
+        var attempted = queueCalendarRequestEmail(recordId, payload, updated, requesterName, requesterUpn, submittedAt, updatedAt);
         status.textContent = attempted ? "Request saved. Email submission attempted; delivery is not confirmed." : "Request saved for Accounts review. No email route is configured.";
         document.dispatchEvent(new CustomEvent("gmt:history-record-updated", { detail: { recordId: recordId } }));
         window.setTimeout(function () { if (requestDialog && requestDialog.open) requestDialog.close(); }, 1800);
@@ -369,7 +375,7 @@
     return requestDialog;
   }
 
-  function queueCalendarRequestEmail(recordId, payload, updated, requesterName, requesterUpn, submittedAt) {
+  function queueCalendarRequestEmail(recordId, payload, updated, requesterName, requesterUpn, submittedAt, updatedAt) {
     var config = window.GMT_APP_CONFIG || {};
     var endpoint = config.calendarFormSubmitEndpoint || config.fallbackFormSubmitEndpoint || config.formSubmitEndpoint;
     if (!endpoint) return false;
@@ -407,6 +413,10 @@
     add("gmt_month", match ? match[2] : "");
     add("gmt_calendar_name", "GMT Operational Calendar");
     add("gmt_submitted_at", submittedAt || new Date().toISOString());
+    if (updatedAt) {
+      add("gmt_updated_at", updatedAt);
+      add("updated_at", updatedAt);
+    }
     add("event_id", recordId);
     add("event_title", payload.title);
     add("event_date", date);
@@ -428,12 +438,15 @@
     form.reset();
     form.dataset.editRecordId = recordId || "";
     form.dataset.requestRecordId = recordId || "";
+    form.dataset.originalSubmittedAt = "";
     form.elements.date.value = validDay(day) ? day : "";
     form.querySelector("[data-calendar-request-status]").textContent = "";
     if (recordId && window.GMTPortalApi && typeof window.GMTPortalApi.getRecord === "function") {
       try {
         var result = await window.GMTPortalApi.getRecord(recordId);
-        var payload = result && (result.payload || result.record && result.record.payload) || {};
+        var record = result && result.record || result || {};
+        var payload = result && (result.payload || record.payload) || {};
+        form.dataset.originalSubmittedAt = String(record.submitted_at || record.submittedAt || payload.submittedAt || "");
         form.elements.title.value = payload.title || "Calendar request";
         form.elements.date.value = validDay(payload.date) ? payload.date : form.elements.date.value;
         form.elements.type.value = payload.type || "General";

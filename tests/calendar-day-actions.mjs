@@ -45,7 +45,22 @@ try {
         fields: Object.fromEntries([...this.querySelectorAll('input')].map((input) => [input.name, input.value]))
       });
     };
-    window.GMTPortalApi = { saveRecord: async (record) => { window.__requestSaved = record; } };
+    window.__savedRequests = [];
+    window.__getRecordCalls = [];
+    window.__protectedRequest = null;
+    window.GMTPortalApi = {
+      saveRecord: async (record) => {
+        window.__savedRequests.push(record);
+        window.__requestSaved = record;
+        window.__protectedRequest = record;
+        return { ok: true };
+      },
+      getRecord: async (recordId) => {
+        window.__getRecordCalls.push(recordId);
+        const record = window.__protectedRequest;
+        return { record: { record_id: record.recordId, submitted_at: record.submittedAt }, payload: record.payload };
+      }
+    };
   });
   const day = await page.evaluate(() => `${window.GMTCalendarActions.currentPayMonth()}-15`);
   await page.evaluate((value) => {
@@ -101,6 +116,36 @@ try {
   assert.equal(envelope.fields.event_id, saved.recordId);
   assert.match(await page.locator('[data-calendar-request-status]').textContent(), /delivery is not confirmed/i);
   await page.locator('dialog.calendar-request-dialog [data-calendar-request-close]').click();
+  await page.evaluate(({ recordId, date, title }) => {
+    const entry = document.createElement('button');
+    entry.type = 'button';
+    entry.dataset.calendarRecordId = recordId;
+    entry.dataset.calendarRecordKind = 'calendar';
+    entry.dataset.calendarCanEdit = 'true';
+    entry.dataset.calendarCanDelete = 'false';
+    entry.dataset.calendarDate = date;
+    entry.dataset.calendarPreviewTitle = title;
+    entry.textContent = title;
+    document.body.appendChild(entry);
+  }, { recordId: saved.recordId, date: day, title: saved.payload.title });
+  await page.locator('[data-calendar-record-id]').click();
+  await page.locator('[data-calendar-action-edit-entry]').click();
+  await page.locator('dialog.calendar-request-dialog').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('dialog.calendar-request-dialog [name=title]').inputValue(), 'Time off request');
+  await page.locator('dialog.calendar-request-dialog [name=title]').fill('Edited time off request');
+  await page.locator('dialog.calendar-request-dialog button[type=submit]').click();
+  await page.waitForFunction(() => window.__savedRequests.length === 2 && window.__submittedForms.length === 2);
+  const edited = await page.evaluate(() => window.__savedRequests[1]);
+  const editEnvelope = await page.evaluate(() => window.__submittedForms[1]);
+  assert.equal(await page.evaluate(() => window.__getRecordCalls.at(-1)), saved.recordId, 'calendar quick edit reloads the protected record before saving');
+  assert.equal(edited.action, 'update_request');
+  assert.equal(edited.submittedAt, saved.submittedAt, 'a quick edit retains the original protected creation timestamp');
+  assert.equal(editEnvelope.fields.gmt_submitted_at, saved.submittedAt, 'the queued update envelope retains the original request creation timestamp');
+  assert.match(edited.updatedAt || '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'a quick edit has a separate update timestamp');
+  assert.notEqual(edited.updatedAt, saved.submittedAt, 'editing does not reuse the original creation timestamp as the update timestamp');
+  assert.equal(editEnvelope.fields.gmt_updated_at, edited.updatedAt, 'the update envelope matches the protected record update timestamp');
+  assert.equal(editEnvelope.fields.updated_at, edited.updatedAt);
+  assert.equal(editEnvelope.fields.event_title, 'Edited time off request');
   await page.evaluate(() => {
     const entry = document.createElement('button');
     entry.type = 'button';
