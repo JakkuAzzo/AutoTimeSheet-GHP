@@ -396,6 +396,29 @@ function sameSubmission(a: (string | number | boolean)[], b: (string | number | 
   return a.slice(0, 20).every((value, column) => normalizedCell(value, column) === normalizedCell(b[column], column));
 }
 
+function isLinkedAbsenceSubmissionPair(a: (string | number | boolean)[], b: (string | number | boolean)[]): boolean {
+  const recordId = text(a[19]).trim();
+  const actionA = text(a[5]).trim().toLowerCase();
+  const actionB = text(b[5]).trim().toLowerCase();
+  return Boolean(recordId && recordId === text(b[19]).trim() &&
+    ((actionA === 'absence' && actionB === 'submission') || (actionA === 'submission' && actionB === 'absence')));
+}
+
+function sameSubmissionWithAbsenceEnrichment(existing: (string | number | boolean)[], incoming: (string | number | boolean)[]): boolean {
+  const sameSource = text(existing[19]).trim() && text(existing[19]).trim() === text(incoming[19]).trim();
+  const bothSubmissions = text(existing[5]).trim().toLowerCase() === 'submission' &&
+    text(incoming[5]).trim().toLowerCase() === 'submission';
+  // A replay of the CSV side does not carry the absence reason added from its
+  // Calendar Sync companion. Keep that richer field and still recognize the
+  // unchanged CSV record as an idempotent retry.
+  const companionEnrichmentColumns = [1, 7, 16, 17, 18];
+  return Boolean(sameSource && bothSubmissions && text(existing[7]).trim() && !text(incoming[7]).trim()) &&
+    existing.slice(0, 20).every((value, column) => {
+      if (companionEnrichmentColumns.indexOf(column) >= 0 && !text(incoming[column]).trim()) return true;
+      return normalizedCell(value, column) === normalizedCell(incoming[column], column);
+    });
+}
+
 function refreshReconciliation(workbook: ExcelScript.Workbook, sheet: ExcelScript.Worksheet, rows: (string | number | boolean)[][]): number {
   const issues: string[][] = rows.map(() => []);
   const related: number[][] = rows.map(() => []);
@@ -518,16 +541,19 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
     if (!id) return;
     const values = recordValues(record);
     const versions = existingById["id:" + id] || [];
-    if (versions.some((index) => sameSubmission(rows[index], values))) { unchanged++; return; }
-    // Calendar Sync JSON carries the day and totals, while the companion CSV
-    // carries the clock and break detail. Merge those two representations when
-    // one side is merely an enrichment; retain distinct, conflicting versions.
-    const dayMatches = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
-      text(row[0]).trim().toLowerCase() === text(values[0]).trim().toLowerCase() &&
-      text(row[5]).trim().toLowerCase() === text(values[5]).trim().toLowerCase() &&
-      normalizedCell(row[2], 2) === normalizedCell(values[2], 2) &&
-      normalizedCell(row[4], 4) === normalizedCell(values[4], 4)
-    );
+    if (versions.some((index) => sameSubmission(rows[index], values) || sameSubmissionWithAbsenceEnrichment(rows[index], values))) { unchanged++; return; }
+    // Calendar Sync JSON carries the day and totals, while its companion CSV
+    // carries the clock and break detail. Keep action types distinct except for
+    // an absence/submission pair linked by the same source record ID.
+    const dayMatches = rows.map((row, index) => ({ row, index })).filter(({ row }) => {
+      const rowAction = text(row[5]).trim().toLowerCase();
+      const valueAction = text(values[5]).trim().toLowerCase();
+      const sameAction = rowAction === valueAction;
+      return text(row[0]).trim().toLowerCase() === text(values[0]).trim().toLowerCase() &&
+        (sameAction || isLinkedAbsenceSubmissionPair(row, values)) &&
+        normalizedCell(row[2], 2) === normalizedCell(values[2], 2) &&
+        normalizedCell(row[4], 4) === normalizedCell(values[4], 4);
+    });
     const detailed = (row: (string | number | boolean)[]): boolean =>
       Boolean(normalizedCell(row[8], 8) || normalizedCell(row[11], 11) || Number(row[12]) || Number(row[13]));
     const newDetailed = detailed(values);
@@ -537,10 +563,14 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
       return (newDetailed && !oldDetailed) || (!newDetailed && oldDetailed);
     });
     if (mergeTarget) {
-      const merged = values.slice() as (string | number)[];
+      // Keep the submission as the canonical action whichever companion
+      // arrives first, and fill its sparse fields from the absence event.
+      const keepExistingSubmission = isLinkedAbsenceSubmissionPair(mergeTarget.row, values) && text(mergeTarget.row[5]).trim().toLowerCase() === 'submission';
+      const merged = (keepExistingSubmission ? mergeTarget.row : values).slice() as (string | number)[];
+      const enrichment = keepExistingSubmission ? values : mergeTarget.row;
       // Keep the richer identity/source metadata already present in the row.
       [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].forEach((column) => {
-        if (!text(merged[column]).trim() && text(mergeTarget.row[column]).trim()) merged[column] = mergeTarget.row[column] as string | number;
+        if (!text(merged[column]).trim() && text(enrichment[column]).trim()) merged[column] = enrichment[column] as string | number;
       });
       if (!text(merged[19]).trim()) merged[19] = mergeTarget.row[19] as string | number;
       sheet.getRange("A" + (mergeTarget.index + 2) + ":U" + (mergeTarget.index + 2)).setValues([merged]);
