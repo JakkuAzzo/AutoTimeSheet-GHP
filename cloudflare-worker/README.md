@@ -130,11 +130,11 @@ SharePoint access policy, and bounded read-only backfill have been verified.
 ## Xero connection
 
 The Worker contains a protected, Accounts-only Xero OAuth connection and
-read-only invoice-linking flow. It uses Xero's server-side authorisation-code
-flow, requests `offline_access` plus the granular
-`accounting.invoices.read` scope, discovers the connected tenant through the
-Connections endpoint, and encrypts rotating refresh tokens before storing them
-in D1. No Xero secret or token is sent to the Pages bundle.
+invoice register. It uses Xero's server-side authorisation-code flow, discovers
+the connected tenant through the Connections endpoint, and encrypts rotating
+refresh tokens before storing them in D1. `XERO_SCOPES` is the existing scope
+configuration; this integration work does not add or broaden scopes. No Xero
+secret or token is sent to the Pages bundle.
 
 Create a Xero OAuth 2.0 app with the **Auth Code** grant type and register this
 exact redirect URI:
@@ -189,10 +189,45 @@ trigger another Xero request on each visit.
 
 The Accounts “Refresh from Xero” action adds `refresh=1`, bypasses cached pages,
 and replaces each SharePoint page with the current Xero result. Ordinary visits
-read the SharePoint pages. The response's `archive.source` and `archive.stored`
-fields distinguish archive hits, live Xero reads, and a successful Xero read
-whose SharePoint write failed. Only a SharePoint 404 is treated as a cache
+read the SharePoint pages. The response's `archive.source`, `archive.stored`,
+and `archive.cached_at` fields distinguish archive hits, live Xero reads, and a
+successful Xero read whose SharePoint write failed, and carry the source page
+timestamp. `pagination.page_limit` is 1000; `pagination.has_more` stays true
+when a full page is returned, including a full page 1000, so the browser can
+label a capped walk incomplete. Only a SharePoint 404 is treated as a cache
 miss; authentication or service errors are surfaced instead of silently
-re-reading old history from Xero. The endpoint remains restricted to the
-authenticated Accounts administrator check and requires the configured
-`SHAREPOINT_GRAPH_CLIENT_SECRET`, site, and drive settings.
+re-reading old history from Xero. The browser reports the page source counts
+and oldest/newest page timestamps without applying an automatic freshness
+expiry. Its `sessionStorage` snapshot is bound to a tenant ID and replaced only
+after a complete walk; a failed or capped walk can remain visible for the
+current visit but cannot overwrite that complete snapshot. Refresh remains the
+explicit way to reread archived pages from Xero. The endpoint remains
+restricted to the authenticated Accounts administrator check and requires the
+configured `SHAREPOINT_GRAPH_CLIENT_SECRET`, site, and drive settings.
+
+`GET /api/xero/status` refreshes each distinct saved token once and verifies
+the saved tenant ID and connection ID against Xero `GET /connections`. Tenant
+rows that shared a token receive its rotation together. Migration
+`0015_xero_refresh_locks.sql` adds a short-lived D1 lock so concurrent Worker
+requests cannot consume the same rotating token at once. It follows the Tasks
+and Job Cards migrations 0013 and 0014. Each connection
+reports `refresh_health` (`healthy`, `reconnect_required`,
+`unavailable`, or `not_configured`), `identity_status` (`verified`, `mismatch`,
+or `unverified`), and `checked_at`; transient Xero failures remain distinct
+from a rejected refresh token. Safe error text is returned for Accounts
+diagnostics. Access and refresh tokens remain server-side. The status probe may
+rotate the stored OAuth refresh token, but it does not create, edit, send, void,
+or pay an Xero invoice.
+
+`GET /api/xero/records?q=&limit=&offset=` is the Accounts job-card and estimate
+picker. It searches record IDs, references and payload fields, archived
+candidate/confirmed metadata, source filenames, and job-card OCR text. Pages
+contain at most 100 records and include `pagination.has_more` and
+`pagination.next_offset`; search results remain protected by the Xero Accounts
+administrator check. OCR-derived values continue to be labelled as candidates
+until Accounts confirms them.
+
+These read paths do not perform Xero invoice create, edit, send, void, or payment
+actions, and do not change the configured scope list. Existing SharePoint archive
+pages are replaced only by the explicit refresh path; this flow does not delete
+archived pages or Xero source invoices.

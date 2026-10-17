@@ -106,6 +106,14 @@ CREATE TABLE IF NOT EXISTS xero_connections (
 
 CREATE INDEX IF NOT EXISTS idx_xero_connections_updated ON xero_connections(updated_at DESC);
 
+-- Refresh tokens can be shared across several Xero tenants. This short-lived
+-- lease serializes token rotation across concurrent Worker requests.
+CREATE TABLE IF NOT EXISTS xero_refresh_locks (
+  token_hash TEXT PRIMARY KEY,
+  lease_id TEXT NOT NULL,
+  lease_expires_at INTEGER NOT NULL
+);
+
 -- Per-account GMT app settings. The Entra object ID is the stable owner key;
 -- the sign-in address is retained only as the current displayable username.
 -- The browser cache is a convenience and is never the source of truth.
