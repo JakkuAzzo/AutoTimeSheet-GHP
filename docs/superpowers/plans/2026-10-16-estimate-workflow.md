@@ -81,5 +81,5 @@
 
 - [x] Run all focused estimate contract and browser tests plus `git diff --check`.
 - [x] Confirm production providers and deployment were not changed.
-- [ ] Commit the scoped changes on `codex/estimate-drafting-archive-send` and open a separate pull request against `main`.
-- [ ] Report the live-send blocker precisely if the approved GMT mailbox/Flow evidence remains unavailable.
+- [x] Commit the scoped changes on `codex/estimate-drafting-archive-send` and open a separate pull request against `main`.
+- [x] Report the live-send blocker precisely: the connected Outlook identity is personal rather than GMT, so the live Flow path was not attempted or verified.
