@@ -1462,6 +1462,6 @@ html[data-portal-viewport-shell="true"] .portal-dashboard-grid {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html[data-portal-viewport-shell="true"] .app-main:not([hidden]) { scroll-behavior: auto; }
+  html[data-portal-viewport-shell="true"] main:not([hidden]) { scroll-behavior: auto; }
   html[data-portal-viewport-shell="true"] .portal-dashboard-main { scroll-snap-type: none !important; }
 }
