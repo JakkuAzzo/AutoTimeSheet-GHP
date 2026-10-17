@@ -22,7 +22,8 @@ const d1 = {
 
 const tenant = '8b182d6b-6f34-4ca2-84ad-50ca712b5488';
 const audience = '01b5a6c6-f6c1-47cb-aebe-67f07f415e4b';
-const owner = 'estimate-owner-oid';
+const owner = 'estimate-accounts-admin-oid';
+const adminUpn = 'accounts@gmt-services.co.uk';
 const signing = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
 const jwk = await crypto.subtle.exportKey('jwk', signing.publicKey);
 jwk.kid = 'estimate-send-test-key';
@@ -32,56 +33,49 @@ const originalFetch = globalThis.fetch;
 let flowCalls = 0;
 let flowPayload;
 let flowAuthorization = '';
+let flowShouldFail = false;
 globalThis.fetch = async (url, init = {}) => {
   if (String(url).includes('/discovery/v2.0/keys')) return new Response(JSON.stringify({ keys: [jwk] }), { status: 200, headers: { 'content-type': 'application/json' } });
   if (String(url).includes('.environment.api.powerplatform.com')) {
     flowCalls += 1;
     flowPayload = JSON.parse(init.body);
     flowAuthorization = init.headers.authorization || '';
-    return new Response(JSON.stringify({ success: true, sentAt: '2026-10-06T12:00:00.000Z' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify(flowShouldFail
+      ? { success: false, message: 'Synthetic internal test failure' }
+      : { success: true, sentAt: '2026-10-16T12:00:00.000Z' }), { status: flowShouldFail ? 500 : 200, headers: { 'content-type': 'application/json' } });
   }
   return new Response('', { status: 404 });
 };
-const claims = base64url(JSON.stringify({
-  tid: tenant, aud: audience, iss: `https://login.microsoftonline.com/${tenant}/v2.0`,
-  exp: Math.floor(Date.now() / 1000) + 300, oid: owner,
-  preferred_username: 'employee@gmt-services.co.uk', name: 'GMT Employee'
-}));
 const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: jwk.kid }));
-const signingInput = `${header}.${claims}`;
-const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signing.privateKey, new TextEncoder().encode(signingInput));
-const token = `${signingInput}.${base64url(new Uint8Array(signature))}`;
-const flowClaims = base64url(JSON.stringify({
-  tid: tenant, aud: 'https://service.flow.microsoft.com/', iss: `https://login.microsoftonline.com/${tenant}/v2.0`,
-  exp: Math.floor(Date.now() / 1000) + 300, oid: owner,
-  preferred_username: 'employee@gmt-services.co.uk', name: 'GMT Employee'
-}));
-const flowSigningInput = `${header}.${flowClaims}`;
-const flowSignature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signing.privateKey, new TextEncoder().encode(flowSigningInput));
-const flowToken = `${flowSigningInput}.${base64url(new Uint8Array(flowSignature))}`;
-const wrongUserClaims = base64url(JSON.stringify({
-  tid: tenant, aud: 'https://service.flow.microsoft.com/', iss: `https://login.microsoftonline.com/${tenant}/v2.0`,
-  exp: Math.floor(Date.now() / 1000) + 300, oid: 'different-employee-oid',
-  preferred_username: 'other@gmt-services.co.uk', name: 'Other Employee'
-}));
-const wrongUserInput = `${header}.${wrongUserClaims}`;
-const wrongUserSignature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signing.privateKey, new TextEncoder().encode(wrongUserInput));
-const wrongUserFlowToken = `${wrongUserInput}.${base64url(new Uint8Array(wrongUserSignature))}`;
+async function signedToken(overrides) {
+  const claims = base64url(JSON.stringify({
+    tid: tenant, aud: audience, iss: `https://login.microsoftonline.com/${tenant}/v2.0`,
+    exp: Math.floor(Date.now() / 1000) + 300, oid: owner,
+    preferred_username: adminUpn, name: 'GMT Accounts Test Administrator', ...overrides
+  }));
+  const input = `${header}.${claims}`;
+  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signing.privateKey, new TextEncoder().encode(input));
+  return `${input}.${base64url(new Uint8Array(signature))}`;
+}
+const token = await signedToken({ aud: audience });
+const flowToken = await signedToken({ aud: 'https://service.flow.microsoft.com/' });
+const wrongUserFlowToken = await signedToken({ aud: 'https://service.flow.microsoft.com/', oid: 'different-employee-oid', preferred_username: 'other@gmt-services.co.uk', name: 'Other Employee' });
+const nonAdminToken = await signedToken({ aud: audience, oid: 'ordinary-staff-oid', preferred_username: 'employee@gmt-services.co.uk', name: 'GMT Employee' });
 
 const estimate = {
-  record_id: 'estimate-send-001', owner_oid: owner, owner_upn: 'employee@gmt-services.co.uk',
-  employee_name: 'GMT Employee', kind: 'estimates', action: 'client_send', status: 'Pending client send',
-  start_date: null, end_date: null, record_date: '2026-10-06', submitted_at: '2026-10-06T11:00:00.000Z',
-  updated_at: '2026-10-06T11:00:00.000Z', issue: '', payload_json: JSON.stringify({ number: 'EST-001', company: 'Acme Ltd', email: 'client@example.com', total: 120 })
+  record_id: 'TEST-ESTIMATE-20261016-001', owner_oid: owner, owner_upn: adminUpn,
+  employee_name: 'GMT Accounts Test Administrator', kind: 'estimates', action: 'client_send', status: 'Pending client send',
+  start_date: null, end_date: null, record_date: '2026-10-16', submitted_at: '2026-10-16T11:00:00.000Z',
+  updated_at: '2026-10-16T11:00:00.000Z', issue: '', payload_json: JSON.stringify({ testMode: true, number: 'TEST-ESTIMATE-20261016-001', company: 'GMT Internal Test Only', email: adminUpn, total: 1.23 })
 };
 db.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name, kind, action, status, record_date, submitted_at, updated_at, issue, payload_json)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
   .run(estimate.record_id, estimate.owner_oid, estimate.owner_upn, estimate.employee_name, estimate.kind, estimate.action, estimate.status,
     estimate.record_date, estimate.submitted_at, estimate.updated_at, estimate.issue, estimate.payload_json);
 const archiveInput = normalizeEstimateArchiveRecord({
-  id: 'app-archive-send-001', canonical_id: 'app:send-001', source_kind: 'app', classification_state: 'confirmed',
-  source_message_id: 'send-001', mailbox: '', sender_email: 'employee@gmt-services.co.uk', customer: 'Acme Ltd',
-  customer_email: 'client@example.com', estimate_number: 'EST-001', sent_at: '2026-10-06T11:00:00.000Z',
+  id: 'app-archive-send-001', canonical_id: `app:${estimate.record_id}`, source_kind: 'app', classification_state: 'confirmed',
+  source_message_id: estimate.record_id, mailbox: '', sender_email: adminUpn, customer: 'GMT Internal Test Only',
+  customer_email: adminUpn, estimate_number: 'TEST-ESTIMATE-20261016-001', sent_at: '2026-10-16T11:00:00.000Z',
   provenance: { source: 'portal-app', source_record_id: estimate.record_id }
 });
 await upsertEstimateArchive({ DB: d1 }, { ...archiveInput, provenance: JSON.parse(archiveInput.provenance_json) });
@@ -89,31 +83,43 @@ await upsertEstimateArchive({ DB: d1 }, { ...archiveInput, provenance: JSON.pars
 const env = {
   DB: d1, ENTRA_TENANT_ID: tenant, ENTRA_AUDIENCES: audience,
   ALLOWED_ORIGINS: 'https://gmt-services.co.uk',
+  ADDITIONAL_ADMIN_UPNS: adminUpn,
   ESTIMATE_SEND_FLOW_URL: 'https://default.environment.api.powerplatform.com/send'
 };
 const sendUrl = 'https://gmt-portal-api.example.workers.dev/api/estimates/send';
-const send = (body, accessToken = flowToken) => worker.fetch(new Request(sendUrl, {
+const send = (body, accessToken = flowToken, portalToken = token) => worker.fetch(new Request(sendUrl, {
   method: 'POST', headers: {
-    authorization: `Bearer ${token}`, 'content-type': 'application/json',
+    authorization: `Bearer ${portalToken}`, 'content-type': 'application/json',
     ...(accessToken ? { 'X-GMT-Upstream-Authorization': `Bearer ${accessToken}` } : {})
   }, body: JSON.stringify(body)
 }), env, {});
 const payload = {
-  recordId: estimate.record_id, to: 'client@example.com', estimate: { number: 'EST-001', company: 'Acme Ltd', total: 120 },
-  fileName: 'EST-001.doc', contentType: 'application/msword', contentBase64: Buffer.from('<doc/>').toString('base64')
+  recordId: estimate.record_id, to: adminUpn,
+  estimate: { number: 'TEST-ESTIMATE-20261016-001', company: 'GMT Internal Test Only', total: 1.23, date: '2026-10-16', reference: 'SYNTHETIC INTERNAL TEST' },
+  fileName: 'TEST-ESTIMATE-20261016-001.doc', contentType: 'application/msword', contentBase64: Buffer.from('<doc>synthetic internal test</doc>').toString('base64')
 };
 
 const sent = await send(payload);
 assert.equal(sent.status, 200, 'authenticated estimate can be sent only after its archive record exists');
 assert.equal(flowCalls, 1);
 assert.equal(flowAuthorization, `Bearer ${flowToken}`, 'the Worker forwards the delegated Flow token as the trigger authorization');
-assert.equal(flowPayload.to, 'client@example.com');
+assert.equal(flowPayload.to, adminUpn, 'controlled send-path data uses the approved internal test recipient');
 assert.equal(flowPayload.bcc, 'accounts@gmt-services.co.uk', 'Accounts is always copied on a client estimate');
-assert.equal(flowPayload.fileName, 'EST-001.doc', 'the payload exposes the attachment fields expected by the Power Automate trigger schema');
-assert.equal(flowPayload.contentBase64, Buffer.from('<doc/>').toString('base64'));
+assert.equal(flowPayload.fileName, 'TEST-ESTIMATE-20261016-001.doc', 'the payload exposes the attachment fields expected by the Power Automate trigger schema');
+assert.equal(flowPayload.contentBase64, Buffer.from('<doc>synthetic internal test</doc>').toString('base64'));
 assert.equal(flowPayload.contentType, 'application/msword');
 assert.equal(db.prepare('SELECT status FROM records WHERE record_id=?').get(estimate.record_id).status, 'Sent to client');
-assert.equal((await sent.json()).sent_at, '2026-10-06T12:00:00.000Z');
+assert.equal((await sent.json()).sent_at, '2026-10-16T12:00:00.000Z');
+const sentIndex = Object.fromEntries(Object.entries(db.prepare('SELECT canonical_id, estimate_number, client, client_email, reference, estimate_date, source, correlation_status FROM estimate_index WHERE canonical_id=?').get(estimate.record_id)));
+assert.deepEqual(sentIndex, {
+  canonical_id: estimate.record_id, estimate_number: 'TEST-ESTIMATE-20261016-001',
+  client: 'GMT Internal Test Only', client_email: adminUpn, reference: 'SYNTHETIC INTERNAL TEST',
+  estimate_date: '2026-10-16', source: 'app', correlation_status: 'ready'
+}, 'confirmed app delivery reconciles the protected estimate into the estimate index');
+
+const nonAdmin = await send(payload, flowToken, nonAdminToken);
+assert.equal(nonAdmin.status, 403, 'an authenticated non-admin cannot deliver an estimate');
+assert.equal(flowCalls, 1, 'a non-admin denial never reaches the Power Automate send action');
 
 const noFlowToken = await send(payload, '');
 assert.equal(noFlowToken.status, 401, 'the Worker requires the signed-in employee Flow token');
@@ -131,6 +137,29 @@ db.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name,
 const noArchive = await send({ ...payload, recordId: 'estimate-no-archive' });
 assert.equal(noArchive.status, 409, 'the client send route refuses to send before shared filing');
 assert.equal(flowCalls, 1);
+
+const failedEstimate = { ...estimate, record_id: 'TEST-ESTIMATE-20261016-002', payload_json: JSON.stringify({ testMode: true, number: 'TEST-ESTIMATE-20261016-002', company: 'GMT Internal Test Only', email: adminUpn, total: 1.23 }) };
+db.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name, kind, action, status, record_date, submitted_at, updated_at, issue, payload_json)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  .run(failedEstimate.record_id, failedEstimate.owner_oid, failedEstimate.owner_upn, failedEstimate.employee_name, failedEstimate.kind, failedEstimate.action, failedEstimate.status,
+    failedEstimate.record_date, failedEstimate.submitted_at, failedEstimate.updated_at, failedEstimate.issue, failedEstimate.payload_json);
+const failedArchive = normalizeEstimateArchiveRecord({
+  id: 'app-archive-send-002', canonical_id: `app:${failedEstimate.record_id}`, source_kind: 'app', classification_state: 'confirmed',
+  source_message_id: failedEstimate.record_id, mailbox: '', sender_email: adminUpn, customer: 'GMT Internal Test Only',
+  customer_email: adminUpn, estimate_number: 'TEST-ESTIMATE-20261016-002', sent_at: '2026-10-16T11:00:00.000Z',
+  provenance: { source: 'portal-app', source_record_id: failedEstimate.record_id }
+});
+await upsertEstimateArchive({ DB: d1 }, { ...failedArchive, provenance: JSON.parse(failedArchive.provenance_json) });
+flowShouldFail = true;
+const failed = await send({ ...payload, recordId: failedEstimate.record_id, estimate: { ...payload.estimate, number: 'TEST-ESTIMATE-20261016-002' } });
+assert.equal(failed.status, 502, 'a non-confirming Flow response is not reported as a successful send');
+assert.equal(db.prepare('SELECT status FROM records WHERE record_id=?').get(failedEstimate.record_id).status, 'Delivery status needs review');
+assert.equal(db.prepare('SELECT COUNT(*) AS count FROM estimate_index WHERE canonical_id=?').get(failedEstimate.record_id).count, 0,
+  'an uncertain delivery is not indexed as a confirmed sent estimate');
+assert.equal(flowCalls, 2);
+const failedRetry = await send({ ...payload, recordId: failedEstimate.record_id, estimate: { ...payload.estimate, number: 'TEST-ESTIMATE-20261016-002' } });
+assert.equal(failedRetry.status, 409, 'uncertain delivery is not retried automatically');
+assert.equal(flowCalls, 2);
 
 globalThis.fetch = originalFetch;
 db.close();
