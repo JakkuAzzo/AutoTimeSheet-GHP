@@ -744,6 +744,8 @@
           body: formData
         });
         if (!response.ok) throw new Error('Workshop enquiry failed');
+        var result = await response.json();
+        if (result && String(result.success).toLowerCase() === 'false') throw new Error('Workshop enquiry was not accepted');
         form.reset();
         syncBookingFields();
         status.textContent = 'We’ve got your enquiry — please check your email for a reply from GMT.';
