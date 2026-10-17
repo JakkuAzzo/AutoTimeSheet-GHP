@@ -94,4 +94,4 @@
 - [x] Document the health fields, tenant verification, page freshness labels, partial-load behavior, job-card search, unchanged scopes, and the no-financial-write boundary.
 - [x] Document the D1 refresh lease migration and shared-token rotation handling.
 - [x] Run all focused suites, `npm run test:worker:deployment-workflow`, Worker dry-run, and `git diff --check`; inspect the diff for financial write calls, scope changes, and SharePoint deletes.
-- [ ] Record live-check boundaries accurately. Do not deploy, merge, or alter provider data; commit and open a separate pull request for the coordinator's release gate.
+- [x] Record live-check boundaries accurately. Do not deploy, merge, or alter provider data; commit and open a separate pull request for the coordinator's release gate. PR #124 is open against `main`; authenticated GMT Accounts invoice register and SharePoint cache contents remain unverified.
