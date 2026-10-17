@@ -79,6 +79,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-secure-chip { display: inline-flex; align-items: center; min-height: 32px; padding: .3rem .65rem; color: #0d4c16; background: #e4f2e0; border: 1px solid #a9caa1; border-radius: 999px; font-size: .82rem; font-weight: 800; white-space: nowrap; }
 .portal-action-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .85rem; }
 .portal-action-card { display: grid; grid-template-columns: auto 1fr auto; gap: .8rem; align-items: center; min-height: 96px; padding: 1rem; color: var(--ink); text-decoration: none; background: #fff; border: 1px solid var(--line); border-radius: 1rem; box-shadow: 0 8px 18px rgba(0,0,0,.06); transition: transform .18s ease,box-shadow .18s ease,border-color .18s ease; }
+.portal-action-card[hidden], .portal-feature-card[hidden] { display: none; }
 .portal-action-card:hover, .portal-action-card:focus-visible { border-color: var(--green-2); box-shadow: 0 14px 26px rgba(18,61,29,.14); transform: translateY(-2px); }
 .portal-action-card strong, .portal-action-card small { display: block; }
 .portal-action-card strong { color: var(--green); font-size: 1.05rem; }

@@ -6,7 +6,7 @@
 <link rel="icon" type="image/svg+xml" href="../favicon.svg?v=tools-favicon-20260909">
 <title>GMT Tools</title>
 <link rel="stylesheet" href="../styles.css?v=portal-responsive-layout-20261016-v4">
-<link rel="stylesheet" href="../portal.css?v=portal-responsive-layout-20261016-v6">
+<link rel="stylesheet" href="../portal.css?v=portal-role-card-hidden-20261017-v1">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="../viewport-effects.js?v=viewport-shell-20261016-v1"></script>
@@ -16,20 +16,22 @@
 </head>
 <body>
 <header class="app-header">
-<div class="brand-block"><img src="../image.png" alt="GMT Electrical Services Ltd logo" class="site-logo"><div><p class="eyebrow">93-95 Gloucester Rd, Croydon CR0 2DN</p><h1>Tools</h1><p>Estimates, job cards, tasks, calendar and Accounts tools.</p></div></div>
-<nav class="header-actions"><a href="../portal/">Dashboard</a><a href="../timesheets/">Timesheets</a><a href="../jobs/">Job Cards</a></nav>
+<div class="brand-block"><img src="../image.png" alt="GMT Electrical Services Ltd logo" class="site-logo"><div><p class="eyebrow">93-95 Gloucester Rd, Croydon CR0 2DN</p><h1>Tools</h1><p>Your role-specific GMT work hub.</p></div></div>
+<nav class="header-actions"><a href="../portal/">Dashboard</a><a href="../timesheets/">Timesheets</a></nav>
 </header>
 <main class="app-main" hidden>
-<section class="portal-card-grid" data-scroll-reveal>
-<a class="portal-feature-card portal-estimate-card" href="estimates.html" data-hide-for-hr><span>Estimates</span><small>Create a branded estimate, preview it, and send it through the protected client workflow.</small></a>
-<a class="portal-feature-card portal-action-gold" href="../jobs/" data-hide-for-hr><span>Job Cards</span><small>Create EC or MTA cards, preview the paper layout, and review submitted job history.</small></a>
-<a class="portal-feature-card" href="../tasks/" data-hide-for-hr><span>Tasks</span><small>Manage task progress.</small><strong class="in-progress-badge">In progress</strong></a>
-<a class="portal-feature-card" href="../portal/#portal-calendar-title"><span>Calendar</span><small>Review the shared schedule and request time off from a day.</small></a>
-<a class="portal-feature-card portal-action-gold" id="xero-invoices-card" href="invoices.html" hidden aria-hidden="true"><span>Invoices</span><small>Review and manage invoices in the connected Xero organisation.</small></a>
+<p class="small-text" data-tools-access-status role="status" aria-live="polite">Checking which tools are available…</p>
+<button type="button" class="secondary" data-tools-access-retry hidden>Retry access check</button>
+<section class="portal-card-grid" data-scroll-reveal aria-label="Available tools">
+<a class="portal-feature-card portal-estimate-card" href="estimates.html" data-tool-card="estimates" hidden aria-hidden="true"><span>Estimates</span><small>Create a branded estimate, preview it, and send it through the protected client workflow.</small></a>
+<a class="portal-feature-card portal-action-gold" href="../jobs/" data-tool-card="job-cards" data-hide-for-hr hidden aria-hidden="true"><span>Job Cards</span><small data-tool-description="job-cards">Create EC or MTA cards, preview their layout, and review submitted job history.</small></a>
+<a class="portal-feature-card" href="../tasks/" data-tool-card="tasks" data-hide-for-hr hidden aria-hidden="true"><span>Tasks</span><small data-tool-description="tasks">Submit task requests and manage your assigned work.</small></a>
+<a class="portal-feature-card" href="../portal/#portal-calendar-title" data-tool-card="calendar"><span>Calendar</span><small data-tool-description="calendar">Review your calendar requests and request time off from a day.</small></a>
+<a class="portal-feature-card portal-action-gold" id="xero-invoices-card" href="invoices.html" data-tool-card="invoices" hidden aria-hidden="true"><span>Invoices</span><small>Review and manage invoices in the connected Xero organisation.</small></a>
 </section>
 </main>
 <script defer src="../portal-api.js?v=portal-api-xero-invoices-20260915"></script>
-<script defer src="access-ui.js?v=portal-access-control-20261012"></script>
+<script defer src="access-ui.js?v=portal-role-card-access-20261017-v1"></script>
 <script defer src="invoices.js?v=portal-responsive-motion-20261015-v1"></script>
 </body>
 </html>
