@@ -36,15 +36,18 @@ await new Promise((done) => server.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 
-async function submitEnquiry({ response, failNetwork = false, viewport = { width: 1280, height: 800 } }) {
+async function submitEnquiry({ response, failNetwork = false, viewport = { width: 1280, height: 800 }, reopenImmediatelyAfterSuccess = false, resubmitAfterReopen = false, retryAfterFailure = false }) {
   const page = await browser.newPage({ viewport });
   const postedUrls = [];
+  const recordIds = [];
   const realFormSubmitRequests = [];
   await page.route('**/*', async (route) => {
     const url = route.request().url();
     if (url.startsWith(origin)) return route.continue();
     if (url === mockEndpoint) {
       postedUrls.push(url);
+      const recordIdMatch = (route.request().postData() || '').match(/name="gmt_record_id"\r?\n\r?\n([^\r\n]+)/);
+      if (recordIdMatch) recordIds.push(recordIdMatch[1].trim());
       if (failNetwork) return route.abort();
       return route.fulfill({
         status: response.status,
@@ -68,7 +71,52 @@ async function submitEnquiry({ response, failNetwork = false, viewport = { width
     await page.locator('#workshop-enquiry-email-confirmation').fill('internal-test@example.invalid');
     await page.locator('#workshop-enquiry-message').fill('Synthetic enquiry used to verify the confirmation flow.');
     await page.waitForTimeout(1250);
+    if (reopenImmediatelyAfterSuccess) {
+      await page.evaluate(() => {
+        const form = document.querySelector('[data-workshop-enquiry-form]');
+        const status = document.querySelector('[data-workshop-enquiry-status]');
+        const readState = () => ({
+          formHidden: form.hidden,
+          formAriaHidden: form.getAttribute('aria-hidden'),
+          formSubmitted: form.classList.contains('is-submitted'),
+          enquiryRecordIdCached: form.dataset.enquiryRecordId || null,
+          status: status.textContent.trim(),
+          statusVisible: status.classList.contains('is-visible') && getComputedStyle(status).display !== 'none',
+          dialogOpen: !document.querySelector('[data-contact-modal]').hidden
+        });
+        const observer = new MutationObserver(() => {
+          if (!status.textContent.trim().startsWith('We’ve got your enquiry')) return;
+          observer.disconnect();
+          const completed = readState();
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          document.querySelector('a[data-enquire-nav]').click();
+          window.__publicEnquiryReopenRace = { completed, reopened: readState() };
+        });
+        observer.observe(status, { childList: true, characterData: true, subtree: true });
+      });
+    }
     await page.locator('[data-workshop-enquiry-form] button[type="submit"]').click();
+    if (reopenImmediatelyAfterSuccess) {
+      await page.waitForFunction(() => window.__publicEnquiryReopenRace);
+      await page.waitForTimeout(520);
+      const race = await page.evaluate(() => ({
+        ...window.__publicEnquiryReopenRace,
+        afterHideDelay: {
+          formHidden: document.querySelector('[data-workshop-enquiry-form]').hidden,
+          dialogOpen: !document.querySelector('[data-contact-modal]').hidden
+        }
+      }));
+      if (resubmitAfterReopen) {
+        await page.locator('#workshop-enquiry-name').fill('GMT Internal Web Test');
+        await page.locator('#workshop-enquiry-email').fill('internal-test@example.invalid');
+        await page.locator('#workshop-enquiry-email-confirmation').fill('internal-test@example.invalid');
+        await page.locator('#workshop-enquiry-message').fill('A second synthetic enquiry after reopening.');
+        await page.waitForTimeout(1250);
+        await page.locator('[data-workshop-enquiry-form] button[type="submit"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-workshop-enquiry-status]')?.textContent.includes('got your enquiry'));
+      }
+      return { ...race, postedUrls, recordIds, realFormSubmitRequests };
+    }
     await page.waitForFunction(() => {
       const status = document.querySelector('[data-workshop-enquiry-status]');
       return status && status.textContent.trim() && status.textContent.trim() !== 'Sending your enquiry…';
@@ -84,6 +132,7 @@ async function submitEnquiry({ response, failNetwork = false, viewport = { width
         formAriaHidden: form.getAttribute('aria-hidden'),
         status: status.textContent.trim(),
         statusVisible: status.classList.contains('is-visible') && getComputedStyle(status).display !== 'none',
+        enquiryRecordIdCached: form.dataset.enquiryRecordId || null,
         liveRegion: status.getAttribute('aria-live'),
         confirmationTarget: location.hash === '#submission-received',
         dialogStillOpen: modal && !modal.hidden,
@@ -110,9 +159,15 @@ async function submitEnquiry({ response, failNetwork = false, viewport = { width
           status: status.textContent.trim()
         };
       });
-      return { ...state, statusLayout, reopened, postedUrls, realFormSubmitRequests };
+      return { ...state, statusLayout, reopened, postedUrls, recordIds, realFormSubmitRequests };
     }
-    return { ...state, postedUrls, realFormSubmitRequests };
+    if (retryAfterFailure) {
+      const retryResponse = page.waitForResponse((networkResponse) => networkResponse.url() === mockEndpoint);
+      await page.locator('[data-workshop-enquiry-form] button[type="submit"]').click();
+      await retryResponse;
+      await page.waitForFunction(() => !document.querySelector('[data-workshop-enquiry-form] button[type="submit"]').disabled);
+    }
+    return { ...state, postedUrls, recordIds, realFormSubmitRequests };
   } finally {
     await page.close();
   }
@@ -134,6 +189,8 @@ try {
     assert.equal(success.confirmationTarget, true);
     assert.equal(success.dialogStillOpen, true, `${width}x${height}: the confirmation remains in the open dialog`);
     assert.equal(success.submitDisabled, false);
+    assert.equal(success.enquiryRecordIdCached, null, `${width}x${height}: successful submission clears the cached source ID`);
+    assert.equal(success.recordIds.length, 1);
     assert.ok(success.statusLayout.scrollHeight <= success.statusLayout.clientHeight + 1, 'the full confirmation fits at 320px width');
     assert.equal(success.reopened.formHidden, false, 'reopening starts a fresh enquiry');
     assert.equal(success.reopened.formAriaHidden, null, 'the reopened form is exposed to assistive technology');
@@ -141,14 +198,17 @@ try {
     assert.equal(success.reopened.statusVisible, false, 'the old confirmation is cleared when a fresh enquiry opens');
     assert.equal(success.reopened.status, '');
 
-    const providerFailure = await submitEnquiry({ response: { status: 200, body: { success: false, message: 'Rejected' } }, viewport });
-    assert.deepEqual(providerFailure.postedUrls, [mockEndpoint]);
+    const providerFailure = await submitEnquiry({ response: { status: 200, body: { success: false, message: 'Rejected' } }, viewport, retryAfterFailure: true });
+    assert.deepEqual(providerFailure.postedUrls, [mockEndpoint, mockEndpoint]);
     assert.deepEqual(providerFailure.realFormSubmitRequests, []);
     assert.match(providerFailure.status, /could not send/i, `${width}x${height}: provider failure shows retry guidance`);
     assert.equal(providerFailure.statusVisible, true);
     assert.equal(providerFailure.formHidden, false);
     assert.equal(providerFailure.submitDisabled, false);
     assert.equal(providerFailure.confirmationTarget, false);
+    assert.equal(providerFailure.recordIds.length, 2);
+    assert.ok(providerFailure.recordIds[0], `${width}x${height}: a source ID is attached to the first attempt`);
+    assert.equal(providerFailure.recordIds[1], providerFailure.recordIds[0], `${width}x${height}: failed retry retains its source ID`);
 
     const networkFailure = await submitEnquiry({ response: { status: 200, body: {} }, failNetwork: true, viewport });
     assert.deepEqual(networkFailure.postedUrls, [mockEndpoint]);
@@ -159,11 +219,32 @@ try {
     assert.equal(networkFailure.submitDisabled, false);
   }
 
+  const delayedHide = await submitEnquiry({
+    response: { status: 200, body: { success: 'true', message: 'Received' } },
+    viewport: { width: 320, height: 568 },
+    reopenImmediatelyAfterSuccess: true,
+    resubmitAfterReopen: true
+  });
+  assert.deepEqual(delayedHide.postedUrls, [mockEndpoint, mockEndpoint]);
+  assert.deepEqual(delayedHide.realFormSubmitRequests, []);
+  assert.equal(delayedHide.recordIds.length, 2);
+  assert.ok(delayedHide.recordIds[0]);
+  assert.notEqual(delayedHide.recordIds[1], delayedHide.recordIds[0], 'a reopened successful enquiry receives a new source ID');
+  assert.match(delayedHide.completed.status, /got your enquiry/i);
+  assert.equal(delayedHide.completed.enquiryRecordIdCached, null);
+  assert.equal(delayedHide.completed.formSubmitted, true);
+  assert.equal(delayedHide.reopened.formHidden, false);
+  assert.equal(delayedHide.reopened.formAriaHidden, null);
+  assert.equal(delayedHide.reopened.formSubmitted, false);
+  assert.equal(delayedHide.reopened.status, '');
+  assert.equal(delayedHide.afterHideDelay.formHidden, false, 'a stale 480ms callback must not hide the freshly reopened form');
+  assert.equal(delayedHide.afterHideDelay.dialogOpen, true);
+
   const stringProviderFailure = await submitEnquiry({ response: { status: 200, body: { success: 'false', message: 'Rejected' } } });
   assert.match(stringProviderFailure.status, /could not send/i, 'a string provider failure must not show success');
   assert.equal(stringProviderFailure.statusVisible, true);
 
-  console.log(`Public enquiry success, provider and network failures, visible feedback, retry availability, and fresh re-open state across ${viewportMatrix.length} viewports: PASS (mock-only routing)`);
+  console.log(`Public enquiry success, failure retries, source-ID lifecycle, delayed-hide cancellation, visible feedback, and fresh re-open state across ${viewportMatrix.length} viewports: PASS (mock-only routing)`);
 } finally {
   if (browser) await browser.close();
   await new Promise((done) => server.close(done));

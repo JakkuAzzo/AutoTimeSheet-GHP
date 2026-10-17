@@ -55,6 +55,12 @@
     return value;
   }
 
+  function cancelPendingEnquiryHide(form) {
+    if (!form || form._gmtEnquiryHideTimeout == null) return;
+    window.clearTimeout(form._gmtEnquiryHideTimeout);
+    form._gmtEnquiryHideTimeout = null;
+  }
+
   function addEnquiryMetadata(formData, form, requestType, isBooking) {
     var recordId = enquiryRecordId(form);
     formData.set('gmt_record_id', recordId);
@@ -629,6 +635,7 @@
       var toggle = card.querySelector('[data-workshop-enquiry-toggle]');
       var workshopStatus = card.querySelector('[data-workshop-enquiry-status]');
       if (workshopForm) {
+        cancelPendingEnquiryHide(workshopForm);
         workshopForm.hidden = false;
         workshopForm.classList.remove('is-submitted');
         workshopForm.removeAttribute('aria-hidden');
@@ -758,6 +765,7 @@
         if (!response.ok) throw new Error('Workshop enquiry failed');
         var result = await response.json();
         if (result && String(result.success).toLowerCase() === 'false') throw new Error('Workshop enquiry was not accepted');
+        delete form.dataset.enquiryRecordId;
         form.reset();
         syncBookingFields();
         status.textContent = 'We’ve got your enquiry — please check your email for a reply from GMT.';
@@ -766,8 +774,10 @@
         form.setAttribute('aria-hidden', 'true');
         toggle.hidden = true;
         window.location.hash = 'submission-received';
-        window.setTimeout(function () {
-          form.hidden = true;
+        cancelPendingEnquiryHide(form);
+        form._gmtEnquiryHideTimeout = window.setTimeout(function () {
+          if (form.classList.contains('is-submitted')) form.hidden = true;
+          form._gmtEnquiryHideTimeout = null;
         }, 480);
       } catch (_error) {
         status.textContent = 'We could not send the form. Please call 0208 683 0464 instead.';

@@ -59,5 +59,7 @@
 - [x] Run the new check and confirm explicit provider failure incorrectly showed success before implementation.
 - [x] Parse the AJAX JSON response, keep the form retryable after explicit failure, and reveal loading/error feedback.
 - [x] Confirm success text fits at a 320px viewport and reopening clears the previous completion state for an accessible fresh enquiry.
+- [x] Clear the cached source ID only after success; verify new enquiries get a new ID and failed retries retain the existing ID.
+- [x] Cancel and guard the delayed success hide when the dialog reopens; verify the fresh form remains open after 480ms.
 - [x] Run the new enquiry check and `npm run test:marketing:contract`.
 - [x] Commit enquiry completion behavior and its regression coverage.
