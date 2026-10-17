@@ -810,9 +810,41 @@ function parsePayload(body) {
   return safe;
 }
 
+function validatePortalRequestMutation(body, existing = null) {
+  const request = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const payload = request.payload && typeof request.payload === 'object' && !Array.isArray(request.payload) ? request.payload : {};
+  const kind = canonicalKind(request.kind || request.type || existing?.kind || '');
+  const existingKind = existing ? canonicalKind(existing.kind) : '';
+  const requestKind = ['calendar', 'tasks'].includes(kind) || ['calendar', 'tasks'].includes(existingKind);
+  if (!requestKind) return;
+  if (existing && existingKind !== kind) {
+    throw Object.assign(new Error('A request cannot change category'), { status: 409 });
+  }
+
+  const action = text(request.action || request.gmtAction || '', '', 100).toLowerCase();
+  const expectedAction = existing ? 'update_request' : 'create_request';
+  if (action !== expectedAction) {
+    throw Object.assign(new Error('Portal request action is not permitted'), { status: 400 });
+  }
+
+  const hasRequestedStatus = Object.hasOwn(request, 'status') || Object.hasOwn(payload, 'status');
+  const requestedStatus = text(request.status ?? payload.status ?? '', '', 100).toLowerCase();
+  if (hasRequestedStatus) {
+    const allowed = requestedStatus === 'pending approval' || (Boolean(existing) && requestedStatus === 'cancelled');
+    if (!allowed) throw Object.assign(new Error('Request status is controlled by Microsoft 365'), { status: 403 });
+  }
+
+  if (existing) {
+    const currentStatus = text(existing.status, '', 100).toLowerCase();
+    if (!['pending approval', 'submitted', 'saved'].includes(currentStatus)) {
+      throw Object.assign(new Error('Only pending requests can be edited or cancelled'), { status: 409 });
+    }
+  }
+}
+
 function normaliseInput(body, identity, existing = null, env = null, payPeriods = defaultPayPeriods()) {
   const payload = parsePayload(body);
-  const kind = canonicalKind(body.kind || body.type || payload.kind);
+  const kind = canonicalKind(body.kind || body.type || payload.kind || existing?.kind);
   if (!ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
   const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
   if (!recordId) throw Object.assign(new Error('A stable record ID is required'), { status: 400 });
@@ -847,7 +879,7 @@ function normaliseInput(body, identity, existing = null, env = null, payPeriods 
     : syntheticTestName
     ? requestedEmployeeName
     : (target?.name || identity.name || requestedEmployeeName || identity.upn);
-  const status = text(body.status || payload.status || (kind === 'calendar' || kind === 'tasks' ? 'Pending approval' : 'Submitted'), 'Submitted', 100);
+  const status = text(body.status || payload.status || existing?.status || (kind === 'calendar' || kind === 'tasks' ? 'Pending approval' : 'Submitted'), 'Submitted', 100);
   const startDate = isoOrBlank(body.startDate || body.start_date || payload.weekStart || body.weekStart);
   const endDate = isoOrBlank(body.endDate || body.end_date || payload.weekEnd || body.weekEnd);
   const recordDate = isoOrBlank(body.recordDate || body.record_date || payload.recordDate || payload.date || body.date);
@@ -4377,6 +4409,7 @@ async function handle(request, env, ctx) {
     if (existing?.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
     if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
     if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing, 'Europe/London', new Date(), payPeriods)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
+    validatePortalRequestMutation(body, existing);
     const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
@@ -4427,6 +4460,7 @@ async function handle(request, env, ctx) {
       const body = await readJson(request);
       if (existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') return json({ error: 'A pay-month correction cannot change record type' }, 400, origin || '');
       if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods);
+      validatePortalRequestMutation(body, existing);
       const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
       const result = await saveRecord(env, input, identity, existing);
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
@@ -4467,6 +4501,7 @@ export {
   adminDispatchQueued,
   adminQueueStatus,
   normaliseInput,
+  validatePortalRequestMutation,
   validateNoFutureWork,
   validatePayMonthCorrection,
   dispatchEndpoint,

@@ -45,8 +45,16 @@ try {
   browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.addInitScript(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Unlicensed Engineer', username: 'unlicensed.engineer@gmt-services.co.uk' })));
+  await page.addInitScript(() => localStorage.setItem('gmt_portal_tasks_v1', JSON.stringify([{ id: 'other-user-task', title: 'Other account private task', status: 'Approved' }])));
   await page.addInitScript(() => {
     window.__submittedForms = [];
+    window.__savedRecords = [];
+    window.__updatedRecords = [];
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__savedRecords.push(record); },
+      updateRecord: async (recordId, record) => { window.__updatedRecords.push({ recordId, ...record }); }
+    };
     HTMLFormElement.prototype.submit = function submitStub() {
       window.__submittedForms.push({
         action: this.action,
@@ -57,6 +65,15 @@ try {
   });
 
   await page.goto(`http://127.0.0.1:${port}/tasks/`, { waitUntil: 'load' });
+  assert.equal(await page.locator('#task-board').innerText().then((text) => text.includes('Other account private task')), false, 'browser-local task requests are not merged into the signed-in account view');
+  assert.match(await page.locator('#task-board').innerText(), /Protected task history is unavailable/i, 'the task board distinguishes unavailable protected history from an empty list');
+  await page.evaluate(() => {
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__savedRecords.push(record); },
+      updateRecord: async (recordId, record) => { window.__updatedRecords.push({ recordId, ...record }); }
+    };
+  });
   assert.equal(await page.locator('#task-assignee').inputValue(), 'Unlicensed Engineer');
   await page.locator('#task-title').fill('Inspect workshop pump');
   await page.locator('#task-job-ref').fill('GMT-TASK-001');
@@ -73,10 +90,22 @@ try {
   assert.equal(task.fields.gmt_year, '2026');
   assert.equal(task.fields.gmt_month, '07');
   assert.ok(task.fields.gmt_record_id);
-  assert.equal(await page.locator('#task-board').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true);
+  assert.equal(task.fields.gmt_submitted_at, task.fields.submitted_at);
+  assert.equal(task.fields.task_id, task.fields.gmt_record_id, 'D1 and FormSubmit task requests use the same stable record ID');
+  assert.equal(await page.evaluate(() => window.__savedRecords[0].recordId), task.fields.gmt_record_id);
+  assert.equal(await page.evaluate(() => window.__savedRecords[0].submittedAt), task.fields.gmt_submitted_at);
+  assert.equal(await page.evaluate(() => window.__updatedRecords.length), 0, 'request submission does not rewrite D1 status based on a hidden form submit');
   assert.equal(await page.locator('[data-task-move], [data-task-delete]').count(), 0, 'the static portal must not expose local task status controls');
+  assert.equal(await page.locator('[data-task-status]').count(), 0, 'the task board must not offer browser-side status transitions');
 
   await page.goto(`http://127.0.0.1:${port}/calendar/`, { waitUntil: 'load' });
+  await page.evaluate(() => {
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__savedRecords.push(record); },
+      updateRecord: async (recordId, record) => { window.__updatedRecords.push({ recordId, ...record }); }
+    };
+  });
   assert.equal(await page.locator('#calendar-owner').inputValue(), 'Unlicensed Engineer');
   await page.locator('#calendar-title').fill('Site survey');
   await page.locator('#calendar-date').fill('2026-07-21');
@@ -93,6 +122,10 @@ try {
   assert.equal(calendar.fields.gmt_month, '07');
   assert.equal(calendar.fields.gmt_calendar_name, 'GMT Operational Calendar');
   assert.ok(calendar.fields.gmt_record_id);
+  assert.equal(calendar.fields.gmt_submitted_at, calendar.fields.submitted_at);
+  assert.equal(await page.evaluate(() => window.__savedRecords.at(-1).submittedAt), calendar.fields.gmt_submitted_at);
+  assert.equal(calendar.fields.gmt_record_id, await page.evaluate(() => window.__savedRecords.at(-1).recordId));
+  assert.equal(await page.evaluate(() => window.__updatedRecords.length), 0, 'calendar form submission does not claim a delivery status');
   assert.equal(await page.locator('#calendar-list').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true);
 
   await page.locator('[data-calendar-delete]').click();
@@ -101,6 +134,9 @@ try {
   assert.equal(cancellation.fields.gmt_action, 'update_request');
   assert.equal(cancellation.fields.gmt_status, 'Cancelled');
   assert.equal(cancellation.fields.gmt_requester_upn, 'unlicensed.engineer@gmt-services.co.uk');
+  assert.equal(cancellation.fields.gmt_record_id, calendar.fields.gmt_record_id, 'calendar cancellation retains the same stable request ID');
+  assert.equal(await page.evaluate(() => window.__updatedRecords[0].recordId), calendar.fields.gmt_record_id);
+  assert.equal(await page.evaluate(() => window.__updatedRecords[0].status), 'Cancelled');
   console.log(JSON.stringify({ task: { action: task.action, subject: task.subject }, calendar: { action: calendar.action, subject: calendar.subject } }, null, 2));
 } finally {
   await browser?.close();

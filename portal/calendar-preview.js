@@ -9,6 +9,7 @@
   var monthInput = document.querySelector("[data-portal-calendar-input]");
   var previous = document.querySelector("[data-portal-calendar-prev]");
   var next = document.querySelector("[data-portal-calendar-next]");
+  var retry = document.querySelector("[data-portal-calendar-retry]");
   var viewDate = new Date();
   var events = [];
   var helper = window.GMTCalendarData || {};
@@ -94,33 +95,28 @@
   }
 
   async function load() {
-    var local = typeof helper.localEvents === "function" ? helper.localEvents() : [];
+    events = [];
+    render();
+    if (status) status.textContent = "Loading published shared calendar…";
+    if (retry) { retry.hidden = false; retry.disabled = true; retry.textContent = "Reload calendar"; }
     try {
       var response = await fetch("../data/calendar/events.json?v=" + Date.now(), { cache: "no-store" });
-      if (response.ok) {
-        var body = await response.json();
-        local = Array.isArray(body) ? body : (Array.isArray(body.events) ? body.events : []);
-      }
-    } catch (_) {}
-    var protectedRecords = [];
-    var historyMeta = {};
-    if (window.GMTPortalApi && typeof window.GMTPortalApi.enabled === "function" && window.GMTPortalApi.enabled()) {
-      try {
-        // The dashboard requests all authorised dated records so its shared
-        // calendar matches Submitted documents. The narrower route remains
-        // available as `GMTPortalApi.history("calendar")` when only requests
-        // are needed.
-        var history = await window.GMTPortalApi.history("all");
-        protectedRecords = history && Array.isArray(history.records) ? history.records : [];
-        historyMeta = history && history.meta && typeof history.meta === "object" ? history.meta : {};
-      } catch (_) {}
+      if (!response || !response.ok) throw new Error("Calendar feed request failed");
+      var body = await response.json();
+      var published = Array.isArray(body) ? body : (body && Array.isArray(body.events) ? body.events : null);
+      if (!published) throw new Error("Calendar feed has an invalid format");
+      events = published;
+      if (status) status.textContent = events.length
+        ? "Published shared calendar: " + events.length + " entr" + (events.length === 1 ? "y" : "ies") + "."
+        : "No published events are available on the shared calendar yet.";
+      if (retry) retry.textContent = "Reload calendar";
+    } catch (_) {
+      events = [];
+      if (status) status.textContent = "Shared calendar unavailable. Published events could not be loaded.";
+      if (retry) { retry.hidden = false; retry.textContent = "Retry calendar load"; }
+    } finally {
+      if (retry) retry.disabled = false;
     }
-    var employees = historyMeta.completion && historyMeta.completion.employees || [];
-    var derived = typeof helper.recordsToEvents === "function" ? helper.recordsToEvents(protectedRecords, { employees: employees }) : [];
-    events = typeof helper.mergeEvents === "function"
-      ? helper.mergeEvents(local.concat(derived), { employees: employees })
-      : local.concat(derived);
-    if (status) status.textContent = events.length ? "Shared calendar: " + events.length + " entr" + (events.length === 1 ? "y" : "ies") + "." : "Shared calendar connected. No events or dated submissions have been filed yet.";
     render();
   }
 
@@ -139,6 +135,7 @@
   });
   var filterGroup = document.querySelector("[data-calendar-filters]");
   if (filterGroup) filterGroup.addEventListener("change", render);
+  if (retry) retry.addEventListener("click", load);
   render();
   load();
 }());

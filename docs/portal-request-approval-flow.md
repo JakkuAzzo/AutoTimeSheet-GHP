@@ -33,14 +33,19 @@ recommended Power Automate Outlook connection owner.
 
 ## Current Technical Boundary
 
-- Task and calendar requests are intentionally stored locally only for immediate
-  browser feedback until the email is processed. Local storage is not the
-  approval record.
-- The client-side portal does not display a trusted approve button for these
-  records, because it cannot validate a Microsoft 365 accounts role securely.
-- Browser-side task movement, job-card approval and rejection controls are not
-  authoritative and are deliberately absent. Accounts performs those actions
-  in Microsoft Lists, Power Apps or an approved M365 flow.
+- When the protected service is available, the portal writes task and calendar
+  requests to protected history with `Pending approval`, then attempts the
+  structured FormSubmit submission. A hidden form submission is not proof that
+  email was delivered or processed.
+- The client-side portal does not approve requests or move task statuses.
+  Accounts performs those actions in Microsoft Lists, Power Apps or an approved
+  Microsoft 365 flow.
+- The protected Worker rejects portal attempts to set decision statuses and
+  allows edits or cancellation only while a request is pending. A requester
+  may cancel their own pending calendar request.
+- The dashboard calendar preview reads the published event feed only. It does
+  not merge browser-local requests or protected request history into shared
+  events, and it exposes retry when the published feed cannot be loaded.
 - The authoritative status is the Microsoft List row created by the flow.
 - Timesheet absence events are separate: the Timesheet Intake flow may publish
   those directly to the shared calendar after a valid timesheet submission.

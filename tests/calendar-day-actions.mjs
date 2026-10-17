@@ -35,7 +35,18 @@ try {
   browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
-  await page.evaluate(() => { window.GMTPortalApi = { saveRecord: async (record) => { window.__requestSaved = record; } }; });
+  await page.evaluate(() => {
+    window.GMT_APP_CONFIG = { calendarFormSubmitEndpoint: 'https://formsubmit.example/gmt-calendar' };
+    window.__submittedForms = [];
+    localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Calendar Tester', username: 'calendar.tester@gmt-services.co.uk' }));
+    HTMLFormElement.prototype.submit = function submitStub() {
+      window.__submittedForms.push({
+        subject: this.querySelector('[name="_subject"]')?.value || '',
+        fields: Object.fromEntries([...this.querySelectorAll('input')].map((input) => [input.name, input.value]))
+      });
+    };
+    window.GMTPortalApi = { saveRecord: async (record) => { window.__requestSaved = record; } };
+  });
   const day = await page.evaluate(() => `${window.GMTCalendarActions.currentPayMonth()}-15`);
   await page.evaluate((value) => {
     const trigger = document.createElement('button');
@@ -70,7 +81,25 @@ try {
   const saved = await page.evaluate(() => window.__requestSaved);
   assert.equal(saved.kind, 'calendar');
   assert.equal(saved.recordDate, day);
+  assert.equal(saved.employeeName, 'Calendar Tester');
+  assert.equal(saved.employeeEmail, 'calendar.tester@gmt-services.co.uk');
   assert.equal(saved.payload.notes, 'Test request');
+  await page.waitForFunction(() => window.__submittedForms.length === 1);
+  const envelope = await page.evaluate(() => window.__submittedForms[0]);
+  assert.equal(envelope.fields.gmt_schema_version, '1');
+  assert.equal(envelope.fields.gmt_type, 'calendar');
+  assert.equal(envelope.fields.gmt_action, 'create_request');
+  assert.equal(envelope.fields.gmt_record_id, saved.recordId);
+  assert.equal(envelope.fields.gmt_status, 'Pending approval');
+  assert.equal(envelope.fields.gmt_employee, 'Calendar Tester');
+  assert.equal(envelope.fields.gmt_requester_upn, 'calendar.tester@gmt-services.co.uk');
+  assert.equal(envelope.fields.gmt_year, day.slice(0, 4));
+  assert.equal(envelope.fields.gmt_month, day.slice(5, 7));
+  assert.equal(envelope.fields.gmt_calendar_name, 'GMT Operational Calendar');
+  assert.ok(envelope.fields.gmt_submitted_at);
+  assert.equal(envelope.fields.gmt_submitted_at, saved.submittedAt, 'the D1 record and email envelope share one submission timestamp');
+  assert.equal(envelope.fields.event_id, saved.recordId);
+  assert.match(await page.locator('[data-calendar-request-status]').textContent(), /delivery is not confirmed/i);
   await page.locator('dialog.calendar-request-dialog [data-calendar-request-close]').click();
   await page.evaluate(() => {
     const entry = document.createElement('button');
