@@ -45,6 +45,8 @@
 - [x] Add `reports_healthy_status_only_for_a_live_matching_tenant`, `reports_reconnect_required_after_invalid_grant`, `keeps_transient_connections_failure_distinct_from_reconnect`, `reports_tenant_mismatch`, and `never_returns_token_material` in `tests/xero-status-health.test.mjs`.
 - [x] Run `node tests/xero-status-health.test.mjs`; expect each new assertion to fail against the current saved-row-only status route.
 - [x] Implement live connection verification and the four `refresh_health`/three `identity_status` values; render them in the Accounts connection panel.
+- [x] Refresh each distinct token once per status walk; serialize concurrent rotations with a hashed D1 lease and persist shared-token rotations atomically across tenant rows.
+- [x] Add multi-tenant and concurrent-refresh regression coverage without exposing token material.
 - [x] Run `node tests/xero-status-health.test.mjs` and `npm run test:xero:integration-contract`; expect both to pass.
 - [x] Commit as `feat: verify GMT Xero connection health`.
 
@@ -63,8 +65,9 @@
 - [x] Add assertions for invalid pages, page 1000 full-page completion metadata, snapshot tenant binding, exact source timestamp summaries, and partial-save rejection.
 - [x] Run `node tests/xero-invoice-archive.test.mjs` and `node tests/xero-invoice-register-state.test.mjs`; expect the new assertions to fail.
 - [x] Implement page validation/limit metadata and the browser snapshot state helper; show source counts and saved timestamp ranges without adding a TTL.
+- [x] Reject malformed successful invoice payloads before caching; preserve the previous complete browser snapshot while an explicit refresh is in progress.
 - [x] Run `node tests/xero-invoice-archive.test.mjs`, `node tests/xero-invoice-register-state.test.mjs`, `node tests/xero-sharepoint-cache-ui.mjs`, and `npm run test:xero:integration-contract`; expect all to pass.
-- [ ] Commit as `fix: label complete and partial Xero register snapshots`.
+- [x] Commit as `fix: label complete and partial Xero register snapshots`.
 
 ### Task 3: Searchable GMT record lookup
 
@@ -80,7 +83,7 @@
 - [x] Run `node tests/xero-record-lookup.test.mjs` and `node tests/xero-invoice-ui.mjs`; expect the new lookup assertions to fail.
 - [x] Implement `GET /api/xero/records?q=&limit=&offset=` and remote search/continuation while retaining selections.
 - [x] Run `node tests/xero-record-lookup.test.mjs`, `node tests/xero-invoice-ui.mjs`, `npm run test:jobs:archive`, `npm run test:jobs:access-policy`, and `npm run test:xero:integration-contract`; expect all to pass.
-- [ ] Commit as `feat: search archived job cards from invoice register`.
+- [x] Commit as `feat: search archived job cards from invoice register`.
 
 ### Task 4: Operator guidance and release evidence
 
@@ -89,5 +92,6 @@
 - Verify: focused Xero/job-card checks, Worker deployment workflow check, `git diff --check`, and Worker dry-run/build.
 
 - [x] Document the health fields, tenant verification, page freshness labels, partial-load behavior, job-card search, unchanged scopes, and the no-financial-write boundary.
-- [x] Run all focused suites, `npm run test:worker:deployment-workflow`, `npx wrangler deploy --dry-run --outdir /tmp/gmt-xero-worker-dry-run`, and `git diff --check`; inspect the diff for financial write calls, scope changes, and SharePoint deletes.
+- [x] Document the D1 refresh lease migration and shared-token rotation handling.
+- [x] Run all focused suites, `npm run test:worker:deployment-workflow`, Worker dry-run, and `git diff --check`; inspect the diff for financial write calls, scope changes, and SharePoint deletes.
 - [ ] Record live-check boundaries accurately. Do not deploy, merge, or alter provider data; commit and open a separate pull request for the coordinator's release gate.

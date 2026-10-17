@@ -205,9 +205,13 @@ explicit way to reread archived pages from Xero. The endpoint remains
 restricted to the authenticated Accounts administrator check and requires the
 configured `SHAREPOINT_GRAPH_CLIENT_SECRET`, site, and drive settings.
 
-`GET /api/xero/status` refreshes each saved encrypted token and verifies both
-the saved tenant ID and connection ID against Xero `GET /connections`. Each
-connection reports `refresh_health` (`healthy`, `reconnect_required`,
+`GET /api/xero/status` refreshes each distinct saved token once and verifies
+the saved tenant ID and connection ID against Xero `GET /connections`. Tenant
+rows that shared a token receive its rotation together. Migration
+`0015_xero_refresh_locks.sql` adds a short-lived D1 lock so concurrent Worker
+requests cannot consume the same rotating token at once. It follows the Tasks
+and Job Cards migrations 0013 and 0014. Each connection
+reports `refresh_health` (`healthy`, `reconnect_required`,
 `unavailable`, or `not_configured`), `identity_status` (`verified`, `mismatch`,
 or `unverified`), and `checked_at`; transient Xero failures remain distinct
 from a rejected refresh token. Safe error text is returned for Accounts

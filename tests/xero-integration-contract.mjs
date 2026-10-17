@@ -16,9 +16,10 @@ import {
 } from '../cloudflare-worker/src/index.js';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const [worker, migration, page, portal, api, readme, invoicesPage, invoicesUi, invoiceMigration, auth, estimatesUi] = await Promise.all([
+const [worker, migration, refreshLockMigration, page, portal, api, readme, invoicesPage, invoicesUi, invoiceMigration, auth, estimatesUi] = await Promise.all([
   readFile(resolve(root, 'cloudflare-worker/src/index.js'), 'utf8'),
   readFile(resolve(root, 'cloudflare-worker/migrations/0002_xero.sql'), 'utf8'),
+  readFile(resolve(root, 'cloudflare-worker/migrations/0015_xero_refresh_locks.sql'), 'utf8'),
   readFile(resolve(root, 'jobs/index.html'), 'utf8'),
   readFile(resolve(root, 'portal.js'), 'utf8'),
   readFile(resolve(root, 'portal-api.js'), 'utf8'),
@@ -52,6 +53,11 @@ assert.match(worker, /const xeroInvoiceLinksMatch/);
 assert.match(worker, /const recordInvoiceLinksMatch/);
 assert.match(migration, /CREATE TABLE IF NOT EXISTS xero_oauth_states/);
 assert.match(migration, /CREATE TABLE IF NOT EXISTS xero_connections/);
+assert.match(refreshLockMigration, /CREATE TABLE IF NOT EXISTS xero_refresh_locks/);
+assert.match(worker, /async function acquireXeroRefreshLock/);
+assert.match(worker, /await env\.DB\.batch\(statements\)/);
+assert.match(worker, /AbortSignal\.timeout\(30_000\)/);
+assert.match(worker, /!text\(body\?\.refresh_token, '', 5000\)/);
 assert.match(page, /id="xero-account-panel"/);
 assert.match(page, /id="xero-account-panel"[^>]*hidden[^>]*aria-hidden="true"/);
 assert.match(portal, /data-job-xero-sync/);
@@ -166,17 +172,41 @@ assert.equal(prepared.LineItems[0].AccountCode, '200');
 
 const xeroFetchLog = [];
 const encryptedForApi = await encryptXeroSecret('refresh-token-for-test', settings);
+const apiConnection = {
+  tenant_id: 'tenant-test',
+  refresh_token_ciphertext: encryptedForApi.ciphertext,
+  refresh_token_iv: encryptedForApi.iv,
+  scopes: 'accounting.invoices',
+  connection_id: 'connection-test'
+};
+const apiDatabase = {
+  prepare(sql) {
+    return {
+      async all() { return { results: [{ ...apiConnection }] }; },
+      bind(...values) {
+        return {
+          async first() { return { ...apiConnection, tenant_id: values[0] || apiConnection.tenant_id }; },
+          async run() { return { success: true, meta: { changes: 1 } }; }
+        };
+      }
+    };
+  },
+  async batch(statements) {
+    const results = [];
+    for (const statement of statements) results.push(await statement.run());
+    return results;
+  }
+};
 const apiEnv = {
   ...settings,
   XERO_CLIENT_ID: 'client-id',
   XERO_CLIENT_SECRET: 'client-secret',
   XERO_REDIRECT_URI: 'https://gmt-portal-api.example.workers.dev/api/xero/callback',
   XERO_TOKEN_ENCRYPTION_KEY: key,
-  DB: { prepare(sql) { return { bind() { return { run: async () => ({ success: true }) }; } }; } }
+  DB: apiDatabase
 };
 const apiResult = await xeroAccountingRequest(apiEnv, {
-  tenant_id: 'tenant-test', refresh_token_ciphertext: encryptedForApi.ciphertext, refresh_token_iv: encryptedForApi.iv,
-  scopes: 'accounting.invoices', connection_id: 'connection-test'
+  ...apiConnection
 }, '/Invoices', {
   method: 'POST', body: { Invoices: [prepared] },
   fetchImpl: async (url, options) => {

@@ -23,6 +23,10 @@ assert.match(ui, /Loading invoice history from the SharePoint archive/);
 assert.match(ui, /previous complete snapshot is preserved/);
 assert.match(ui, /complete && writeInvoiceCache\(pages, all, true\)/,
   'only a complete page walk can replace the tenant-bound browser snapshot');
+const refreshHandler = ui.match(/if \(refresh\) refresh\.addEventListener\("click", function \(\) \{([\s\S]*?)\n  \}\);/);
+assert.ok(refreshHandler, 'manual refresh remains wired to the invoice loader');
+assert.doesNotMatch(refreshHandler[1], /sessionStorage\.removeItem\(invoiceCacheKey\(\)\)/,
+  'manual refresh preserves the previous complete snapshot until a complete replacement is ready');
 assert.match(api, /function xeroInvoices\(tenantId, limit, page, status, refresh\)/);
 assert.match(api, /if \(refresh\) params\.set\("refresh", "1"\)/);
 const loader = ui.match(/async function loadInvoices\(refreshFromXero\) \{([\s\S]*?)\n  async function refreshTenantData\(/);

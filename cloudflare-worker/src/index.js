@@ -3447,6 +3447,7 @@ async function xeroStatus(env, identity, origin, fetchImpl = fetch) {
   const connections = await xeroConnectionRows(env);
   const checkedAt = now();
   const healthConnections = [];
+  const refreshResults = new Map();
   for (const connection of connections) {
     let refreshHealth = 'not_configured';
     let identityStatus = 'unverified';
@@ -3456,7 +3457,18 @@ async function xeroStatus(env, identity, origin, fetchImpl = fetch) {
 
     if (settings.configured) {
       try {
-        const token = await refreshXeroAccessToken(env, connection, fetchImpl);
+        const savedRefreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
+        let refreshResult = refreshResults.get(savedRefreshToken);
+        if (!refreshResult) {
+          try {
+            refreshResult = { token: await refreshXeroAccessToken(env, connection, fetchImpl) };
+          } catch (error) {
+            refreshResult = { error };
+          }
+          refreshResults.set(savedRefreshToken, refreshResult);
+        }
+        if (refreshResult.error) throw refreshResult.error;
+        const token = refreshResult.token;
         lastError = '';
         const response = await fetchImpl(`${settings.apiUrl}/connections`, { headers: xeroApiHeaders(token.accessToken) });
         if (!response.ok) {
@@ -3525,16 +3537,77 @@ async function xeroStatus(env, identity, origin, fetchImpl = fetch) {
 async function refreshXeroAccessToken(env, connection, fetchImpl = fetch) {
   const settings = xeroSettings(env);
   if (!settings.configured) throw Object.assign(new Error('Xero is not configured on the portal service'), { status: 503 });
-  const refreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
+  let currentConnection = connection;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const refreshToken = await decryptXeroSecret(currentConnection.refresh_token_ciphertext, currentConnection.refresh_token_iv, settings);
+    const tokenHash = await sha256Base64Url(refreshToken);
+    const leaseId = crypto.randomUUID();
+    await acquireXeroRefreshLock(env, tokenHash, leaseId);
+    try {
+      const latestConnection = await env.DB.prepare('SELECT * FROM xero_connections WHERE tenant_id = ?').bind(currentConnection.tenant_id).first();
+      if (!latestConnection) throw Object.assign(new Error('The requested Xero organisation is not connected'), { status: 404 });
+      const latestRefreshToken = await decryptXeroSecret(latestConnection.refresh_token_ciphertext, latestConnection.refresh_token_iv, settings);
+      if (latestRefreshToken !== refreshToken) {
+        currentConnection = latestConnection;
+        continue;
+      }
+      return await refreshXeroAccessTokenLocked(env, latestConnection, settings, refreshToken, tokenHash, leaseId, fetchImpl);
+    } finally {
+      try {
+        await env.DB.prepare('DELETE FROM xero_refresh_locks WHERE token_hash = ? AND lease_id = ?').bind(tokenHash, leaseId).run();
+      } catch (_) {
+        // An expired lease can be reclaimed by the next request.
+      }
+    }
+  }
+  throw Object.assign(new Error('Xero authorisation is being refreshed. Retry shortly.'), {
+    status: 503,
+    code: 'XERO_REFRESH_BUSY',
+    publicMessage: 'Xero authorisation is being refreshed. Retry shortly.'
+  });
+}
+
+async function acquireXeroRefreshLock(env, tokenHash, leaseId) {
+  const startedAt = Date.now();
+  const leaseDurationMs = 120_000;
+  while (Date.now() - startedAt < 10_000) {
+    const timestamp = Date.now();
+    const result = await env.DB.prepare(`INSERT INTO xero_refresh_locks (token_hash, lease_id, lease_expires_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(token_hash) DO UPDATE SET lease_id = excluded.lease_id, lease_expires_at = excluded.lease_expires_at
+      WHERE xero_refresh_locks.lease_expires_at <= ?`).bind(tokenHash, leaseId, timestamp + leaseDurationMs, timestamp).run();
+    if (Number(result?.meta?.changes || 0) === 1) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw Object.assign(new Error('Xero authorisation is being refreshed. Retry shortly.'), {
+    status: 503,
+    code: 'XERO_REFRESH_BUSY',
+    publicMessage: 'Xero authorisation is being refreshed. Retry shortly.'
+  });
+}
+
+async function refreshXeroAccessTokenLocked(env, connection, settings, refreshToken, tokenHash, leaseId, fetchImpl) {
+  const savedConnections = await xeroConnectionRows(env);
+  const sharedConnections = [];
+  for (const savedConnection of savedConnections) {
+    try {
+      const savedToken = await decryptXeroSecret(savedConnection.refresh_token_ciphertext, savedConnection.refresh_token_iv, settings);
+      if (savedToken === refreshToken) sharedConnections.push(savedConnection);
+    } catch (_) {
+      // A separately damaged tenant token must not block a valid tenant refresh.
+    }
+  }
+  if (!sharedConnections.some((item) => item.tenant_id === connection.tenant_id)) sharedConnections.push(connection);
   const response = await fetchImpl(settings.tokenUrl, {
     method: 'POST',
     headers: { Authorization: xeroBasicAuth(settings), 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
+    signal: AbortSignal.timeout(30_000)
   });
   const responseText = await response.text();
   let body = null;
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
-  if (!response.ok || !body?.access_token) {
+  if (!response.ok || !body?.access_token || !text(body?.refresh_token, '', 5000)) {
     const message = xeroErrorMessage(body, `Xero token refresh failed (${response.status})`);
     await env.DB.prepare('UPDATE xero_connections SET last_error = ?, updated_at = ? WHERE tenant_id = ?').bind(message, now(), connection.tenant_id).run();
     const invalidGrant = String(body?.error || '').toLowerCase() === 'invalid_grant' || /consum|invalid.grant|refresh token/i.test(String(body?.error_description || body?.message || ''));
@@ -3546,16 +3619,33 @@ async function refreshXeroAccessToken(env, connection, fetchImpl = fetch) {
         : 'Xero could not refresh its authorisation. Retry shortly or reconnect Xero to restore invoice access.'
     });
   }
-  const nextRefreshToken = text(body.refresh_token, refreshToken, 5000);
+  const nextRefreshToken = text(body.refresh_token, '', 5000);
   const encrypted = await encryptXeroSecret(nextRefreshToken, settings);
-  await env.DB.prepare(`UPDATE xero_connections SET refresh_token_ciphertext = ?, refresh_token_iv = ?, scopes = ?,
-    updated_at = ?, last_error = NULL WHERE tenant_id = ?`).bind(
-    encrypted.ciphertext,
-    encrypted.iv,
-    text(body.scope || connection.scopes, connection.scopes || settings.scopes, 1000),
-    now(),
-    connection.tenant_id
-  ).run();
+  const updatedAt = now();
+  const scopes = text(body.scope || connection.scopes, connection.scopes || settings.scopes, 1000);
+  const statements = [];
+  for (const sharedConnection of sharedConnections) {
+    statements.push(env.DB.prepare(`UPDATE xero_connections SET refresh_token_ciphertext = ?, refresh_token_iv = ?, scopes = ?,
+      updated_at = ?, last_error = NULL WHERE tenant_id = ? AND refresh_token_ciphertext = ? AND refresh_token_iv = ?`).bind(
+      encrypted.ciphertext,
+      encrypted.iv,
+      scopes,
+      updatedAt,
+      sharedConnection.tenant_id,
+      sharedConnection.refresh_token_ciphertext,
+      sharedConnection.refresh_token_iv
+    ));
+    // D1 batch rolls the token-row updates back together if any compare-and-swap
+    // misses. The NOT NULL constraint makes a missed update abort the batch.
+    statements.push(env.DB.prepare(`UPDATE xero_refresh_locks
+      SET lease_expires_at = CASE WHEN changes() = 1 AND lease_id = ? THEN lease_expires_at ELSE NULL END
+      WHERE token_hash = ? AND lease_id = ?`).bind(leaseId, tokenHash, leaseId));
+    if (sharedConnection.tenant_id === connection.tenant_id) {
+      connection.refresh_token_ciphertext = encrypted.ciphertext;
+      connection.refresh_token_iv = encrypted.iv;
+    }
+  }
+  await env.DB.batch(statements);
   return { accessToken: body.access_token, expiresAt: xeroTokenExpiry(body.expires_in) };
 }
 
@@ -3638,7 +3728,10 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
   let body = null;
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
   if (!response.ok) throw Object.assign(new Error(xeroErrorMessage(body, `Xero invoice list failed (${response.status})`)), { status: 502 });
-  const invoices = Array.isArray(body?.Invoices) ? body.Invoices : [];
+  if (!Array.isArray(body?.Invoices)) {
+    throw Object.assign(new Error('Xero invoice list returned an invalid response'), { status: 502 });
+  }
+  const invoices = body.Invoices;
   const cachedAt = now();
   let stored = false;
   try {

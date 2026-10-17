@@ -598,10 +598,7 @@
     try { var result = await api.xeroConnect(); if (result && result.authorization_url) window.location.assign(result.authorization_url); else if (status) status.textContent = "Xero authorisation URL was not returned."; }
     catch (error) { if (status) status.textContent = error && error.message ? error.message : "Xero could not be connected."; connect.disabled = false; }
   });
-  if (refresh) refresh.addEventListener("click", function () {
-    try { sessionStorage.removeItem(invoiceCacheKey()); } catch (_) {}
-    loadInvoices(true);
-  });
+  if (refresh) refresh.addEventListener("click", function () { loadInvoices(true); });
   if (loadButton) loadButton.addEventListener("click", loadInvoices);
   if (statusFilter) statusFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (invoiceSearch) invoiceSearch.addEventListener("input", function () { renderInvoices(invoiceRows); });
