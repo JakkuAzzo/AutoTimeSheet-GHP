@@ -282,4 +282,3 @@ test('never returns token material in the status response', async () => {
     assert.equal(serialized.includes(secret), false);
   }
 });
-
