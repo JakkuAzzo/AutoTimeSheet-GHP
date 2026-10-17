@@ -1573,7 +1573,7 @@ body.modal-open {
 }
 
 .workshop-enquiry-card p.workshop-enquiry-status.is-visible {
-  max-height: 4rem;
+  max-height: 12rem;
   margin-top: .75rem;
   opacity: 1;
   transform: translateY(0);
@@ -4278,5 +4278,9 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html[data-public-scroll-snap-ready="true"] {
+    scroll-snap-type: none;
+  }
+
   [data-scroll-snap] { scroll-behavior: auto; }
 }

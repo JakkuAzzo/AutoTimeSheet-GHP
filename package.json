@@ -19,6 +19,8 @@
     "test:pages:public-root": "node tests/cloudflare-pages-public-root.mjs",
     "test:responsive-tables": "node tests/responsive-tables.mjs",
     "test:viewport-fit": "node tests/viewport-fit-responsive.mjs",
+    "test:public-site-responsive": "GMT_PUBLIC_SITE_ONLY=1 node tests/viewport-fit-responsive.mjs",
+    "test:public-enquiry-completion": "node tests/public-enquiry-completion.mjs",
     "test:weekly-correction-dispatch": "node tests/weekly-correction-dispatch.mjs",
     "test:jobs:email-routing": "node tests/job-card-email-routing.mjs",
     "test:jobs:access-policy": "node tests/job-card-access-policy.mjs",
