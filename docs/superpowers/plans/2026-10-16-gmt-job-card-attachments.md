@@ -122,6 +122,6 @@ Run `node tests/job-card-archive.test.mjs`, `node tests/job-card-access-policy.m
 
 Confirm only task-scoped source, migration, tests, and docs changed; no live SharePoint, Xero, email, secret, permission, import, deployment, or merge operation was performed.
 
-- [ ] **Step 4: Commit, push the feature branch, and open a separate PR**
+- [x] **Step 4: Commit, push the feature branch, and open a separate PR**
 
 Use a PR description that states the new protected attachment workflow, role boundary, test evidence, and the explicit no-deploy/no-provider-write release boundary.
