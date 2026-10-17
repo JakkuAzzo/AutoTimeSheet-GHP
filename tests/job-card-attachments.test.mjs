@@ -201,6 +201,11 @@ try {
   assert.equal(invalidType.status, 400, 'unsupported attachments are rejected before Graph access');
   const unsafeName = await call('/api/records/job-GMT-TEST-001-r1/attachments', ownerToken, { method: 'POST', body: { ...fileMetadata, fileName: '../motor-room.png' } });
   assert.equal(unsafeName.status, 400, 'path traversal filenames are rejected');
+  for (const fileName of ['colon:name.png', 'quote"name.png', 'left<name.png', 'right>name.png', 'query?name.png', 'star*name.png', 'pipe|name.png', ' leading.png', 'trailing.png ']) {
+    const invalidSharePointName = await call('/api/records/job-GMT-TEST-001-r1/attachments', ownerToken, { method: 'POST', body: { ...fileMetadata, fileName } });
+    assert.equal(invalidSharePointName.status, 400, `SharePoint-invalid filename ${JSON.stringify(fileName)} is rejected before reservation`);
+  }
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM job_card_attachment_upload_sessions WHERE record_id=?').get('job-GMT-TEST-001-r1').count, 0, 'invalid SharePoint names never reserve quota');
   const oversized = await call('/api/records/job-GMT-TEST-001-r1/attachments', ownerToken, { method: 'POST', body: { ...fileMetadata, sizeBytes: 20 * 1024 * 1024 + 1 } });
   assert.equal(oversized.status, 413, 'oversized files are rejected');
 

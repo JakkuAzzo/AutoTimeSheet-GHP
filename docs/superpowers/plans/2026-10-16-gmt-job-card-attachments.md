@@ -28,7 +28,7 @@
 - Retrying a completed upload must not create a second attachment or audit event; cover repeated completion and same-file retries in Task 1.
 - An employee may read shared attachments but may not attach a file to another employee's record; test read/write separation in Task 1.
 - A file from one revision must never appear on another revision; test two record IDs sharing a reference in Task 1 and the portal fixture in Task 2.
-- Unsupported MIME types, unsafe filenames, count/size limits, and expired upload sessions must fail without indexing a file; cover validation and expiry in Task 1.
+- Unsupported MIME types, unsafe filenames, SharePoint-disallowed filename characters, count/size limits, and expired upload sessions must fail without indexing a file. Reject invalid names in the portal before saving the protected record and in the Worker before reserving quota.
 
 ---
 

@@ -38,11 +38,11 @@ Attachment metadata references the exact protected `record_id`, which is unique 
 - `GET /api/records/:recordId/attachments` returns safe attachment metadata only.
 - `GET /api/records/:recordId/attachments/:attachmentId/content` streams the file through the Worker after record and attachment authorization checks.
 
-Accept image and PDF files, with bounded per-file, per-record count, and aggregate sizes. Validate identifiers, MIME types, filenames, hashes, and ownership on the Worker; never accept a client-selected SharePoint path. Incomplete or mismatched uploads are not listed as attachments. Expired sessions can be retried without changing the job-card record.
+Accept image and PDF files, with bounded per-file, per-record count, and aggregate sizes. Validate identifiers, MIME types, filenames, hashes, and ownership on the Worker; reject names containing double quotes, asterisks, colons, angle brackets, question marks, slashes, backslashes, or vertical bars, plus leading/trailing whitespace, before reserving quota. The portal applies the same filename check before saving a new protected record. Never accept a client-selected SharePoint path. Incomplete or mismatched uploads are not listed as attachments. Expired sessions can be retried without changing the job-card record.
 
 ## Portal behavior
 
-The create form accepts multiple image or PDF files. It first saves the protected job-card record, then uploads each bounded file through the Worker, and only then submits the existing internal notification route. If an upload fails, keep the saved record and form state available for retry and do not report that the attachment was archived. The history preview lists attachments for the selected revision and downloads them through the authenticated Worker API.
+The create form accepts multiple image or PDF files. It rejects invalid SharePoint filenames before saving the protected job-card record, then saves the record, uploads each bounded file through the Worker, and only then submits the existing internal notification route. If an upload fails, keep the saved record and form state available for retry and do not report that the attachment was archived. The history preview lists attachments for the selected revision and downloads them through the authenticated Worker API.
 
 ## Verification and release boundary
 

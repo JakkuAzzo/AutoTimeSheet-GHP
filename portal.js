@@ -914,6 +914,14 @@
     jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp'
   };
 
+  function jobCardAttachmentFilenameError(fileName) {
+    const name = String(fileName || '');
+    if (!name || name !== name.trim() || /["*:<>?\/\\|\u0000-\u001f\u007f]/.test(name)) {
+      return `${name || 'This file'} has a filename SharePoint cannot store. Remove characters such as ", *, :, <, >, ?, /, \\, or |, and remove leading or trailing spaces.`;
+    }
+    return '';
+  }
+
   function jobCardQuickXorHash(bytes) {
     const block = new Uint8Array(20);
     let bitOffset = 0;
@@ -934,6 +942,8 @@
   }
 
   async function jobCardAttachmentMetadata(file) {
+    const filenameError = jobCardAttachmentFilenameError(file?.name);
+    if (filenameError) throw new Error(filenameError);
     const extension = String(file?.name || '').split('.').pop().toLowerCase();
     const contentType = JOB_CARD_ATTACHMENT_MIME_TYPES[extension] || '';
     const browserType = String(file?.type || '').toLowerCase();
@@ -1267,6 +1277,11 @@
       const totalBytes = files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
       if (files.length > 10 || files.some((file) => !file.size || file.size > 20 * 1024 * 1024) || totalBytes > 100 * 1024 * 1024) {
         if (status) status.textContent = 'Choose at most 10 files, 20 MiB each and 100 MiB total per job-card revision.';
+        return;
+      }
+      const invalidFilename = files.find((file) => jobCardAttachmentFilenameError(file.name));
+      if (invalidFilename) {
+        if (status) status.textContent = jobCardAttachmentFilenameError(invalidFilename.name);
         return;
       }
       const unsupported = files.find((file) => {

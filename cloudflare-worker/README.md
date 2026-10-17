@@ -125,6 +125,10 @@ existing Graph resumable upload-session protocol to send bounded chunks into
 Graph upload URL stays in Worker memory and is never stored, logged, or returned
 to the browser. D1 stores verified metadata, the private SharePoint pointer,
 reservation state, and an upload audit event, but not file bytes.
+The Worker rejects filenames containing double quotes, asterisks, colons,
+angle brackets, question marks, slashes, backslashes, or vertical bars, plus
+leading/trailing whitespace, before creating a quota reservation. The portal
+performs the same check before saving a new protected job-card record.
 
 `POST /api/records/:recordId/attachments` and its idempotent `/complete` route
 use the existing record write policy. `/complete` returns metadata only for an

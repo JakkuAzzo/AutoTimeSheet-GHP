@@ -59,12 +59,16 @@ function hasJobCardAttachmentSignature(bytes, contentType) {
 
 export function normalizeJobCardAttachmentMetadata(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('Attachment metadata is required');
-  const fileName = clean(input.fileName || input.file_name, 220);
+  const rawFileName = String(input.fileName || input.file_name || '');
+  if (rawFileName !== rawFileName.trim() || /["*:<>?\/\\|\u0000-\u001f\u007f]/.test(rawFileName)) {
+    fail('Attachment filename contains characters or spaces SharePoint does not allow');
+  }
+  const fileName = clean(rawFileName, 220);
   const contentType = clean(input.contentType || input.content_type, 160).toLowerCase();
   const sizeBytes = Number(input.sizeBytes ?? input.size_bytes);
   const sha256 = clean(input.sha256, 64).toLowerCase();
   const quickXorHash = clean(input.quickXorHash || input.quick_xor_hash, 80);
-  if (!fileName || fileName === '.' || fileName === '..' || /[\\/\u0000-\u001f\u007f]/.test(fileName)) fail('Attachment filename is invalid');
+  if (!fileName || fileName === '.' || fileName === '..') fail('Attachment filename is invalid');
   const extensionIndex = fileName.lastIndexOf('.');
   const extension = extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : '';
   if (!MIME_BY_EXTENSION.has(extension) || MIME_BY_EXTENSION.get(extension) !== contentType) fail('Only image and PDF attachments with matching file types are supported');
