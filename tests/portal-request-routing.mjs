@@ -9,9 +9,33 @@ const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
 const mime = { '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const taskSubmissions = [];
+const taskRecords = [];
 
 const server = createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
+  if (url.pathname === '/api/tasks') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        const task = JSON.parse(body);
+        taskSubmissions.push(task);
+        taskRecords.unshift({ ...task, requesterName: 'Unlicensed Engineer', requesterUpn: 'unlicensed.engineer@gmt-services.co.uk', assigneeUpn: '', status: 'Pending approval', sharePointItemId: `sp-${task.taskId}` });
+        res.end(JSON.stringify({ ok: true, task: taskRecords[0], sync: { status: 'synced' } }));
+      });
+      return;
+    }
+    res.end(JSON.stringify({ ok: true, records: taskRecords, pending: [], access: { actorUpn: 'unlicensed.engineer@gmt-services.co.uk', canManage: false, staff: [] } }));
+    return;
+  }
+  if (url.pathname === '/api/history') {
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, records: [] })); return;
+  }
+  if (url.pathname === '/api/records' || /^\/api\/records\//.test(url.pathname)) {
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, record: {} })); return;
+  }
   const rawPath = url.pathname.endsWith('/') ? `${url.pathname}index.html` : url.pathname;
   const filePath = normalize(join(repoRoot, rawPath));
   if (!filePath.startsWith(repoRoot) || !existsSync(filePath) || !statSync(filePath).isFile()) {
@@ -21,7 +45,9 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/javascript' });
     const config = readFileSync(filePath, 'utf8')
       .replace(/(entraSpaAuth:\s*\{\s*enabled:\s*)true/, '$1false')
-      .replace(/(portalApiEndpoint:\s*)["'][^"']*["']/, '$1""')
+      .replace(/(portalApiEndpoint:\s*)["'][^"']*["']/, `$1"http://127.0.0.1:${port}"`)
+      .replace(/(portalApiScopes:\s*)\[[^\]]*\]/, '$1[]')
+      .replace(/(taskWorkflowScopes:\s*)\[[^\]]*\]/, '$1[]')
       .replace(/(portalHistoryEndpoint:\s*)["'][^"']*["']/, '$1""');
     res.end(config);
     return;
@@ -36,8 +62,9 @@ const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 let browser;
 
 async function submittedForm(page, selector) {
+  const previousCount = await page.evaluate(() => window.__submittedForms.length);
   await page.locator(selector).click();
-  await page.waitForFunction((count) => window.__submittedForms.length >= count, await page.evaluate(() => window.__submittedForms.length), { timeout: 5000 });
+  await page.waitForFunction((count) => window.__submittedForms.length > count, previousCount, { timeout: 5000 });
   return page.evaluate(() => window.__submittedForms.at(-1));
 }
 
@@ -57,24 +84,23 @@ try {
   });
 
   await page.goto(`http://127.0.0.1:${port}/tasks/`, { waitUntil: 'load' });
-  assert.equal(await page.locator('#task-assignee').inputValue(), 'Unlicensed Engineer');
+  assert.equal(await page.locator('#task-assignee').inputValue(), '', 'task assignees are suggested by UPN and are not guessed from display name');
   await page.locator('#task-title').fill('Inspect workshop pump');
   await page.locator('#task-job-ref').fill('GMT-TASK-001');
   await page.locator('#task-due').fill('2026-07-20');
-  const task = await submittedForm(page, '#task-form button[type="submit"]');
-  assert.equal(task.action, 'https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe');
-  assert.equal(task.subject, '[GMT][TASK][REQUEST] Inspect workshop pump');
-  assert.equal(task.fields.gmt_type, 'task');
-  assert.equal(task.fields.gmt_action, 'create_request');
-  assert.equal(task.fields.gmt_status, 'Pending approval');
-  assert.equal(task.fields.gmt_employee, 'Unlicensed Engineer');
-  assert.equal(task.fields.gmt_requester_upn, 'unlicensed.engineer@gmt-services.co.uk');
-  assert.equal(task.fields.gmt_schema_version, '1');
-  assert.equal(task.fields.gmt_year, '2026');
-  assert.equal(task.fields.gmt_month, '07');
-  assert.ok(task.fields.gmt_record_id);
-  assert.equal(await page.locator('#task-board').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true);
-  assert.equal(await page.locator('[data-task-move], [data-task-delete]').count(), 0, 'the static portal must not expose local task status controls');
+  await page.locator('#task-form button[type="submit"]').click();
+  await page.waitForFunction(() => document.querySelector('#task-form-status')?.textContent.includes('saved in Microsoft 365'));
+  const task = taskSubmissions[0];
+  assert.match(task.taskId, /^task-/);
+  assert.match(task.actionId, /^action-/);
+  assert.equal(task.title, 'Inspect workshop pump');
+  assert.equal(task.jobReference, 'GMT-TASK-001');
+  assert.equal(task.dueDate, '2026-07-20');
+  assert.equal(task.priority, 'Normal');
+  assert.equal(task.status, undefined, 'browser request cannot set authoritative status');
+  assert.equal(await page.locator('#task-board').innerText().then((text) => text.includes('Awaiting Accounts or Operations approval.')), true);
+  assert.equal(await page.locator('[data-task-action="approve"]').count(), 0, 'staff cannot approve requests');
+  assert.equal(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.includes('tasks')).length), 0, 'task records are not persisted in localStorage');
 
   await page.goto(`http://127.0.0.1:${port}/calendar/`, { waitUntil: 'load' });
   assert.equal(await page.locator('#calendar-owner').inputValue(), 'Unlicensed Engineer');
@@ -101,7 +127,7 @@ try {
   assert.equal(cancellation.fields.gmt_action, 'update_request');
   assert.equal(cancellation.fields.gmt_status, 'Cancelled');
   assert.equal(cancellation.fields.gmt_requester_upn, 'unlicensed.engineer@gmt-services.co.uk');
-  console.log(JSON.stringify({ task: { action: task.action, subject: task.subject }, calendar: { action: calendar.action, subject: calendar.subject } }, null, 2));
+  console.log(JSON.stringify({ task: { taskId: task.taskId, actionId: task.actionId }, calendar: { action: calendar.action, subject: calendar.subject } }, null, 2));
 } finally {
   await browser?.close();
   await new Promise((resolveClose) => server.close(resolveClose));

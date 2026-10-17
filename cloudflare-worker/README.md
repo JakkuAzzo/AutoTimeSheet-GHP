@@ -106,6 +106,38 @@ invoice number, Xero reference, previous-card ID, and optional Outlook message
 link. Each submitted revision receives a new protected record ID, so an update
 can be assigned a new invoice while the earlier card remains in the chain.
 
+## Task workflow boundary
+
+`GET/POST /api/tasks`, `POST /api/tasks/:taskId/actions`, and
+`GET /api/tasks/:taskId/history` use the task lifecycle in
+`src/task-workflow.js`. The Worker checks the signed-in Entra identity and
+Accounts/Operations role, verifies the matching delegated Flow Service token,
+and then calls the protected task workflow. The browser never receives the
+Power Automate trigger URL and never writes directly to Lists or Outlook.
+
+Before enabling task mutations, configure `TASK_WORKFLOW_URL` as a Worker
+secret pointing to the approved tenant-authenticated Power Automate HTTP
+trigger. Configure `STAFF_DIRECTORY_JSON` with the approved staff UPNs if
+Accounts should assign tasks from the board. The Pages bundle needs the
+delegated `https://service.flow.microsoft.com//.default` scope in
+`taskWorkflowScopes`; obtain the required tenant consent before enabling that
+scope for employees.
+
+The flow must implement `list`, `get`, and idempotent `upsert` operations from
+`power-platform/submission-envelope-contract.json`. It upserts the company
+Tasks List by `Task ID`, deduplicates writes by `Action ID`, checks each
+`event.changes.from` value against current List state, and returns an explicit
+confirmed status plus SharePoint item ID. A task calendar flow creates one
+event for an approved dated task and updates it by the stored Outlook Event ID.
+Completed and cancelled task events are retained.
+
+Migration `migrations/0013_task_workflows.sql` stores a protected D1 mirror,
+action outbox, and append-only activity log. Failed and abandoned queued
+operations can be retried with the same action ID; a successful retry does not
+duplicate the List row or activity entry. D1 is not the task approval authority.
+This code and contract do not indicate that the Power Automate flow, Worker
+secret, delegated consent, or migration has been configured in a live account.
+
 ## Estimate email archive data contract
 
 `estimate_index` remains the canonical estimate-number/client lookup used by
@@ -165,7 +197,8 @@ Worker remains the source of truth.
 ## API behavior
 
 The protected API exposes `GET /api/profile`, `PUT /api/profile`,
-`GET /api/history`, `POST /api/records`,
+`GET /api/history`, `GET/POST /api/tasks`, `POST /api/tasks/:taskId/actions`,
+`GET /api/tasks/:taskId/history`, `POST /api/records`,
 `GET/PATCH/DELETE /api/records/:id`, `POST /api/records/:id/attachments`, and
 `GET /api/health`. Accounts also have `POST /api/admin/dispatch-queue`, `POST /api/xero/connect`,
 `GET /api/xero/status`, `POST /api/xero/invoices/lookup`, and

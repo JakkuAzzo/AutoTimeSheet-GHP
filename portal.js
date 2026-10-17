@@ -8,7 +8,6 @@
 
   const keys = {
     jobs: 'gmt_portal_job_cards_v1',
-    tasks: 'gmt_portal_tasks_v1',
     org: 'gmt_portal_org_v1',
     notifications: 'gmt_portal_notifications_v1',
     calendar: 'gmt_portal_calendar_v1',
@@ -36,6 +35,8 @@
   };
   const GMT_JOB_CARD_CC = 'gmtelectricalservices+jobcards@outlook.com';
   const taskIndex = new Map();
+  let taskBoardState = { records: [], pending: [], access: { actorUpn: '', canManage: false, staff: [] } };
+  let taskFormAttempt = null;
   const calendarIndex = new Map();
   const jobCardIndex = new Map();
   let jobCardRevisionSource = null;
@@ -81,7 +82,7 @@
   function prefillPortalIdentity() {
     const name = portalProfileName();
     if (!name) return;
-    ['#job-engineer', '#task-assignee', '#calendar-owner'].forEach((selector) => {
+    ['#job-engineer', '#calendar-owner'].forEach((selector) => {
       const input = $(selector);
       if (input && !input.value.trim()) input.value = name;
     });
@@ -628,28 +629,84 @@
     updateJobPreviewToggle(selectedType);
   }
 
-  function renderTasks(remoteTasks = []) {
-    const localTasks = store.get(keys.tasks, []);
-    const tasks = [...remoteTasks, ...localTasks.filter((local) => !remoteTasks.some((remote) => String(remote.id) === String(local.id)))];
+  function renderTasks(state) {
+    if (state && typeof state === 'object') taskBoardState = {
+      records: Array.isArray(state.records) ? state.records : [],
+      pending: Array.isArray(state.pending) ? state.pending : [],
+      access: state.access && typeof state.access === 'object' ? state.access : { actorUpn: '', canManage: false, staff: [] }
+    };
+    const records = taskBoardState.records.map((task) => ({ ...task, pendingActions: [] }));
+    const byId = new Map(records.map((task) => [String(task.taskId), task]));
+    taskBoardState.pending.forEach((operation) => {
+      let task = byId.get(String(operation.taskId));
+      if (!task && operation.task) {
+        task = { ...operation.task, taskId: operation.taskId, pendingActions: [] };
+        byId.set(String(operation.taskId), task);
+        records.push(task);
+      }
+      if (task) task.pendingActions.push(operation);
+    });
     taskIndex.clear();
-    tasks.forEach((task) => taskIndex.set(String(task.id || task.recordId), task));
+    records.forEach((task) => taskIndex.set(String(task.taskId), task));
     const board = $('#task-board');
-    if (!board) return;
-    const columns = ['Pending approval', 'To-Do', 'In-Progress', 'Completed'];
-    board.innerHTML = columns.map((status) => {
-      const items = tasks.filter((task) => task.status === status);
+    const columns = ['Pending approval', 'To-Do', 'In-Progress', 'Completed', 'Cancelled'];
+    if (board) board.innerHTML = columns.map((status) => {
+      const items = records.filter((task) => task.status === status);
       return `<section class="kanban-column"><h3>${status} <span class="portal-status">${items.length}</span></h3>${items.map(renderTask).join('') || '<p class="small-text">No tasks.</p>'}</section>`;
     }).join('');
   }
 
+  function renderTaskStaffOptions(task) {
+    const staff = Array.isArray(taskBoardState.access.staff) ? taskBoardState.access.staff : [];
+    return `<option value="">Unassigned</option>${staff.map((person) => `<option value="${safe(person.upn)}" ${String(person.upn).toLowerCase() === String(task.assigneeUpn || task.requestedAssigneeUpn || '').toLowerCase() ? 'selected' : ''}>${safe(person.name || person.upn)} · ${safe(person.upn)}</option>`).join('')}`;
+  }
+
+  function taskManagerFields(task) {
+    const staff = Array.isArray(taskBoardState.access.staff) ? taskBoardState.access.staff : [];
+    if (!staff.length) return '<p class="task-workflow-note">No approved staff directory is available for assignment.</p>';
+    return `<div class="task-manager-fields"><label>Assigned to<select data-task-assignee>${renderTaskStaffOptions(task)}</select></label><label>Due date<input type="date" data-task-due value="${safe(task.dueDate || '')}"></label><label>Priority<select data-task-priority>${['Low', 'Normal', 'High', 'Urgent'].map((priority) => `<option ${task.priority === priority ? 'selected' : ''}>${priority}</option>`).join('')}</select></label></div>`;
+  }
+
   function renderTask(task) {
-    return `<article class="task-card">
-      <h4>${safe(task.title)}</h4>
-      <p class="portal-item-meta">${safe(task.jobRef || 'No job ref')} · ${safe(task.assignee || 'Unassigned')}</p>
-      <p class="portal-item-meta">Due: ${safe(task.due || 'No due date')} · Priority: <span class="portal-status ${task.priority.toLowerCase()}">${safe(task.priority)}</span></p>
-      <p class="small-text">${task.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Move the task as work progresses.'}</p>
-      <div class="task-card-actions">${['To-Do', 'In-Progress', 'Completed'].map((next) => `<button type="button" class="secondary" data-task-status="${safe(next)}" data-task-id="${safe(task.id)}" ${task.status === next ? 'disabled' : ''}>${safe(next)}</button>`).join('')}</div>
+    const actor = String(taskBoardState.access.actorUpn || '').toLowerCase();
+    const requester = actor && actor === String(task.requesterUpn || '').toLowerCase();
+    const assigned = actor && actor === String(task.assigneeUpn || '').toLowerCase();
+    const manager = taskBoardState.access.canManage === true;
+    const pending = task.status === 'Pending approval';
+    const active = ['To-Do', 'In-Progress'].includes(task.status);
+    const taskId = safe(task.taskId);
+    const managerFields = taskManagerFields(task);
+    const controls = [];
+    if (manager && pending) {
+      controls.push(`<div class="task-workflow-controls">${managerFields}<label class="task-action-reason">Decision note (optional)<input data-task-reason="decision" maxlength="1000"></label><div class="task-card-actions"><button type="button" data-task-action="approve">Approve request</button><button type="button" class="secondary" data-task-action="reject">Reject request</button></div></div>`);
+    } else if (manager && active) {
+      controls.push(`<div class="task-workflow-controls">${managerFields}<div class="task-card-actions"><button type="button" class="secondary" data-task-action="assign">Save assignment</button><button type="button" class="secondary" data-task-action="schedule">Save schedule</button></div></div>`);
+    }
+    if (pending && (requester || manager)) controls.push('<label class="task-action-reason">Cancellation note (optional)<input data-task-reason="cancel" maxlength="1000"></label><button type="button" class="secondary" data-task-action="cancel">Cancel pending request</button>');
+    if (task.status === 'To-Do' && (assigned || manager)) controls.push('<button type="button" data-task-action="transition" data-task-next="In-Progress">Start work</button>');
+    if (task.status === 'In-Progress' && (assigned || manager)) controls.push('<button type="button" data-task-action="transition" data-task-next="Completed">Mark completed</button>');
+    if (active && manager) controls.push('<label class="task-action-reason">Cancellation note (optional)<input data-task-reason="cancel" maxlength="1000"></label><button type="button" class="secondary" data-task-action="cancel">Cancel task</button>');
+    const failures = (task.pendingActions || []).map((operation) => `<div class="task-sync-error"><p>${safe(operation.error || 'The update has not been confirmed by Microsoft 365.')}</p><button type="button" class="secondary" data-task-retry="${safe(operation.actionId)}">Retry same update</button><small>Attempt ${safe(operation.attempts || 0)} · action ${safe(operation.actionId)}</small></div>`).join('');
+    const calendar = ['failed', 'pending'].includes(String(task.calendarSyncStatus || '').toLowerCase())
+      ? `<p class="task-workflow-note">Calendar sync: ${safe(task.calendarSyncStatus)}${task.calendarSyncError ? ` · ${safe(task.calendarSyncError)}` : ''}</p>` : '';
+    return `<article class="task-card" data-task-card="${taskId}">
+      <h4>${safe(task.title || 'Untitled task')}</h4>
+      <p class="portal-item-meta">${safe(task.jobReference || 'No job ref')} · ${safe(task.assignee || task.assigneeUpn || 'Unassigned')}</p>
+      <p class="portal-item-meta">Requested by ${safe(task.requesterName || task.requesterUpn || 'Unknown')} · Due: ${safe(task.dueDate || 'No due date')} · Priority: <span class="portal-status">${safe(task.priority || 'Normal')}</span></p>
+      <p class="task-workflow-note">${pending ? 'Awaiting Accounts or Operations approval.' : `SharePoint item ${safe(task.sharePointItemId || 'pending sync')} · ${safe(task.status)}`}</p>
+      ${calendar}${failures}
+      <div class="task-card-actions">${controls.join('')}</div>
+      <button type="button" class="secondary task-history-toggle" data-task-history="${taskId}" aria-expanded="false">View history</button>
+      <div class="task-history-content" data-task-history-content hidden></div>
     </article>`;
+  }
+
+  function updateTaskConsentButton(error) {
+    const button = $('#task-connect-button');
+    if (!button) return;
+    const scopes = window.GMT_APP_CONFIG?.taskWorkflowScopes;
+    button.hidden = !(error?.status === 401 && Array.isArray(scopes) && scopes.some(Boolean)
+      && typeof window.GMTPortalApi?.connectTaskWorkflow === 'function');
   }
 
   function renderOrg() {
@@ -823,23 +880,25 @@
   }
 
   async function loadProtectedTasks() {
-    if (!portalApiEnabled()) return;
+    const board = $('#task-board');
+    if (!board) return;
+    const status = $('#task-board-status');
+    if (!portalApiEnabled() || typeof window.GMTPortalApi.tasks !== 'function') {
+      renderTasks({ records: [], pending: [], access: {} });
+      updateTaskConsentButton(null);
+      if (status) status.textContent = 'Protected Microsoft 365 task access is not configured.';
+      return;
+    }
+    if (status) status.textContent = 'Loading authorised tasks from Microsoft 365…';
     try {
-      const body = await window.GMTPortalApi.history('tasks');
-      const remoteTasks = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
-        id: record.source_record_id,
-        title: record.task_title || 'Untitled task',
-        jobRef: record.job_reference || '',
-        assignee: record.assignee || '',
-        due: record.due_date || record.record_date || '',
-        priority: record.priority || 'Normal',
-        status: ['Submitted', 'Saved'].includes(record.status) ? 'Pending approval' : (record.status || 'Pending approval'),
-        recordId: record.source_record_id,
-        employeeName: record.employee_name || ''
-      }));
-      renderTasks(remoteTasks);
-    } catch (_) {
-      // Local requests remain visible if the protected service is unavailable.
+      const body = await window.GMTPortalApi.tasks();
+      renderTasks(body);
+      updateTaskConsentButton(null);
+      if (status) status.textContent = `${body.records?.length || 0} authorised task${body.records?.length === 1 ? '' : 's'} loaded from Microsoft 365.`;
+    } catch (error) {
+      renderTasks({ records: [], pending: [], access: {} });
+      updateTaskConsentButton(error);
+      if (status) status.textContent = error.message || 'Microsoft 365 task workflow is unavailable.';
     }
   }
 
@@ -1150,74 +1209,126 @@
     prefillTaskDate();
     $('#task-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const tasks = store.get(keys.tasks, []);
-      const task = { id: id(), title: $('#task-title').value.trim(), jobRef: $('#task-job-ref').value.trim(), assignee: $('#task-assignee').value.trim(), due: $('#task-due').value, priority: $('#task-priority').value, status: 'Pending approval', requestedBy: portalProfileName() };
-      if (!task.title) return;
-      tasks.unshift(task);
-      store.set(keys.tasks, tasks);
-      const protectedRecord = {
-        recordId: `task-${task.id}`,
-        kind: 'tasks',
-        action: 'create_request',
-        status: task.status,
-        submittedAt: new Date().toISOString(),
-        employeeName: task.requestedBy,
-        employeeEmail: portalProfile().username || '',
-        recordDate: task.due,
-        payload: { title: task.title, jobReference: task.jobRef, assignee: task.assignee, due: task.due, priority: task.priority }
-      };
-      try { await saveProtectedRecord(protectedRecord); } catch (error) {
-        logNotification('Task', `Task could not be saved to protected history: ${error.message || 'service unavailable'}.`);
-        renderTasks();
+      const status = $('#task-form-status');
+      if (!portalApiEnabled() || typeof window.GMTPortalApi.createTask !== 'function') {
+        if (status) status.textContent = 'Task requests require the protected Microsoft 365 workflow, which is not configured.';
         return;
       }
-      event.target.reset();
-      prefillPortalIdentity();
-      const sent = sendPortalFormSubmit('Task', {
-        task_title: task.title,
-        task_id: task.id,
-        job_reference: task.jobRef,
-        assigned_to: task.assignee,
-        due_date: task.due,
-        priority: task.priority,
-        status: task.status,
-        requested_by: task.requestedBy,
-        requested_by_upn: portalProfile().username || '',
-        submitted_at: new Date().toISOString()
-      });
-      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
-      logNotification('Task', sent
-        ? `Task request submitted for accounts approval: ${task.title}.`
-        : `Task request stored locally only. It still needs an approved submission route: ${task.title}.`);
-      renderTasks();
+      const payload = {
+        title: $('#task-title').value.trim(),
+        jobReference: $('#task-job-ref').value.trim(),
+        requestedAssigneeUpn: $('#task-assignee').value.trim(),
+        dueDate: $('#task-due').value,
+        priority: $('#task-priority').value
+      };
+      if (!payload.title) {
+        $('#task-title')?.focus();
+        if (status) status.textContent = 'Enter a task title.';
+        return;
+      }
+      if (!taskFormAttempt || JSON.stringify(taskFormAttempt.payload) !== JSON.stringify(payload)) {
+        taskFormAttempt = { taskId: `task-${id()}`, actionId: `action-${id()}`, payload };
+      }
+      const button = event.submitter || event.target.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      if (status) status.textContent = 'Submitting this request to Microsoft 365…';
+      try {
+        await window.GMTPortalApi.createTask({ ...taskFormAttempt.payload, taskId: taskFormAttempt.taskId, actionId: taskFormAttempt.actionId });
+        taskFormAttempt = null;
+        event.target.reset();
+        prefillPortalIdentity();
+        if (status) status.textContent = 'Task request saved in Microsoft 365 as Pending approval.';
+        logNotification('Task', `Task request submitted for Accounts approval: ${payload.title}.`);
+        await loadProtectedTasks();
+      } catch (error) {
+        updateTaskConsentButton(error);
+        if (status) status.textContent = `${error.message || 'The request could not be confirmed.'} Keep this form unchanged and submit again to retry the same action safely.`;
+        await loadProtectedTasks();
+      } finally {
+        if (button) button.disabled = false;
+      }
     });
     $('#task-board')?.addEventListener('click', async (event) => {
-      const button = event.target.closest('[data-task-status]');
-      if (!button) return;
-      const task = taskIndex.get(String(button.dataset.taskId));
-      if (!task) return;
-      const nextStatus = button.dataset.taskStatus;
-      const protectedRecord = {
-        recordId: task.recordId || task.id,
-        kind: 'tasks',
-        action: 'update_request',
-        employeeName: task.employeeName || portalProfileName(),
-        employeeEmail: portalProfile().username || '',
-        recordDate: task.due || '',
-        payload: { title: task.title, jobReference: task.jobRef, assignee: task.assignee, due: task.due, priority: task.priority }
-      };
-      button.disabled = true;
+      const retry = event.target.closest('[data-task-retry]');
+      const historyButton = event.target.closest('[data-task-history]');
+      const button = event.target.closest('[data-task-action]');
+      const card = event.target.closest('[data-task-card]');
+      const task = card && taskIndex.get(String(card.dataset.taskCard));
+      const status = $('#task-board-status');
+      if (historyButton && task) {
+        const content = card.querySelector('[data-task-history-content]');
+        const expanded = historyButton.getAttribute('aria-expanded') === 'true';
+        historyButton.setAttribute('aria-expanded', String(!expanded));
+        if (!content) return;
+        content.hidden = expanded;
+        if (expanded) return;
+        content.innerHTML = '<p class="small-text">Loading Microsoft 365 task history…</p>';
+        try {
+          const history = await window.GMTPortalApi.taskHistory(task.taskId);
+          const events = Array.isArray(history?.events) ? history.events : [];
+          content.innerHTML = events.length ? `<ol>${events.map((item) => `<li><strong>${safe(item.action)}</strong> · ${safe(item.actorName || item.actorUpn)} · ${safe(item.createdAt || '')}${item.reason ? `<p>${safe(item.reason)}</p>` : ''}</li>`).join('')}</ol>` : '<p class="small-text">No workflow actions are recorded.</p>';
+        } catch (error) {
+          content.textContent = error.message || 'Task history is unavailable.';
+        }
+        return;
+      }
+      if (!task || (!retry && !button)) return;
+      if (!portalApiEnabled() || typeof window.GMTPortalApi.actOnTask !== 'function') {
+        if (status) status.textContent = 'The protected Microsoft 365 task workflow is not configured.';
+        return;
+      }
+      const actionId = retry ? retry.dataset.taskRetry : `action-${id()}`;
+      let actionBody;
+      if (retry) {
+        actionBody = { actionId, action: 'retry' };
+      } else {
+        const action = button.dataset.taskAction;
+        actionBody = { actionId, action };
+        if (action === 'transition') actionBody.status = button.dataset.taskNext;
+        if (['approve', 'assign', 'schedule'].includes(action)) {
+          const assignee = card.querySelector('[data-task-assignee]');
+          const dueDate = card.querySelector('[data-task-due]');
+          const priority = card.querySelector('[data-task-priority]');
+          if (assignee) actionBody.assigneeUpn = assignee.value;
+          if (dueDate) actionBody.dueDate = dueDate.value;
+          if (priority) actionBody.priority = priority.value;
+        }
+        const reasonKind = action === 'cancel' ? 'cancel' : (action === 'approve' || action === 'reject' ? 'decision' : '');
+        const reason = reasonKind ? card.querySelector(`[data-task-reason="${reasonKind}"]`) : null;
+        if (reason) actionBody.reason = reason.value.trim();
+      }
+      const actionButton = retry || button;
+      actionButton.disabled = true;
+      if (status) status.textContent = retry ? 'Retrying the same Microsoft 365 update…' : 'Saving task action in Microsoft 365…';
       try {
-        await updateProtectedRecord(protectedRecord, nextStatus);
-        task.status = nextStatus;
-        const localTasks = store.get(keys.tasks, []);
-        const local = localTasks.find((item) => String(item.id) === String(task.id));
-        if (local) { local.status = nextStatus; store.set(keys.tasks, localTasks); }
-        renderTasks([...taskIndex.values()]);
-        logNotification('Task', 'Task ' + task.title + ' moved to ' + nextStatus + '.');
+        await window.GMTPortalApi.actOnTask(task.taskId, actionBody);
+        if (retry && taskFormAttempt && taskFormAttempt.taskId === task.taskId) {
+          taskFormAttempt = null;
+          $('#task-form')?.reset();
+          prefillPortalIdentity();
+        }
+        logNotification('Task', `Task ${task.title} updated: ${actionBody.action}.`);
+        await loadProtectedTasks();
+        if (status) status.textContent = 'Task update confirmed by Microsoft 365.';
       } catch (error) {
+        updateTaskConsentButton(error);
+        if (status) status.textContent = `${error.message || 'Task update could not be confirmed.'}${error.operationId ? ` Retry action ${error.operationId} from the task card.` : ''}`;
+        await loadProtectedTasks();
+      }
+    });
+    $('#task-connect-button')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      const status = $('#task-board-status');
+      button.disabled = true;
+      if (status) status.textContent = 'Connecting to Microsoft 365 task access…';
+      try {
+        await window.GMTPortalApi.connectTaskWorkflow();
+        await loadProtectedTasks();
+      } catch (error) {
+        if (status) status.textContent = error.message || 'Microsoft 365 task access could not be connected.';
+        updateTaskConsentButton({ status: 401 });
+      } finally {
         button.disabled = false;
-        logNotification('Task', 'Task status could not be updated: ' + (error.message || 'service unavailable') + '.');
       }
     });
   }
@@ -1380,6 +1491,7 @@
     renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
     prefillPortalIdentity();
     loadProtectedJobs().finally(() => loadJobCardArchive());
+    loadProtectedTasks();
   });
   window.addEventListener('beforeunload', () => {
     if (selectedJobCardArchiveContentUrl) URL.revokeObjectURL(selectedJobCardArchiveContentUrl);

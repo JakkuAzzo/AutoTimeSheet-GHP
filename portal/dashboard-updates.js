@@ -138,11 +138,11 @@
   }
 
   function taskAssignee(record, payload) {
-    return record.assignee || record.task_assignee || payload.assignee || payload.assignedTo || "Unassigned";
+    return record.assignee || record.assigneeName || record.assigneeUpn || record.task_assignee || payload.assignee || payload.assignedTo || "Unassigned";
   }
 
   function taskCreator(record, payload) {
-    return record.created_by || record.createdBy || payload.createdBy || payload.created_by || record.employee_name || record.employee_upn || "GMT account";
+    return record.requesterName || record.requesterUpn || record.created_by || record.createdBy || payload.createdBy || payload.created_by || record.employee_name || record.employee_upn || "GMT account";
   }
 
   function taskProgress(record, payload) {
@@ -162,9 +162,27 @@
   }
 
   function taskRecords(body) {
-    return body && Array.isArray(body.records) ? body.records.filter(function (record) {
-      return record && (record.kind === undefined || String(record.kind).toLowerCase() === "tasks");
+    var records = body && Array.isArray(body.records) ? body.records.filter(function (record) {
+      return record && typeof record === "object";
     }) : [];
+    var positions = Object.create(null);
+    records.forEach(function (record, index) {
+      if (record.taskId) positions[String(record.taskId)] = index;
+    });
+    (body && Array.isArray(body.pending) ? body.pending : []).forEach(function (item) {
+      var pendingTask = item && item.task;
+      if (!pendingTask || typeof pendingTask !== "object") return;
+      var taskId = String(pendingTask.taskId || "");
+      if (taskId && positions[taskId] !== undefined) {
+        var confirmed = records[positions[taskId]];
+        if (!confirmed.pendingSync) records[positions[taskId]] = Object.assign({}, confirmed, { pendingSync: item });
+      }
+      else {
+        if (taskId) positions[taskId] = records.length;
+        records.push(Object.assign({}, pendingTask, { pendingSync: item }));
+      }
+    });
+    return records;
   }
 
   function renderTask(record) {
@@ -174,12 +192,16 @@
     var assignee = taskAssignee(record, payload);
     var creator = taskCreator(record, payload);
     var taskStatus = String(record.status || payload.status || "Submitted");
-    var due = record.due_date || payload.due || "No due date";
-    var job = record.job_reference || payload.jobReference || "No job reference";
+    var due = record.dueDate || record.due_date || payload.due || "No due date";
+    var job = record.jobReference || record.job_reference || payload.jobReference || "No job reference";
+    var syncNotice = record.pendingSync
+      ? '<p class="portal-task-sync-status">Update not confirmed: ' + safe(record.pendingSync.error || "Open task tools to review this update.") + '</p>'
+      : '';
     var bar = progress.value === null ? "" : '<span class="portal-task-progress-bar" style="width:' + progress.value + '%"></span>';
     return '<article class="portal-task-card">' +
       '<div class="portal-task-card-heading"><h3>' + safe(title) + '</h3><span class="portal-task-status">' + safe(taskStatus) + '</span></div>' +
       '<p class="portal-task-card-reference">' + safe(job) + ' · Due ' + safe(due) + '</p>' +
+      syncNotice +
       '<dl class="portal-task-card-meta">' +
         '<div><dt>Assigned to</dt><dd>' + safe(assignee) + '</dd></div>' +
         '<div><dt>Created by</dt><dd>' + safe(creator) + '</dd></div>' +
@@ -192,7 +214,7 @@
   function renderTasks(records) {
     if (!board) return;
     if (!records.length) {
-      board.innerHTML = '<p class="portal-task-board-empty">No submitted tasks are available for this account yet.</p>';
+      board.innerHTML = '<p class="portal-task-board-empty">No tasks are available for this account yet.</p>';
       return;
     }
     board.innerHTML = records.map(renderTask).join("");
@@ -217,15 +239,15 @@
 
   async function loadTasks() {
     if (!board || !status) return;
-    if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== "function" || !window.GMTPortalApi.enabled()) {
-      status.textContent = "Protected task history is not connected.";
+    if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== "function" || !window.GMTPortalApi.enabled() || typeof window.GMTPortalApi.tasks !== "function") {
+      status.textContent = "Protected tasks are not connected.";
       renderTasks([]);
       return;
     }
     try {
-      var body = await window.GMTPortalApi.history("tasks");
+      var body = await window.GMTPortalApi.tasks();
       var records = taskRecords(body);
-      status.textContent = records.length ? records.length + " submitted task" + (records.length === 1 ? "" : "s") + "." : "No submitted tasks yet.";
+      status.textContent = records.length ? records.length + " task" + (records.length === 1 ? "" : "s") + "." : "No tasks yet.";
       renderTasks(records);
     } catch (error) {
       status.textContent = error && error.message ? error.message : "Submitted tasks could not be loaded.";
