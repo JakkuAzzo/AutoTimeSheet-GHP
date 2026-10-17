@@ -329,11 +329,10 @@
     var selectedType = currentTab && currentTab !== "all" ? currentTab : "";
     var selectedEmployee = currentEmployee();
     var selectedMonth = payMonthFilter && payMonthFilter.value ? String(payMonthFilter.value) : "";
-    var dailyRecords = window.GMTCalendarData && typeof window.GMTCalendarData.combineDailyRecords === "function"
-      ? window.GMTCalendarData.combineDailyRecords(records, { employees: historyMeta && historyMeta.completion && historyMeta.completion.employees || [] })
-      : [];
-    var displayRecords = records.filter(function (record) { return !isTimesheetLike(record) || record.is_demo; }).concat(dailyRecords);
-    return displayRecords.filter(function (record) {
+    // This workspace is an audit/history list: retain each authorised source
+    // record so its count and version identity do not collapse into calendar
+    // day rollups. Calendar consumers can continue using combineDailyRecords.
+    return records.filter(function (record) {
       if (selectedType === "timesheets" ? !isTimesheetLike(record) : (selectedType && actionKey(record) !== selectedType)) return false;
       if (selectedEmployee && employeeKey(record) !== selectedEmployee) return false;
       if (selectedMonth && payMonthForRecord(record) !== selectedMonth) return false;
@@ -1015,10 +1014,13 @@
     var sparseDetail = sparseTimesheet(record)
       ? '<p class="portal-history-warning"><strong>Daily detail unavailable:</strong> ' + safe(record.daily_detail_issue || "The Microsoft 365 history response returned the submission header without its daily rows.") + '</p><p class="small-text">Only the submitted header is available here. Clock-in, clock-out, break and total-hour values will appear after the intake/history flow returns the attached daily rows.</p>'
       : '';
+    var sourceIdDetail = recordId(record)
+      ? '<p><strong>Source record ID:</strong> ' + safe(recordId(record)) + '</p>'
+      : '';
     var timesheetAction = actionKey(record) === "timesheets"
       ? '<a class="button button-link" href="' + safe(timesheetHref(record, day)) + '">Open pay-month spreadsheet</a>'
       : '';
-    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + sparseDetail + dailyRollupDetail(record) + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions">' + timesheetAction + '<a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
+    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p>' + sourceIdDetail + '</div>' + sparseDetail + dailyRollupDetail(record) + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions">' + timesheetAction + '<a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
   }
   function filteredSheets() {
     var month = payMonthFilter && payMonthFilter.value ? String(payMonthFilter.value) : "";
@@ -1108,6 +1110,7 @@
     var items = Array.isArray(data && data.records) ? data.records : deliveryRecords().map(function (record) {
       var dispatch = record.dispatch || {};
       return {
+        recordId: String(record.source_record_id || record.record_id || ""),
         employeeName: record.employee_name || record.employee_upn || "Timesheet correction",
         date: compactDate(record),
         status: dispatch.status,
@@ -1129,7 +1132,11 @@
       var state = String(record.status || "unknown").toLowerCase();
       var label = labels[state] || state.replace(/[_-]/g, " ");
       var updated = record.sentAt || record.queuedAt || record.updatedAt || "";
-      return '<li class="submissions-delivery-item"><div><strong>' + safe(record.employeeName || record.employee_name || "Timesheet correction") + '</strong><span class="portal-status ' + (state === "failed" ? "pending" : state === "sent" ? "approved" : "") + '">' + safe(label) + '</span></div><p>' + safe(record.date || "Date not recorded") + (record.attempts ? ' · ' + safe(record.attempts) + ' attempt' + (Number(record.attempts) === 1 ? "" : "s") : "") + (updated ? ' · ' + safe(updated) : "") + '</p>' + (record.error ? '<p class="submissions-delivery-error"><strong>Details:</strong> ' + safe(record.error) + '</p>' : "") + '</li>';
+      var sourceId = String(record.recordId || record.record_id || "");
+      var sourceIdDetail = sourceId
+        ? '<p><strong>Source record ID:</strong> ' + safe(sourceId) + '</p>'
+        : '<p class="portal-history-warning">Source record ID unavailable; this item cannot be reconciled to a source record.</p>';
+      return '<li class="submissions-delivery-item"><div><strong>' + safe(record.employeeName || record.employee_name || "Timesheet correction") + '</strong><span class="portal-status ' + (state === "failed" ? "pending" : state === "sent" ? "approved" : "") + '">' + safe(label) + '</span></div><p>' + safe(record.date || "Date not recorded") + (record.attempts ? ' · ' + safe(record.attempts) + ' attempt' + (Number(record.attempts) === 1 ? "" : "s") : "") + (updated ? ' · ' + safe(updated) : "") + '</p>' + sourceIdDetail + (record.error ? '<p class="submissions-delivery-error"><strong>Details:</strong> ' + safe(record.error) + '</p>' : "") + '</li>';
     }).join("");
     var providerCopy = data && data.providerStatus === "not-configured"
       ? "The outbound email route is not configured, so queued corrections have not been handed off."
@@ -1155,7 +1162,7 @@
     } catch (error) {
       showDeliveryStatus({ providerStatus: "unknown", records: deliveryRecords().map(function (record) {
         var dispatch = record.dispatch || {};
-        return { employeeName: record.employee_name || record.employee_upn, date: compactDate(record), status: dispatch.status, attempts: dispatch.attempts, queuedAt: dispatch.queued_at, sentAt: dispatch.sent_at, error: dispatch.error };
+        return { recordId: String(record.source_record_id || record.record_id || ""), employeeName: record.employee_name || record.employee_upn, date: compactDate(record), status: dispatch.status, attempts: dispatch.attempts, queuedAt: dispatch.queued_at, sentAt: dispatch.sent_at, error: dispatch.error };
       }), counts: deliveryRecords().reduce(function (counts, record) {
         var state = String(record.dispatch.status || "").toLowerCase();
         if (Object.hasOwn(counts, state)) counts[state] += 1;

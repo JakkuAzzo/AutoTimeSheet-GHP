@@ -38,7 +38,8 @@ const records = [
   { ...employee, kind: 'clock', action: 'clock_in', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-in', updated_at: '2026-10-13T08:45:00Z', payload: { row: { Date: '2026-10-13', Start: '08:45' } } },
   { ...employee, kind: 'clock', action: 'lunch_start', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'lunch-start', updated_at: '2026-10-13T14:00:00Z', payload: { row: { Date: '2026-10-13', 'Lunch start': '14:00' } } },
   { ...employee, kind: 'clock', action: 'lunch_end', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'lunch-end', updated_at: '2026-10-13T14:30:00Z', payload: { row: { Date: '2026-10-13', 'Lunch end': '14:30' } } },
-  { ...employee, kind: 'clock', action: 'clock_out', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-out', updated_at: '2026-10-13T17:00:00Z', payload: { row: { Date: '2026-10-13', Finish: '17:00' } } }
+  { ...employee, kind: 'clock', action: 'clock_out', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-out', updated_at: '2026-10-13T17:00:00Z', payload: { row: { Date: '2026-10-13', Finish: '17:00' } } },
+  { ...employee, kind: 'calendar', action: 'calendar_request', status: 'Pending approval', record_date: '2026-10-13', source_record_id: 'calendar-request', updated_at: '2026-10-13T17:10:00Z', payload: { rows: [{ date: '2026-10-13' }] } }
 ];
 const context = {
   window: {
@@ -57,15 +58,15 @@ const context = {
 
 vm.runInNewContext(source, context, { filename: 'portal/submissions.js' });
 await domReady();
-assert.equal(elements['submissions-status'].textContent, '5 authorised records loaded. Access: this account submissions.');
+assert.equal(elements['submissions-status'].textContent, '6 authorised records loaded. Access: this account submissions.');
 tabs[0].listeners.click();
-assert.equal(elements['pay-month-list-count'].textContent, '1 item', 'the all-records view displays one combined entry');
+assert.equal(elements['pay-month-list-count'].textContent, '6 items', 'the all-records view count matches the authorised source-record count');
 assert.match(elements['submissions-list'].innerHTML, /Timesheet/);
-assert.doesNotMatch(elements['submissions-list'].innerHTML, /Clock \/ breaks/);
-assert.match(elements['submissions-preview'].innerHTML, /08:45/);
-assert.match(elements['submissions-preview'].innerHTML, /17:00/);
-assert.match(elements['submissions-preview'].innerHTML, /7h 45m/);
-assert.match(elements['submissions-preview'].innerHTML, /5 source entries/);
+assert.match(elements['submissions-list'].innerHTML, /Clock \/ breaks/, 'the all-records view retains individual clock source records');
+assert.match(elements['submissions-preview'].innerHTML, /Source record ID:<\/strong> timesheet-week/, 'the selected source version is identifiable by its authoritative record ID');
 assert.match(elements['submissions-preview'].innerHTML, /Queued for Accounts/);
+tabs[2].listeners.click();
+assert.equal(elements['pay-month-list-count'].textContent, '1 item', 'the category filter reduces the all-records list to matching records');
+assert.match(elements['submissions-list'].innerHTML, /Calendar request/);
 
-console.log('Submitted Documents clock rollup UI: PASS');
+console.log('Submitted Documents source-record count and identity: PASS');
