@@ -3760,15 +3760,35 @@ function xeroLinkedRecordDisplay(row, payload) {
   };
 }
 
-async function xeroInvoiceRecords(env, identity, origin) {
+async function xeroInvoiceRecords(request, env, identity, origin) {
   requireXeroAdmin(identity);
+  const url = new URL(request.url);
+  const query = text(url.searchParams.get('q'), '', 200).toLowerCase();
+  const requestedLimit = Number(url.searchParams.get('limit') || 100);
+  const requestedOffset = Number(url.searchParams.get('offset') || 0);
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || !Number.isSafeInteger(requestedOffset) || requestedOffset < 0 || requestedOffset > 1000000) {
+    throw Object.assign(new Error('Record lookup pagination is invalid'), { status: 400 });
+  }
+  const limit = Math.min(requestedLimit, 100);
+  const offset = requestedOffset;
+  const search = query ? ` AND (
+      instr(lower(r.record_id), ?) > 0 OR
+      instr(lower(COALESCE(r.payload_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.candidates_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.confirmed_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.ocr_text, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.source_file, '')), ?) > 0
+    )` : '';
+  const values = query ? [query, query, query, query, query, query, limit + 1, offset] : [limit + 1, offset];
   const result = await env.DB.prepare(`SELECT r.record_id, r.kind, r.status, r.employee_name, r.record_date, r.payload_json,
       a.candidates_json, a.confirmed_json, a.review_state AS archive_review_state,
-      a.source_file, a.source_page
+      a.source_file, a.source_page, a.ocr_text
     FROM records r LEFT JOIN job_card_archive a ON a.record_id=r.record_id
-    WHERE r.kind IN ('estimates', 'job-cards') AND r.status <> 'Deleted'
-    ORDER BY r.updated_at DESC LIMIT 500`).all();
-  return json({ records: (result.results || []).map((row) => {
+    WHERE r.kind IN ('estimates', 'job-cards') AND r.status <> 'Deleted'${search}
+    ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?`).bind(...values).all();
+  const rows = result.results || [];
+  const hasMore = rows.length > limit;
+  return json({ records: rows.slice(0, limit).map((row) => {
     const payload = payloadObject(row);
     const display = xeroLinkedRecordDisplay(row, payload);
     return {
@@ -3780,7 +3800,7 @@ async function xeroInvoiceRecords(env, identity, origin) {
       date: text(row.record_date, '', 10),
       total: Number.isFinite(Number(payload.total)) ? Number(payload.total) : null
     };
-  }) }, 200, origin || '');
+  }), pagination: { has_more: hasMore, next_offset: hasMore ? offset + limit : null } }, 200, origin || '');
 }
 
 async function persistExactInvoiceJobCardLinks(env, connection, invoice, identity) {
@@ -4388,7 +4408,7 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
   if (url.pathname === '/api/estimates/index' && ['GET', 'POST'].includes(request.method)) { requireEstimateArchiveAccess(identity); return request.method === 'GET' ? estimateIndexListEndpoint(request, env, identity, origin || '') : estimateIndexUpsertEndpoint(request, env, identity, origin || ''); }
   if (url.pathname === '/api/xero/setup-data' && request.method === 'GET') return xeroSetupDataEndpoint(request, env, identity, origin || '');
-  if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(env, identity, origin || '');
+  if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'POST') return createXeroInvoice(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices/lookup' && request.method === 'POST') return lookupXeroInvoiceEndpoint(request, env, identity, origin || '');
@@ -4564,6 +4584,7 @@ export {
   xeroOAuthStateMatches,
   xeroInvoiceProjection,
   xeroInvoicePayload,
+  xeroInvoiceRecords,
   xeroInvoiceDeliveryStatus,
   xeroInvoicePaymentStatus,
   xeroInvoiceMutationPolicy,

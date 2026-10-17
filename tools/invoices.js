@@ -27,6 +27,8 @@
   var recordSelect = $("xero-invoice-links");
   var recordSearch = $("xero-record-search");
   var recordChips = $("xero-invoice-links-chips");
+  var recordSearchStatus = $("xero-record-search-status");
+  var recordLoadMore = $("xero-record-load-more");
   var selectedPanel = $("xero-invoice-selected");
   var saveButton = $("xero-create-invoice");
   var sendButton = $("xero-send-invoice");
@@ -40,6 +42,11 @@
   var lookupsPromise = Promise.resolve();
   var invoiceRows = [];
   var recordRows = [];
+  var recordQuery = "";
+  var recordOffset = 0;
+  var recordHasMore = false;
+  var recordSearchRevision = 0;
+  var recordSearchTimer = null;
   var registerState = window.GMTInvoiceRegisterState;
   var invoiceCacheKey = function () { return "gmt-xero-invoice-index:" + selectedTenant(); };
 
@@ -230,10 +237,93 @@
     }).join("") || '<span class="small-text">No estimates or job cards linked yet.</span>';
   }
 
-  function filterRecordRows() {
-    var query = String(recordSearch && recordSearch.value || "").trim().toLowerCase();
+  function recordOptionLabel(record) {
+    return (record.kind === "estimates" ? "Estimate" : "Job card") + " · " + (record.title || record.record_id) +
+      (record.is_candidate ? " · OCR candidate" : "") + (record.customer ? " · " + record.customer : "") +
+      (record.total == null ? "" : " · " + money(record.total, "GBP"));
+  }
+
+  function renderRecordOptions() {
     if (!recordSelect) return;
-    Array.prototype.forEach.call(recordSelect.options, function (option) { option.hidden = Boolean(query && option.textContent.toLowerCase().indexOf(query) < 0); });
+    var selected = new Map();
+    Array.prototype.forEach.call(recordSelect.selectedOptions || [], function (option) {
+      if (option.value) selected.set(option.value, option.textContent);
+    });
+    var records = recordRows.slice();
+    var seen = new Set(records.map(function (record) { return String(record.record_id); }));
+    selected.forEach(function (label, recordId) {
+      if (!seen.has(recordId)) records.push({ record_id: recordId, title: label, kind: "job-cards" });
+    });
+    recordSelect.innerHTML = records.map(function (record) {
+      var recordId = String(record.record_id || "");
+      return '<option value="' + safe(recordId) + '"' + (selected.has(recordId) ? ' selected' : '') + '>' + safe(recordOptionLabel(record)) + '</option>';
+    }).join("") || '<option value="" disabled>No active estimates or job cards match</option>';
+    if (recordLoadMore) recordLoadMore.hidden = !recordHasMore;
+  }
+
+  function applyRecordPage(result, query, append) {
+    var page = result || {};
+    var incoming = Array.isArray(page.records) ? page.records : [];
+    if (append) {
+      var seen = new Set(recordRows.map(function (record) { return String(record.record_id); }));
+      incoming.forEach(function (record) {
+        if (!seen.has(String(record.record_id))) { recordRows.push(record); seen.add(String(record.record_id)); }
+      });
+    } else {
+      recordRows = incoming.slice();
+    }
+    recordQuery = String(query || "").trim();
+    recordOffset = page.pagination && Number.isInteger(page.pagination.next_offset) ? page.pagination.next_offset : recordRows.length;
+    recordHasMore = page.pagination ? page.pagination.has_more === true : incoming.length === 100;
+    renderRecordOptions();
+    if (recordSearchStatus) {
+      var count = recordRows.length + " record(s)";
+      recordSearchStatus.textContent = (recordQuery ? count + ' matching “' + recordQuery + '”' : count + " loaded") + (recordHasMore ? " · more available" : "");
+    }
+    renderRecordChips();
+  }
+
+  async function searchRecordPage(query, append) {
+    if (!api.xeroRecords) return;
+    var normalized = String(query || "").trim();
+    if (append && normalized !== recordQuery) return;
+    var revision = ++recordSearchRevision;
+    var offset = append ? recordOffset : 0;
+    if (!append) {
+      recordQuery = normalized;
+      recordRows = [];
+      recordHasMore = false;
+      renderRecordOptions();
+      if (recordSearchStatus) recordSearchStatus.textContent = "Searching GMT records…";
+    }
+    if (recordLoadMore) recordLoadMore.disabled = true;
+    try {
+      var result = await api.xeroRecords(normalized, 100, offset);
+      if (revision !== recordSearchRevision) return;
+      applyRecordPage(result, normalized, append);
+    } catch (error) {
+      if (revision === recordSearchRevision && recordSearchStatus) recordSearchStatus.textContent = error && error.message ? error.message : "GMT records could not be loaded.";
+    } finally {
+      if (revision === recordSearchRevision && recordLoadMore) recordLoadMore.disabled = false;
+    }
+  }
+
+  function setLinkedRecords(links) {
+    if (!recordSelect) return;
+    var selectedIds = new Set((Array.isArray(links) ? links : []).map(function (link) { return String(link.record_id || ""); }).filter(Boolean));
+    var options = new Map();
+    Array.prototype.forEach.call(recordSelect.options, function (option) { if (option.value) options.set(option.value, option); });
+    (Array.isArray(links) ? links : []).forEach(function (link) {
+      var recordId = String(link.record_id || "");
+      if (!recordId || options.has(recordId)) return;
+      var option = document.createElement("option");
+      option.value = recordId;
+      option.textContent = (link.record_kind === "estimates" ? "Estimate" : "Job card") + " · " + (link.record_title || recordId) + (link.is_candidate ? " · OCR candidate" : "");
+      recordSelect.appendChild(option);
+      options.set(recordId, option);
+    });
+    options.forEach(function (option, recordId) { option.selected = selectedIds.has(recordId); });
+    renderRecordChips();
   }
 
   function renderRelatedRecords(links, detail) {
@@ -387,7 +477,7 @@
   async function loadLookups() {
     if (!api.xeroSetupData || !api.xeroRecords) return;
     try {
-      var results = await Promise.allSettled([api.xeroSetupData(selectedTenant()), api.xeroRecords()]);
+      var results = await Promise.allSettled([api.xeroSetupData(selectedTenant()), api.xeroRecords("", 100, 0)]);
       var errors = [];
       if (results[0].status === "fulfilled") {
         setupData = results[0].value || {};
@@ -398,15 +488,11 @@
         if (contactSelect) contactSelect.innerHTML = '<option value="">Xero customers unavailable — use Refresh</option>';
       }
       if (results[1].status === "fulfilled") {
-        var records = results[1].value && results[1].value.records || [];
-        recordRows = records;
-        if (recordSelect) recordSelect.innerHTML = records.map(function (record) { return '<option value="' + safe(record.record_id) + '">' + safe((record.kind === "estimates" ? "Estimate" : "Job card") + " · " + record.title + (record.is_candidate ? " · OCR candidate" : "") + (record.customer ? " · " + record.customer : "") + (record.total == null ? "" : " · " + money(record.total, "GBP"))) + '</option>'; }).join("") || '<option value="">No active estimates or job cards</option>';
+        applyRecordPage(results[1].value, "", false);
       } else {
         errors.push(results[1].reason && results[1].reason.message || "GMT records could not be loaded");
         if (recordSelect) recordSelect.innerHTML = '<option value="">GMT records unavailable — use Refresh</option>';
       }
-      filterRecordRows();
-      renderRecordChips();
       if (editingInvoiceId && lines) {
         lines.querySelectorAll(".xero-invoice-line").forEach(function (row) {
           var account = row.querySelector('[data-line="account"]'); var tax = row.querySelector('[data-line="tax"]');
@@ -462,8 +548,7 @@
       if (lines) lines.innerHTML = "";
       (detail.line_items || []).forEach(addLine);
       if (!detail.line_items || !detail.line_items.length) addLine();
-      if (recordSelect) Array.prototype.forEach.call(recordSelect.options, function (option) { option.selected = (detail.links || []).some(function (link) { return link.record_id === option.value; }); });
-      renderRecordChips();
+      setLinkedRecords(detail.links || []);
       setEditorEditable(!!detail.policy?.canEdit);
       if (saveLinksButton) saveLinksButton.hidden = false;
       if (auditPanel) {
@@ -523,7 +608,12 @@
   if (customerFilter) customerFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (fromFilter) fromFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (toFilter) toFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
-  if (recordSearch) recordSearch.addEventListener("input", filterRecordRows);
+  if (recordSearch) recordSearch.addEventListener("input", function () {
+    clearTimeout(recordSearchTimer);
+    var query = recordSearch.value;
+    recordSearchTimer = setTimeout(function () { searchRecordPage(query, false); }, 250);
+  });
+  if (recordLoadMore) recordLoadMore.addEventListener("click", function () { searchRecordPage(recordQuery, true); });
   if (recordSelect) recordSelect.addEventListener("change", renderRecordChips);
   if (editor) editor.addEventListener("input", renderInvoicePreview);
   if (editor) editor.addEventListener("change", renderInvoicePreview);

@@ -76,10 +76,10 @@
 - `xeroInvoiceRecords(request, env, identity, origin)` serves `GET /api/xero/records?q=&limit=&offset=`, searching record IDs, job/estimate references, confirmed/candidate metadata, and job-card OCR text. It returns `{ records, pagination: { has_more, next_offset } }`.
 - `GMTPortalApi.xeroRecords(query, limit, offset)` sends the optional search/page parameters. The Accounts UI searches remotely and loads further matches while retaining selected records.
 
-- [ ] Add `finds_job_cards_outside_the_recent_500_and_paginates_without_duplicates` using SQLite fixtures and a remote-search UI contract assertion.
-- [ ] Run `node tests/xero-record-lookup.test.mjs` and `node tests/xero-invoice-ui.mjs`; expect the new lookup assertions to fail.
-- [ ] Implement `GET /api/xero/records?q=&limit=&offset=` and remote search/continuation while retaining selections.
-- [ ] Run `node tests/xero-record-lookup.test.mjs`, `node tests/xero-invoice-ui.mjs`, `npm run test:jobs:archive`, `npm run test:jobs:access-policy`, and `npm run test:xero:integration-contract`; expect all to pass.
+- [x] Add `finds_job_cards_outside_the_recent_500_and_paginates_without_duplicates` using SQLite fixtures and a remote-search UI contract assertion.
+- [x] Run `node tests/xero-record-lookup.test.mjs` and `node tests/xero-invoice-ui.mjs`; expect the new lookup assertions to fail.
+- [x] Implement `GET /api/xero/records?q=&limit=&offset=` and remote search/continuation while retaining selections.
+- [x] Run `node tests/xero-record-lookup.test.mjs`, `node tests/xero-invoice-ui.mjs`, `npm run test:jobs:archive`, `npm run test:jobs:access-policy`, and `npm run test:xero:integration-contract`; expect all to pass.
 - [ ] Commit as `feat: search archived job cards from invoice register`.
 
 ### Task 4: Operator guidance and release evidence
