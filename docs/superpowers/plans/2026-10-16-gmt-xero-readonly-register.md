@@ -46,7 +46,7 @@
 - [x] Run `node tests/xero-status-health.test.mjs`; expect each new assertion to fail against the current saved-row-only status route.
 - [x] Implement live connection verification and the four `refresh_health`/three `identity_status` values; render them in the Accounts connection panel.
 - [x] Run `node tests/xero-status-health.test.mjs` and `npm run test:xero:integration-contract`; expect both to pass.
-- [ ] Commit as `feat: verify GMT Xero connection health`.
+- [x] Commit as `feat: verify GMT Xero connection health`.
 
 ### Task 2: Invoice page freshness and complete pagination
 
@@ -60,10 +60,10 @@
 - `GMTInvoiceRegisterState` summarizes page sources/timestamps and accepts only complete snapshots for storage, keyed to a tenant ID. Stored shape is `{ tenant_id, saved_at, complete, source_counts, invoices }`.
 - `tools/invoices.js` displays source counts and oldest/newest timestamps; partial rows never replace the prior complete snapshot.
 
-- [ ] Add assertions for invalid pages, page 1000 full-page completion metadata, snapshot tenant binding, exact source timestamp summaries, and partial-save rejection.
-- [ ] Run `node tests/xero-invoice-archive.test.mjs` and `node tests/xero-invoice-register-state.test.mjs`; expect the new assertions to fail.
-- [ ] Implement page validation/limit metadata and the browser snapshot state helper; show source counts and saved timestamp ranges without adding a TTL.
-- [ ] Run `node tests/xero-invoice-archive.test.mjs`, `node tests/xero-invoice-register-state.test.mjs`, `node tests/xero-sharepoint-cache-ui.mjs`, and `npm run test:xero:integration-contract`; expect all to pass.
+- [x] Add assertions for invalid pages, page 1000 full-page completion metadata, snapshot tenant binding, exact source timestamp summaries, and partial-save rejection.
+- [x] Run `node tests/xero-invoice-archive.test.mjs` and `node tests/xero-invoice-register-state.test.mjs`; expect the new assertions to fail.
+- [x] Implement page validation/limit metadata and the browser snapshot state helper; show source counts and saved timestamp ranges without adding a TTL.
+- [x] Run `node tests/xero-invoice-archive.test.mjs`, `node tests/xero-invoice-register-state.test.mjs`, `node tests/xero-sharepoint-cache-ui.mjs`, and `npm run test:xero:integration-contract`; expect all to pass.
 - [ ] Commit as `fix: label complete and partial Xero register snapshots`.
 
 ### Task 3: Searchable GMT record lookup

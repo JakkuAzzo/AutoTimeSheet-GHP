@@ -12,6 +12,7 @@
   var refresh = $("xero-refresh");
   var loadButton = $("xero-invoice-load");
   var listStatus = $("xero-invoice-status-message");
+  var provenance = $("xero-invoice-provenance");
   var progress = $("xero-invoice-progress");
   var table = $("xero-invoice-table");
   var invoiceSearch = $("xero-invoice-search");
@@ -39,6 +40,7 @@
   var lookupsPromise = Promise.resolve();
   var invoiceRows = [];
   var recordRows = [];
+  var registerState = window.GMTInvoiceRegisterState;
   var invoiceCacheKey = function () { return "gmt-xero-invoice-index:" + selectedTenant(); };
 
   function initViewportEffects(root) {
@@ -47,11 +49,35 @@
   }
 
   function readInvoiceCache() {
-    try { var raw = sessionStorage.getItem(invoiceCacheKey()); var parsed = raw ? JSON.parse(raw) : null; return parsed && Array.isArray(parsed.invoices) ? parsed : null; } catch (_) { return null; }
+    if (!registerState) return null;
+    return registerState.load(sessionStorage, invoiceCacheKey(), selectedTenant());
   }
 
-  function writeInvoiceCache(invoices, tenant) {
-    try { sessionStorage.setItem(invoiceCacheKey(), JSON.stringify({ cached_at: new Date().toISOString(), tenant: tenant || "Xero", invoices: invoices })); } catch (_) {}
+  function writeInvoiceCache(pages, invoices, complete) {
+    if (!registerState) return false;
+    var snapshot = registerState.makeSnapshot(selectedTenant(), new Date().toISOString(), pages, invoices, complete);
+    return registerState.save(sessionStorage, invoiceCacheKey(), snapshot, selectedTenant());
+  }
+
+  function formatPageTimestamp(value) {
+    var date = new Date(value || "");
+    if (!Number.isFinite(date.getTime())) return "time unavailable";
+    return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" }).format(date);
+  }
+
+  function renderInvoiceProvenance(summary, savedAt, label) {
+    if (!provenance || !summary) return;
+    var counts = summary.source_counts || {};
+    var timestamps = summary.timestamps || {};
+    var parts = [
+      (counts.sharepoint || 0) + " SharePoint page(s)",
+      (counts.xero || 0) + " Xero page(s)",
+      (counts.unarchived || 0) + " page(s) not saved to SharePoint"
+    ];
+    var range = timestamps.oldest_at && timestamps.newest_at
+      ? "Page data from " + formatPageTimestamp(timestamps.oldest_at) + " to " + formatPageTimestamp(timestamps.newest_at)
+      : "Page timestamps unavailable";
+    provenance.textContent = (label ? label + " · " : "") + parts.join(" · ") + " · " + range + (savedAt ? " · Complete snapshot saved " + formatPageTimestamp(savedAt) : "");
   }
 
   function safe(value) {
@@ -239,35 +265,40 @@
     if (cached) {
       invoiceRows = cached.invoices;
       renderInvoices(invoiceRows);
+      renderInvoiceProvenance(cached, cached.saved_at, "Saved complete snapshot; loading source pages");
       if (listStatus) listStatus.textContent = cached.invoices.length + " cached invoice" + (cached.invoices.length === 1 ? "" : "s") + " shown · refreshing from Xero…";
     }
     if (progress) { progress.hidden = false; progress.removeAttribute("value"); }
     if (listStatus) listStatus.textContent = refreshFromXero ? "Refreshing invoice history from Xero and updating the SharePoint archive…" : "Loading invoice history from the SharePoint archive…";
     try {
-      var all = [], page = 1, batch = [], archivedPages = 0, xeroPages = 0, unarchivedPages = 0;
+      var all = [], page = 1, batch = [], pageLimit = 1000, hasMore = false, complete = false;
+      var pages = [];
       do {
         var result = await api.xeroInvoices(tenantId, 100, page, "", refreshFromXero === true);
         batch = result && Array.isArray(result.invoices) ? result.invoices : [];
-        if (result && result.archive && result.archive.source === "sharepoint") archivedPages += 1;
-        else if (result && result.archive && result.archive.source === "xero") {
-          xeroPages += 1;
-          if (!result.archive.stored) unarchivedPages += 1;
-        }
+        pages.push(result || {});
         all = all.concat(batch);
         invoiceRows = all;
         renderInvoices(all);
         if (progress) progress.value = page;
         if (listStatus) listStatus.textContent = all.length + " invoice" + (all.length === 1 ? "" : "s") + " loaded…";
+        pageLimit = Math.max(1, Number(result && result.pagination && result.pagination.page_limit) || 1000);
+        hasMore = result && result.pagination ? result.pagination.has_more === true : batch.length >= 100;
+        if (!hasMore) complete = true;
+        if (page >= pageLimit && hasMore) break;
         page += 1;
-      } while (batch.length === 100 && page <= 1000);
+      } while (hasMore);
       if (progress) { progress.hidden = true; progress.removeAttribute("value"); }
       if (accessGate) accessGate.hidden = true;
       renderConnections();
-      writeInvoiceCache(all, result && result.tenant && result.tenant.tenant_name || "Xero");
+      var pageSummary = registerState ? registerState.summarizePages(pages) : null;
+      var snapshotSaved = complete && writeInvoiceCache(pages, all, true);
+      renderInvoiceProvenance(pageSummary, snapshotSaved ? new Date().toISOString() : "", complete ? "Complete register" : "Partial register");
       if (listStatus) {
-        if (unarchivedPages) listStatus.textContent = all.length + " invoices loaded; " + unarchivedPages + " page(s) could not be saved to the SharePoint archive. Retry refresh to archive them.";
-        else if (xeroPages) listStatus.textContent = all.length + " invoices loaded; " + xeroPages + " page(s) fetched from Xero and saved to SharePoint, " + archivedPages + " page(s) served from the archive.";
-        else if (archivedPages) listStatus.textContent = all.length + " invoices loaded from the SharePoint archive.";
+        if (!complete) listStatus.textContent = all.length + " invoices shown; the register reached the page limit and may be incomplete. The previous complete snapshot is preserved.";
+        else if (pageSummary && pageSummary.source_counts.unarchived) listStatus.textContent = all.length + " invoices loaded; " + pageSummary.source_counts.unarchived + " page(s) could not be saved to the SharePoint archive. Retry refresh to archive them.";
+        else if (pageSummary && pageSummary.source_counts.xero) listStatus.textContent = all.length + " invoices loaded; " + pageSummary.source_counts.xero + " page(s) fetched from Xero and " + pageSummary.source_counts.sharepoint + " page(s) served from the SharePoint archive.";
+        else if (pageSummary && pageSummary.source_counts.sharepoint) listStatus.textContent = all.length + " invoices loaded from the SharePoint archive.";
         else listStatus.textContent = all.length + " invoices loaded; archive status is unavailable from the portal service.";
       }
     } catch (error) {
@@ -276,8 +307,8 @@
       // result look like a portal failure.
       renderInvoices(invoiceRows);
       if (invoiceRows.length) {
-        writeInvoiceCache(invoiceRows, "Xero");
-        if (listStatus) listStatus.textContent = invoiceRows.length + " invoices loaded; more could not be fetched right now. Try Refresh to continue.";
+        if (listStatus) listStatus.textContent = invoiceRows.length + " invoices shown; more could not be fetched right now. The previous complete snapshot is preserved. Try Refresh to continue.";
+        if (registerState && pages.length) renderInvoiceProvenance(registerState.summarizePages(pages), "", "Partial register");
       } else if (listStatus) {
         listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
       }

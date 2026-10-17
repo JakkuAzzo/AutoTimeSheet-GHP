@@ -3605,8 +3605,12 @@ async function lookupXeroInvoiceEndpoint(request, env, identity, origin) {
 
 async function listXeroInvoices(env, tenantId = '', options = {}) {
   const connection = await selectXeroConnection(env, tenantId);
-  const limit = Math.min(Math.max(Number(options.limit || 50), 1), 100);
-  const page = Math.min(Math.max(Number(options.page || 1), 1), 1000);
+  const requestedLimit = Number(options.limit ?? 50);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100) : 50;
+  const page = Number(options.page ?? 1);
+  if (!Number.isInteger(page) || page < 1 || page > 1000) {
+    throw Object.assign(new Error('Invoice page must be an integer between 1 and 1000'), { status: 400 });
+  }
   const status = text(options.status, '', 40);
   const cachePath = xeroInvoiceArchivePagePath(connection.tenant_id, page, limit, status);
   if (options.refresh !== true) {
@@ -3617,6 +3621,7 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
         invoices: cached.invoices,
         page,
         page_size: limit,
+        pagination: { page_limit: 1000, has_more: cached.invoices.length === limit },
         refreshed_at: cached.cached_at,
         archive: { source: 'sharepoint', stored: true, cached_at: cached.cached_at }
       };
@@ -3656,6 +3661,7 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
     invoices: invoices.slice(0, limit).map(xeroInvoiceProjection),
     page,
     page_size: limit,
+    pagination: { page_limit: 1000, has_more: invoices.length >= limit },
     refreshed_at: cachedAt,
     archive: { source: 'xero', stored, cached_at: stored ? cachedAt : '' }
   };

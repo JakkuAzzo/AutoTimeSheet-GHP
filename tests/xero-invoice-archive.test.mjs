@@ -38,6 +38,7 @@ let uploadCount = 0;
 let graphTokenCount = 0;
 let failArchiveRead = false;
 let failArchiveWrite = false;
+let fullPage1000 = false;
 
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input);
@@ -51,7 +52,9 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.includes('/api.xro/2.0/Invoices?')) {
     xeroReads += 1;
     const page = Number(new URL(url).searchParams.get('page'));
-    const invoices = page === 1 ? [{ InvoiceID: 'invoice-1', InvoiceNumber: 'INV-1', Status: 'AUTHORISED', Type: 'ACCREC', Contact: { Name: 'Acme' }, Total: 42 }] : [];
+    const invoices = page === 1 ? [{ InvoiceID: 'invoice-1', InvoiceNumber: 'INV-1', Status: 'AUTHORISED', Type: 'ACCREC', Contact: { Name: 'Acme' }, Total: 42 }]
+      : page === 1000 && fullPage1000 ? Array.from({ length: 100 }, (_, index) => ({ InvoiceID: `invoice-${index}`, InvoiceNumber: `INV-${index}`, Status: 'AUTHORISED', Type: 'ACCREC' }))
+        : [];
     return new Response(JSON.stringify({ Invoices: invoices }), { status: 200 });
   }
   if (url.includes('graph.microsoft.com')) {
@@ -123,6 +126,19 @@ try {
   await assert.rejects(() => listXeroInvoices(env, connection.tenant_id, { limit: 100, page: 1 }), (error) => error.status === 503,
     'SharePoint errors do not appear as cache misses or silently call Xero');
   assert.equal(xeroReads, 5);
+
+  failArchiveRead = false;
+  await assert.rejects(() => listXeroInvoices(env, connection.tenant_id, { page: 1001 }), (error) => error.status === 400,
+    'pages above the supported limit are rejected instead of silently clamped');
+  await assert.rejects(() => listXeroInvoices(env, connection.tenant_id, { page: 2.5 }), (error) => error.status === 400,
+    'fractional page numbers are rejected');
+
+  fullPage1000 = true;
+  const lastAllowedPage = await listXeroInvoices(env, connection.tenant_id, { page: 1000, limit: 100, refresh: true });
+  assert.equal(lastAllowedPage.pagination.page_limit, 1000);
+  assert.equal(lastAllowedPage.pagination.has_more, true,
+    'a full final allowed page remains explicitly incomplete because records may exist beyond the hard page limit');
+  assert.equal(lastAllowedPage.invoices.length, 100);
 } finally {
   globalThis.fetch = originalFetch;
 }
