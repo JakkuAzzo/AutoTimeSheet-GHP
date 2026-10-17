@@ -88,7 +88,10 @@
   function currentEmployee() { return employeeFilter && employeeFilter.value ? String(employeeFilter.value).toLowerCase() : ""; }
   function employeeKey(record) {
     if (!record || record.is_demo || actionKey(record) === "enquiries") return "";
-    return String(record.employee_upn || record.employee_name || "").trim().toLowerCase();
+    // Keep audit-list filtering on the same exact roster/name resolution used
+    // to group pay-month sheets. The history response is already authorized;
+    // this only maps a unique roster name to its UPN within that response.
+    return sheetEmployeeKey(record);
   }
   function compactDate(record) {
     if (record && record.record_date) return String(record.record_date);
