@@ -9,6 +9,18 @@
     "storage": "GMT Web-App SharePoint / Shared Documents / Timesheets",
     "index": "Timesheet Submissions Microsoft List"
   },
+  "recordIdentity": {
+    "sourceFields": ["gmt_record_id", "gmt_submission_id", "recordId", "record_id", "submissionId", "Source record ID"],
+    "rowKey": "Use the original source submission ID; for dated weekly rows, append the source Date as emitted by GMT Timesheet Record JSON.",
+    "missingId": "reject-before-workbook-write",
+    "forbiddenFallbacks": [
+      "employee/date/action/time",
+      "employee/date/index",
+      "Calendar Sync event.syncEventId",
+      "Outlook message ID"
+    ],
+    "companionMergeKey": ["Source record ID", "Employee", "Date"]
+  },
   "observedLive": {
     "trigger": "Shared mailbox V2 on accounts8765@gmtelectservsltd.onmicrosoft.com / Inbox; this address is absent from the loaded Exchange mailbox list and the trigger has reported ErrorInvalidUser",
     "connection": "Amanda.BB@gmt-services.co.uk Outlook connection",

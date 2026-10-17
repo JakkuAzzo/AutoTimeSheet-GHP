@@ -47,12 +47,14 @@ function workbook(name = 'Simon', payMonthLabel = false) {
 
 const datedCsv = [
   'GMT Timesheet - Simon - 2026-09-07.csv',
-  'Employee email,Week start,Week end,Date,Start,Finish,Worked hours,Basic hours,OT x1.5 hours,OT x2.0 hours',
-  'simon@gmt-services.co.uk,2026-09-07,2026-09-11,2026-09-03,08:00,17:00,9,8,1,0'
+  'Employee email,Week start,Week end,Date,Start,Finish,Worked hours,Basic hours,OT x1.5 hours,OT x2.0 hours,Source record ID',
+  'simon@gmt-services.co.uk,2026-09-07,2026-09-11,2026-09-03,08:00,17:00,9,8,1,0,timesheet-simon-2026-09-07|2026-09-03'
 ].join('\n');
 const csvBook = workbook();
 assert.equal(script.main(csvBook, datedCsv).created, 1);
 assert.equal(csvBook.sheets['Timesheet Events'].rows[1][4], '2026-09-03', 'CSV Date must not be moved into its week label');
+assert.equal(csvBook.sheets['Timesheet Events'].rows[1][19], 'timesheet-simon-2026-09-07|2026-09-03',
+  'CSV rows retain the original source record ID instead of an employee/date-derived key');
 const undatedCsv = datedCsv.replace(',2026-09-03,08:00', ',,08:00');
 assert.throws(() => script.main(workbook(), undatedCsv), /No valid timesheet records/,
   'a missing CSV Date cannot be invented from Week start');
