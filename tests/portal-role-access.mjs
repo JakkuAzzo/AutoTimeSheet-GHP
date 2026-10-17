@@ -61,12 +61,14 @@ const amanda = identityFor(
   [amandaGroupId]
 );
 const accountsIdentityFixtures = [
-  { name: 'Accounts identity one', upn: 'accounts-viewer@example.test' },
-  { name: 'Accounts identity two', upn: 'accounts-alias@example.test' }
+  { name: 'Second Accounts identity', upn: 'accounts-viewer@example.test' }
 ];
 const accountsEnv = { ...baseEnv, ADMIN_UPNS: accountsIdentityFixtures.map((entry) => entry.upn).join(',') };
 const accountsIdentities = accountsIdentityFixtures.map((person) => identityFor(person, accountsEnv));
-const sourceConfiguredAccounts = baseEnv.ADDITIONAL_ADMIN_UPNS.split(',').filter(Boolean).map((upn) => ({ name: 'Configured Accounts', upn }));
+const faithUpn = employee('Faith').upn;
+const sourceConfiguredAccounts = baseEnv.ADDITIONAL_ADMIN_UPNS.split(',')
+  .filter((upn) => upn && upn.toLowerCase() !== faithUpn.toLowerCase())
+  .map((upn) => ({ name: 'Configured Accounts', upn }));
 const michelle = identityFor(employee('Michelle'));
 const lidia = identityFor(employee('Lidia'));
 const ordinaryStaff = identityFor({ name: 'Ordinary staff', upn: 'ordinary.staff@gmt-services.co.uk' });
@@ -77,7 +79,12 @@ const operationsAdmin = identityFor(
 
 assert.equal(faith.isAdmin, true, 'Faith is a full administrator through verified Worker configuration');
 assert.equal(amanda.isAdmin, true, 'Amanda remains a full administrator through the existing Entra group-claim path');
-assert.equal(accountsIdentities.length, 2, 'two separate synthetic Accounts claims are covered');
+assert.equal(accountsIdentities.length, 1, 'one synthetic claim covers the second Accounts identity');
+assert.equal(
+  [faith, amanda, ...accountsIdentities, ...sourceConfiguredAccounts.map((person) => identityFor(person)), michelle, lidia].length,
+  6,
+  'the requested identity matrix covers exactly six people'
+);
 for (const account of accountsIdentities) assert.equal(account.isAdmin, true, `${account.name} claim fixture is a full administrator`);
 assert.ok(sourceConfiguredAccounts.length > 0, 'Worker config retains its Accounts admin identity');
 for (const account of sourceConfiguredAccounts) assert.equal(identityFor(account).isAdmin, true, 'the source-configured Accounts identity remains a full administrator');
