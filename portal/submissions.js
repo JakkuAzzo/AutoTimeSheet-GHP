@@ -112,6 +112,17 @@
     }
     return dates.length ? dates[0].slice(0, 7) : "";
   }
+  function matchesPayMonth(record, month) {
+    if (!month) return true;
+    var months = recordRows(record).map(function (row) {
+      var date = rowDate(row);
+      if (!date) return "";
+      return window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
+        ? window.GMTPayPeriods.payMonthKeyForDate(date)
+        : date.slice(0, 7);
+    }).filter(Boolean);
+    return months.length ? months.indexOf(month) !== -1 : payMonthForRecord(record) === month;
+  }
   function rowDate(row) {
     if (!row || typeof row !== "object") return "";
     var value = row.date || row.recordDate || row.record_date || row.workDate || row.Date || "";
@@ -145,6 +156,11 @@
     return (label === "Canonical employee month workbook replay 2026-09-17-02" || label === "ARCHIVE REAL") && recordRows(record).length === 0;
   }
   function recordId(record) { return String(record && (record.source_record_id || record.record_id || record.id) || ""); }
+  function authoritativeSourceRecordId(record) { return String(record && (record.source_record_id || record.record_id) || ""); }
+  function sourceRecordIdDetail(record) {
+    var id = authoritativeSourceRecordId(record);
+    return id ? '<p><strong>Source record ID:</strong> ' + safe(id) + '</p>' : '';
+  }
   function recordUpdated(record) {
     var value = record && (record.updated_at || record.updatedAt || record.submitted_at || record.submittedAt || "");
     var time = Date.parse(String(value));
@@ -335,7 +351,7 @@
     return records.filter(function (record) {
       if (selectedType === "timesheets" ? !isTimesheetLike(record) : (selectedType && actionKey(record) !== selectedType)) return false;
       if (selectedEmployee && employeeKey(record) !== selectedEmployee) return false;
-      if (selectedMonth && payMonthForRecord(record) !== selectedMonth) return false;
+      if (selectedMonth && !matchesPayMonth(record, selectedMonth)) return false;
       if (selectedDay && !recordRows(record).some(function (row) { return rowDate(row) === selectedDay; })) return false;
       return true;
     });
@@ -444,7 +460,7 @@
     var payload = payloadFor(record);
     var data = jobPreviewData(record);
     var selectedType = String(record.card_type || payload.cardType || "EC").toUpperCase() === "MTA" ? "MTA" : "EC";
-    preview.innerHTML = '<div class="submission-document-preview"><div class="job-card-preview-heading"><div><p class="portal-card-kicker">' + safe(selectedType) + ' card</p><h3>' + safe(record.is_demo ? "Example job card" : (record.job_ref || record.record_id || "Job card")) + '</h3></div><div class="job-card-preview-toggle" role="group" aria-label="Preview card format"><button type="button" class="secondary' + (selectedType === "EC" ? ' is-selected' : '') + '" data-submission-card-type="EC" aria-pressed="' + String(selectedType === "EC") + '">EC card</button><button type="button" class="secondary' + (selectedType === "MTA" ? ' is-selected' : '') + '" data-submission-card-type="MTA" aria-pressed="' + String(selectedType === "MTA") + '">MTA card</button></div></div><div class="job-card-preview" data-submission-job-sheet>' + (selectedType === "MTA" ? renderMtaJobSheet(data) : renderEcJobSheet(data)) + '</div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + '</div>';
+    preview.innerHTML = '<div class="submission-document-preview"><div class="job-card-preview-heading"><div><p class="portal-card-kicker">' + safe(selectedType) + ' card</p><h3>' + safe(record.is_demo ? "Example job card" : (record.job_ref || record.record_id || "Job card")) + '</h3></div><div class="job-card-preview-toggle" role="group" aria-label="Preview card format"><button type="button" class="secondary' + (selectedType === "EC" ? ' is-selected' : '') + '" data-submission-card-type="EC" aria-pressed="' + String(selectedType === "EC") + '">EC card</button><button type="button" class="secondary' + (selectedType === "MTA" ? ' is-selected' : '') + '" data-submission-card-type="MTA" aria-pressed="' + String(selectedType === "MTA") + '">MTA card</button></div></div><div class="job-card-preview" data-submission-job-sheet>' + (selectedType === "MTA" ? renderMtaJobSheet(data) : renderEcJobSheet(data)) + '</div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + sourceRecordIdDetail(record) + '</div>';
     preview.querySelectorAll("[data-submission-card-type]").forEach(function (button) {
       button.addEventListener("click", function () {
         var type = button.getAttribute("data-submission-card-type") === "MTA" ? "MTA" : "EC";
@@ -472,7 +488,7 @@
   function renderEstimatePreview(record) {
     var d = estimatePreviewData(record);
     var rows = d.items.map(function (item) { return '<tr><td>' + safe(item.description) + '</td><td>' + safe(item.quantity) + '</td><td>' + safe(money(item.unit)) + '</td><td>' + safe(money(item.quantity * item.unit)) + '</td></tr>'; }).join("") || '<tr><td colspan="4">No line items added.</td></tr>';
-    preview.innerHTML = '<div class="estimate-paper-header"><img class="estimate-paper-logo" src="../image.png" alt="GMT Electrical Services Ltd logo"><div class="estimate-paper-company"><p>Electric Motor Repairs &amp; Rewinds</p><p>Electrical &amp; Mechanical Engineers</p><p>Air Conditioning Repair &amp; Service</p><p>93-95 Gloucester Rd, Croydon CR0 2DN</p><p>Tel 020 8683 0464</p><p>info@gmt-services.co.uk</p></div></div><h1 class="estimate-paper-title">Estimate</h1><div class="estimate-paper-meta"><div><p><strong>For the attention of:</strong> ' + safe(d.attention) + '</p><p><strong>Company:</strong> ' + safe(d.company) + '</p><p><strong>Re:</strong> ' + safe(d.reference) + '</p></div><div><p><strong>Date:</strong> ' + safe(d.date) + '</p><p><strong>Estimate no:</strong> ' + safe(d.number) + '</p></div></div><div class="estimate-paper-body"><p>' + safe(d.opening).replace(/\n/g, '<br>') + '</p><table class="estimate-paper-table"><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>' + rows + '</tbody></table><div class="estimate-paper-total"><p><span>Subtotal</span><strong>' + safe(money(d.subtotal)) + '</strong></p><p><span>VAT (' + safe(d.vatRate) + '%)</span><strong>' + safe(money(d.vat)) + '</strong></p><p class="grand-total"><span>Total</span><strong>' + safe(money(d.total)) + '</strong></p></div></div><p class="estimate-paper-terms">' + safe(d.terms) + '<br><br>Estimate validity: ' + safe(d.validity) + ' days.</p><p>Regards,<br>' + safe(d.preparedBy) + '</p>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '');
+    preview.innerHTML = '<div class="estimate-paper-header"><img class="estimate-paper-logo" src="../image.png" alt="GMT Electrical Services Ltd logo"><div class="estimate-paper-company"><p>Electric Motor Repairs &amp; Rewinds</p><p>Electrical &amp; Mechanical Engineers</p><p>Air Conditioning Repair &amp; Service</p><p>93-95 Gloucester Rd, Croydon CR0 2DN</p><p>Tel 020 8683 0464</p><p>info@gmt-services.co.uk</p></div></div><h1 class="estimate-paper-title">Estimate</h1><div class="estimate-paper-meta"><div><p><strong>For the attention of:</strong> ' + safe(d.attention) + '</p><p><strong>Company:</strong> ' + safe(d.company) + '</p><p><strong>Re:</strong> ' + safe(d.reference) + '</p></div><div><p><strong>Date:</strong> ' + safe(d.date) + '</p><p><strong>Estimate no:</strong> ' + safe(d.number) + '</p></div></div><div class="estimate-paper-body"><p>' + safe(d.opening).replace(/\n/g, '<br>') + '</p><table class="estimate-paper-table"><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>' + rows + '</tbody></table><div class="estimate-paper-total"><p><span>Subtotal</span><strong>' + safe(money(d.subtotal)) + '</strong></p><p><span>VAT (' + safe(d.vatRate) + '%)</span><strong>' + safe(money(d.vat)) + '</strong></p><p class="grand-total"><span>Total</span><strong>' + safe(money(d.total)) + '</strong></p></div></div><p class="estimate-paper-terms">' + safe(d.terms) + '<br><br>Estimate validity: ' + safe(d.validity) + ' days.</p><p>Regards,<br>' + safe(d.preparedBy) + '</p>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + sourceRecordIdDetail(record);
   }
 
   function renderTaskPreview(record) {
@@ -482,7 +498,7 @@
     var assignee = record.assignee || payload.assignee || "Unassigned";
     var due = record.due_date || payload.due || record.record_date || "No due date";
     var priority = record.priority || payload.priority || "Normal";
-    preview.innerHTML = '<div class="submission-task-preview"><div class="submission-task-preview-header"><img class="submission-task-preview-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><div><p class="portal-card-kicker">GMT task</p><h2>' + safe(title) + '</h2></div><span class="portal-status">' + safe(record.status || "Example only") + '</span></div><div class="submission-task-preview-meta"><p><strong>Job reference:</strong> ' + safe(job) + '</p><p><strong>Assigned to:</strong> ' + safe(assignee) + '</p><p><strong>Due:</strong> ' + safe(due) + '</p><p><strong>Priority:</strong> ' + safe(priority) + '</p></div><div class="submission-task-preview-notes"><strong>Notes</strong><p>' + safe(payload.notes || "Example task for the GMT operational workflow.") + '</p></div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + '</div>';
+    preview.innerHTML = '<div class="submission-task-preview"><div class="submission-task-preview-header"><img class="submission-task-preview-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><div><p class="portal-card-kicker">GMT task</p><h2>' + safe(title) + '</h2></div><span class="portal-status">' + safe(record.status || "Example only") + '</span></div><div class="submission-task-preview-meta"><p><strong>Job reference:</strong> ' + safe(job) + '</p><p><strong>Assigned to:</strong> ' + safe(assignee) + '</p><p><strong>Due:</strong> ' + safe(due) + '</p><p><strong>Priority:</strong> ' + safe(priority) + '</p></div><div class="submission-task-preview-notes"><strong>Notes</strong><p>' + safe(payload.notes || "Example task for the GMT operational workflow.") + '</p></div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + sourceRecordIdDetail(record) + '</div>';
   }
 
   function renderEnquiryPreview(record) {
@@ -493,7 +509,7 @@
       return '<article class="enquiry-thread-message ' + (outbound ? 'is-outbound' : 'is-inbound') + '"><div class="enquiry-thread-message-meta"><strong>' + safe(message.author || (outbound ? "GMT team" : record.customer_name || "Customer")) + '</strong><time datetime="' + safe(message.at || "") + '">' + safe(message.at || "") + '</time></div><p>' + safe(message.body || message.subject || "") + '</p></article>';
     }).join("") : '<p class="small-text">No message body has been filed yet. Open the inbox thread to review the source conversation.</p>';
     var outlookLink = record.conversation_url ? '<p><a class="button button-link" href="' + safe(record.conversation_url) + '" target="_blank" rel="noopener">Open inbox thread</a></p>' : '<p class="small-text">The Outlook conversation link will appear after the Microsoft 365 intake flow links this enquiry.</p>';
-    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">Customer enquiry</p><h2>' + safe(record.customer_name || "Unnamed customer") + '</h2></div><span class="portal-status">' + safe(record.status || "New") + '</span></div><div class="timesheet-paper-meta"><p><strong>Request:</strong> ' + safe(record.request_type || "General enquiry") + '</p><p><strong>Email:</strong> ' + safe(record.customer_email || "Not provided") + '</p><p><strong>Phone:</strong> ' + safe(record.customer_phone || "Not provided") + '</p><p><strong>Inbox:</strong> ' + safe(record.mailbox || "GMT enquiries inbox") + ' · ' + safe(record.inbox_status || "Awaiting inbox synchronisation") + '</p><p><strong>Thread ID:</strong> ' + safe(record.thread_id || record.conversation_id || "Not linked") + '</p></div><section class="enquiry-thread" aria-label="Enquiry email thread"><h3>Email thread</h3>' + thread + '</section>' + outlookLink + '<form class="enquiry-reply-form" data-enquiry-reply-form="' + safe(record.source_record_id || "") + '"><label for="enquiry-reply">Add to this thread<textarea id="enquiry-reply" name="reply" rows="4" placeholder="Add an internal note or reply for Accounts to send" required></textarea></label><button type="submit" class="secondary">Save to protected thread</button><p class="small-text" data-enquiry-reply-status role="status">Replies are saved to the protected record. Microsoft 365 inbox sending remains flow-managed.</p></form>';
+    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">Customer enquiry</p><h2>' + safe(record.customer_name || "Unnamed customer") + '</h2></div><span class="portal-status">' + safe(record.status || "New") + '</span></div><div class="timesheet-paper-meta"><p><strong>Request:</strong> ' + safe(record.request_type || "General enquiry") + '</p><p><strong>Email:</strong> ' + safe(record.customer_email || "Not provided") + '</p><p><strong>Phone:</strong> ' + safe(record.customer_phone || "Not provided") + '</p><p><strong>Inbox:</strong> ' + safe(record.mailbox || "GMT enquiries inbox") + ' · ' + safe(record.inbox_status || "Awaiting inbox synchronisation") + '</p><p><strong>Thread ID:</strong> ' + safe(record.thread_id || record.conversation_id || "Not linked") + '</p>' + sourceRecordIdDetail(record) + '</div><section class="enquiry-thread" aria-label="Enquiry email thread"><h3>Email thread</h3>' + thread + '</section>' + outlookLink + '<form class="enquiry-reply-form" data-enquiry-reply-form="' + safe(record.source_record_id || "") + '"><label for="enquiry-reply">Add to this thread<textarea id="enquiry-reply" name="reply" rows="4" placeholder="Add an internal note or reply for Accounts to send" required></textarea></label><button type="submit" class="secondary">Save to protected thread</button><p class="small-text" data-enquiry-reply-status role="status">Replies are saved to the protected record. Microsoft 365 inbox sending remains flow-managed.</p></form>';
     var replyForm = preview.querySelector("[data-enquiry-reply-form]");
     if (replyForm) replyForm.addEventListener("submit", function (event) { saveEnquiryReply(event, record); });
   }
@@ -1014,9 +1030,7 @@
     var sparseDetail = sparseTimesheet(record)
       ? '<p class="portal-history-warning"><strong>Daily detail unavailable:</strong> ' + safe(record.daily_detail_issue || "The Microsoft 365 history response returned the submission header without its daily rows.") + '</p><p class="small-text">Only the submitted header is available here. Clock-in, clock-out, break and total-hour values will appear after the intake/history flow returns the attached daily rows.</p>'
       : '';
-    var sourceIdDetail = recordId(record)
-      ? '<p><strong>Source record ID:</strong> ' + safe(recordId(record)) + '</p>'
-      : '';
+    var sourceIdDetail = sourceRecordIdDetail(record);
     var timesheetAction = actionKey(record) === "timesheets"
       ? '<a class="button button-link" href="' + safe(timesheetHref(record, day)) + '">Open pay-month spreadsheet</a>'
       : '';
