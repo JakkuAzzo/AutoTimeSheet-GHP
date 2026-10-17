@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
-import { existsSync, createReadStream, mkdirSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, createReadStream, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -282,17 +282,18 @@ const demos = {
       await page.locator('#sourceInput').setInputFiles({
         name: 'TRAINING-ONLY-DEMO-NOT-PAYROLL.csv',
         mimeType: 'text/csv',
-        buffer: Buffer.from('Employee,Week start,Date,Day,Start,Finish,Break,Basic,OT x1.5,OT x2.0\nDEMO EMPLOYEE - TRAINING ONLY,2026-10-12,2026-10-12,Monday,08:00,17:00,60,8,0,0\n')
+        buffer: readFileSync(resolve(repoRoot, 'tests/fixtures/training-audit-sample.csv'))
       });
-      await highlight('#addSourcesBtn', 'Step 2', 'Add the selected sources', 'First add the files, then run the calculation and check.');
-      await page.locator('#addSourcesBtn').click();
-      await page.waitForSelector('.source-item');
+      await page.waitForSelector('#sourceList .source-item');
+      await highlight('#sourceList .source-item', 'Step 2', 'Confirm the source was added', 'Selecting a file adds it to the list automatically. Check the selected source before calculating.');
       await highlight('#runBtn', 'Step 3', 'Calculate and check sources', 'The result starts with a plain-English decision: no action needed, issues to review, or parse errors.');
       await page.locator('#runBtn').click();
       await page.waitForSelector('#resultsCard:not(.hidden) #statusBanner');
       await pause(1200);
       await highlight('#statusBanner', 'Step 4', 'Read the decision first', 'Use the result and correction cards before opening detailed rows or exports. Source files are not changed.');
-      await highlight('#resultSummary', 'Step 5', 'Review the result summary', 'The displayed one-row fixture is synthetic training data, not payroll history.');
+      await highlight('#resultSummary', 'Step 5', 'Review the result summary', 'The one-row fixture is synthetic training data, not payroll history.');
+      await page.locator('.tab[data-tab="rowsPane"]').click();
+      await highlight('#rowsTable tbody tr', 'Step 6', 'Confirm the calculated times', '08:00 to 17:00 minus a 60-minute break calculates as 8 hours basic.');
       await page.locator('.tab[data-tab="exportsPane"]').click();
       await highlight('#submitAuditBtn', 'Final check', 'Leave submission untouched', 'The training example does not download or send anything to Accounts.');
     }

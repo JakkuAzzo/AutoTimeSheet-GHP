@@ -35,7 +35,7 @@
     "test:xero:invoice-order": "node tests/xero-invoice-order.test.mjs",
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",
-    "test:training": "node tests/training-assets-contract.mjs && node tests/training-playback-smoke.mjs",
+    "test:training": "node tests/training-assets-contract.mjs && node --test tests/training-audit-sample.mjs && node tests/training-playback-smoke.mjs",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
     "prepare:job-cards": "node tools/prepare-job-card-import.mjs",
