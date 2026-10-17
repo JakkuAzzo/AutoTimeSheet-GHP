@@ -60,6 +60,10 @@ function mockDb(queueRows, attachmentRows) {
     calls,
     prepare(sql) {
       return {
+        async all() {
+          calls.push({ method: 'all', sql, args: [] });
+          return { results: [] };
+        },
         bind(...args) {
           return {
             async all() {

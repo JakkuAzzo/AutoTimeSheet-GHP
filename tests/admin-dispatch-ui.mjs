@@ -39,8 +39,8 @@ try {
           providerStatus: 'awaiting-workbook-route',
           counts: { queued: 1, sending: 0, failed: 1, sent: 1, skipped: 0 },
           records: [
-            { employeeName: 'Michelle', date: '2026-09-07', status: 'queued', attempts: 0 },
-            { employeeName: 'Simon', date: '2026-09-08', status: 'failed', attempts: 2, error: 'Workbook route not certified' },
+            { recordId: 'gmt-correction-michelle-20260907', employeeName: 'Michelle', date: '2026-09-07', status: 'queued', attempts: 0 },
+            { recordId: 'gmt-correction-simon-20260908', employeeName: 'Simon', date: '2026-09-08', status: 'failed', attempts: 2, error: 'Workbook route not certified' },
             { employeeName: 'Ainsley', date: '2026-09-09', status: 'sent', attempts: 1 }
           ]
         };
@@ -70,7 +70,7 @@ try {
   });
   await page.addScriptTag({ path: resolve(root, 'portal/submissions.js') });
   await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
-  await page.waitForFunction(() => document.querySelector('#submissions-status').textContent.includes('Showing 3 submitted documents'));
+  await page.waitForFunction(() => document.querySelector('#submissions-status').textContent.includes('3 authorised records loaded'));
   assert.equal(await page.locator('#submissions-delivery-trigger').isVisible(), false, 'staff cannot see Accounts queue status');
   await page.evaluate(() => { window.testAdmin = true; });
   await page.locator('#submissions-refresh').click();
@@ -84,6 +84,8 @@ try {
   assert.equal(await page.locator('#submissions-delivery-dialog').isVisible(), true);
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /Michelle/);
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /Simon/);
+  assert.match(await page.locator('#submissions-delivery-details').innerText(), /gmt-correction-simon-20260908/, 'Accounts can reconcile each queue state to its exact source record ID');
+  assert.match(await page.locator('#submissions-delivery-details').innerText(), /Source record ID unavailable; this item cannot be reconciled/, 'a queue item without an authoritative ID is clearly held from reconciliation');
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /Workbook route not certified/);
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /does not confirm.*SharePoint/i);
   assert.equal(await page.evaluate(() => window.dispatchCalls), 0, 'opening status never retries or sends corrections');
