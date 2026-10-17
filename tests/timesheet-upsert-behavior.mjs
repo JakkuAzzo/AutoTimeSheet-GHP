@@ -53,6 +53,8 @@ const record = (employeeName, recordId, action, workedHours) => ({ employeeName,
 assert.equal(submit(simon, record('Simon', 's-week', 'submission', 40)).created, 1);
 assert.equal(submit(jason, record('Jason', 'j-in', 'clock-in', 0)).created, 1);
 assert.equal(submit(jason, record('Jason', 'j-out', 'clock-out', 8)).created, 1);
+assert.equal(submit(jason, record('Jason', 'j-in', 'clock-in', 0)).unchanged, 1, 'exact clock-in retry is idempotent');
+assert.equal(submit(jason, record('Jason', 'j-out', 'clock-out', 8)).unchanged, 1, 'exact clock-out retry is idempotent');
 assert.equal(submit(simon, record('Simon', 's-in', 'clock-in', 0)).created, 1);
 assert.equal(submit(simon, record('Simon', 's-out', 'clock-out', 8)).created, 1);
 assert.equal(submit(jason, record('Jason', 'j-week', 'submission', 40)).created, 1);
@@ -74,6 +76,44 @@ assert.ok(jason.sheets.Reconciliation.rows.some(row => row[12] === 42));
 jason.sheets.Reconciliation.rows[1][24] = 'Reviewer note';
 submit(jason, record('Jason', 'j-week', 'submission', 42));
 assert.equal(jason.sheets.Reconciliation.rows[1][24], 'Reviewer note');
+
+const absenceCalendarSync = {
+  employee: 'Simon',
+  employeeEmail: 'simon@gmt-services.co.uk',
+  weekStart: '2026-08-31',
+  weekEnd: '2026-09-06',
+  submissionId: 's-absence-companion',
+  submittedAt: '2026-09-01T20:00:00Z',
+  events: [{
+    type: 'absence', title: 'Annual leave', startDate: '2026-09-01', endDateExclusive: '2026-09-02',
+    absenceReason: 'Holiday', status: 'Absent', syncEventId: 's-absence-companion|2026-09-01'
+  }]
+};
+const csvAbsenceCompanion = {
+  ...record('Simon', 's-absence-companion|2026-09-01', 'submission', 7.5), ot15Hours: 0, ot20Hours: 0,
+  weekStart: '2026-08-31', weekEnd: '2026-09-06', startTime: '08:00', finishTime: '15:30', basicHours: 7.5
+};
+const absenceFirst = workbook('Simon');
+assert.equal(submit(absenceFirst, absenceCalendarSync).created, 1);
+assert.equal(submit(absenceFirst, csvAbsenceCompanion).updated, 1, 'linked absence and submission companions enrich one row');
+assert.equal(absenceFirst.rows.length, 2, 'a Calendar Sync absence and its CSV companion do not duplicate the day');
+assert.equal(absenceFirst.rows[1][5], 'submission', 'the richer submission action is retained');
+assert.equal(absenceFirst.rows[1][1], 'simon@gmt-services.co.uk', 'the Calendar Sync employee identity is retained');
+assert.equal(absenceFirst.rows[1][7], 'Holiday', 'the Calendar Sync absence reason is retained');
+assert.equal(absenceFirst.rows[1][8], '08:00');
+assert.equal(absenceFirst.rows[1][11], '15:30');
+assert.equal(absenceFirst.rows[1][12], 7.5);
+assert.equal(absenceFirst.rows[1][18], '2026-09-01T20:00:00Z', 'the Calendar Sync submission timestamp is retained');
+const csvCompanionRetry = submit(absenceFirst, csvAbsenceCompanion);
+assert.equal(csvCompanionRetry.unchanged, 1, 'the enriched companion retry is idempotent');
+
+const submissionFirst = workbook('Simon');
+submit(submissionFirst, csvAbsenceCompanion);
+assert.equal(submit(submissionFirst, absenceCalendarSync).updated, 1, 'companion enrichment is independent of arrival order');
+assert.equal(submissionFirst.rows.length, 2);
+assert.equal(submissionFirst.rows[1][5], 'submission');
+assert.equal(submissionFirst.rows[1][7], 'Holiday');
+assert.equal(submissionFirst.rows[1][8], '08:00');
 
 const intervals = workbook('Simon');
 const timed = (id, startTime, finishTime, date = '2026-09-01') => ({ ...record('Simon', id, 'submission', 4), basicHours: 4, startTime, finishTime, date });
