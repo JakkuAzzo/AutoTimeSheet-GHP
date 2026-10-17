@@ -13,6 +13,7 @@
     "sourceFields": ["gmt_record_id", "gmt_submission_id", "recordId", "record_id", "submissionId", "Source record ID"],
     "rowKey": "Use the original source submission ID; for dated weekly rows, append the source Date as emitted by GMT Timesheet Record JSON.",
     "missingId": "reject-before-workbook-write",
+    "csvProducerRule": "Weekly CSV rows include Employee, Employee email and Source record ID matching the structured JSON recordId; clock CSV rows include Employee, Employee email, Action and the original gmt_record_id as Source record ID.",
     "forbiddenFallbacks": [
       "employee/date/action/time",
       "employee/date/index",

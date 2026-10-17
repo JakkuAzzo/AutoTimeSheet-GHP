@@ -21,8 +21,10 @@
 
 - FormSubmit text without `gmt_record_id` or `gmt_submission_id` must fail before workbook writes.
 - CSV without a source-record column must not create rows using employee/date-derived IDs.
-- Calendar-sync JSON without `submissionId` must not fall back to `syncEventId` or identity/date values.
+- Calendar-sync JSON without `submissionId` or top-level `recordId` must not fall back to `syncEventId` or identity/date values.
 - Row envelopes without per-row `recordId` or parent source ID must fail before workbook writes.
+- Weekly and clock CSV producers must include source IDs consumed by the Office Script; clock CSV must preserve the event action.
+- Calendar-sync event envelopes must accept either `submissionId` or top-level `recordId` as the parent source ID.
 - Existing source IDs must continue to persist through upsert and exact retries must remain deduplicated.
 - Different source IDs for the same employee and date must remain separate rows; companion files with the same source-derived row ID may enrich one another.
 
@@ -31,10 +33,14 @@
 ### Task 1: Require original source IDs in the monthly upsert parser
 
 **Files:**
+- Modify: `script.js`
+- Modify: `timesheet-clock.js`
 - Modify: `power-platform/office-scripts/upsert-monthly-timesheet-row.ts`
 - Modify: `power-platform/submission-envelope-contract.json`
 - Modify: `power-platform/timesheet-monthly-upsert-flow-spec.json`
 - Test: `tests/timesheet-upsert-behavior.mjs`
+- Test: `tests/timesheet-email-routing.mjs`
+- Test: `tests/timesheet-clock-routing.mjs`
 - Test: `tests/timesheet-source-date-routing.mjs`
 - Test: `tests/timesheet-monthly-contract.mjs`
 

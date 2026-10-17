@@ -48,6 +48,7 @@ function workbook(employee) {
 const simon = workbook('Simon');
 const jason = workbook('Jason');
 const submit = (book, records) => JSON.parse(JSON.stringify(context.main(book, JSON.stringify(records))));
+const submitPayload = (book, payload) => JSON.parse(JSON.stringify(context.main(book, payload)));
 const record = (employeeName, recordId, action, workedHours) => ({ employeeName, recordId, action, workedHours, status: 'Submitted', date: '2026-09-01' });
 
 function assertMissingSourceIdRejected(book, payload, source) {
@@ -91,6 +92,28 @@ assertMissingSourceIdRejected(missingRowId, JSON.stringify({
   rows: [{ date: '2026-09-01', action: 'submission', workedHours: 8 }]
 }), 'row envelope');
 
+const producerStyleWeeklyCsv = [
+  'GMT Timesheet - Jason - Pay Month 2026-09 - Week 2026-09-01.csv',
+  'Employee,Employee email,Status,Category,Pay month,Week start,Week end,Day,Date,Weekday,Start,Finish,Break,Absence reason,Worked hours,Basic hours,OT x1.5 hours,OT x2.0 hours,Weighted hours,Note,Source record ID',
+  'Jason,jason@gmt-services.co.uk,Recorded,Basic day,2026-09,2026-08-31,2026-09-06,Day 1,2026-09-01,Tuesday,08:00,17:00,No break,NA,8,8,0,0,8,,weekly-source|2026-09-01'
+].join('\n');
+const weeklyCsvBook = workbook('Jason');
+assert.equal(submitPayload(weeklyCsvBook, producerStyleWeeklyCsv).created, 1,
+  'weekly producer CSV columns parse through the monthly upsert');
+assert.equal(weeklyCsvBook.rows[1][0], 'Jason');
+assert.equal(weeklyCsvBook.rows[1][19], 'weekly-source|2026-09-01');
+
+const producerStyleClockCsv = [
+  'GMT Clock - Jason - Pay Month 2026-09 - 2026-09-01 - Clock In.csv',
+  'Employee,Employee email,Status,Category,Action,Week start,Week end,Day,Date,Weekday,Start,Finish,Lunch start,Lunch end,Absence reason,Location / site,Worked hours,Basic hours,OT x1.5 hours,OT x2.0 hours,Weighted hours,Note,Source record ID',
+  'Jason,jason@gmt-services.co.uk,Recorded,Clock In,clock_in,2026-09-01,2026-09-01,Clock In,2026-09-01,Tuesday,08:15,,,,NA,Workshop,0,0,0,0,0,Clock In timestamp only,clock-jason-2026-09-01-clock_in-08-15'
+].join('\n');
+const clockCsvBook = workbook('Jason');
+assert.equal(submitPayload(clockCsvBook, producerStyleClockCsv).created, 1,
+  'clock producer CSV columns parse through the monthly upsert');
+assert.equal(clockCsvBook.rows[1][5], 'clock_in', 'clock CSV preserves its event action');
+assert.equal(clockCsvBook.rows[1][19], 'clock-jason-2026-09-01-clock_in-08-15');
+
 const sourcedForm = workbook('Jason');
 context.main(sourcedForm, [
   'gmt_record_id: source-clock-20260901',
@@ -111,6 +134,16 @@ context.main(sourcedCalendar, JSON.stringify({
 }));
 assert.equal(sourcedCalendar.rows[1][19], 'source-week-20260901|2026-09-01',
   'calendar rows derive their stable row key only from the original submission ID and date');
+
+const sourcedCalendarByRecordId = workbook('Jason');
+context.main(sourcedCalendarByRecordId, JSON.stringify({
+  employeeName: 'Jason',
+  employeeEmail: 'jason@gmt-services.co.uk',
+  recordId: 'calendar-source-20260901',
+  events: [{ startDate: '2026-09-01', syncEventId: 'calendar-event-record-id' }]
+}));
+assert.equal(sourcedCalendarByRecordId.rows[1][19], 'calendar-source-20260901|2026-09-01',
+  'calendar event envelopes accept recordId as their original source ID');
 
 const sourcedRows = workbook('Jason');
 context.main(sourcedRows, JSON.stringify({

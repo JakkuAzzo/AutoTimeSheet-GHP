@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { existsSync, statSync, createReadStream, readFileSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createTimesheetWorkbook, parseCsvThroughOfficeScript } from './helpers/monthly-timesheet-office-script.mjs';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const require = createRequire(new URL('../package.json', import.meta.url));
@@ -84,7 +85,7 @@ try {
             name: value.name,
             type: value.type,
             size: value.size,
-            content: value.type === 'application/json' ? await value.text() : ''
+            content: value.type === 'application/json' || value.type === 'text/csv' ? await value.text() : ''
           });
         } else {
           fields[name] = value;
@@ -178,6 +179,14 @@ try {
   assert.ok(result.files[1].files[0].size > 1000);
   assert.ok(result.files[2].files[0].name.includes('GMT Timesheet - Routing Tester - Pay Month 2026-06 - Week 2026-06-22.csv'));
   assert.ok(result.files[2].files[0].size > 100);
+  const weeklyCsv = result.files[2].files[0];
+  const parsedWeeklyCsvBook = createTimesheetWorkbook('Routing Tester', '2026-06');
+  const parsedWeeklyCsv = parseCsvThroughOfficeScript(parsedWeeklyCsvBook, weeklyCsv.name, weeklyCsv.content);
+  assert.equal(parsedWeeklyCsv.created, 1, 'weekly CSV from the browser producer must parse through the Office Script');
+  assert.equal(parsedWeeklyCsvBook.rows[1][0], 'Routing Tester');
+  assert.equal(parsedWeeklyCsvBook.rows[1][1], 'routing.tester@example.com');
+  assert.equal(parsedWeeklyCsvBook.rows[1][19], recordEnvelope.recordId,
+    'weekly CSV carries the same source ID as the structured record attachment');
   assert.ok(result.files[3].files[0].name.includes('GMT Calendar Sync - Routing Tester - Pay Month 2026-06 - Week 2026-06-22.json'));
   assert.ok(result.files[3].files[0].size > 100);
   const calendarEnvelope = JSON.parse(result.files[3].files[0].content);

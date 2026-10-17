@@ -231,11 +231,12 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
     return index >= 0 ? text(cells[index]).trim() : '';
   };
   const nameMatch = /^GMT Timesheet - (.+?) - (\d{4}-\d{2}-\d{2})\.csv$/i.exec(fileName.trim());
-  const employeeName = nameMatch ? nameMatch[1].trim() : '';
+  const fileEmployeeName = nameMatch ? nameMatch[1].trim() : '';
   const rows: MonthlyTimesheetRecord[] = [];
   const weekStartValue = nameMatch ? nameMatch[2] : '';
   lines.slice(1).forEach((line, rowIndex) => {
     const cells = parseCsvLine(line);
+    const employeeName = valueAt(cells, 'Employee') || valueAt(cells, 'Employee name') || fileEmployeeName;
     const employeeEmail = valueAt(cells, 'Employee email') || valueAt(cells, 'Email');
     const sourceDate = valueAt(cells, 'Date');
     const weekStart = valueAt(cells, 'Week start') || weekStartValue || sourceDate;
@@ -246,14 +247,14 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
     // record ID. Missing IDs stay blank and are rejected before workbook writes.
     const sourceRecordId = valueAt(cells, 'Source record ID') || valueAt(cells, 'gmt_record_id') || valueAt(cells, 'gmt_submission_id');
     const submittedNote = valueAt(cells, 'Note');
-    rows.push({
+    const record: MonthlyTimesheetRecord = {
       recordId: sourceRecordId,
       employeeName,
       employeeEmail,
       weekStart,
       weekEnd,
       date: date || weekStart,
-      action: 'submission',
+      action: valueAt(cells, 'Action') || 'submission',
       status: valueAt(cells, 'Status') || 'Recorded',
       absenceReason: valueAt(cells, 'Absence reason'),
       startTime: valueAt(cells, 'Start'),
@@ -262,13 +263,15 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
       basicHours: valueAt(cells, 'Basic hours'),
       ot15Hours: valueAt(cells, 'OT x1.5 hours'),
       ot20Hours: valueAt(cells, 'OT x2.0 hours'),
+      location: valueAt(cells, 'Location / site'),
       note: submittedNote,
       submittedAt: ''
-    });
+    };
     // The source row number is intentionally included in the note only when
     // the submitted CSV did not provide any identifying detail. It makes a
     // malformed row traceable without changing valid payroll values.
-    if (!employeeName && rows[rowIndex].note === '') rows[rowIndex].note = 'CSV source row ' + (rowIndex + 2);
+    if (!record.employeeName && record.note === '') record.note = 'CSV source row ' + (rowIndex + 2);
+    rows.push(record);
   });
   return rows;
 }
@@ -276,7 +279,7 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
 function calendarRecords(envelope: CalendarSyncEnvelope): MonthlyTimesheetRecord[] {
   const employeeName = text(envelope.employeeName || envelope.employee).trim();
   const employeeEmail = text(envelope.employeeEmail || envelope.employeeUpn).trim();
-  const submissionId = text(envelope.submissionId).trim();
+  const submissionId = text(envelope.submissionId || envelope.recordId).trim();
   const events = Array.isArray(envelope.events) ? envelope.events : [];
   return events.map((event) => {
     const date = text(event.startDate).trim();

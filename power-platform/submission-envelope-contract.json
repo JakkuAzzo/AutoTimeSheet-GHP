@@ -43,6 +43,7 @@
       "sourceFields": ["gmt_record_id", "gmt_submission_id", "recordId", "record_id", "submissionId", "Source record ID"],
       "missingId": "reject-before-workbook-write",
       "derivedFallbacks": false,
+      "csvProducerRule": "Weekly CSV rows carry Source record ID equal to the matching GMT Timesheet Record JSON recordId (submissionId plus Date); clock CSV rows carry the original gmt_record_id.",
       "companionMergeKey": ["Source record ID", "Employee", "Date"]
     }
   },
