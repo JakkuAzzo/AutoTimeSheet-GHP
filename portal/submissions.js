@@ -112,16 +112,24 @@
     }
     return dates.length ? dates[0].slice(0, 7) : "";
   }
+  function payMonthKeyForDate(date) {
+    if (!date) return "";
+    return window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
+      ? window.GMTPayPeriods.payMonthKeyForDate(date)
+      : date.slice(0, 7);
+  }
   function matchesPayMonth(record, month) {
     if (!month) return true;
     var months = recordRows(record).map(function (row) {
-      var date = rowDate(row);
-      if (!date) return "";
-      return window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
-        ? window.GMTPayPeriods.payMonthKeyForDate(date)
-        : date.slice(0, 7);
+      return payMonthKeyForDate(rowDate(row));
     }).filter(Boolean);
     return months.length ? months.indexOf(month) !== -1 : payMonthForRecord(record) === month;
+  }
+  function hasDayInPayMonth(record, day, month) {
+    return recordRows(record).some(function (row) {
+      var date = rowDate(row);
+      return date === day && (!month || payMonthKeyForDate(date) === month);
+    });
   }
   function rowDate(row) {
     if (!row || typeof row !== "object") return "";
@@ -351,8 +359,12 @@
     return records.filter(function (record) {
       if (selectedType === "timesheets" ? !isTimesheetLike(record) : (selectedType && actionKey(record) !== selectedType)) return false;
       if (selectedEmployee && employeeKey(record) !== selectedEmployee) return false;
-      if (selectedMonth && !matchesPayMonth(record, selectedMonth)) return false;
-      if (selectedDay && !recordRows(record).some(function (row) { return rowDate(row) === selectedDay; })) return false;
+      if (selectedMonth && selectedDay) {
+        if (!hasDayInPayMonth(record, selectedDay, selectedMonth)) return false;
+      } else {
+        if (selectedMonth && !matchesPayMonth(record, selectedMonth)) return false;
+        if (selectedDay && !hasDayInPayMonth(record, selectedDay, "")) return false;
+      }
       return true;
     });
   }
