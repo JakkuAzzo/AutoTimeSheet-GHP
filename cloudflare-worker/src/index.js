@@ -733,10 +733,76 @@ function validatePayMonthCorrection(body, nowDate = new Date(), payPeriods = def
 
 function validateNoFutureWork(kind, action, payload, nowDate = new Date()) {
   if (kind !== 'timesheets' && kind !== 'clock') return;
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(nowDate);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(nowDate);
   const value = (type) => String(parts.find((part) => part.type === type)?.value || '');
   const today = `${value('year')}-${value('month')}-${value('day')}`;
-  if (kind === 'clock' && action === 'absent') return;
+  const nowMinutes = Number(value('hour')) * 60 + Number(value('minute'));
+  if (kind === 'clock') {
+    const actionKey = String(action || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const dailyActions = new Set(['clock_in', 'lunch_start', 'lunch_end', 'clock_out', 'absent', 'full_day']);
+    for (const [field, maxLength] of [['location', 240], ['note', 1000]]) {
+      const fieldValue = payload[field];
+      if (fieldValue !== undefined && fieldValue !== null && typeof fieldValue !== 'string') {
+        throw Object.assign(new Error(`Clock ${field} must be text.`), { status: 400 });
+      }
+      if (String(fieldValue || '').length > maxLength) {
+        throw Object.assign(new Error(`Clock ${field} must be ${maxLength} characters or fewer.`), { status: 400 });
+      }
+    }
+    const eventDate = String(payload.date || payload.recordDate || '').slice(0, 10);
+    if (dailyActions.has(actionKey)) {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(eventDate);
+      const date = match && new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+      if (!date || date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) {
+        throw Object.assign(new Error('A valid clock date is required.'), { status: 400 });
+      }
+    }
+    if (eventDate > today && actionKey !== 'absent') {
+      throw Object.assign(new Error('Future clock and worked-time entries are not permitted.'), { status: 400 });
+    }
+    if (actionKey === 'absent' || !dailyActions.has(actionKey)) return;
+
+    const minutesFor = (input) => {
+      const match = /^(\d{2}):(\d{2})$/.exec(String(input || ''));
+      if (!match) return null;
+      const hour = Number(match[1]);
+      const minute = Number(match[2]);
+      return hour <= 23 && minute <= 59 ? hour * 60 + minute : null;
+    };
+    const futureTime = (minutes) => eventDate === today && minutes > nowMinutes;
+    if (actionKey === 'full_day') {
+      const start = minutesFor(payload.dayStart);
+      const finishValue = minutesFor(payload.dayFinish);
+      const lunchStartValue = minutesFor(payload.lunchStart);
+      const lunchEndValue = minutesFor(payload.lunchEnd);
+      if (start === null || finishValue === null) {
+        throw Object.assign(new Error('Enter valid start and finish times for the full day.'), { status: 400 });
+      }
+      if ((lunchStartValue === null) !== (lunchEndValue === null)) {
+        throw Object.assign(new Error('Enter both valid lunch times, or leave both blank.'), { status: 400 });
+      }
+      const finish = finishValue <= start ? finishValue + 1440 : finishValue;
+      if (lunchStartValue !== null && (lunchEndValue <= lunchStartValue || lunchStartValue < start || lunchEndValue > finish)) {
+        throw Object.assign(new Error('Lunch must fall within the recorded working day.'), { status: 400 });
+      }
+      if (futureTime(finish)) {
+        throw Object.assign(new Error('Future clock times are not permitted.'), { status: 400 });
+      }
+      return;
+    }
+
+    const eventMinutes = minutesFor(payload.time);
+    if (eventMinutes === null) {
+      throw Object.assign(new Error('Enter a valid clock time in 24-hour format.'), { status: 400 });
+    }
+    if (futureTime(eventMinutes)) {
+      throw Object.assign(new Error('Future clock times are not permitted.'), { status: 400 });
+    }
+    return;
+  }
   const rows = Array.isArray(payload.rows) ? payload.rows : Array.isArray(payload.dailyRows) ? payload.dailyRows : [];
   for (const row of rows) {
     const date = String(row?.date || '').slice(0, 10);
@@ -744,10 +810,6 @@ function validateNoFutureWork(kind, action, payload, nowDate = new Date()) {
     if (date > today && !['sick', 'holiday', 'absent'].includes(absence)) {
       throw Object.assign(new Error('Future dates can only be marked absent, sick or holiday; worked time cannot be entered early.'), { status: 400 });
     }
-  }
-  const eventDate = String(payload.date || '').slice(0, 10);
-  if (kind === 'clock' && eventDate > today && action !== 'absent') {
-    throw Object.assign(new Error('Future clock and worked-time entries are not permitted.'), { status: 400 });
   }
 }
 
@@ -803,7 +865,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
+  const keys = ['schemaVersion', 'employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'time', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'row', 'hours', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }

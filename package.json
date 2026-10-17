@@ -36,6 +36,7 @@
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
+    "test:timesheets:clock-payload-contract": "node tests/timesheet-clock-payload-contract.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
     "prepare:job-cards": "node tools/prepare-job-card-import.mjs",
     "test:timesheets:responsive-entry": "node tests/timesheet-entry-responsive.mjs",
