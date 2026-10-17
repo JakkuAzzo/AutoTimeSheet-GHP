@@ -223,12 +223,19 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   for (const route of publicMarketingRoutes) {
     await page.goto(`${localOrigin}${route}`);
+    await page.evaluate(() => window.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 24 })));
     const reducedMotion = await page.evaluate(() => ({
+      ready: document.documentElement.getAttribute('data-public-scroll-snap-ready'),
       scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior,
-      snapType: getComputedStyle(document.documentElement).scrollSnapType
+      snapType: getComputedStyle(document.documentElement).scrollSnapType,
+      revealTransition: document.querySelector('[data-scroll-reveal]')
+        ? getComputedStyle(document.querySelector('[data-scroll-reveal]')).transitionDuration.split(',')[0].trim()
+        : '0s'
     }));
+    assert.equal(reducedMotion.ready, 'true', `${route}: test activates public snapping before checking reduced motion`);
     assert.equal(reducedMotion.scrollBehavior, 'auto', `${route}: public page respects reduced motion`);
     assert.ok(!reducedMotion.snapType.includes('y'), `${route}: public page disables snapping for reduced motion`);
+    assert.ok(Number.parseFloat(reducedMotion.revealTransition) <= 0.0001, `${route}: public reveal transitions respect reduced motion`);
   }
   await page.goto(`http://127.0.0.1:${server.address().port}/portal/`);
   await page.evaluate(() => {

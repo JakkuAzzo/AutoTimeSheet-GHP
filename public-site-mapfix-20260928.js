@@ -627,7 +627,16 @@
       document.body.classList.add('modal-open');
       var workshopForm = card.querySelector('[data-workshop-enquiry-form]');
       var toggle = card.querySelector('[data-workshop-enquiry-toggle]');
-      if (workshopForm) workshopForm.hidden = false;
+      var workshopStatus = card.querySelector('[data-workshop-enquiry-status]');
+      if (workshopForm) {
+        workshopForm.hidden = false;
+        workshopForm.classList.remove('is-submitted');
+        workshopForm.removeAttribute('aria-hidden');
+      }
+      if (workshopStatus) {
+        workshopStatus.textContent = '';
+        workshopStatus.classList.remove('is-visible');
+      }
       if (toggle) toggle.hidden = true;
       card.classList.add('is-expanded');
       var firstField = workshopForm && workshopForm.querySelector('input:not([type="hidden"])');
@@ -718,11 +727,13 @@
       var protectionError = validateProtectedForm(form);
       if (protectionError) {
         status.textContent = protectionError;
+        status.classList.add('is-visible');
         return;
       }
       var endpoint = window.GMT_APP_CONFIG && window.GMT_APP_CONFIG.contactFormSubmitEndpoint;
       if (!endpoint) {
         status.textContent = 'The enquiry form is not configured yet. Please call the workshop.';
+        status.classList.add('is-visible');
         return;
       }
 
@@ -736,6 +747,7 @@
       formData.set('gmt_calendar_name', 'GMT Operational Calendar');
       if (submitButton) submitButton.disabled = true;
       status.textContent = 'Sending your enquiry…';
+      status.classList.add('is-visible');
 
       try {
         var response = await fetch(endpoint, {
@@ -759,6 +771,7 @@
         }, 480);
       } catch (_error) {
         status.textContent = 'We could not send the form. Please call 0208 683 0464 instead.';
+        status.classList.add('is-visible');
       } finally {
         if (submitButton) submitButton.disabled = false;
       }

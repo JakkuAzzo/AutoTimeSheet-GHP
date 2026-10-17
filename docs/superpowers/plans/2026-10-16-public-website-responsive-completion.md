@@ -39,7 +39,8 @@
 - Produces verified route-by-viewport results for the existing public and portal pages.
 
 - [x] Check the public route matrix at 320×568, 390×844, 667×375, 768×1024, 1280×720, and 1440×900; add a failing regression assertion first for each reproduced gap.
-- [x] The public matrix found no viewport, smooth-scroll, snap, clipping, overflow, or reduced-motion gap, so no layout production change was needed.
+- [x] Review found activated public snapping overrode reduced motion; add a regression check after wheel activation and disable snap at that specificity.
+- [x] Assert reduced-motion reveal transitions are removed.
 - [x] Run `npm run test:public-site-responsive` and `npm run test:marketing:contract`.
 - [x] Commit responsive behavior and its regression coverage.
 
@@ -54,8 +55,9 @@
 - Consumes `window.GMT_APP_CONFIG.contactFormSubmitEndpoint` and the existing enquiry status element.
 - Produces accessible success/error feedback while retaining retry behavior after failure.
 
-- [x] Write browser coverage for a successful mocked submit, an unsuccessful mocked response, and a network failure; verify the success state remains associated with the confirmation status and no production endpoint is contacted.
+- [x] Write browser coverage for successful mocked submits, provider rejection, and network failure across six viewports; verify visible feedback, retry state, and mock-only routing.
 - [x] Run the new check and confirm explicit provider failure incorrectly showed success before implementation.
-- [x] Parse the AJAX JSON response and keep the form retryable when it explicitly reports failure.
+- [x] Parse the AJAX JSON response, keep the form retryable after explicit failure, and reveal loading/error feedback.
+- [x] Confirm success text fits at a 320px viewport and reopening clears the previous completion state for an accessible fresh enquiry.
 - [x] Run the new enquiry check and `npm run test:marketing:contract`.
 - [x] Commit enquiry completion behavior and its regression coverage.
