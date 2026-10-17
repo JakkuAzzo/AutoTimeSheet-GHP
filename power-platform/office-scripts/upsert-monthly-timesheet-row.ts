@@ -161,9 +161,12 @@ function firstField(body: string, names: string[]): string {
 }
 
 function withSourceRecordId(record: MonthlyTimesheetRecord): MonthlyTimesheetRecord {
+  const explicitRecordId = text(record.recordId || record.record_id || record.gmt_record_id).trim();
+  const parentSubmissionId = text(record.gmt_submission_id || record.submissionId).trim();
+  const date = text(record.date).trim();
   return {
     ...record,
-    recordId: text(record.recordId || record.record_id || record.gmt_record_id || record.gmt_submission_id || record.submissionId).trim()
+    recordId: explicitRecordId || (parentSubmissionId && date ? parentSubmissionId + "|" + date : parentSubmissionId)
   };
 }
 

@@ -155,6 +155,31 @@ context.main(sourcedRows, JSON.stringify({
 assert.equal(sourcedRows.rows[1][19], 'source-week-20260902|2026-09-01',
   'row envelopes derive their stable row key only from the original submission ID and date');
 
+const legacyArrayRows = workbook('Jason');
+const legacyArrayResult = submitPayload(legacyArrayRows, JSON.stringify([
+  { employeeName: 'Jason', employeeEmail: 'jason@gmt-services.co.uk', submissionId: 'legacy-week-20260901', date: '2026-09-01', workedHours: 8 },
+  { employeeName: 'Jason', employeeEmail: 'jason@gmt-services.co.uk', submissionId: 'legacy-week-20260901', date: '2026-09-02', workedHours: 8 }
+]));
+assert.equal(legacyArrayResult.created, 2, 'dated legacy array rows with a parent submission ID remain separate records');
+assert.equal(legacyArrayRows.rows[1][19], 'legacy-week-20260901|2026-09-01');
+assert.equal(legacyArrayRows.rows[2][19], 'legacy-week-20260901|2026-09-02');
+
+const legacyGmtSubmissionRows = workbook('Jason');
+submitPayload(legacyGmtSubmissionRows, JSON.stringify([
+  { employeeName: 'Jason', employeeEmail: 'jason@gmt-services.co.uk', gmt_submission_id: 'legacy-gmt-week-20260901', date: '2026-09-01', workedHours: 8 },
+  { employeeName: 'Jason', employeeEmail: 'jason@gmt-services.co.uk', gmt_submission_id: 'legacy-gmt-week-20260901', date: '2026-09-02', workedHours: 8 }
+]));
+assert.equal(legacyGmtSubmissionRows.rows[1][19], 'legacy-gmt-week-20260901|2026-09-01');
+assert.equal(legacyGmtSubmissionRows.rows[2][19], 'legacy-gmt-week-20260901|2026-09-02');
+
+const explicitLegacyRowIds = workbook('Jason');
+submitPayload(explicitLegacyRowIds, JSON.stringify([
+  { employeeName: 'Jason', employeeEmail: 'jason@gmt-services.co.uk', recordId: 'original-row-id-1', submissionId: 'legacy-week-20260901', date: '2026-09-01', workedHours: 8 },
+  { employeeName: 'Jason', employeeEmail: 'jason@gmt-services.co.uk', gmt_record_id: 'original-row-id-2', gmt_submission_id: 'legacy-gmt-week-20260901', date: '2026-09-02', workedHours: 8 }
+]));
+assert.equal(explicitLegacyRowIds.rows[1][19], 'original-row-id-1', 'explicit recordId remains unchanged');
+assert.equal(explicitLegacyRowIds.rows[2][19], 'original-row-id-2', 'explicit gmt_record_id remains unchanged');
+
 const differentlyLabelledCompanion = workbook('Simon');
 const sourceSummary = {
   employeeName: 'Simon',
