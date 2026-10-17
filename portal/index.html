@@ -18,7 +18,7 @@
   .app-main[hidden] { display: none; }
 </style>
 <link rel="stylesheet" href="../styles.css?v=portal-responsive-layout-20261016-v4">
-<link rel="stylesheet" href="../portal.css?v=portal-responsive-layout-20261016-v6">
+<link rel="stylesheet" href="../portal.css?v=portal-role-card-hidden-20261017-v1">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="../viewport-effects.js?v=viewport-shell-20261016-v1"></script>
@@ -69,6 +69,7 @@
           <div id="portal-notifications" class="portal-notifications" aria-label="Recent notifications">
             <div class="portal-notification-empty"><span aria-hidden="true">✓</span><div><strong>Loading notifications…</strong><small>Checking recent protected submissions.</small></div></div>
           </div>
+          <button type="button" class="secondary" data-dashboard-retry="notifications" hidden>Retry notifications</button>
         </section>
         <section class="portal-updates-feed-panel portal-updates-task-panel" aria-labelledby="portal-task-board-title">
           <div class="portal-updates-task-heading">
@@ -79,6 +80,7 @@
           <div class="portal-updates-task-content">
             <p id="portal-task-board-status" class="portal-updates-task-status" role="status" aria-live="polite">Loading submitted tasks…</p>
             <div id="portal-task-board" class="portal-task-board" aria-live="polite"></div>
+            <button type="button" class="secondary" data-dashboard-retry="tasks" hidden>Retry task history</button>
             <a class="portal-updates-task-link" href="../tasks/">Open task tools <span aria-hidden="true">→</span></a>
           </div>
         </section>
@@ -113,7 +115,7 @@
         <span><strong>Tools</strong><small>Tasks, calendar and shared tools</small></span>
         <span class="portal-arrow" aria-hidden="true">→</span>
       </a>
-      <a class="portal-action-card" href="/portal/submissions">
+      <a class="portal-action-card" href="submissions.html">
         <span class="portal-action-icon" aria-hidden="true">▤</span>
         <span><strong>Submitted documents</strong><small>View job cards, estimates, tasks, calendar requests and timesheets</small></span>
         <span class="portal-arrow" aria-hidden="true">→</span>
@@ -131,7 +133,7 @@
     <section class="portal-calendar-preview" aria-labelledby="portal-calendar-title">
       <div class="portal-calendar-preview-heading">
         <div><span class="portal-card-kicker">Shared information</span><h2 id="portal-calendar-title">Calendar</h2></div>
-        <a class="portal-text-link" href="timesheets">Open timesheet calendar <span aria-hidden="true">→</span></a>
+        <a class="portal-text-link" href="timesheets.html">Open timesheet calendar <span aria-hidden="true">→</span></a>
       </div>
       <p id="portal-calendar-status" class="small-text" role="status">Loading shared calendar…</p>
       <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-portal-calendar-prev aria-label="Previous month">&lt;</button><button type="button" class="portal-calendar-month-picker" data-portal-calendar-picker aria-haspopup="dialog" aria-controls="portal-calendar-month-input"><span data-portal-calendar-title></span></button><input id="portal-calendar-month-input" class="sr-only" data-portal-calendar-input type="month" tabindex="-1" aria-label="Choose calendar month"><button type="button" class="icon-button" data-portal-calendar-next aria-label="Next month">&gt;</button></div>
@@ -149,6 +151,6 @@
 <script defer src="calendar-data.js?v=source-date-20260927"></script>
 <script defer src="calendar-actions.js?v=pay-month-start-20261016"></script>
 <script defer src="calendar-preview.js?v=paymonth-calendar-20260928a"></script>
-<script defer src="dashboard-updates.js?v=dashboard-notification-status-20261013"></script>
+<script defer src="dashboard-updates.js?v=dashboard-route-retry-20261017-v1"></script>
 </body>
 </html>
