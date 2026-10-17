@@ -252,11 +252,12 @@
     var records = recordRows.slice();
     var seen = new Set(records.map(function (record) { return String(record.record_id); }));
     selected.forEach(function (label, recordId) {
-      if (!seen.has(recordId)) records.push({ record_id: recordId, title: label, kind: "job-cards" });
+      if (!seen.has(recordId)) records.push({ record_id: recordId, display_label: label });
     });
     recordSelect.innerHTML = records.map(function (record) {
       var recordId = String(record.record_id || "");
-      return '<option value="' + safe(recordId) + '"' + (selected.has(recordId) ? ' selected' : '') + '>' + safe(recordOptionLabel(record)) + '</option>';
+      var label = record.display_label == null ? recordOptionLabel(record) : record.display_label;
+      return '<option value="' + safe(recordId) + '"' + (selected.has(recordId) ? ' selected' : '') + '>' + safe(label) + '</option>';
     }).join("") || '<option value="" disabled>No active estimates or job cards match</option>';
     if (recordLoadMore) recordLoadMore.hidden = !recordHasMore;
   }
