@@ -76,12 +76,23 @@
     return String(value).padStart(2, '0');
   }
 
+  function londonDateTimeParts(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(date);
+    const value = (type) => String(parts.find((part) => part.type === type)?.value || '');
+    return { year: value('year'), month: value('month'), day: value('day'), hour: value('hour'), minute: value('minute') };
+  }
+
   function localDate(date = new Date()) {
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const parts = londonDateTimeParts(date);
+    return `${parts.year}-${parts.month}-${parts.day}`;
   }
 
   function localTime(date = new Date()) {
-    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    const parts = londonDateTimeParts(date);
+    return `${parts.hour}:${parts.minute}`;
   }
 
   // Use the same GMT payroll-period router as weekly timesheets. A clock
@@ -136,9 +147,9 @@
   }
 
   function weekdayName(dateValue) {
-    const date = new Date(`${dateValue}T00:00:00`);
+    const date = new Date(`${dateValue}T00:00:00Z`);
     if (Number.isNaN(date.getTime())) return '';
-    return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
+    return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getUTCDay()];
   }
 
   function timeToMinutes(value) {
@@ -281,6 +292,23 @@
     if (lunchStart !== null && lunchEnd <= lunchStart) return 'Lunch end must be later than lunch start.';
     if (lunchStart !== null && (lunchStart < start || lunchEnd > finishMinutes)) return 'Lunch must fall within the recorded working day.';
     return '';
+  }
+
+  function validateClockTime(payload, now = new Date()) {
+    if (payload.action === 'absent' || payload.date !== localDate(now)) return '';
+    const parts = londonDateTimeParts(now);
+    const nowMinutes = Number(parts.hour) * 60 + Number(parts.minute);
+    if (payload.action === 'full_day') {
+      const start = timeToMinutes(payload.dayStart);
+      const finishValue = timeToMinutes(payload.dayFinish);
+      if (start === null || finishValue === null) return '';
+      const finish = finishValue <= start ? finishValue + 1440 : finishValue;
+      return finish > nowMinutes ? 'Future clock times are not permitted. Adjust the finish time before submitting.' : '';
+    }
+    if (!EVENT_ACTIONS.includes(payload.action)) return '';
+    const eventMinutes = timeToMinutes(payload.time);
+    if (eventMinutes === null) return 'Enter a valid clock time in 24-hour format.';
+    return eventMinutes > nowMinutes ? 'Future clock times are not permitted. Adjust the time before submitting.' : '';
   }
 
   function payloadHours(payload) {
@@ -548,12 +576,18 @@
       showStatus(card, 'error', fullDayError);
       return;
     }
+    const clockTimeError = validateClockTime(payload);
+    if (clockTimeError) {
+      showStatus(card, 'error', clockTimeError);
+      return;
+    }
     card.dataset.submitting = 'true';
     const submitButton = card.querySelector('[data-clock-submit]');
     if (submitButton) { submitButton.disabled = true; submitButton.dataset.originalText = submitButton.textContent; submitButton.textContent = 'Submitting…'; }
     let protectedRecord = null;
     let protectedRecordSaved = false;
     let portalSyncIssue = '';
+    let emailForm = null;
     try {
       showStatus(card, 'ok', 'Preparing timesheet files...');
       if (typeof window.ensureXlsxLoaded !== 'function') throw new Error('Excel generator is not available.');
@@ -572,8 +606,8 @@
         window.GMTPortalApi, window.GMTPayPeriods, payMonthKeyForDate(payload.date), payload.employeeEmail,
         [{ date: payload.date, start: files.row.Start, finish: files.row.Finish, absenceStatus: files.row['Absence reason'] }]
       );
-      const form = createEmailForm(payload, files, coverage);
-      await submitMultipartForm(form, endpoint);
+      emailForm = createEmailForm(payload, files, coverage);
+      await submitMultipartForm(emailForm, endpoint);
       if (protectedRecord && protectedRecordSaved) {
         try {
           await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Submitted', issue: '', updatedAt: new Date().toISOString() });
@@ -581,7 +615,6 @@
           portalSyncIssue = portalError && portalError.message ? portalError.message : 'Portal history sync is pending.';
         }
       }
-      form.remove();
       const savedMessage = `${payload.actionLabel} saved for ${payload.date}${payload.time && payload.action !== 'full_day' && payload.action !== 'absent' ? ` at ${payload.time}` : ''}.`;
       showStatus(card, portalSyncIssue ? 'warning' : 'ok', portalSyncIssue ? `${savedMessage} Portal history will sync when access is restored.` : savedMessage);
       card.elements.clock_date.value = localDate();
@@ -597,6 +630,7 @@
       }
       showStatus(card, 'error', error && error.message ? error.message : 'Clock submission could not be sent.');
     } finally {
+      if (emailForm) emailForm.remove();
       card.dataset.submitting = 'false';
       if (submitButton) { submitButton.disabled = false; submitButton.textContent = submitButton.dataset.originalText || 'Submit clock in'; delete submitButton.dataset.originalText; }
     }
