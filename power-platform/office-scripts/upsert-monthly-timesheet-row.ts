@@ -524,6 +524,7 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
     // one side is merely an enrichment; retain distinct, conflicting versions.
     const dayMatches = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
       text(row[0]).trim().toLowerCase() === text(values[0]).trim().toLowerCase() &&
+      text(row[5]).trim().toLowerCase() === text(values[5]).trim().toLowerCase() &&
       normalizedCell(row[2], 2) === normalizedCell(values[2], 2) &&
       normalizedCell(row[4], 4) === normalizedCell(values[4], 4)
     );

@@ -12,6 +12,7 @@ import {
 const historyFrame = fs.readFileSync(new URL('../portal/history-frame.js', import.meta.url), 'utf8');
 const historyPage = fs.readFileSync(new URL('../portal/timesheets.html', import.meta.url), 'utf8');
 const worker = fs.readFileSync(new URL('../cloudflare-worker/src/index.js', import.meta.url), 'utf8');
+const calendarActions = fs.readFileSync(new URL('../portal/calendar-actions.js', import.meta.url), 'utf8');
 const contract = JSON.parse(fs.readFileSync(new URL('../power-platform/portal-timesheet-history-contract.json', import.meta.url), 'utf8'));
 
 const timeZone = 'Europe/London';
@@ -29,6 +30,11 @@ const currentPeriod = payPeriods.periodForMonth(currentPayMonth);
 const previousPeriod = payPeriods.periodForMonth(previousPayMonth);
 const olderPeriod = payPeriods.periodForMonth(olderPayMonth);
 assert.ok(currentPeriod && previousPeriod && olderPeriod, 'pay-period helper should resolve current, previous, and older cycles');
+
+const knownPeriod = payPeriods.periodForDate('2026-08-24');
+assert.equal(knownPeriod.cycleEnd, '2026-09-20', 'the cycle includes Sunday 20 September');
+assert.equal(knownPeriod.payrollFriday, '2026-09-18', 'the payroll processing date is the preceding Friday');
+assert.notEqual(knownPeriod.cycleEnd, knownPeriod.payrollFriday, 'cycle end and payroll Friday remain distinct dates');
 
 const currentRecord = {
   record_id: 'timesheet-current-pay-month',
@@ -106,6 +112,9 @@ assert.match(worker, /isCurrentPayMonthRecord/);
 assert.match(worker, /Only the current and previous pay months may be edited\./);
 assert.match(worker, /import payPeriods from ['"]\.\.\/\.\.\/pay-periods\.js['"]/);
 assert.match(worker, /function defaultPayPeriods\(\)\s*\{\s*return payPeriods;\s*\}/);
+assert.match(calendarActions, /Cycle start:/);
+assert.match(calendarActions, /Cycle end:/);
+assert.match(calendarActions, /Payroll Friday:/);
 assert.doesNotMatch(worker, /globalThis\.GMTPayPeriods/);
 assert.equal(contract.editing.window, 'current-pay-month');
 assert.equal(contract.visibility.timesheetHistory, 'all authorised timesheets remain viewable');

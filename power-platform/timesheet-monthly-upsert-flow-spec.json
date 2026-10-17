@@ -30,7 +30,7 @@
   ],
   "routing": {
     "authority": "The Date field of every daily row; weekStart, weekEnd, subject and receive date are not payroll dates",
-    "periodPolicy": "Use pay-periods.js: four-week cycles anchored 2026-08-24, labelled by the Friday in week four. The displayed 2026-09 payroll Friday is 2026-09-18; the immediately following weekend remains in that cycle until payroll policy says otherwise.",
+    "periodPolicy": "Use pay-periods.js: the four-week cycle anchored 2026-08-24 runs through 2026-09-20. Payroll is processed on Friday 2026-09-18. The cycle-end date and payroll Friday are separate dates; daily row dates determine the pay month.",
     "mixedPayMonths": "Partition a legacy attachment into one per-pay-month row array. Never rewrite its Date values to fit the named week. Replacement snapshots must belong to exactly one declared pay month.",
     "folder": "/Timesheets/{payYear}/{payMonthNumber}/{employeeName}",
     "workbook": "GMT Timesheet - {employeeName} - Pay Month {payMonth}.xlsx",

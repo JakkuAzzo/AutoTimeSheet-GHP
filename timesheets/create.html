@@ -26,7 +26,7 @@
 <div class="form-grid">
 <label>Your full name <span aria-hidden="true">*</span><input id="employee-name" type="text" autocomplete="name" required placeholder="e.g. Nathan Brown-Bennett"></label>
 <label>Your GMT email <span aria-hidden="true">*</span><input id="employee-email" type="email" autocomplete="email" required aria-describedby="employee-email-help"><small id="employee-email-help" class="small-text">Filled from your signed-in GMT account. Check it before submitting.</small></label>
-<div class="timesheet-period-summary" role="status" aria-live="polite"><p class="portal-card-kicker">Current pay month</p><strong id="timesheet-pay-month-display">Loading…</strong><span id="timesheet-period-display">The current submission period will be generated automatically.</span></div>
+<div class="timesheet-period-summary" role="status" aria-live="polite"><p class="portal-card-kicker">Pay month for entered dates</p><strong id="timesheet-pay-month-display">Loading…</strong><span id="timesheet-period-display">Cycle dates and payroll Friday are assigned from the dates you enter.</span></div>
 <div class="timesheet-period-legacy" aria-hidden="true"><label>Week starting<input id="week-start" type="date" tabindex="-1"></label><label>Week ending<input id="week-end" type="date" tabindex="-1"></label></div>
 </div>
 <div class="generate-bar"><button type="button" id="generate-days-btn">Generate weekday cards</button><label class="toggle-control"><input id="include-weekends" type="checkbox"> Include Saturday and Sunday</label></div>
@@ -58,10 +58,10 @@
 </main>
 <div id="form-toast" class="portal-toast" role="status" aria-live="polite" hidden><div class="portal-toast-content"><strong id="form-toast-message"></strong><a id="form-toast-dashboard" class="portal-toast-dashboard" href="../portal/" hidden>Back to dashboard</a><button type="button" id="form-toast-dismiss" class="portal-toast-dismiss" aria-label="Dismiss notification">×</button></div></div>
 <script src="../portal-api.js?v=pay-month-start-20261016"></script>
-<script src="../pay-periods.js?v=pay-month-start-20261016"></script>
+<script src="../pay-periods.js?v=weekly-timesheet-cycle-labels-20261017"></script>
 <script src="../timesheet-coverage.js?v=pay-month-start-20261016"></script>
 <script src="../timesheet-row-policy.js?v=future-work-weekends-20260927"></script>
 <script src="../timesheet-clock-transport.js?v=gmt-clock-native-transport-20260922"></script>
-<script src="../script.js?v=pay-month-start-20261016"></script>
+<script src="../script.js?v=weekly-timesheet-cycle-labels-20261017"></script>
 </body>
 </html>

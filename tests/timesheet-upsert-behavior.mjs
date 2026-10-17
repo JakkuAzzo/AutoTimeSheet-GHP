@@ -53,6 +53,8 @@ const record = (employeeName, recordId, action, workedHours) => ({ employeeName,
 assert.equal(submit(simon, record('Simon', 's-week', 'submission', 40)).created, 1);
 assert.equal(submit(jason, record('Jason', 'j-in', 'clock-in', 0)).created, 1);
 assert.equal(submit(jason, record('Jason', 'j-out', 'clock-out', 8)).created, 1);
+assert.equal(submit(jason, record('Jason', 'j-in', 'clock-in', 0)).unchanged, 1, 'exact clock-in retry is idempotent');
+assert.equal(submit(jason, record('Jason', 'j-out', 'clock-out', 8)).unchanged, 1, 'exact clock-out retry is idempotent');
 assert.equal(submit(simon, record('Simon', 's-in', 'clock-in', 0)).created, 1);
 assert.equal(submit(simon, record('Simon', 's-out', 'clock-out', 8)).created, 1);
 assert.equal(submit(jason, record('Jason', 'j-week', 'submission', 40)).created, 1);
