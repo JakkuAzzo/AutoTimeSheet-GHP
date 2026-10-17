@@ -30,43 +30,100 @@
 <main class="app-main" hidden>
   <section class="card training-intro" data-scroll-reveal>
     <h2>Choose the task you need</h2>
-    <p>Each video uses sample data, shows the cursor and highlights the next control. Nothing shown in a video is sent to accounts.</p>
+    <p>These silent videos use training examples, show the cursor and highlight each control. Their on-screen prompts are part of the recording; open a text transcript below for a screen-reader-friendly version. Nothing shown in a video is sent to accounts.</p>
+    <p class="small-text">All seven workflows are for signed-in staff. Administrator-only user management remains on the dashboard.</p>
   </section>
   <section class="training-video-grid" data-scroll-reveal aria-label="Staff portal training videos">
-    <article class="training-video-card">
+    <article class="training-video-card" data-training-key="portal-profile" data-training-audience="all-staff">
       <h2>Using your portal profile</h2>
-      <p>Sign in with your GMT account and confirm the details reused by portal forms.</p>
-      <video controls preload="metadata" poster="media/portal-profile.png"><source src="media/gmt-training-portal-profile.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <p>Review your GMT sign-in identity, display name and optional email for copies.</p>
+      <video controls preload="metadata" poster="media/portal-profile.png" aria-describedby="transcript-portal-profile"><source src="media/gmt-training-portal-profile.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <details class="training-transcript" id="transcript-portal-profile"><summary>Read the transcript</summary><ol>
+        <li>Sign in with the GMT Microsoft 365 account issued to you. The portal opens after Microsoft verifies the account.</li>
+        <li>Confirm your full name. The staff portal reuses it in forms.</li>
+        <li>Check your GMT login email. Microsoft supplies this identity; it is read-only here.</li>
+        <li>Add an optional personal email for submission copies. It is saved to your GMT app profile and follows your sign-in on other devices. It does not change mailbox forwarding.</li>
+        <li>Choose Save account settings when you want to save your changes.</li>
+      </ol></details>
     </article>
-    <article class="training-video-card">
+    <article class="training-video-card" data-training-key="clock-record" data-training-audience="all-staff">
       <h2>Clock, lunch, absence and whole day</h2>
-      <p>Choose a record, check the date and time, add a note, or record an absence or full day.</p>
-      <video controls preload="metadata" poster="media/clock-record.png"><source src="media/gmt-training-clock-record.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <p>Use the Dashboard clock card for one event, an absence or a complete day.</p>
+      <video controls preload="metadata" poster="media/clock-record.png" aria-describedby="transcript-clock-record"><source src="media/gmt-training-clock-record.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <details class="training-transcript" id="transcript-clock-record"><summary>Read the transcript</summary><ol>
+        <li>Clock in, lunch events and clock out are on the Dashboard. This example does not submit anything.</li>
+        <li>Confirm your name. Your portal profile normally fills it in.</li>
+        <li>Choose the event you are recording: Clock in, Lunch start, Lunch end, Clock out, Absent, or + for a complete day.</li>
+        <li>Check the date and time. They are set automatically and can be changed when needed.</li>
+        <li>For an absence, choose Absent and select the reason. An absence does not need a time.</li>
+        <li>For a complete day, use + and enter Start, Lunch start, Lunch end and Finish. Add a note only when it gives Accounts useful context.</li>
+        <li>Review the details before submitting a live record. The training example leaves the submit button untouched.</li>
+      </ol></details>
     </article>
-    <article class="training-video-card">
+    <article class="training-video-card" data-training-key="weekly-timesheet" data-training-audience="all-staff">
       <h2>Weekly timesheet</h2>
-      <p>Set the week, create daily cards, complete the actual times and review the calculated totals.</p>
-      <video controls preload="metadata" poster="media/weekly-timesheet.png"><source src="media/gmt-training-weekly-timesheet.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <p>Generate weekday cards, enter actual times and review the calculated totals.</p>
+      <video controls preload="metadata" poster="media/weekly-timesheet.png" aria-describedby="transcript-weekly-timesheet"><source src="media/gmt-training-weekly-timesheet.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <details class="training-transcript" id="transcript-weekly-timesheet"><summary>Read the transcript</summary><ol>
+        <li>Your GMT sign-in supplies your name and email. The current pay-month period is shown automatically.</li>
+        <li>Generate weekday cards for the dates shown. Include weekends only when you worked them or need to record an absence.</li>
+        <li>Check each date and enter the actual Start, Finish and Break. Any values shown in this training example are samples; use your actual times.</li>
+        <li>Choose an absence reason before entering time for a Sick or Holiday day.</li>
+        <li>Review each daily result and the calculated totals. Use Analyse or upload an existing timesheet to open the separate timesheet checker.</li>
+        <li>Review the completed form before submitting. The training example does not submit a timesheet.</li>
+      </ol></details>
     </article>
-    <article class="training-video-card">
+    <article class="training-video-card" data-training-key="job-card" data-training-audience="all-staff">
       <h2>Job card</h2>
-      <p>Create a clear request with job reference, customer, site, date, work description and optional photo.</p>
-      <video controls preload="metadata" poster="media/job-card.png"><source src="media/gmt-training-job-card.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <p>Choose the EC or MTA format, then enter enough detail for the job to be identified.</p>
+      <video controls preload="metadata" poster="media/job-card.png" aria-describedby="transcript-job-card"><source src="media/gmt-training-job-card.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <details class="training-transcript" id="transcript-job-card"><summary>Read the transcript</summary><ol>
+        <li>Use one clear GMT job reference. The example reference is synthetic and is not a real job.</li>
+        <li>Choose EC or MTA, then enter the client and site details.</li>
+        <li>Add the assigned engineer and planned date when known.</li>
+        <li>Attach an optional photo only when it helps explain the site or work.</li>
+        <li>Describe the request, access notes, parts and risks. Review the live preview before submitting a real card.</li>
+        <li>The training example leaves the Create job card button untouched.</li>
+      </ol></details>
     </article>
-    <article class="training-video-card">
+    <article class="training-video-card" data-training-key="task-request" data-training-audience="all-staff">
       <h2>Task request</h2>
-      <p>Give the task a concise title, responsible person, due date and priority before submitting it for approval.</p>
-      <video controls preload="metadata" poster="media/task-request.png"><source src="media/gmt-training-task-request.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <p>Provide a concise task title, owner, due date and priority for Accounts approval.</p>
+      <video controls preload="metadata" poster="media/task-request.png" aria-describedby="transcript-task-request"><source src="media/gmt-training-task-request.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <details class="training-transcript" id="transcript-task-request"><summary>Read the transcript</summary><ol>
+        <li>Enter a concise title that makes sense without opening the task.</li>
+        <li>Add an optional job reference to connect the request to a job card.</li>
+        <li>Choose the person responsible for completing or managing the work.</li>
+        <li>Set a due date and choose a priority that reflects the work.</li>
+        <li>Review the request. A submitted task stays pending until Accounts approves it.</li>
+        <li>The training example leaves the Submit task request button untouched.</li>
+      </ol></details>
     </article>
-    <article class="training-video-card">
+    <article class="training-video-card" data-training-key="calendar-request" data-training-audience="all-staff">
       <h2>Calendar request</h2>
-      <p>Request work, training or an absence. A licensed accounts user approves it before it reaches Outlook.</p>
-      <video controls preload="metadata" poster="media/calendar-request.png"><source src="media/gmt-training-calendar-request.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <p>Choose a Dashboard calendar date, then request an event or absence for review.</p>
+      <video controls preload="metadata" poster="media/calendar-request.png" aria-describedby="transcript-calendar-request"><source src="media/gmt-training-calendar-request.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <details class="training-transcript" id="transcript-calendar-request"><summary>Read the transcript</summary><ol>
+        <li>Open the Dashboard calendar and choose an upcoming date for the request.</li>
+        <li>Choose Request time off in the day actions. The request form opens with the selected date.</li>
+        <li>Enter a clear title and choose the event type, such as Training, Holiday, Sick Day or General.</li>
+        <li>Add the context Accounts needs to review the request.</li>
+        <li>Review the details. Requests remain pending until Accounts approves them for Outlook publication.</li>
+        <li>The training example leaves the Submit request button untouched.</li>
+      </ol></details>
     </article>
-    <article class="training-video-card">
+    <article class="training-video-card" data-training-key="timesheet-audit" data-training-audience="all-staff">
       <h2>Timesheet audit</h2>
-      <p>Upload supported source files, read the decision first, then review issues and exports only when needed.</p>
-      <video controls preload="metadata" poster="media/timesheet-audit.png"><source src="media/gmt-training-timesheet-audit.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <p>Open the checker from Weekly Timesheet Entry to compare a source file with its calculated results.</p>
+      <video controls preload="metadata" poster="media/timesheet-audit.png" aria-describedby="transcript-timesheet-audit"><source src="media/gmt-training-timesheet-audit.mp4" type="video/mp4">Your browser does not support training videos.</video>
+      <details class="training-transcript" id="transcript-timesheet-audit"><summary>Read the transcript</summary><ol>
+        <li>From Weekly Timesheet Entry, open Analyse or upload an existing timesheet, then choose Open timesheet analysis.</li>
+        <li>Select supported source files: DOCX, DOCM, XLSX, XLS, CSV, TXT, PDF or ZIP. Convert legacy DOC files to DOCX or DOCM before automatic checking.</li>
+        <li>Choose Add selected source(s), then Calculate and check sources.</li>
+        <li>Read the decision first: no action needed, issues to review or parse errors.</li>
+        <li>Review correction cards and detailed rows before downloading or submitting anything. The checker does not silently change a source file.</li>
+        <li>The video uses a one-row synthetic fixture labelled TRAINING ONLY, not payroll history. It does not download an export or submit an audit.</li>
+      </ol></details>
     </article>
   </section>
 </main>
