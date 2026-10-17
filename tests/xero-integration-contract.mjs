@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   decryptXeroSecret,
   encryptXeroSecret,
@@ -14,7 +15,7 @@ import {
   xeroOAuthStateMatches
 } from '../cloudflare-worker/src/index.js';
 
-const root = resolve(new URL('..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const [worker, migration, page, portal, api, readme, invoicesPage, invoicesUi, invoiceMigration, auth, estimatesUi] = await Promise.all([
   readFile(resolve(root, 'cloudflare-worker/src/index.js'), 'utf8'),
   readFile(resolve(root, 'cloudflare-worker/migrations/0002_xero.sql'), 'utf8'),

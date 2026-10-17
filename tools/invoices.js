@@ -102,26 +102,59 @@
     return String(select && select.value || tenantId || "");
   }
 
+  function formatCheckedAt(value) {
+    var date = new Date(value || "");
+    if (!Number.isFinite(date.getTime())) return "time unavailable";
+    return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" }).format(date);
+  }
+
+  function connectionHealthText(connection) {
+    if (connection.identity_status === "mismatch") return "Tenant identity mismatch";
+    if (connection.refresh_health === "reconnect_required") return "Reconnect required";
+    if (connection.refresh_health === "unavailable") return "Verification unavailable";
+    if (connection.refresh_health === "not_configured") return "Not configured";
+    if (connection.refresh_health === "healthy" && connection.identity_status === "verified") return "Verified with Xero";
+    return "Checking Xero connection";
+  }
+
   function renderConnections() {
     var list = connectionList();
-    var reconnectNeeded = list.some(function (item) { return !!item.last_error; });
     if (list.length && !tenantId) tenantId = String(list[0].tenant_id || "");
-    if (chip) chip.textContent = reconnectNeeded ? "Reconnect required" : (list.length ? "Connected" : (xeroBody && xeroBody.configured ? "Not connected" : "Not configured"));
+    var active = list.find(function (item) { return String(item.tenant_id) === selectedTenant(); }) || list[0] || null;
+    var reconnectNeeded = list.some(function (item) {
+      return item.refresh_health === "reconnect_required" || item.identity_status === "mismatch" || (!item.refresh_health && !!item.last_error);
+    });
+    var activeHealth = active ? connectionHealthText(active) : "";
+    if (chip) chip.textContent = !xeroBody || !xeroBody.configured
+      ? "Not configured"
+      : (!list.length ? "Not connected" : (activeHealth === "Verified with Xero" ? "Connected · verified" : activeHealth));
     if (connect) {
       connect.hidden = list.length > 0 && !reconnectNeeded;
       connect.style.display = connect.hidden ? "none" : "";
       connect.textContent = reconnectNeeded ? "Reconnect Xero" : "Connect Xero";
     }
-    if (status) status.textContent = xeroBody && xeroBody.configured
-      ? (reconnectNeeded ? "Xero needs to be reauthorised. Reconnect the Accounts connection to restore invoice access." : (list.length ? "The Accounts Xero connection is ready. Invoices are managed in Xero and linked GMT records are logged here." : "Xero is configured but no organisation is connected yet. Connect once to enable Accounts invoice management."))
-      : "Xero is not configured on the portal service yet.";
+    if (status) {
+      if (!xeroBody || !xeroBody.configured) status.textContent = "Xero is not configured on the portal service yet.";
+      else if (!list.length) status.textContent = "Xero is configured but no organisation is connected yet. Connect once to enable Accounts invoice access.";
+      else if (active && active.identity_status === "verified" && active.refresh_health === "healthy") {
+        status.textContent = "Verified " + (active.tenant_name || "Xero organisation") + " (tenant " + active.tenant_id + ") with Xero at " + formatCheckedAt(active.checked_at) + ".";
+      } else if (active && active.identity_status === "mismatch") {
+        status.textContent = active.health_error || "The active Xero organisation does not match the saved tenant identity. Reconnect Xero to restore the Accounts mapping.";
+      } else if (active && active.refresh_health === "reconnect_required") {
+        status.textContent = active.health_error || active.last_error || "Xero authorisation expired. Reconnect Xero to restore invoice access.";
+      } else if (active && active.refresh_health === "unavailable") {
+        status.textContent = active.health_error || "Xero could not verify the saved connection right now. Retry the check shortly.";
+      } else {
+        status.textContent = "Xero connection health is not available.";
+      }
+    }
     if (!connections) return;
     if (!list.length) { connections.innerHTML = '<p class="portal-history-empty">No Xero organisation is connected.</p>'; return; }
     connections.innerHTML = list.length === 1
-      ? '<p><strong>' + safe(list[0].tenant_name || "Xero organisation") + '</strong><br><span class="small-text">' + safe(list[0].connected_at || "") + (list[0].last_error ? ' · ' + safe(list[0].last_error) : '') + '</span></p>'
-      : '<label>Organisation<select aria-label="Choose Xero organisation">' + list.map(function (item) { return '<option value="' + safe(item.tenant_id) + '"' + (String(item.tenant_id) === tenantId ? ' selected' : '') + '>' + safe(item.tenant_name || item.tenant_id) + '</option>'; }).join("") + '</select></label>';
+      ? '<p><strong>' + safe(list[0].tenant_name || "Xero organisation") + '</strong><br><span class="small-text">Tenant ID: <code>' + safe(list[0].tenant_id) + '</code><br>' + safe(connectionHealthText(list[0])) + ' · checked ' + safe(formatCheckedAt(list[0].checked_at)) + (list[0].health_error ? '<br>' + safe(list[0].health_error) : '') + '</span></p>'
+      : '<label>Organisation<select aria-label="Choose Xero organisation">' + list.map(function (item) { return '<option value="' + safe(item.tenant_id) + '"' + (String(item.tenant_id) === tenantId ? ' selected' : '') + '>' + safe((item.tenant_name || "Xero organisation") + " · " + item.tenant_id + " · " + connectionHealthText(item)) + '</option>'; }).join("") + '</select></label>';
     var select = connections.querySelector("select");
-    if (select) select.addEventListener("change", function () { tenantId = select.value; refreshTenantData(); });
+    if (select) select.addEventListener("change", function () { tenantId = select.value; renderConnections(); refreshTenantData(); });
   }
 
   function filterInvoiceRows(invoices) {

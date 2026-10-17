@@ -3437,30 +3437,88 @@ async function completeXeroConnection(request, env) {
 }
 
 async function xeroConnectionRows(env) {
-  const result = await env.DB.prepare(`SELECT tenant_id, connection_id, tenant_name, tenant_type, scopes,
-    connected_by_upn, connected_at, updated_at, last_error FROM xero_connections ORDER BY tenant_name`).all();
+  const result = await env.DB.prepare('SELECT * FROM xero_connections ORDER BY tenant_name').all();
   return result.results || [];
 }
 
-async function xeroStatus(env, identity, origin) {
+async function xeroStatus(env, identity, origin, fetchImpl = fetch) {
   requireXeroAdmin(identity);
   const settings = xeroSettings(env);
   const connections = await xeroConnectionRows(env);
-  return json({
-    configured: settings.configured,
-    scopes: settings.scopes.split(/\s+/).filter(Boolean),
-    redirect_uri: settings.redirectUri || '',
-    connections: connections.map((connection) => ({
+  const checkedAt = now();
+  const healthConnections = [];
+  for (const connection of connections) {
+    let refreshHealth = 'not_configured';
+    let identityStatus = 'unverified';
+    let tenantName = text(connection.tenant_name, 'Xero organisation', 500);
+    let healthError = '';
+    let lastError = text(connection.last_error, '', 1000);
+
+    if (settings.configured) {
+      try {
+        const token = await refreshXeroAccessToken(env, connection, fetchImpl);
+        lastError = '';
+        const response = await fetchImpl(`${settings.apiUrl}/connections`, { headers: xeroApiHeaders(token.accessToken) });
+        if (!response.ok) {
+          refreshHealth = 'unavailable';
+          healthError = response.status >= 500
+            ? 'Xero tenant verification is temporarily unavailable.'
+            : 'Xero could not verify the saved organisation. Retry the check or reconnect if the problem continues.';
+        } else {
+          let liveConnections = null;
+          try { liveConnections = await response.json(); } catch (_) {}
+          if (!Array.isArray(liveConnections)) {
+            refreshHealth = 'unavailable';
+            healthError = 'Xero returned an invalid tenant verification response.';
+          } else {
+            refreshHealth = 'healthy';
+            const matched = liveConnections.find((item) =>
+              text(item?.tenantId, '', 160) === connection.tenant_id &&
+              text(item?.id || item?.connectionId, '', 160) === connection.connection_id
+            );
+            if (matched) {
+              identityStatus = 'verified';
+              tenantName = text(matched.tenantName, tenantName, 500);
+            } else {
+              identityStatus = 'mismatch';
+              healthError = 'The active Xero connection does not match the saved tenant identity. Reconnect Xero to restore the Accounts mapping.';
+            }
+          }
+        }
+      } catch (error) {
+        const reconnectRequired = error?.code === 'XERO_REAUTH_REQUIRED';
+        refreshHealth = reconnectRequired ? 'reconnect_required' : 'unavailable';
+        healthError = text(error?.publicMessage, reconnectRequired
+          ? 'Xero authorisation expired. Reconnect Xero to restore invoice access.'
+          : 'Xero could not verify its authorisation right now.', 500);
+        if (reconnectRequired) lastError = healthError;
+      }
+    } else {
+      healthError = 'Xero is not fully configured on the portal service.';
+    }
+
+    healthConnections.push({
       tenant_id: connection.tenant_id,
       connection_id: connection.connection_id,
-      tenant_name: connection.tenant_name,
+      tenant_name: tenantName,
       tenant_type: connection.tenant_type,
       scopes: String(connection.scopes || '').split(/\s+/).filter(Boolean),
       connected_by_upn: connection.connected_by_upn,
       connected_at: connection.connected_at,
       updated_at: connection.updated_at,
-      last_error: connection.last_error || ''
-    }))
+      last_error: lastError,
+      refresh_health: refreshHealth,
+      identity_status: identityStatus,
+      checked_at: checkedAt,
+      health_error: healthError
+    });
+  }
+  return json({
+    configured: settings.configured,
+    scopes: settings.scopes.split(/\s+/).filter(Boolean),
+    redirect_uri: settings.redirectUri || '',
+    checked_at: checkedAt,
+    connections: healthConnections
   }, 200, origin || '');
 }
 
@@ -3482,6 +3540,7 @@ async function refreshXeroAccessToken(env, connection, fetchImpl = fetch) {
     const invalidGrant = String(body?.error || '').toLowerCase() === 'invalid_grant' || /consum|invalid.grant|refresh token/i.test(String(body?.error_description || body?.message || ''));
     throw Object.assign(new Error(message), {
       status: 503,
+      code: invalidGrant ? 'XERO_REAUTH_REQUIRED' : 'XERO_REFRESH_FAILED',
       publicMessage: invalidGrant
         ? 'Xero authorisation expired or its refresh token was already used. Reconnect Xero to restore invoice access.'
         : 'Xero could not refresh its authorisation. Retry shortly or reconnect Xero to restore invoice access.'
