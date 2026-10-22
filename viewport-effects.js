@@ -139,6 +139,128 @@
     }, true);
   }
 
+  function initPublicNextSectionControl() {
+    if (!document.querySelector('.site-nav-bar')) return;
+
+    var main = document.querySelector('main');
+    if (!main) return;
+
+    var sections = Array.prototype.slice.call(main.querySelectorAll('[data-scroll-snap]')).filter(function (section) {
+      return !section.parentElement || !section.parentElement.closest('[data-scroll-snap]');
+    });
+    if (sections.length < 2) return;
+
+    var control = document.createElement('button');
+    control.type = 'button';
+    control.className = 'public-next-section-control';
+    control.dataset.nextSectionControl = '';
+    control.hidden = true;
+
+    var text = document.createElement('span');
+    var arrow = document.createElement('span');
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '↓';
+    control.appendChild(text);
+    control.appendChild(arrow);
+    document.body.appendChild(control);
+
+    function sectionLabel(section) {
+      var explicitLabel = section.getAttribute('data-section-navigation-label');
+      if (explicitLabel && explicitLabel.trim()) return explicitLabel.trim();
+
+      var labelledBy = section.getAttribute('aria-labelledby');
+      if (labelledBy) {
+        var labelNode = document.getElementById(labelledBy.trim().split(/\s+/)[0]);
+        if (labelNode && labelNode.textContent.trim()) return labelNode.textContent.replace(/\s+/g, ' ').trim();
+      }
+
+      var heading = section.querySelector('h1, h2, h3');
+      if (heading && heading.textContent.trim()) {
+        return heading.textContent.replace(/\s+/g, ' ').trim().replace(/^\d+[.)]\s*/, '');
+      }
+
+      return (section.getAttribute('aria-label') || 'Next section').replace(/\s+/g, ' ').trim();
+    }
+
+    function currentSectionIndex() {
+      var midpoint = window.innerHeight / 2;
+      var closestIndex = 0;
+      var closestDistance = Infinity;
+
+      for (var index = 0; index < sections.length; index += 1) {
+        var rect = sections[index].getBoundingClientRect();
+        if (rect.top <= midpoint && rect.bottom >= midpoint) return index;
+
+        var distance = midpoint < rect.top ? rect.top - midpoint : midpoint - rect.bottom;
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestIndex = index;
+        }
+      }
+
+      return closestIndex;
+    }
+
+    var currentNavigationSection = null;
+    function clearNavigationClearance(section) {
+      if (!section) return;
+      section.classList.remove('public-next-section-current');
+      section.style.removeProperty('--public-next-section-original-padding');
+      section.style.removeProperty('--public-next-section-clearance');
+    }
+
+    function update() {
+      var activeSectionIndex = currentSectionIndex();
+      var activeSection = sections[activeSectionIndex];
+      if (currentNavigationSection && currentNavigationSection !== activeSection) clearNavigationClearance(currentNavigationSection);
+      currentNavigationSection = activeSection;
+
+      var nextSection = sections[activeSectionIndex + 1];
+      if (!nextSection) {
+        control.hidden = true;
+        clearNavigationClearance(activeSection);
+        return;
+      }
+
+      var label = 'Next Section: ' + sectionLabel(nextSection);
+      control.setAttribute('aria-label', label);
+      text.textContent = label;
+      control.hidden = false;
+
+      if (!activeSection.classList.contains('public-next-section-current')) {
+        activeSection.style.setProperty('--public-next-section-original-padding', window.getComputedStyle(activeSection).paddingBlockEnd);
+      }
+      activeSection.classList.add('public-next-section-current');
+      var controlRect = control.getBoundingClientRect();
+      var sectionRect = activeSection.getBoundingClientRect();
+      var sectionBelowViewport = Math.max(0, sectionRect.bottom - window.innerHeight);
+      var clearance = Math.ceil(controlRect.height + Math.max(0, window.innerHeight - controlRect.bottom) + 12 + sectionBelowViewport);
+      activeSection.style.setProperty('--public-next-section-clearance', clearance + 'px');
+    }
+
+    var updateQueued = false;
+    function scheduleUpdate() {
+      if (updateQueued) return;
+      updateQueued = true;
+      window.requestAnimationFrame(function () {
+        updateQueued = false;
+        update();
+      });
+    }
+
+    control.addEventListener('click', function () {
+      var nextSection = sections[currentSectionIndex() + 1];
+      if (!nextSection) return;
+      document.documentElement.setAttribute('data-public-scroll-snap-ready', 'true');
+      if (!nextSection.hasAttribute('tabindex')) nextSection.setAttribute('tabindex', '-1');
+      nextSection.focus({ preventScroll: true });
+      nextSection.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    });
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate, { passive: true });
+    update();
+  }
+
   function initPortalSnapActivation() {
     if (!document.documentElement.classList.contains('portal-dashboard-document')) return;
 
@@ -220,6 +342,7 @@
   syncNavOffset();
   syncPortalTabsOffset();
   initPublicSnapActivation();
+  initPublicNextSectionControl();
   initPortalSnapActivation();
   window.GMTViewportEffects = { init: init };
   init(document);
