@@ -22,6 +22,15 @@ const server = createServer((request, response) => {
   response.end(readFileSync(filePath));
 });
 
+async function waitForNavigation(page, nextName) {
+  const expectedLabel = `Next Section: ${nextName}`;
+  await page.getByRole('button', { name: expectedLabel }).waitFor({ state: 'visible', timeout: 4000 });
+  await page.waitForFunction((label) => {
+    const control = document.querySelector('[data-next-section-control]');
+    return control && !control.disabled && control.getAttribute('aria-label') === label;
+  }, expectedLabel, { timeout: 4000 });
+}
+
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
@@ -63,12 +72,26 @@ try {
         'Get in touch'
       ];
       for (const nextName of expectedNextSections) {
-        await page.getByRole('button', { name: /^Next Section:/i }).click();
-        const nextControl = page.getByRole('button', { name: `Next Section: ${nextName}` });
-        await nextControl.waitFor({ state: 'visible', timeout: 4000 });
+        const navigationControl = page.getByRole('button', { name: /^Next Section:/i });
+        await navigationControl.click();
+        assert.equal(await navigationControl.isDisabled(), true, `${viewport.width}px: prevent a second section jump while smooth scrolling is in progress`);
+        await waitForNavigation(page, nextName);
       }
 
-      await page.getByRole('button', { name: /^Next Section:/i }).click();
+      const finalNavigationControl = page.getByRole('button', { name: /^Next Section:/i });
+      await finalNavigationControl.click();
+      assert.equal(await finalNavigationControl.isDisabled(), true, `${viewport.width}px: keep the final navigation locked while scrolling to the last section`);
+      await page.waitForFunction(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1, { timeout: 4000 });
+      const terminalState = await page.evaluate(() => {
+        const sections = Array.from(document.querySelectorAll('main [data-scroll-snap]')).filter((section) => !section.parentElement?.closest('[data-scroll-snap]'));
+        const lastSectionRect = sections.at(-1).getBoundingClientRect();
+        return {
+          atDocumentEnd: window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1,
+          lastSectionVisible: lastSectionRect.top < window.innerHeight && lastSectionRect.bottom > 0
+        };
+      });
+      assert.equal(terminalState.atDocumentEnd, true, `${viewport.width}px: final navigation reaches the end of the document`);
+      assert.equal(terminalState.lastSectionVisible, true, `${viewport.width}px: the final section is visible at the document end`);
       await page.getByRole('button', { name: /^Next Section:/i }).waitFor({ state: 'hidden', timeout: 4000 });
       assert.equal(await page.locator('#about-tab').getAttribute('aria-selected'), 'true', `${viewport.width}px: the story carousel remains on its first tab when treated as one page section`);
     } finally {
@@ -82,9 +105,9 @@ try {
   try {
     await processPage.goto(`${origin}/process/electric-motor-repair/`, { waitUntil: 'domcontentloaded' });
     await processPage.getByRole('button', { name: 'Next Section: Prepare your enquiry' }).click();
-    await processPage.getByRole('button', { name: 'Next Section: Related services and guidance' }).waitFor({ state: 'visible', timeout: 4000 });
+    await waitForNavigation(processPage, 'Related services and guidance');
     await processPage.getByRole('button', { name: /^Next Section:/i }).click();
-    await processPage.getByRole('button', { name: 'Next Section: Get advice from the workshop' }).waitFor({ state: 'visible', timeout: 4000 });
+    await waitForNavigation(processPage, 'Get advice from the workshop');
     await processPage.getByRole('button', { name: /^Next Section:/i }).click();
     await processPage.getByRole('button', { name: /^Next Section:/i }).waitFor({ state: 'hidden', timeout: 4000 });
   } finally {
@@ -99,7 +122,7 @@ try {
     const nextSectionControl = reducedMotionPage.getByRole('button', { name: 'Next section: Why GMT' });
     await nextSectionControl.focus();
     await nextSectionControl.press('Enter');
-    await reducedMotionPage.getByRole('button', { name: 'Next section: What customers say' }).waitFor({ state: 'visible', timeout: 4000 });
+    await waitForNavigation(reducedMotionPage, 'What customers say');
     const focusMovedIntoDestination = await reducedMotionPage.evaluate(() => {
       const sections = Array.from(document.querySelectorAll('main [data-scroll-snap]')).filter((section) => !section.parentElement?.closest('[data-scroll-snap]'));
       return sections[1].contains(document.activeElement);
@@ -116,7 +139,7 @@ try {
     await clearancePage.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
     for (const nextName of ['What customers say', 'Repair services for essential equipment', 'Our story and how to reach out', 'A look at GMT’s engineering work']) {
       await clearancePage.getByRole('button', { name: /^Next Section:/i }).click();
-      await clearancePage.getByRole('button', { name: `Next Section: ${nextName}` }).waitFor({ state: 'visible', timeout: 4000 });
+      await waitForNavigation(clearancePage, nextName);
     }
 
     const storySection = clearancePage.locator('.content-carousel-wide');
