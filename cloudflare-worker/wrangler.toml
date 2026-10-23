@@ -26,6 +26,8 @@ ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,htt
 ADDITIONAL_ADMIN_UPNS = "accounts@gmt-services.co.uk"
 HR_ADMIN_UPNS = "micheller.admin@gmt-services.co.uk,lidiaa.admin@gmt-services.co.uk"
 XERO_ADMIN_UPNS = "micheller.admin@gmt-services.co.uk,lidiaa.admin@gmt-services.co.uk"
+# Off-site approvals are limited to the managers approved for this workflow.
+OFFSITE_DUTY_MANAGER_UPNS = "micheller.admin@gmt-services.co.uk,lidiaa.admin@gmt-services.co.uk,amanda.bb@gmtelectservsltd.onmicrosoft.com,faith.b@gmt-services.co.uk,accounts@gmt-services.co.uk,acc.gmtelect@outlook.com,acc.gmtelect@gmt-services.co.uk"
 HISTORY_UPSTREAM_URL = "https://default8b182d6b6f344ca284ad50ca712b54.88.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/491610e0763f41269a645bde6346369d/triggers/manual/paths/invoke?api-version=1"
 # Protected history uses this approved portal roster to distinguish
 # a missing submission from an employee who has never submitted a record.

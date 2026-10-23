@@ -130,6 +130,26 @@
     });
   }
 
+  function offsiteClockMine() {
+    return request('/api/offsite-clock/mine', { method: 'GET' });
+  }
+
+  function offsiteClockPending() {
+    return request('/api/offsite-clock/pending', { method: 'GET' });
+  }
+
+  function offsiteClockIn(body) {
+    return request('/api/offsite-clock/clock-in', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteClockOut(body) {
+    return request('/api/offsite-clock/clock-out', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteClockDecision(entryId, body) {
+    return request('/api/offsite-clock/' + encodeURIComponent(String(entryId || '')) + '/decision', { method: 'POST', body: body || {} });
+  }
+
   function estimateIndexList() {
     return request("/api/estimates/index?limit=500", { method: "GET" });
   }
@@ -498,6 +518,11 @@
     getRecord: getRecord,
     deleteRecord: deleteRecord,
     history: history,
+    offsiteClockMine: offsiteClockMine,
+    offsiteClockPending: offsiteClockPending,
+    offsiteClockIn: offsiteClockIn,
+    offsiteClockOut: offsiteClockOut,
+    offsiteClockDecision: offsiteClockDecision,
     estimateIndexList: estimateIndexList,
     searchEstimateArchive: searchEstimateArchive,
     jobCardArchiveSearch: jobCardArchiveSearch,
