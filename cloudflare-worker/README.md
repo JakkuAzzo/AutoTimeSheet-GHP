@@ -248,10 +248,10 @@ configured `SHAREPOINT_GRAPH_CLIENT_SECRET`, site, and drive settings.
 `GET /api/xero/status` refreshes each distinct saved token once and verifies
 the saved tenant ID and connection ID against Xero `GET /connections`. Tenant
 rows that shared a token receive its rotation together. Migration
-`0017_xero_refresh_locks.sql` adds a short-lived D1 lock so concurrent Worker
+`0016_xero_refresh_locks.sql` adds a short-lived D1 lock so concurrent Worker
 requests cannot consume the same rotating token at once. It follows the
-off-site attendance, Job Cards, shared-calendar requests and task-workflow
-migrations 0013 through 0016. Each connection
+off-site attendance, Job Cards and calendar workflow migrations 0013 through
+0015. Each connection
 reports `refresh_health` (`healthy`, `reconnect_required`,
 `unavailable`, or `not_configured`), `identity_status` (`verified`, `mismatch`,
 or `unverified`), and `checked_at`; transient Xero failures remain distinct
