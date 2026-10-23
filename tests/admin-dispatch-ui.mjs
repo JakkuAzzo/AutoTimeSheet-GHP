@@ -31,7 +31,7 @@ try {
           { record_id: 'waiting', kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk', record_date: '2026-09-07', payload: { rows: [{ date: '2026-09-07', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'queued', attempts: 0, queued_at: '2026-09-28T10:00:00Z', error: '' } },
           { record_id: 'failed', kind: 'timesheets', employee_name: 'Simon', employee_upn: 'simon@gmt-services.co.uk', record_date: '2026-09-08', payload: { rows: [{ date: '2026-09-08', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'failed', attempts: 2, queued_at: '2026-09-28T09:00:00Z', error: 'Workbook route not certified' } },
           { record_id: 'sent', kind: 'timesheets', employee_name: 'Ainsley', employee_upn: 'ainsley@gmt-services.co.uk', record_date: '2026-09-09', payload: { rows: [{ date: '2026-09-09', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'sent', attempts: 1, sent_at: '2026-09-28T08:00:00Z', error: '' } }
-        ], meta: { is_admin: window.testAdmin, editable_pay_months: ['2026-09', '2026-10'] } };
+        ], meta: { is_admin: window.testAdmin, editable_pay_months: window.GMTPayPeriods.editablePayMonthKeys((function () { var parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); var part = function (type) { return parts.find(function (entry) { return entry.type === type; }).value; }; return part('year') + '-' + part('month') + '-' + part('day'); })()) } };
       },
       correctionQueueStatus: async () => {
         window.statusCalls += 1;
@@ -78,7 +78,17 @@ try {
   assert.equal(await page.locator('#submissions-delivery-trigger').isVisible(), true);
   assert.match(await page.locator('#submissions-delivery-trigger').innerText(), /1 queued.*1 failed/i);
   assert.equal(await page.locator('#submissions-pay-month option[value="2026-09"]').innerText(), 'September 2026');
-  assert.equal(await page.locator('#submissions-pay-month option[value="2026-10"]').innerText(), 'Current - October 2026');
+  const monthLabels = await page.locator('#submissions-pay-month option').evaluateAll(options => options.map(option => ({ key: option.value, label: option.textContent })));
+  const currentKey = await page.evaluate(() => {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const part = type => parts.find(entry => entry.type === type).value;
+    return window.GMTPayPeriods.payMonthKeyForDate(`${part('year')}-${part('month')}-${part('day')}`);
+  });
+  const currentLabel = monthLabels.find(option => option.key === currentKey);
+  assert.ok(currentLabel && currentLabel.label.startsWith('Current - '), 'the actual active pay month is marked current');
+  const previousKey = await page.evaluate(key => window.GMTPayPeriods.previousPayMonthKey(key), currentKey);
+  const previousLabel = monthLabels.find(option => option.key === previousKey);
+  assert.ok(previousLabel && !previousLabel.label.startsWith('Current - '), 'the previous pay month is not marked current');
   await page.locator('#submissions-delivery-trigger').click();
   await page.waitForFunction(() => window.statusCalls === 1);
   assert.equal(await page.locator('#submissions-delivery-dialog').isVisible(), true);
