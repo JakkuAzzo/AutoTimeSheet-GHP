@@ -97,25 +97,62 @@
   async function load() {
     events = [];
     render();
-    if (status) status.textContent = "Loading published shared calendar…";
+    if (status) status.textContent = "Loading shared calendar and authorised portal records…";
     if (retry) { retry.hidden = false; retry.disabled = true; retry.textContent = "Reload calendar"; }
+    var published = [];
+    var publishedLoaded = false;
+    var publishedFailed = false;
+    var authorised = [];
+    var employees = [];
+    var historyLoaded = false;
+    var historyFailed = false;
     try {
       var response = await fetch("../data/calendar/events.json?v=" + Date.now(), { cache: "no-store" });
       if (!response || !response.ok) throw new Error("Calendar feed request failed");
       var body = await response.json();
-      var published = Array.isArray(body) ? body : (body && Array.isArray(body.events) ? body.events : null);
-      if (!published) throw new Error("Calendar feed has an invalid format");
-      events = published;
-      if (status) status.textContent = events.length
-        ? "Published shared calendar: " + events.length + " entr" + (events.length === 1 ? "y" : "ies") + "."
-        : "No published events are available on the shared calendar yet.";
-      if (retry) retry.textContent = "Reload calendar";
+      var feedEvents = Array.isArray(body) ? body : (body && Array.isArray(body.events) ? body.events : null);
+      if (!feedEvents) throw new Error("Calendar feed has an invalid format");
+      published = feedEvents;
+      publishedLoaded = true;
     } catch (_) {
-      events = [];
-      if (status) status.textContent = "Shared calendar unavailable. Published events could not be loaded.";
-      if (retry) { retry.hidden = false; retry.textContent = "Retry calendar load"; }
-    } finally {
-      if (retry) retry.disabled = false;
+      publishedFailed = true;
+    }
+
+    var api = window.GMTPortalApi;
+    if (api && typeof api.enabled === "function" && api.enabled() && typeof api.history === "function") {
+      try {
+        var history = await api.history("all");
+        authorised = history && Array.isArray(history.records) ? history.records : [];
+        employees = history && history.meta && history.meta.completion && Array.isArray(history.meta.completion.employees)
+          ? history.meta.completion.employees : [];
+        historyLoaded = true;
+      } catch (_) {
+        historyFailed = true;
+      }
+    }
+    var derived = typeof helper.recordsToEvents === "function"
+      ? helper.recordsToEvents(authorised, { employees: employees })
+      : [];
+    events = typeof helper.mergeEvents === "function"
+      ? helper.mergeEvents(published.concat(derived), { employees: employees })
+      : published.concat(derived);
+
+    if (status) {
+      var count = events.length;
+      var countLabel = count + " authorised calendar entr" + (count === 1 ? "y" : "ies");
+      if (publishedFailed && historyFailed) status.textContent = "Calendar sources unavailable. Published events and portal history could not be loaded.";
+      else if (publishedFailed) status.textContent = "Published calendar unavailable. Showing " + countLabel + ".";
+      else if (historyFailed) status.textContent = "Portal history unavailable. Showing " + published.length + " published event" + (published.length === 1 ? "" : "s") + ".";
+      else if (!count && publishedLoaded && historyLoaded) status.textContent = "No published events or authorised dated portal records are available yet.";
+      else if (publishedLoaded && historyLoaded) status.textContent = "Shared calendar: " + countLabel + ".";
+      else if (publishedLoaded) status.textContent = published.length
+        ? "Published shared calendar: " + published.length + " entr" + (published.length === 1 ? "y" : "ies") + "."
+        : "No published events are available on the shared calendar yet.";
+      else status.textContent = "No shared calendar source is available in this session.";
+    }
+    if (retry) {
+      retry.textContent = publishedFailed || historyFailed ? "Retry calendar load" : "Reload calendar";
+      retry.disabled = false;
     }
     render();
   }

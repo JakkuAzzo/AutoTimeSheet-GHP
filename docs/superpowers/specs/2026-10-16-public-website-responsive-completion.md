@@ -1,0 +1,3 @@
+# Public Website Responsive Completion Brief
+
+Complete responsive behavior across the full public GMT Electrical Services website. Cover viewport fit, section boundaries, smooth scrolling, snapping where content permits, reduced-motion support, no clipping or overflow, and enquiry completion/confirmation behavior. Check public routes at phone portrait, phone landscape, tablet, laptop, and desktop sizes. Do not send real customer enquiries; use an internal test mailbox or a local mock. Work from the assigned isolated worktree, run focused checks, commit the changes, and open a separate PR. Do not merge or deploy.

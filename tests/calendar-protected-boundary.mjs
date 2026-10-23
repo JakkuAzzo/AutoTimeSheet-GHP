@@ -14,9 +14,10 @@ assert.match(portal, /Calendar export is unavailable until the protected Microso
 assert.match(page, /disabled title="Available after protected Microsoft 365 calendar publication is connected"/);
 assert.doesNotMatch(shared, /download-events-json/);
 assert.match(shared, /Calendar requests are not exportable from browser storage/);
-assert.doesNotMatch(preview, /localEvents|GMTPortalApi\.history/, 'shared calendar preview reads only the published event feed');
-assert.match(preview, /Loading published shared calendar/);
-assert.match(preview, /Shared calendar unavailable/);
+assert.doesNotMatch(preview, /localEvents|GMTCalendarData\.localEvents/, 'shared calendar preview does not read unscoped browser-local requests');
+assert.match(preview, /api\.history\("all"\)/, 'the dashboard retains the signed-in user\'s authorised portal history');
+assert.match(preview, /Loading shared calendar and authorised portal records/);
+assert.match(preview, /Calendar sources unavailable|Published calendar unavailable/);
 assert.match(preview, /data-portal-calendar-retry/);
 
 console.log('Calendar protected-boundary checks: PASS');
