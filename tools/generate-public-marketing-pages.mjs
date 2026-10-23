@@ -352,7 +352,7 @@ for (const [type, definition] of Object.entries(landing)) {
   fs.writeFileSync(target, renderLandingPage(type, definition));
 }
 
-const sitemapUrls = ['', ...allRoutes].map((route) => `  <url><loc>${siteRoot}/${route}</loc></url>`).join('\n');
+const sitemapUrls = ['', ...allRoutes, 'reviews/'].map((route) => `  <url><loc>${siteRoot}/${route}</loc></url>`).join('\n');
 fs.writeFileSync(path.join(root, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapUrls}\n</urlset>\n`);
 fs.writeFileSync(path.join(root, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /portal/\n\nSitemap: ${siteRoot}/sitemap.xml\n`);
 console.log(`Generated ${allRoutes.length} marketing pages and sitemap.`);

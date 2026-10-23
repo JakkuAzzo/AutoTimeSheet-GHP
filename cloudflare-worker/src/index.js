@@ -4,6 +4,8 @@ import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateReco
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
 import { getJobCardArchiveRecord, getJobCardBatch, jobCardBatchStatus, normalizeJobCardEntry, queryJobCardArchive, reviewJobCardArchive, startJobCardBatch, upsertJobCardArchive, upsertJobCardSourceFile } from './job-card-archive.js';
 import { applyTaskAction, canReadTask, createTaskWorkflowStore, executeTaskOperation, handleTaskWorkflowRequest, normalizeTaskRecord, normalizeTaskRequest, taskManager, taskRequestMatches, taskWorkflowUrl } from './task-workflow.js';
+import { offsiteClockEndpoint } from './offsite-clock.js';
+import { completeJobCardAttachmentUpload, expireJobCardAttachmentUploadSession, findCompletedJobCardAttachment, getJobCardAttachment, getJobCardAttachmentUploadSession, listJobCardAttachments, normalizeJobCardAttachmentMetadata, readJobCardAttachmentBytes, reserveJobCardAttachmentUploadSession } from './job-card-attachments.js';
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
@@ -150,6 +152,7 @@ function tokenIdentity(claims, env) {
   const operationsAdminUpns = csvSet(env.OPERATIONS_ADMIN_UPNS);
   const hrAdminUpns = csvSet(env.HR_ADMIN_UPNS);
   const xeroAdminUpns = csvSet(env.XERO_ADMIN_UPNS);
+  const offsiteDutyManagerUpns = csvSet(env.OFFSITE_DUTY_MANAGER_UPNS);
   const groups = Array.isArray(claims.groups) ? claims.groups.map((item) => String(item).toLowerCase()) : [];
   const isAdmin = adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group));
   const isHrAdmin = isAdmin || hrAdminUpns.has(upn);
@@ -162,6 +165,7 @@ function tokenIdentity(claims, env) {
     isAdmin,
     isHrAdmin,
     isTimesheetViewer: timesheetViewerUpns.has(upn),
+    canReviewOffsite: offsiteDutyManagerUpns.has(upn),
     canManagePayMonthStarts: payMonthStartAdminUpns.has(upn),
     isXeroAdmin: isAdmin || xeroAdminUpns.has(upn),
     isOperationsAdmin: isAdmin || operationsAdminUpns.has(upn),
@@ -734,10 +738,76 @@ function validatePayMonthCorrection(body, nowDate = new Date(), payPeriods = def
 
 function validateNoFutureWork(kind, action, payload, nowDate = new Date()) {
   if (kind !== 'timesheets' && kind !== 'clock') return;
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(nowDate);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(nowDate);
   const value = (type) => String(parts.find((part) => part.type === type)?.value || '');
   const today = `${value('year')}-${value('month')}-${value('day')}`;
-  if (kind === 'clock' && action === 'absent') return;
+  const nowMinutes = Number(value('hour')) * 60 + Number(value('minute'));
+  if (kind === 'clock') {
+    const actionKey = String(action || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const dailyActions = new Set(['clock_in', 'lunch_start', 'lunch_end', 'clock_out', 'absent', 'full_day']);
+    for (const [field, maxLength] of [['location', 240], ['note', 1000]]) {
+      const fieldValue = payload[field];
+      if (fieldValue !== undefined && fieldValue !== null && typeof fieldValue !== 'string') {
+        throw Object.assign(new Error(`Clock ${field} must be text.`), { status: 400 });
+      }
+      if (String(fieldValue || '').length > maxLength) {
+        throw Object.assign(new Error(`Clock ${field} must be ${maxLength} characters or fewer.`), { status: 400 });
+      }
+    }
+    const eventDate = String(payload.date || payload.recordDate || '').slice(0, 10);
+    if (dailyActions.has(actionKey)) {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(eventDate);
+      const date = match && new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+      if (!date || date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) {
+        throw Object.assign(new Error('A valid clock date is required.'), { status: 400 });
+      }
+    }
+    if (eventDate > today && actionKey !== 'absent') {
+      throw Object.assign(new Error('Future clock and worked-time entries are not permitted.'), { status: 400 });
+    }
+    if (actionKey === 'absent' || !dailyActions.has(actionKey)) return;
+
+    const minutesFor = (input) => {
+      const match = /^(\d{2}):(\d{2})$/.exec(String(input || ''));
+      if (!match) return null;
+      const hour = Number(match[1]);
+      const minute = Number(match[2]);
+      return hour <= 23 && minute <= 59 ? hour * 60 + minute : null;
+    };
+    const futureTime = (minutes) => eventDate === today && minutes > nowMinutes;
+    if (actionKey === 'full_day') {
+      const start = minutesFor(payload.dayStart);
+      const finishValue = minutesFor(payload.dayFinish);
+      const lunchStartValue = minutesFor(payload.lunchStart);
+      const lunchEndValue = minutesFor(payload.lunchEnd);
+      if (start === null || finishValue === null) {
+        throw Object.assign(new Error('Enter valid start and finish times for the full day.'), { status: 400 });
+      }
+      if ((lunchStartValue === null) !== (lunchEndValue === null)) {
+        throw Object.assign(new Error('Enter both valid lunch times, or leave both blank.'), { status: 400 });
+      }
+      const finish = finishValue <= start ? finishValue + 1440 : finishValue;
+      if (lunchStartValue !== null && (lunchEndValue <= lunchStartValue || lunchStartValue < start || lunchEndValue > finish)) {
+        throw Object.assign(new Error('Lunch must fall within the recorded working day.'), { status: 400 });
+      }
+      if (futureTime(finish)) {
+        throw Object.assign(new Error('Future clock times are not permitted.'), { status: 400 });
+      }
+      return;
+    }
+
+    const eventMinutes = minutesFor(payload.time);
+    if (eventMinutes === null) {
+      throw Object.assign(new Error('Enter a valid clock time in 24-hour format.'), { status: 400 });
+    }
+    if (futureTime(eventMinutes)) {
+      throw Object.assign(new Error('Future clock times are not permitted.'), { status: 400 });
+    }
+    return;
+  }
   const rows = Array.isArray(payload.rows) ? payload.rows : Array.isArray(payload.dailyRows) ? payload.dailyRows : [];
   for (const row of rows) {
     const date = String(row?.date || '').slice(0, 10);
@@ -745,10 +815,6 @@ function validateNoFutureWork(kind, action, payload, nowDate = new Date()) {
     if (date > today && !['sick', 'holiday', 'absent'].includes(absence)) {
       throw Object.assign(new Error('Future dates can only be marked absent, sick or holiday; worked time cannot be entered early.'), { status: 400 });
     }
-  }
-  const eventDate = String(payload.date || '').slice(0, 10);
-  if (kind === 'clock' && eventDate > today && action !== 'absent') {
-    throw Object.assign(new Error('Future clock and worked-time entries are not permitted.'), { status: 400 });
   }
 }
 
@@ -804,16 +870,60 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'recordDate', 'date', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
+  const keys = ['schemaVersion', 'employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'cycleStart', 'cycleEnd', 'payrollFriday', 'recordDate', 'date', 'time', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'row', 'hours', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
   return safe;
 }
 
+function validatePortalRequestMutation(body, existing = null, identity = null) {
+  const request = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const payload = request.payload && typeof request.payload === 'object' && !Array.isArray(request.payload) ? request.payload : {};
+  const kind = canonicalKind(request.kind || request.type || existing?.kind || '');
+  const existingKind = existing ? canonicalKind(existing.kind) : '';
+  const requestKind = ['calendar', 'tasks'].includes(kind) || ['calendar', 'tasks'].includes(existingKind);
+  if (!requestKind) return;
+  if (existing && existingKind !== kind) {
+    throw Object.assign(new Error('A request cannot change category'), { status: 409 });
+  }
+
+  const action = text(request.action || request.gmtAction || '', '', 100).toLowerCase();
+  const expectedAction = existing ? 'update_request' : 'create_request';
+  if (action !== expectedAction) {
+    throw Object.assign(new Error('Portal request action is not permitted'), { status: 400 });
+  }
+
+  const hasRequestedStatus = Object.hasOwn(request, 'status') || Object.hasOwn(payload, 'status');
+  const requestedStatus = text(request.status ?? payload.status ?? '', '', 100).toLowerCase();
+  if (hasRequestedStatus) {
+    const cancellationAllowed = Boolean(existing)
+      && kind === 'calendar'
+      && requestedStatus === 'cancelled'
+      && ['pending approval', 'submitted', 'saved'].includes(text(existing.status, '', 100).toLowerCase())
+      && Boolean(identity?.oid)
+      && identity.oid === existing.owner_oid;
+    const allowed = requestedStatus === 'pending approval' || cancellationAllowed;
+    if (!allowed) throw Object.assign(new Error('Request status is controlled by Microsoft 365'), { status: 403 });
+  }
+
+  if (existing) {
+    const currentStatus = text(existing.status, '', 100).toLowerCase();
+    if (!['pending approval', 'submitted', 'saved'].includes(currentStatus)) {
+      throw Object.assign(new Error('Only pending requests can be edited or cancelled'), { status: 409 });
+    }
+  }
+}
+
+function validatePortalRequestDeletion(existing) {
+  if (['calendar', 'tasks'].includes(canonicalKind(existing?.kind))) {
+    throw Object.assign(new Error('Calendar and task requests cannot be deleted through the portal'), { status: 409 });
+  }
+}
+
 function normaliseInput(body, identity, existing = null, env = null, payPeriods = defaultPayPeriods()) {
   const payload = parsePayload(body);
-  const kind = canonicalKind(body.kind || body.type || payload.kind);
+  const kind = canonicalKind(body.kind || body.type || payload.kind || existing?.kind);
   if (!ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
   const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
   if (!recordId) throw Object.assign(new Error('A stable record ID is required'), { status: 400 });
@@ -848,7 +958,7 @@ function normaliseInput(body, identity, existing = null, env = null, payPeriods 
     : syntheticTestName
     ? requestedEmployeeName
     : (target?.name || identity.name || requestedEmployeeName || identity.upn);
-  const status = text(body.status || payload.status || (kind === 'calendar' || kind === 'tasks' ? 'Pending approval' : 'Submitted'), 'Submitted', 100);
+  const status = text(body.status || payload.status || existing?.status || (kind === 'calendar' || kind === 'tasks' ? 'Pending approval' : 'Submitted'), 'Submitted', 100);
   const startDate = isoOrBlank(body.startDate || body.start_date || payload.weekStart || body.weekStart);
   const endDate = isoOrBlank(body.endDate || body.end_date || payload.weekEnd || body.weekEnd);
   const recordDate = isoOrBlank(body.recordDate || body.record_date || payload.recordDate || payload.date || body.date);
@@ -1522,6 +1632,192 @@ async function jobCardArchiveContentEndpoint(env, identity, recordId, origin) {
   } });
 }
 
+async function jobCardRecordForAttachment(env, identity, recordId, { write = false } = {}) {
+  const row = await env.DB.prepare('SELECT * FROM records WHERE record_id=?').bind(recordId).first();
+  if (!row) throw Object.assign(new Error('Record not found'), { status: 404 });
+  if (row.kind !== 'job-cards') throw Object.assign(new Error('Attachments are only available for job cards'), { status: 400 });
+  if (row.status === 'Deleted') throw Object.assign(new Error('Record has been deleted'), { status: 410 });
+  if (write && row.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
+  const permitted = write ? canAccessRecord(identity, row) : canReadHistoryRecord(identity, row);
+  if (!permitted) throw Object.assign(new Error('Record access is not permitted'), { status: 403 });
+  return row;
+}
+
+async function jobCardAttachmentStartEndpoint(request, env, identity, recordId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId, { write: true });
+  const metadata = normalizeJobCardAttachmentMetadata(await readJson(request));
+  const existing = await findCompletedJobCardAttachment(env, record.record_id, metadata);
+  if (existing) {
+    await cleanupDuplicateJobCardAttachmentObjectsForTarget(env, existing.attachment_id);
+    return json({ attachment: (await listJobCardAttachments(env, record.record_id)).find((item) => item.attachment_id === existing.attachment_id), duplicate: true }, 200, origin || '');
+  }
+  const attachmentId = crypto.randomUUID();
+  const safeRecordFolder = /^[A-Za-z0-9_-]{1,180}$/.test(record.record_id) ? record.record_id : `record-${await sha256Base64Url(record.record_id)}`;
+  const expectedPath = `JobCards/Attachments/${safeRecordFolder}/${attachmentId}-${metadata.fileName}`;
+  const expirationDateTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const reserved = await reserveJobCardAttachmentUploadSession(env, {
+    attachmentId, recordId: record.record_id, metadata, expectedPath,
+    expiresAt: expirationDateTime, actor: identity
+  });
+  if (!reserved) throw Object.assign(new Error('A job-card revision can have at most 10 attachments and 100 MiB total'), { status: 413 });
+  return json({ attachmentId, expirationDateTime }, 201, origin || '');
+}
+
+async function uploadJobCardAttachmentToSharePoint(env, session, bytes) {
+  const expectedName = `${session.attachment_id}-${session.file_name}`;
+  const path = `/root:/${encodeDrivePath(session.expected_path)}`;
+  const existingResponse = await graphSharePointRequest(env, path);
+  if (existingResponse.ok) {
+    let existing;
+    try { existing = await existingResponse.json(); } catch (_) { existing = null; }
+    if (!existing?.id || !existing.file || existing.name !== expectedName) {
+      throw Object.assign(new Error('SharePoint attachment path is occupied by an unexpected item'), { status: 409 });
+    }
+    // Never adopt a prior object based on provider metadata alone. Replace it
+    // with the request bytes already checked against the reserved SHA-256.
+    const cleanup = await graphSharePointRequest(env, `/items/${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+    if (!cleanup.ok && cleanup.status !== 404) throw Object.assign(new Error('SharePoint could not clear a prior incomplete attachment'), { status: 503 });
+  } else if (existingResponse.status !== 404) {
+    throw Object.assign(new Error('SharePoint could not verify the attachment destination'), { status: 503 });
+  }
+
+  const createResponse = await graphSharePointRequest(env, `${path}:/createUploadSession`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ item: { name: expectedName, '@microsoft.graph.conflictBehavior': 'fail' } })
+  });
+  if (!createResponse.ok) throw Object.assign(new Error('SharePoint could not create the job-card attachment upload session'), { status: 503 });
+  let graphSession;
+  try { graphSession = await createResponse.json(); } catch (_) { graphSession = null; }
+  const uploadUrl = text(graphSession?.uploadUrl, '', 5000);
+  const expiresAt = text(graphSession?.expirationDateTime, '', 80);
+  if (!uploadUrl || !/^https:\/\//i.test(uploadUrl) || !Number.isFinite(Date.parse(expiresAt))) {
+    throw Object.assign(new Error('SharePoint returned an invalid attachment upload session'), { status: 503 });
+  }
+
+  try {
+    const chunkBytes = 10 * 1024 * 1024;
+    let item = null;
+    for (let offset = 0; offset < bytes.byteLength; offset += chunkBytes) {
+      const end = Math.min(offset + chunkBytes, bytes.byteLength);
+      const chunk = bytes.slice(offset, end);
+      const response = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Length': String(chunk.byteLength),
+          'Content-Range': `bytes ${offset}-${end - 1}/${bytes.byteLength}`,
+          'Content-Type': 'application/octet-stream'
+        },
+        body: chunk
+      });
+      if (!response.ok) throw Object.assign(new Error('SharePoint could not store the job-card attachment'), { status: 503 });
+      if (end === bytes.byteLength) {
+        try { item = await response.json(); } catch (_) { item = null; }
+      }
+    }
+    if (!item?.id) throw Object.assign(new Error('SharePoint did not confirm the uploaded attachment'), { status: 503 });
+    return item;
+  } catch (error) {
+    try { await fetch(uploadUrl, { method: 'DELETE' }); } catch (_) {}
+    throw error;
+  }
+}
+
+async function deleteGraphSharePointItem(env, itemId) {
+  const response = await graphSharePointRequest(env, `/items/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+  return response.ok || response.status === 404;
+}
+
+async function cleanupDuplicateJobCardAttachmentObject(env, session) {
+  const itemId = text(session?.orphan_item_id, '', 500);
+  if (!itemId) return;
+  if (!await deleteGraphSharePointItem(env, itemId)) {
+    throw Object.assign(new Error('SharePoint could not remove the duplicate attachment object'), { status: 503 });
+  }
+  await env.DB.prepare(`UPDATE job_card_attachment_upload_sessions SET orphan_item_id=NULL
+    WHERE attachment_id=? AND status='duplicate' AND orphan_item_id=?`).bind(session.attachment_id, itemId).run();
+}
+
+async function cleanupDuplicateJobCardAttachmentObjectsForTarget(env, targetAttachmentId) {
+  const result = await env.DB.prepare(`SELECT attachment_id, orphan_item_id FROM job_card_attachment_upload_sessions
+    WHERE duplicate_of=? AND status='duplicate' AND orphan_item_id IS NOT NULL`).bind(targetAttachmentId).all();
+  for (const session of result.results || []) await cleanupDuplicateJobCardAttachmentObject(env, session);
+}
+
+async function jobCardAttachmentUploadEndpoint(request, env, identity, recordId, attachmentId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId, { write: true });
+  const session = await getJobCardAttachmentUploadSession(env, record.record_id, attachmentId);
+  if (session.status === 'complete' || session.status === 'duplicate') {
+    if (session.status === 'duplicate') await cleanupDuplicateJobCardAttachmentObject(env, session);
+    const completed = await completeJobCardAttachmentUpload(env, session, null);
+    const attachment = (await listJobCardAttachments(env, record.record_id)).find((item) => item.attachment_id === completed.attachment.attachment_id);
+    return json({ ok: true, attachment, duplicate: completed.duplicate }, 200, origin || '');
+  }
+  if (session.status !== 'uploading') throw Object.assign(new Error('Attachment upload session is no longer active'), { status: 410 });
+  if (Date.parse(session.expires_at) <= Date.now()) {
+    await expireJobCardAttachmentUploadSession(env, session.attachment_id);
+    throw Object.assign(new Error('Attachment upload session expired; select the file again to retry'), { status: 410 });
+  }
+  if (!session.expected_path) throw Object.assign(new Error('Attachment upload session is incomplete'), { status: 409 });
+
+  const bytes = await readJobCardAttachmentBytes(request, session);
+  const folderPath = session.expected_path.split('/').slice(0, -1).join('/');
+  await ensureSharePointFolder(env, folderPath);
+  const item = await uploadJobCardAttachmentToSharePoint(env, session, bytes);
+
+  let result;
+  try {
+    result = await completeJobCardAttachmentUpload(env, session, item);
+  } catch (error) {
+    if (Number(error?.status) === 409 && item?.id) {
+      if (await deleteGraphSharePointItem(env, item.id)) await expireJobCardAttachmentUploadSession(env, session.attachment_id);
+    }
+    throw error;
+  }
+  if (result.duplicate) {
+    const duplicateSession = await getJobCardAttachmentUploadSession(env, record.record_id, session.attachment_id);
+    await cleanupDuplicateJobCardAttachmentObject(env, duplicateSession);
+  }
+  const attachment = (await listJobCardAttachments(env, record.record_id)).find((entry) => entry.attachment_id === result.attachment.attachment_id);
+  return json({ ok: true, attachment, duplicate: result.duplicate }, 200, origin || '');
+}
+
+async function jobCardAttachmentCompleteEndpoint(env, identity, recordId, attachmentId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId, { write: true });
+  const session = await getJobCardAttachmentUploadSession(env, record.record_id, attachmentId);
+  if (session.status === 'complete' || session.status === 'duplicate') {
+    if (session.status === 'duplicate') await cleanupDuplicateJobCardAttachmentObject(env, session);
+    const completed = await completeJobCardAttachmentUpload(env, session, null);
+    return json({ ok: true, attachment: (await listJobCardAttachments(env, record.record_id)).find((item) => item.attachment_id === completed.attachment.attachment_id), duplicate: completed.duplicate }, 200, origin || '');
+  }
+  if (session.status === 'uploading' && Date.parse(session.expires_at) <= Date.now()) {
+    await expireJobCardAttachmentUploadSession(env, session.attachment_id);
+    throw Object.assign(new Error('Attachment upload session expired; select the file again to retry'), { status: 410 });
+  }
+  if (session.status === 'uploading') {
+    throw Object.assign(new Error('Upload the file through the authenticated content route before completing the attachment'), { status: 409 });
+  }
+  throw Object.assign(new Error('Attachment upload session is no longer active'), { status: 410 });
+}
+
+async function jobCardAttachmentContentEndpoint(env, identity, recordId, attachmentId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId);
+  const attachment = await getJobCardAttachment(env, record.record_id, attachmentId);
+  const response = await graphSharePointRequest(env, `/items/${encodeURIComponent(attachment.sharepoint_item_id)}/content`);
+  if (!response.ok) throw Object.assign(new Error('Job-card attachment could not be retrieved'), { status: response.status === 404 ? 404 : 503 });
+  const filename = encodeURIComponent(attachment.file_name).replace(/[!'()*]/g, (character) => '%' + character.charCodeAt(0).toString(16).toUpperCase());
+  return new Response(response.body, { status: 200, headers: {
+    'content-type': attachment.content_type,
+    'content-length': String(attachment.size_bytes),
+    'content-disposition': `inline; filename*=UTF-8''${filename}`,
+    'cache-control': 'private, no-store',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; sandbox",
+    'x-frame-options': 'SAMEORIGIN',
+    ...(origin ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true', vary: 'Origin' } : {})
+  } });
+}
+
 async function graphFileBytes(response, limit = 20 * 1024 * 1024) {
   const declared = Number(response.headers.get('content-length') || 0);
   if (declared > limit) throw Object.assign(new Error('Archived file is too large to retrieve'), { status: 413 });
@@ -1656,6 +1952,10 @@ async function createAppEstimateEndpoint(request, env, identity, origin) {
   if (!bytes.byteLength || bytes.byteLength > 1_000_000) throw Object.assign(new Error('Estimate document is missing or too large'), { status: 400 });
   const sourceRecordId = text(body.source_record_id || body.sourceRecordId, '', 240);
   if (!sourceRecordId) throw Object.assign(new Error('source_record_id is required for idempotent estimate filing'), { status: 400 });
+  const sourceRecord = await env.DB.prepare('SELECT record_id, owner_oid, kind FROM records WHERE record_id = ?').bind(sourceRecordId).first();
+  if (!sourceRecord || sourceRecord.kind !== 'estimates' || sourceRecord.owner_oid !== identity.oid) {
+    throw Object.assign(new Error('Estimate record not found'), { status: 404 });
+  }
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   const contentHash = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
   const identityBytes = new TextEncoder().encode(`${sourceRecordId}\0${contentHash}`);
@@ -2837,9 +3137,8 @@ function sameRecord(a, b) {
 
 async function saveRecord(env, input, identity, existing = null) {
   const changed = existing && !sameRecord(existing, input);
-  if (changed) {
-    await env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
-      .bind(existing.record_id, existing.owner_oid, JSON.stringify({
+  const writeVersion = async () => env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
+    .bind(existing.record_id, existing.owner_oid, JSON.stringify({
         employee_name: existing.employee_name,
         kind: existing.kind,
         action: existing.action,
@@ -2852,18 +3151,28 @@ async function saveRecord(env, input, identity, existing = null) {
         issue: existing.issue,
         payload: payloadObject(existing)
       }), now(), identity.oid).run();
-  }
   if (!existing) {
     await env.DB.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name, kind, action, status, start_date, end_date, record_date, submitted_at, updated_at, issue, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(input.recordId, input.ownerOid, input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson).run();
     return { created: true, changed: false };
   }
+  if (['calendar', 'tasks'].includes(canonicalKind(existing.kind))) {
+    const result = await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ? AND owner_oid = ? AND status = ?`)
+      .bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId, existing.owner_oid, existing.status).run();
+    if (Number(result?.meta?.changes ?? 0) < 1) {
+      throw Object.assign(new Error('The request changed while it was being saved. Refresh the calendar and try again.'), { status: 409 });
+    }
+    if (changed) await writeVersion();
+    return { created: false, changed };
+  }
+  if (changed) await writeVersion();
   await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ?`)
     .bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId).run();
   return { created: false, changed };
 }
 
 async function deleteRecord(env, existing, identity) {
+  validatePortalRequestDeletion(existing);
   const deletableStatuses = new Set(['draft', 'pending delivery', 'delivery failed']);
   if (!identity.isAdmin && !deletableStatuses.has(String(existing.status || '').toLowerCase())) {
     throw Object.assign(new Error('Submitted records cannot be deleted'), { status: 409 });
@@ -2993,6 +3302,12 @@ function dispatchForm(record, attachments, payPeriods = defaultPayPeriods()) {
   const month = record.action === 'pay_month_correction' && /^\d{4}-\d{2}$/.test(declaredMonth)
     ? declaredMonth
     : calculatedMonth || declaredMonth || 'unspecified';
+  const period = /^\d{4}-\d{2}$/.test(month) && payPeriods && typeof payPeriods.periodForMonth === 'function'
+    ? payPeriods.periodForMonth(month)
+    : null;
+  const cycleStart = text(payload.cycleStart || period?.start, '', 10);
+  const cycleEnd = text(payload.cycleEnd || period?.cycleEnd, '', 10);
+  const payrollFriday = text(payload.payrollFriday || period?.payrollFriday || period?.payrollEnd || period?.end, '', 10);
   const workbookKey = `timesheet-${submissionKeyPart(employeeUpn || employeeEmail || employeeName)}-${month}`;
   const form = new FormData();
   const set = (name, value) => form.set(name, String(value == null ? '' : value));
@@ -3015,6 +3330,9 @@ function dispatchForm(record, attachments, payPeriods = defaultPayPeriods()) {
   set('gmt_employee_upn', employeeUpn);
   set('gmt_week_start', weekStart);
   set('gmt_week_end', weekEnd);
+  set('gmt_cycle_start', cycleStart);
+  set('gmt_cycle_end', cycleEnd);
+  set('gmt_payroll_friday', payrollFriday);
   set('gmt_year', month.slice(0, 4));
   set('gmt_month', month.slice(5, 7));
   set('gmt_worked_hours', hours(totals.workedActual));
@@ -3216,7 +3534,7 @@ async function adminUsersEndpoint(request, env, identity, origin) {
       FROM portal_access_assignments ORDER BY owner_upn, role`).all();
     const names = new Map(staffDirectory(env).map((entry) => [entry.upn, entry.name]));
     const configured = [];
-    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['timesheets', 'TIMESHEET_VIEWER_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS']]) {
+    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['timesheets', 'TIMESHEET_VIEWER_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS'], ['offsite-duty-manager', 'OFFSITE_DUTY_MANAGER_UPNS']]) {
       for (const upn of csvSet(env[variable])) configured.push({ owner_upn: upn, display_name: names.get(upn) || upn, role, updated_at: 'Worker configuration', managed: false });
     }
     if (csvSet(env.ADMIN_GROUP_IDS).size) configured.push({ owner_upn: 'Configured Entra group', display_name: 'GMT portal administrator group', role: 'admin', updated_at: 'Entra group configuration', managed: false });
@@ -3438,66 +3756,215 @@ async function completeXeroConnection(request, env) {
 }
 
 async function xeroConnectionRows(env) {
-  const result = await env.DB.prepare(`SELECT tenant_id, connection_id, tenant_name, tenant_type, scopes,
-    connected_by_upn, connected_at, updated_at, last_error FROM xero_connections ORDER BY tenant_name`).all();
+  const result = await env.DB.prepare('SELECT * FROM xero_connections ORDER BY tenant_name').all();
   return result.results || [];
 }
 
-async function xeroStatus(env, identity, origin) {
+async function xeroStatus(env, identity, origin, fetchImpl = fetch) {
   requireXeroAdmin(identity);
   const settings = xeroSettings(env);
   const connections = await xeroConnectionRows(env);
-  return json({
-    configured: settings.configured,
-    scopes: settings.scopes.split(/\s+/).filter(Boolean),
-    redirect_uri: settings.redirectUri || '',
-    connections: connections.map((connection) => ({
+  const checkedAt = now();
+  const healthConnections = [];
+  const refreshResults = new Map();
+  for (const connection of connections) {
+    let refreshHealth = 'not_configured';
+    let identityStatus = 'unverified';
+    let tenantName = text(connection.tenant_name, 'Xero organisation', 500);
+    let healthError = '';
+    let lastError = text(connection.last_error, '', 1000);
+
+    if (settings.configured) {
+      try {
+        const savedRefreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
+        let refreshResult = refreshResults.get(savedRefreshToken);
+        if (!refreshResult) {
+          try {
+            refreshResult = { token: await refreshXeroAccessToken(env, connection, fetchImpl) };
+          } catch (error) {
+            refreshResult = { error };
+          }
+          refreshResults.set(savedRefreshToken, refreshResult);
+        }
+        if (refreshResult.error) throw refreshResult.error;
+        const token = refreshResult.token;
+        lastError = '';
+        const response = await fetchImpl(`${settings.apiUrl}/connections`, { headers: xeroApiHeaders(token.accessToken) });
+        if (!response.ok) {
+          refreshHealth = 'unavailable';
+          healthError = response.status >= 500
+            ? 'Xero tenant verification is temporarily unavailable.'
+            : 'Xero could not verify the saved organisation. Retry the check or reconnect if the problem continues.';
+        } else {
+          let liveConnections = null;
+          try { liveConnections = await response.json(); } catch (_) {}
+          if (!Array.isArray(liveConnections)) {
+            refreshHealth = 'unavailable';
+            healthError = 'Xero returned an invalid tenant verification response.';
+          } else {
+            refreshHealth = 'healthy';
+            const matched = liveConnections.find((item) =>
+              text(item?.tenantId, '', 160) === connection.tenant_id &&
+              text(item?.id || item?.connectionId, '', 160) === connection.connection_id
+            );
+            if (matched) {
+              identityStatus = 'verified';
+              tenantName = text(matched.tenantName, tenantName, 500);
+            } else {
+              identityStatus = 'mismatch';
+              healthError = 'The active Xero connection does not match the saved tenant identity. Reconnect Xero to restore the Accounts mapping.';
+            }
+          }
+        }
+      } catch (error) {
+        const reconnectRequired = error?.code === 'XERO_REAUTH_REQUIRED';
+        refreshHealth = reconnectRequired ? 'reconnect_required' : 'unavailable';
+        healthError = text(error?.publicMessage, reconnectRequired
+          ? 'Xero authorisation expired. Reconnect Xero to restore invoice access.'
+          : 'Xero could not verify its authorisation right now.', 500);
+        if (reconnectRequired) lastError = healthError;
+      }
+    } else {
+      healthError = 'Xero is not fully configured on the portal service.';
+    }
+
+    healthConnections.push({
       tenant_id: connection.tenant_id,
       connection_id: connection.connection_id,
-      tenant_name: connection.tenant_name,
+      tenant_name: tenantName,
       tenant_type: connection.tenant_type,
       scopes: String(connection.scopes || '').split(/\s+/).filter(Boolean),
       connected_by_upn: connection.connected_by_upn,
       connected_at: connection.connected_at,
       updated_at: connection.updated_at,
-      last_error: connection.last_error || ''
-    }))
+      last_error: lastError,
+      refresh_health: refreshHealth,
+      identity_status: identityStatus,
+      checked_at: checkedAt,
+      health_error: healthError
+    });
+  }
+  return json({
+    configured: settings.configured,
+    scopes: settings.scopes.split(/\s+/).filter(Boolean),
+    redirect_uri: settings.redirectUri || '',
+    checked_at: checkedAt,
+    connections: healthConnections
   }, 200, origin || '');
 }
 
 async function refreshXeroAccessToken(env, connection, fetchImpl = fetch) {
   const settings = xeroSettings(env);
   if (!settings.configured) throw Object.assign(new Error('Xero is not configured on the portal service'), { status: 503 });
-  const refreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
+  let currentConnection = connection;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const refreshToken = await decryptXeroSecret(currentConnection.refresh_token_ciphertext, currentConnection.refresh_token_iv, settings);
+    const tokenHash = await sha256Base64Url(refreshToken);
+    const leaseId = crypto.randomUUID();
+    await acquireXeroRefreshLock(env, tokenHash, leaseId);
+    try {
+      const latestConnection = await env.DB.prepare('SELECT * FROM xero_connections WHERE tenant_id = ?').bind(currentConnection.tenant_id).first();
+      if (!latestConnection) throw Object.assign(new Error('The requested Xero organisation is not connected'), { status: 404 });
+      const latestRefreshToken = await decryptXeroSecret(latestConnection.refresh_token_ciphertext, latestConnection.refresh_token_iv, settings);
+      if (latestRefreshToken !== refreshToken) {
+        currentConnection = latestConnection;
+        continue;
+      }
+      return await refreshXeroAccessTokenLocked(env, latestConnection, settings, refreshToken, tokenHash, leaseId, fetchImpl);
+    } finally {
+      try {
+        await env.DB.prepare('DELETE FROM xero_refresh_locks WHERE token_hash = ? AND lease_id = ?').bind(tokenHash, leaseId).run();
+      } catch (_) {
+        // An expired lease can be reclaimed by the next request.
+      }
+    }
+  }
+  throw Object.assign(new Error('Xero authorisation is being refreshed. Retry shortly.'), {
+    status: 503,
+    code: 'XERO_REFRESH_BUSY',
+    publicMessage: 'Xero authorisation is being refreshed. Retry shortly.'
+  });
+}
+
+async function acquireXeroRefreshLock(env, tokenHash, leaseId) {
+  const startedAt = Date.now();
+  const leaseDurationMs = 120_000;
+  while (Date.now() - startedAt < 10_000) {
+    const timestamp = Date.now();
+    const result = await env.DB.prepare(`INSERT INTO xero_refresh_locks (token_hash, lease_id, lease_expires_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(token_hash) DO UPDATE SET lease_id = excluded.lease_id, lease_expires_at = excluded.lease_expires_at
+      WHERE xero_refresh_locks.lease_expires_at <= ?`).bind(tokenHash, leaseId, timestamp + leaseDurationMs, timestamp).run();
+    if (Number(result?.meta?.changes || 0) === 1) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw Object.assign(new Error('Xero authorisation is being refreshed. Retry shortly.'), {
+    status: 503,
+    code: 'XERO_REFRESH_BUSY',
+    publicMessage: 'Xero authorisation is being refreshed. Retry shortly.'
+  });
+}
+
+async function refreshXeroAccessTokenLocked(env, connection, settings, refreshToken, tokenHash, leaseId, fetchImpl) {
+  const savedConnections = await xeroConnectionRows(env);
+  const sharedConnections = [];
+  for (const savedConnection of savedConnections) {
+    try {
+      const savedToken = await decryptXeroSecret(savedConnection.refresh_token_ciphertext, savedConnection.refresh_token_iv, settings);
+      if (savedToken === refreshToken) sharedConnections.push(savedConnection);
+    } catch (_) {
+      // A separately damaged tenant token must not block a valid tenant refresh.
+    }
+  }
+  if (!sharedConnections.some((item) => item.tenant_id === connection.tenant_id)) sharedConnections.push(connection);
   const response = await fetchImpl(settings.tokenUrl, {
     method: 'POST',
     headers: { Authorization: xeroBasicAuth(settings), 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
+    signal: AbortSignal.timeout(30_000)
   });
   const responseText = await response.text();
   let body = null;
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
-  if (!response.ok || !body?.access_token) {
+  if (!response.ok || !body?.access_token || !text(body?.refresh_token, '', 5000)) {
     const message = xeroErrorMessage(body, `Xero token refresh failed (${response.status})`);
     await env.DB.prepare('UPDATE xero_connections SET last_error = ?, updated_at = ? WHERE tenant_id = ?').bind(message, now(), connection.tenant_id).run();
     const invalidGrant = String(body?.error || '').toLowerCase() === 'invalid_grant' || /consum|invalid.grant|refresh token/i.test(String(body?.error_description || body?.message || ''));
     throw Object.assign(new Error(message), {
       status: 503,
+      code: invalidGrant ? 'XERO_REAUTH_REQUIRED' : 'XERO_REFRESH_FAILED',
       publicMessage: invalidGrant
         ? 'Xero authorisation expired or its refresh token was already used. Reconnect Xero to restore invoice access.'
         : 'Xero could not refresh its authorisation. Retry shortly or reconnect Xero to restore invoice access.'
     });
   }
-  const nextRefreshToken = text(body.refresh_token, refreshToken, 5000);
+  const nextRefreshToken = text(body.refresh_token, '', 5000);
   const encrypted = await encryptXeroSecret(nextRefreshToken, settings);
-  await env.DB.prepare(`UPDATE xero_connections SET refresh_token_ciphertext = ?, refresh_token_iv = ?, scopes = ?,
-    updated_at = ?, last_error = NULL WHERE tenant_id = ?`).bind(
-    encrypted.ciphertext,
-    encrypted.iv,
-    text(body.scope || connection.scopes, connection.scopes || settings.scopes, 1000),
-    now(),
-    connection.tenant_id
-  ).run();
+  const updatedAt = now();
+  const scopes = text(body.scope || connection.scopes, connection.scopes || settings.scopes, 1000);
+  const statements = [];
+  for (const sharedConnection of sharedConnections) {
+    statements.push(env.DB.prepare(`UPDATE xero_connections SET refresh_token_ciphertext = ?, refresh_token_iv = ?, scopes = ?,
+      updated_at = ?, last_error = NULL WHERE tenant_id = ? AND refresh_token_ciphertext = ? AND refresh_token_iv = ?`).bind(
+      encrypted.ciphertext,
+      encrypted.iv,
+      scopes,
+      updatedAt,
+      sharedConnection.tenant_id,
+      sharedConnection.refresh_token_ciphertext,
+      sharedConnection.refresh_token_iv
+    ));
+    // D1 batch rolls the token-row updates back together if any compare-and-swap
+    // misses. The NOT NULL constraint makes a missed update abort the batch.
+    statements.push(env.DB.prepare(`UPDATE xero_refresh_locks
+      SET lease_expires_at = CASE WHEN changes() = 1 AND lease_id = ? THEN lease_expires_at ELSE NULL END
+      WHERE token_hash = ? AND lease_id = ?`).bind(leaseId, tokenHash, leaseId));
+    if (sharedConnection.tenant_id === connection.tenant_id) {
+      connection.refresh_token_ciphertext = encrypted.ciphertext;
+      connection.refresh_token_iv = encrypted.iv;
+    }
+  }
+  await env.DB.batch(statements);
   return { accessToken: body.access_token, expiresAt: xeroTokenExpiry(body.expires_in) };
 }
 
@@ -3547,8 +4014,12 @@ async function lookupXeroInvoiceEndpoint(request, env, identity, origin) {
 
 async function listXeroInvoices(env, tenantId = '', options = {}) {
   const connection = await selectXeroConnection(env, tenantId);
-  const limit = Math.min(Math.max(Number(options.limit || 50), 1), 100);
-  const page = Math.min(Math.max(Number(options.page || 1), 1), 1000);
+  const requestedLimit = Number(options.limit ?? 50);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100) : 50;
+  const page = Number(options.page ?? 1);
+  if (!Number.isInteger(page) || page < 1 || page > 1000) {
+    throw Object.assign(new Error('Invoice page must be an integer between 1 and 1000'), { status: 400 });
+  }
   const status = text(options.status, '', 40);
   const cachePath = xeroInvoiceArchivePagePath(connection.tenant_id, page, limit, status);
   if (options.refresh !== true) {
@@ -3559,6 +4030,7 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
         invoices: cached.invoices,
         page,
         page_size: limit,
+        pagination: { page_limit: 1000, has_more: cached.invoices.length === limit },
         refreshed_at: cached.cached_at,
         archive: { source: 'sharepoint', stored: true, cached_at: cached.cached_at }
       };
@@ -3575,7 +4047,10 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
   let body = null;
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
   if (!response.ok) throw Object.assign(new Error(xeroErrorMessage(body, `Xero invoice list failed (${response.status})`)), { status: 502 });
-  const invoices = Array.isArray(body?.Invoices) ? body.Invoices : [];
+  if (!Array.isArray(body?.Invoices)) {
+    throw Object.assign(new Error('Xero invoice list returned an invalid response'), { status: 502 });
+  }
+  const invoices = body.Invoices;
   const cachedAt = now();
   let stored = false;
   try {
@@ -3598,6 +4073,7 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
     invoices: invoices.slice(0, limit).map(xeroInvoiceProjection),
     page,
     page_size: limit,
+    pagination: { page_limit: 1000, has_more: invoices.length >= limit },
     refreshed_at: cachedAt,
     archive: { source: 'xero', stored, cached_at: stored ? cachedAt : '' }
   };
@@ -3696,15 +4172,35 @@ function xeroLinkedRecordDisplay(row, payload) {
   };
 }
 
-async function xeroInvoiceRecords(env, identity, origin) {
+async function xeroInvoiceRecords(request, env, identity, origin) {
   requireXeroAdmin(identity);
+  const url = new URL(request.url);
+  const query = text(url.searchParams.get('q'), '', 200).toLowerCase();
+  const requestedLimit = Number(url.searchParams.get('limit') || 100);
+  const requestedOffset = Number(url.searchParams.get('offset') || 0);
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || !Number.isSafeInteger(requestedOffset) || requestedOffset < 0 || requestedOffset > 1000000) {
+    throw Object.assign(new Error('Record lookup pagination is invalid'), { status: 400 });
+  }
+  const limit = Math.min(requestedLimit, 100);
+  const offset = requestedOffset;
+  const search = query ? ` AND (
+      instr(lower(r.record_id), ?) > 0 OR
+      instr(lower(COALESCE(r.payload_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.candidates_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.confirmed_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.ocr_text, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.source_file, '')), ?) > 0
+    )` : '';
+  const values = query ? [query, query, query, query, query, query, limit + 1, offset] : [limit + 1, offset];
   const result = await env.DB.prepare(`SELECT r.record_id, r.kind, r.status, r.employee_name, r.record_date, r.payload_json,
       a.candidates_json, a.confirmed_json, a.review_state AS archive_review_state,
-      a.source_file, a.source_page
+      a.source_file, a.source_page, a.ocr_text
     FROM records r LEFT JOIN job_card_archive a ON a.record_id=r.record_id
-    WHERE r.kind IN ('estimates', 'job-cards') AND r.status <> 'Deleted'
-    ORDER BY r.updated_at DESC LIMIT 500`).all();
-  return json({ records: (result.results || []).map((row) => {
+    WHERE r.kind IN ('estimates', 'job-cards') AND r.status <> 'Deleted'${search}
+    ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?`).bind(...values).all();
+  const rows = result.results || [];
+  const hasMore = rows.length > limit;
+  return json({ records: rows.slice(0, limit).map((row) => {
     const payload = payloadObject(row);
     const display = xeroLinkedRecordDisplay(row, payload);
     return {
@@ -3716,7 +4212,7 @@ async function xeroInvoiceRecords(env, identity, origin) {
       date: text(row.record_date, '', 10),
       total: Number.isFinite(Number(payload.total)) ? Number(payload.total) : null
     };
-  }) }, 200, origin || '');
+  }), pagination: { has_more: hasMore, next_offset: hasMore ? offset + limit : null } }, 200, origin || '');
 }
 
 async function persistExactInvoiceJobCardLinks(env, connection, invoice, identity) {
@@ -4321,9 +4817,12 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/access' && request.method === 'GET') {
     return json({ isAdmin: identity.isAdmin, isHrAdmin: identity.isHrAdmin, isXeroAdmin: identity.isXeroAdmin,
       isOperationsAdmin: identity.isOperationsAdmin, isJobCardAdmin: identity.isJobCardAdmin,
+      canReviewOffsite: identity.canReviewOffsite === true,
       canManagePayMonthStarts: identity.canManagePayMonthStarts,
       roles: identity.assignedRoles || [] }, 200, origin || '');
   }
+  const offsiteClockResponse = await offsiteClockEndpoint(request, env, identity, readJson);
+  if (offsiteClockResponse) return json(offsiteClockResponse.body, offsiteClockResponse.status, origin || '');
   if (url.pathname === '/api/pay-month-starts' && ['GET', 'POST'].includes(request.method)) {
     return payMonthStartsEndpoint(request, env, identity, origin || '');
   }
@@ -4369,7 +4868,7 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
   if (url.pathname === '/api/estimates/index' && ['GET', 'POST'].includes(request.method)) { requireEstimateArchiveAccess(identity); return request.method === 'GET' ? estimateIndexListEndpoint(request, env, identity, origin || '') : estimateIndexUpsertEndpoint(request, env, identity, origin || ''); }
   if (url.pathname === '/api/xero/setup-data' && request.method === 'GET') return xeroSetupDataEndpoint(request, env, identity, origin || '');
-  if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(env, identity, origin || '');
+  if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'POST') return createXeroInvoice(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices/lookup' && request.method === 'POST') return lookupXeroInvoiceEndpoint(request, env, identity, origin || '');
@@ -4423,17 +4922,37 @@ async function handle(request, env, ctx) {
     if (existing?.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
     if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
     if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing, 'Europe/London', new Date(), payPeriods)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
+    validatePortalRequestMutation(body, existing, identity);
     const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
 
+  const attachmentContentMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/attachments\/([^/]+)\/content$/);
+  if (attachmentContentMatch) {
+    const recordId = decodeURIComponent(attachmentContentMatch[1]);
+    const attachmentId = decodeURIComponent(attachmentContentMatch[2]);
+    if (request.method === 'GET') return jobCardAttachmentContentEndpoint(env, identity, recordId, attachmentId, origin || '');
+    if (request.method === 'PUT') return jobCardAttachmentUploadEndpoint(request, env, identity, recordId, attachmentId, origin || '');
+  }
+  const attachmentCompleteMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/attachments\/([^/]+)\/complete$/);
+  if (attachmentCompleteMatch && request.method === 'POST') {
+    return jobCardAttachmentCompleteEndpoint(env, identity, decodeURIComponent(attachmentCompleteMatch[1]), decodeURIComponent(attachmentCompleteMatch[2]), origin || '');
+  }
   const attachmentMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/attachments$/);
-  if (attachmentMatch && request.method === 'POST') {
+  if (attachmentMatch && ['GET', 'POST'].includes(request.method)) {
     const recordId = decodeURIComponent(attachmentMatch[1]);
     const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
-    if (request.method === 'GET' ? !canViewRecord(identity, existing) : !canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (existing.kind === 'job-cards') {
+      if (request.method === 'GET') {
+        await jobCardRecordForAttachment(env, identity, recordId);
+        return json({ attachments: await listJobCardAttachments(env, recordId) }, 200, origin || '');
+      }
+      return jobCardAttachmentStartEndpoint(request, env, identity, recordId, origin || '');
+    }
+    if (request.method !== 'POST') return json({ error: 'Attachments are only available for job cards' }, 400, origin || '');
+    if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (existing.kind !== 'timesheets') return json({ error: 'Only timesheet corrections can be queued' }, 400, origin || '');
     const body = await readJson(request);
@@ -4473,6 +4992,7 @@ async function handle(request, env, ctx) {
       const body = await readJson(request);
       if (existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') return json({ error: 'A pay-month correction cannot change record type' }, 400, origin || '');
       if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods);
+      validatePortalRequestMutation(body, existing, identity);
       const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
       const result = await saveRecord(env, input, identity, existing);
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
@@ -4513,6 +5033,8 @@ export {
   adminDispatchQueued,
   adminQueueStatus,
   normaliseInput,
+  validatePortalRequestMutation,
+  validatePortalRequestDeletion,
   validateNoFutureWork,
   validatePayMonthCorrection,
   dispatchEndpoint,
@@ -4545,6 +5067,7 @@ export {
   xeroOAuthStateMatches,
   xeroInvoiceProjection,
   xeroInvoicePayload,
+  xeroInvoiceRecords,
   xeroInvoiceDeliveryStatus,
   xeroInvoicePaymentStatus,
   xeroInvoiceMutationPolicy,

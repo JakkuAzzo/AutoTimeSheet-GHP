@@ -41,7 +41,7 @@
 
 **Files:**
 - Create: `cloudflare-worker/src/task-workflow.js`
-- Create: `cloudflare-worker/migrations/0013_task_workflows.sql`
+- Create: `cloudflare-worker/migrations/0017_task_workflows.sql`
 - Modify: `cloudflare-worker/src/index.js`
 - Test: `tests/task-workflow.mjs`
 
@@ -101,4 +101,4 @@
 
 At task start, the 2026-10-16 read-only inspection found no dedicated `taskFormSubmitEndpoint`; the Worker health route was reachable, while protected routes required authentication. The repository's last recorded operational build status said the Task Calendar flow was disabled. No current provider verification was done in this implementation. Do not create a live task or claim SharePoint/Outlook completion until an approved internal test identity, delegated Flow Service consent, and the configured task workflow are available.
 
-Integration note: the active calendar/request lifecycle branch changes these same seven paths in its branch or current worktree: `cloudflare-worker/src/index.js`, `docs/portal-request-approval-flow.md`, `portal.js`, `portal/index.html`, `power-platform/submission-envelope-contract.json`, `tasks/index.html`, and `tests/portal-request-routing.mjs`. Review the combined hunks when those branches are integrated. The Job Cards branch currently adds migration `0014_job_card_attachments.sql`; the Xero branch has an uncommitted `0013_xero_refresh_locks.sql` alongside this task's `0013_task_workflows.sql`. Resolve ordered migration versions when integrating Xero and rerun migration checks before merge or release.
+Integration note: the active calendar/request lifecycle branch changes these same seven paths in its branch or current worktree: `cloudflare-worker/src/index.js`, `docs/portal-request-approval-flow.md`, `portal.js`, `portal/index.html`, `power-platform/submission-envelope-contract.json`, `tasks/index.html`, and `tests/portal-request-routing.mjs`. Review the combined hunks when those branches are integrated. The integrated mainline uses migrations `0013` through `0016` for off-site clock, job-card attachments, attendance approval, and Xero refresh locks. Task workflows therefore use `0017_task_workflows.sql`. Apply migrations in order and rerun migration checks before release.

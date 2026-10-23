@@ -56,6 +56,9 @@
     if (settings.body !== undefined) {
       headers["Content-Type"] = "application/json";
       fetchOptions.body = JSON.stringify(settings.body);
+    } else if (settings.rawBody !== undefined) {
+      if (settings.contentType) headers["Content-Type"] = String(settings.contentType);
+      fetchOptions.body = settings.rawBody;
     }
     var response = await fetch(endpoint + (String(path || "").charAt(0) === "/" ? path : "/" + path), fetchOptions);
     var text = await response.text();
@@ -161,6 +164,54 @@
     });
   }
 
+  function offsiteClockMine() {
+    return request('/api/offsite-clock/mine', { method: 'GET' });
+  }
+
+  function offsiteClockPending() {
+    return request('/api/offsite-clock/pending', { method: 'GET' });
+  }
+
+  function offsiteClockIn(body) {
+    return request('/api/offsite-clock/clock-in', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteClockLunchStart(body) {
+    return request('/api/offsite-clock/lunch-start', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteClockLunchEnd(body) {
+    return request('/api/offsite-clock/lunch-end', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteClockOut(body) {
+    return request('/api/offsite-clock/clock-out', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteClockDecision(entryId, body) {
+    return request('/api/offsite-clock/' + encodeURIComponent(String(entryId || '')) + '/decision', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteBookingsMine() {
+    return request('/api/offsite-bookings/mine', { method: 'GET' });
+  }
+
+  function offsiteBookingsPending() {
+    return request('/api/offsite-bookings/pending', { method: 'GET' });
+  }
+
+  function createOffsiteBooking(body) {
+    return request('/api/offsite-bookings', { method: 'POST', body: body || {} });
+  }
+
+  function amendOffsiteBooking(bookingId, body) {
+    return request('/api/offsite-bookings/' + encodeURIComponent(String(bookingId || '')), { method: 'PATCH', body: body || {} });
+  }
+
+  function offsiteBookingDecision(bookingId, body) {
+    return request('/api/offsite-bookings/' + encodeURIComponent(String(bookingId || '')) + '/decision', { method: 'POST', body: body || {} });
+  }
+
   function estimateIndexList() {
     return request("/api/estimates/index?limit=500", { method: "GET" });
   }
@@ -238,6 +289,45 @@
 
   function importJobCardPage(sessionId) {
     return request("/api/admin/job-cards/import", { method: "POST", body: { sessionId: String(sessionId || "") } });
+  }
+
+  function jobCardRecordAttachments(recordId) {
+    return request("/api/records/" + encodeURIComponent(String(recordId || "")) + "/attachments", { method: "GET" });
+  }
+
+  function startJobCardRecordAttachment(recordId, metadata) {
+    return request("/api/records/" + encodeURIComponent(String(recordId || "")) + "/attachments", { method: "POST", body: metadata || {} });
+  }
+
+  function uploadJobCardRecordAttachment(recordId, attachmentId, file, contentType) {
+    var path = "/api/records/" + encodeURIComponent(String(recordId || "")) + "/attachments/" + encodeURIComponent(String(attachmentId || "")) + "/content";
+    return request(path, { method: "PUT", rawBody: file, contentType: contentType || file && file.type || "application/octet-stream" });
+  }
+
+  function completeJobCardRecordAttachment(recordId, attachmentId) {
+    return request("/api/records/" + encodeURIComponent(String(recordId || "")) + "/attachments/" + encodeURIComponent(String(attachmentId || "")) + "/complete", { method: "POST", body: {} });
+  }
+
+  async function fetchJobCardRecordAttachment(recordId, attachmentId) {
+    var endpoint = baseUrl();
+    if (!endpoint) throw new Error("Protected portal attachments are not configured");
+    var headers = {};
+    var requestedScopes = scopes();
+    if (requestedScopes.length) {
+      var auth = await authContext();
+      if (!auth || typeof auth.acquireToken !== "function") throw new Error("Sign-in context unavailable");
+      var token = await auth.acquireToken(requestedScopes);
+      if (!token) throw new Error("Protected portal access token unavailable");
+      headers.Authorization = "Bearer " + token;
+    }
+    var path = "/api/records/" + encodeURIComponent(String(recordId || "")) + "/attachments/" + encodeURIComponent(String(attachmentId || "")) + "/content";
+    var response = await fetch(endpoint + path, { method: "GET", headers: headers, credentials: "include", cache: "no-store" });
+    if (!response.ok) {
+      var message = "Job-card attachment could not be opened (" + response.status + ")";
+      try { var body = await response.json(); if (body && body.error) message = body.error; } catch (_) {}
+      throw new Error(message);
+    }
+    return response.blob();
   }
 
   async function uploadJobCardFile(file, uploadUrl, onProgress) {
@@ -424,8 +514,12 @@
     return request("/api/xero/setup-data" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
   }
 
-  function xeroRecords() {
-    return request("/api/xero/records", { method: "GET" });
+  function xeroRecords(query, limit, offset) {
+    var params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (limit) params.set("limit", String(limit));
+    if (offset != null) params.set("offset", String(offset));
+    return request("/api/xero/records" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
   }
 
   function xeroInvoice(invoiceId, tenantId) {
@@ -495,6 +589,18 @@
     getRecord: getRecord,
     deleteRecord: deleteRecord,
     history: history,
+    offsiteClockMine: offsiteClockMine,
+    offsiteClockPending: offsiteClockPending,
+    offsiteClockIn: offsiteClockIn,
+    offsiteClockLunchStart: offsiteClockLunchStart,
+    offsiteClockLunchEnd: offsiteClockLunchEnd,
+    offsiteClockOut: offsiteClockOut,
+    offsiteClockDecision: offsiteClockDecision,
+    offsiteBookingsMine: offsiteBookingsMine,
+    offsiteBookingsPending: offsiteBookingsPending,
+    createOffsiteBooking: createOffsiteBooking,
+    amendOffsiteBooking: amendOffsiteBooking,
+    offsiteBookingDecision: offsiteBookingDecision,
     estimateIndexList: estimateIndexList,
     searchEstimateArchive: searchEstimateArchive,
     jobCardArchiveSearch: jobCardArchiveSearch,
@@ -507,6 +613,11 @@
     createJobCardUploadSession: createJobCardUploadSession,
     completeJobCardSourceUpload: completeJobCardSourceUpload,
     importJobCardPage: importJobCardPage,
+    jobCardRecordAttachments: jobCardRecordAttachments,
+    startJobCardRecordAttachment: startJobCardRecordAttachment,
+    uploadJobCardRecordAttachment: uploadJobCardRecordAttachment,
+    completeJobCardRecordAttachment: completeJobCardRecordAttachment,
+    fetchJobCardRecordAttachment: fetchJobCardRecordAttachment,
     uploadJobCardFile: uploadJobCardFile,
     getEstimateArchiveRecord: getEstimateArchiveRecord,
     getEstimateArchiveContent: getEstimateArchiveContent,

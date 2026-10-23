@@ -12,7 +12,7 @@ const mediaDir = resolve(repoRoot, 'training/media');
 const selected = process.argv[2] || 'all';
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
-const mime = { '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const mime = { '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.mp4': 'video/mp4', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp' };
 const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 mkdirSync(mediaDir, { recursive: true });
 
@@ -20,13 +20,13 @@ const server = createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   const rawPath = url.pathname.endsWith('/') ? `${url.pathname}index.html` : url.pathname;
   const filePath = normalize(join(repoRoot, rawPath));
-  if (!filePath.startsWith(repoRoot) || !existsSync(filePath) || !statSync(filePath).isFile()) {
-    res.writeHead(404); res.end('Not found'); return;
-  }
   if (rawPath === '/config.js') {
     res.writeHead(200, { 'content-type': 'text/javascript' });
-    res.end(readFileSync(filePath, 'utf8').replace('enabled: true', 'enabled: false'));
+    res.end('window.GMT_APP_CONFIG = { entraSpaAuth: { enabled: false }, portalApiEndpoint: "", portalApiScopes: [], formSubmitEndpoint: "", fallbackFormSubmitEndpoint: "" };');
     return;
+  }
+  if (!filePath.startsWith(repoRoot) || !existsSync(filePath) || !statSync(filePath).isFile()) {
+    res.writeHead(404); res.end('Not found'); return;
   }
   res.writeHead(200, { 'content-type': mime[extname(filePath)] || 'application/octet-stream' });
   createReadStream(filePath).pipe(res);
@@ -47,9 +47,16 @@ async function record(key, steps) {
     recordVideo: { dir: mediaDir, size: { width: 1280, height: 720 } }
   });
   const page = await context.newPage();
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin === baseUrl || (route.request().method() === 'GET' && ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'unpkg.com'].includes(url.hostname))) {
+      return route.continue();
+    }
+    return route.abort();
+  });
   await page.addInitScript(() => {
     localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({
-      name: 'Demo Employee', username: 'demo.employee@gmt-services.co.uk'
+      name: 'Demo Employee', username: 'demo.employee@example.invalid'
     }));
   });
   await page.goto(`${baseUrl}${steps.path}`, { waitUntil: 'networkidle' });
@@ -127,20 +134,21 @@ async function record(key, steps) {
 
 const demos = {
   'portal-profile': {
-    path: '/portal/',
+    path: '/portal/account.html',
     run: async ({ page, pause, highlight, callout }) => {
       await callout('Portal training', 'Sign in with your GMT account', 'Use the GMT Microsoft 365 account issued to you. The portal opens after Microsoft verifies your account.');
       await pause(3200);
       await highlight('#portal-profile-name', 'Step 1', 'Confirm your name', 'Your name is reused in staff portal forms, so you do not have to type it repeatedly.');
       await page.locator('#portal-profile-name').fill('Demo Employee');
-      await highlight('#portal-profile-email', 'Step 2', 'Add a contact email if needed', 'This optional address is saved only in this browser for copies and contact details.');
-      await page.locator('#portal-profile-email').fill('demo.employee@gmt-services.co.uk');
-      await highlight('#portal-profile-form button[type="submit"]', 'Step 3', 'Save before using the portal', 'Use Save profile after changing your details. Then choose the workflow you need below.');
+      await highlight('#portal-profile-login-email', 'Step 2', 'Check your GMT login email', 'Microsoft supplies this sign-in identity. It is read-only on the account page.');
+      await highlight('#portal-profile-email', 'Step 3', 'Add an optional email for copies', 'This address is saved to your GMT app profile and follows your sign-in on other devices. It does not change mailbox forwarding.');
+      await page.locator('#portal-profile-email').fill('demo.copy@example.invalid');
+      await highlight('#portal-profile-form button[type="submit"]', 'Step 4', 'Save account settings', 'Choose Save account settings when you want to save your changes. This training example does not save or submit anything.');
       await pause(2200);
     }
   },
   'clock-record': {
-    path: '/timesheets/',
+    path: '/portal/',
     run: async ({ page, pause, highlight, callout }) => {
       await callout('Quick records', 'Use this card for one event now', 'For a full week or a longer period, use Create Timesheet instead. This demonstration does not submit anything.');
       await pause(3000);
@@ -169,19 +177,27 @@ const demos = {
   'weekly-timesheet': {
     path: '/timesheets/create.html',
     run: async ({ page, pause, highlight, callout }) => {
-      await callout('Weekly timesheet', 'Create one complete weekly record', 'Use actual start, finish and break times. Daily cards calculate against the same source used by the exports.');
+      await callout('Weekly timesheet', 'Use actual times for each day', 'Your sign-in supplies your name and email. The current pay-month period is set automatically. This is a training example, not payroll history.');
       await pause(2800);
-      await highlight('#week-start', 'Step 1', 'Choose the week', 'Set the week start and end dates before generating daily cards.');
-      await page.locator('#week-start').fill('2026-08-03');
-      await page.locator('#week-end').fill('2026-08-09');
-      await highlight('#week-end', 'Step 2', 'Confirm the end date', 'Use the full working week you are submitting.');
-      await highlight('button:has-text("Generate day cards")', 'Step 3', 'Generate daily cards', 'The form creates one card per day. You can collapse a card after checking it.');
-      await page.getByRole('button', { name: 'Generate day cards' }).click();
+      await highlight('#generate-days-btn', 'Step 1', 'Generate weekday cards', 'The portal prepares the current dated period automatically. Include weekends only when needed.');
+      await page.locator('#generate-days-btn').click();
+      await page.waitForSelector('#days-container .day-card');
       await pause(1800);
       const firstCard = page.locator('.day-card').first();
-      await highlight(firstCard, 'Step 4', 'Enter actual daily time', 'Use the Start, Finish and Break fields on each day. Mark an absence before entering time.');
-      await highlight(firstCard.locator('select').first(), 'Step 5', 'Select the break', 'No break, 30 minutes or 1 hour. Sick and Holiday days lock the time and break fields.');
-      await highlight(firstCard.locator('button').last(), 'Step 6', 'Review calculated totals', 'Check the daily results, then use the form submit action to create XLSX and CSV attachments.');
+      await highlight(firstCard.locator('[data-field="date"]'), 'Step 2', 'Check each date', 'The generated card shows its date. Change it only when you need a different dated entry.');
+      await highlight(firstCard.locator('[data-field="start"]'), 'Step 3', 'Enter actual start and finish', 'Replace the sample values with the actual times for this day.');
+      await firstCard.locator('[data-field="start"]').fill('08:00');
+      await firstCard.locator('[data-field="finish"]').fill('17:00');
+      await highlight(firstCard.locator('[data-field="lunchHad"]'), 'Step 4', 'Record the break in minutes', 'Enter the actual break length. The training example uses a sample value only.');
+      await firstCard.locator('[data-field="lunchHad"]').fill('60');
+      for (let index = 1; index < await page.locator('.day-card').count(); index += 1) {
+        await page.locator('.day-card').nth(index).locator('[data-field="lunchHad"]').evaluate((input) => {
+          input.value = '60';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      }
+      await highlight(firstCard.locator('[data-field="absenceStatus"]'), 'Step 5', 'Mark an absence when needed', 'Choose Sick or Holiday before entering time for that day.');
+      await highlight('#summary-output', 'Final check', 'Review the calculated totals', 'Check the daily results and pay-month totals. The training example leaves Submit timesheet untouched.');
       await pause(2600);
     }
   },
@@ -197,6 +213,7 @@ const demos = {
       await highlight('#job-site', 'Step 3', 'Add site and engineer', 'Include the site address and the assigned engineer where known.');
       await page.locator('#job-site').fill('93-95 Gloucester Rd, Croydon');
       await page.locator('#job-engineer').fill('Demo Employee');
+      await page.locator('#job-date').fill('2026-10-20');
       await highlight('#job-image', 'Step 4', 'Attach one useful image if needed', 'The image is attached to the same job-card submission, not emailed separately.');
       await highlight('#job-description', 'Step 5', 'Describe the work clearly', 'Include the request, access notes, risks and useful context.');
       await page.locator('#job-description').fill('Training example only - do not submit.');
@@ -216,40 +233,69 @@ const demos = {
       await highlight('#task-assignee', 'Step 3', 'Assign the responsible person', 'Choose the person expected to complete or manage the work.');
       await page.locator('#task-assignee').fill('Demo Employee');
       await highlight('#task-due', 'Step 4', 'Set due date and priority', 'Use a realistic due date. Use urgent only when the work is genuinely urgent.');
-      await page.locator('#task-due').fill('2026-08-07');
+      await page.locator('#task-due').fill('2026-10-23');
       await page.locator('#task-priority').selectOption('High');
       await highlight('#task-form button[type="submit"]', 'Final check', 'Send for approval', 'Review the request before submitting. The board shows approved work by status.');
       await pause(2400);
     }
   },
   'calendar-request': {
-    path: '/calendar/',
+    path: '/portal/',
     run: async ({ page, pause, highlight, callout }) => {
-      await callout('Calendar request', 'Request a future operational event', 'This can be planned work, training, holiday or an absence. Accounts controls publication to Outlook.');
+      await callout('Calendar request', 'Start from the Dashboard calendar', 'Choose a date and open Request time off. This example uses Training and does not submit anything.');
       await pause(2600);
-      await highlight('#calendar-title', 'Step 1', 'Give the event a clear title', 'Keep it short and specific so the shared calendar is easy to scan.');
-      await page.locator('#calendar-title').fill('Example Client extractor inspection');
-      await highlight('#calendar-date', 'Step 2', 'Choose the event date and type', 'Choose the date, then select the most accurate type.');
-      await page.locator('#calendar-date').fill('2026-08-07');
-      await page.locator('#calendar-type').selectOption('Job');
-      await highlight('#calendar-owner', 'Step 3', 'Confirm the owner', 'Your portal profile usually supplies this. Check it identifies the requester or engineer.');
-      await page.locator('#calendar-owner').fill('Demo Employee');
-      await highlight('#calendar-notes', 'Step 4', 'Add the necessary context', 'Use notes for access arrangements, timing or any information accounts needs to approve it.');
-      await page.locator('#calendar-notes').fill('Training example only - do not submit.');
-      await highlight('#calendar-form button[type="submit"]', 'Final check', 'Submit for accounts approval', 'Approved events become controlled Outlook calendar updates.');
+      async function nextFutureCalendarDate() {
+        return page.locator('[data-calendar-day]').evaluateAll((buttons) => {
+          const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+          const part = (type) => parts.find((item) => item.type === type)?.value || '';
+          const today = `${part('year')}-${part('month')}-${part('day')}`;
+          return buttons.map((button) => button.getAttribute('data-calendar-day')).filter((day) => day && day > today).sort()[0] || '';
+        });
+      }
+      let calendarDate = await nextFutureCalendarDate();
+      if (!calendarDate) {
+        await page.locator('[data-portal-calendar-next]').click();
+        calendarDate = await nextFutureCalendarDate();
+      }
+      if (!calendarDate) throw new Error('No upcoming calendar date is available for the training example.');
+      const dayButton = page.locator(`[data-calendar-day="${calendarDate}"]`);
+      await highlight(dayButton, 'Step 1', 'Choose an upcoming date', 'The day actions use the date you select on the Dashboard calendar.');
+      await dayButton.click();
+      await highlight('[data-calendar-action-time-off]', 'Step 2', 'Open Request time off', 'This opens the current dated request form.');
+      await page.locator('[data-calendar-action-time-off]').click();
+      await highlight('.calendar-request-form [name="title"]', 'Step 3', 'Give the request a clear title', 'Keep the title short and specific so Accounts can review it.');
+      await page.locator('.calendar-request-form [name="title"]').fill('Training example only');
+      await highlight('.calendar-request-form [name="type"]', 'Step 4', 'Choose the request type', 'Select the closest match, such as Training, Holiday, Sick Day or General.');
+      await page.locator('.calendar-request-form [name="type"]').selectOption('Training');
+      await highlight('.calendar-request-form [name="notes"]', 'Step 5', 'Add useful context', 'Include the details Accounts needs to review the request.');
+      await page.locator('.calendar-request-form [name="notes"]').fill('Synthetic training example only. Do not submit.');
+      await highlight('.calendar-request-form button[type="submit"]', 'Final check', 'Review the pending request', 'Requests remain pending until Accounts approves them for Outlook. This training example leaves Submit request untouched.');
       await pause(2400);
     }
   },
   'timesheet-audit': {
     path: '/audit/',
     run: async ({ page, pause, highlight, callout }) => {
-      await callout('Timesheet audit', 'Check source files before accounts action', 'The audit reads supported Word, spreadsheet and ZIP inputs. It does not silently alter a source document.');
+      await callout('Timesheet audit', 'Use the checker from weekly entry', 'Open Analyse or upload an existing timesheet, then Open timesheet analysis. This example uses a synthetic training-only file.');
       await pause(2800);
-      await highlight('#sourceInput', 'Step 1', 'Choose one or more source files', 'Use DOCX, DOCM, XLSX, CSV or ZIP files. Legacy .doc needs conversion before automatic checking.');
-      await highlight('#addSourcesBtn', 'Step 2', 'Add the selected sources', 'First add the files, then run the calculation and check.');
+      await highlight('#sourceInput', 'Step 1', 'Choose a source file', 'The checker accepts DOCX, DOCM, XLSX, XLS, CSV, TXT, PDF and ZIP. Convert legacy DOC to DOCX or DOCM first.');
+      await page.locator('#sourceInput').setInputFiles({
+        name: 'TRAINING-ONLY-DEMO-NOT-PAYROLL.csv',
+        mimeType: 'text/csv',
+        buffer: readFileSync(resolve(repoRoot, 'tests/fixtures/training-audit-sample.csv'))
+      });
+      await page.waitForSelector('#sourceList .source-item');
+      await highlight('#sourceList .source-item', 'Step 2', 'Confirm the source was added', 'Selecting a file adds it to the list automatically. Check the selected source before calculating.');
       await highlight('#runBtn', 'Step 3', 'Calculate and check sources', 'The result starts with a plain-English decision: no action needed, issues to review, or parse errors.');
-      await highlight('#status', 'Step 4', 'Read the decision first', 'Use the detailed audit data only after reviewing the decision and correction cards.');
-      await pause(2800);
+      await page.locator('#runBtn').click();
+      await page.waitForSelector('#resultsCard:not(.hidden) #statusBanner');
+      await pause(1200);
+      await highlight('#statusBanner', 'Step 4', 'Read the decision first', 'Use the result and correction cards before opening detailed rows or exports. Source files are not changed.');
+      await highlight('#resultSummary', 'Step 5', 'Review the result summary', 'The one-row fixture is synthetic training data, not payroll history.');
+      await page.locator('.tab[data-tab="rowsPane"]').click();
+      await highlight('#rowsTable tbody tr', 'Step 6', 'Confirm the calculated times', '08:00 to 17:00 minus a 60-minute break calculates as 8 hours basic.');
+      await page.locator('.tab[data-tab="exportsPane"]').click();
+      await highlight('#submitAuditBtn', 'Final check', 'Leave submission untouched', 'The training example does not download or send anything to Accounts.');
     }
   }
 };

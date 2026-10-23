@@ -64,17 +64,27 @@ that the flow or Worker secret has been configured or deployed.
 ## Technical Boundary
 
 - Calendar request intake remains on its separate FormSubmit path until its
-  approved Microsoft 365 workflow changes.
+  approved Microsoft 365 workflow changes. The portal saves a protected
+  history record and then attempts the structured FormSubmit submission;
+  an attempted email is not proof of delivery or processing.
 - Task controls follow Worker-returned role and ownership metadata. The Worker
-  repeats every role check against the signed Entra identity; changing browser
-  fields cannot approve, assign, or progress a task.
+  repeats every role check against the signed Entra identity; browser fields
+  cannot approve, assign, or progress tasks.
 - The Microsoft List task row is authoritative. D1 is a protected mirror and
   idempotent retry/activity store, not an approval authority.
 - The task HTTP flow must deduplicate action IDs and use List ETags so
   concurrent or retried updates cannot overwrite a newer List state.
+- The client-side portal does not approve requests or change task statuses.
+  Accounts performs those actions in Microsoft Lists or an approved flow.
+- The dashboard calendar preview reads the published event feed only. It does
+  not merge browser-local requests or protected request history into shared
+  events, and it exposes retry when the published feed cannot be loaded.
 - Browser code never writes directly to Graph, SharePoint, or Outlook.
 - Timesheet absence events are separate: the Timesheet Intake flow may publish
   them directly to the shared calendar after a valid timesheet submission.
+- The authoritative request status is the Microsoft List row maintained by its
+  approved flow; a protected portal mirror or hidden-form submission alone is
+  not evidence that Microsoft 365 processed a request.
 
 ## Release Checklist
 

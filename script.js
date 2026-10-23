@@ -109,9 +109,9 @@ function dateObj(value) {
   return value ? new Date(`${value}T00:00:00`) : null;
 }
 
-// Payroll routing is shared with the portal and clock forms. GMT's current
-// period is 24 August–18 September 2026 (Pay Month 2026-09); the helper also
-// generates the next period from the same fixed four-week payroll cycle.
+// Payroll routing is shared with the portal and clock forms. The 24 August
+// cycle runs through Sunday 20 September 2026; payroll is processed Friday 18
+// September (Pay Month 2026-09).
 function payMonthKeyForDate(value) {
   const helper = window.GMTPayPeriods;
   return helper && typeof helper.payMonthKeyForDate === 'function'
@@ -322,14 +322,17 @@ function periodDateLabel(value) {
 function updatePeriodSummary() {
   const anchorDate = weekStart.value || isoDate(new Date());
   const payMonth = payMonthKeyForDate(anchorDate);
+  const period = window.GMTPayPeriods && typeof window.GMTPayPeriods.periodForDate === 'function'
+    ? window.GMTPayPeriods.periodForDate(anchorDate)
+    : null;
   if (timesheetPayMonthDisplay) {
     timesheetPayMonthDisplay.textContent = payMonthLabel(payMonth);
   }
   if (timesheetPeriodDisplay) {
-    const period = payPeriodLabelForDate(anchorDate);
+    const payrollFriday = period && (period.payrollFriday || period.payrollEnd || period.end);
     timesheetPeriodDisplay.textContent = period
-      ? `Pay-period workbook: ${period}. You can submit any dated week; routing is automatic.`
-      : 'Pay-period workbook is assigned automatically from the dates you enter.';
+      ? `Cycle start: ${period.start}. Cycle end: ${period.cycleEnd}. Payroll Friday: ${payrollFriday}. Entry dates route to Pay Month ${payMonthLabel(payMonth)}.`
+      : 'The cycle dates, payroll Friday and pay month are assigned automatically from the dates you enter.';
   }
 }
 
@@ -782,13 +785,17 @@ function generateDaysFromRange(preserveRows = false) {
 function ensureXlsxLoaded() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   if (!xlsxPromise) {
+    const script = document.createElement('script');
+    script.src = XLSX_SRC;
+    script.async = true;
     xlsxPromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = XLSX_SRC;
-      script.async = true;
       script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('Excel generator loaded but was not available.'));
       script.onerror = () => reject(new Error('Could not load Excel generator. Please check the connection and try again.'));
       document.head.appendChild(script);
+    }).catch((error) => {
+      script.remove();
+      xlsxPromise = null;
+      throw error;
     });
   }
   return xlsxPromise;
@@ -822,6 +829,9 @@ function allRowsForExport(calculated) {
 function buildWorkbook(calculated, totals, weighted) {
   const { startDate, endDate } = submittedDateBounds(calculated);
   const payMonth = payMonthKeyForWeek(startDate, endDate);
+  const period = window.GMTPayPeriods && typeof window.GMTPayPeriods.periodForDate === 'function'
+    ? window.GMTPayPeriods.periodForDate(startDate || endDate)
+    : null;
   const allRows = allRowsForExport(calculated);
   const totalsRows = [
     ['GMT Pay-month Timesheet Submission'],
@@ -830,6 +840,9 @@ function buildWorkbook(calculated, totals, weighted) {
     ['Employee email', employeeEmail.value.trim()],
     ['Pay month', payMonth],
     ['Pay month label', payMonthLabel(payMonth)],
+    ['Timesheet cycle start', period?.start || ''],
+    ['Timesheet cycle end', period?.cycleEnd || ''],
+    ['Payroll Friday (Accounts processing date)', period?.payrollFriday || period?.payrollEnd || period?.end || ''],
     ['Week start', startDate],
     ['Week end', endDate],
     [],
@@ -866,8 +879,13 @@ function buildWorkbook(calculated, totals, weighted) {
   return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${startDate || 'unspecified'}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-function buildCsvFile(calculated) {
-  const rows = allRowsForExport(calculated);
+function buildCsvFile(calculated, submissionId) {
+  const rows = allRowsForExport(calculated).map((row) => ({
+    Employee: employeeName.value.trim(),
+    'Employee email': employeeEmail.value.trim(),
+    ...row,
+    'Source record ID': `${submissionId}|${row.Date}`
+  }));
   const header = Object.keys(rows[0] || {});
   const csv = [header, ...rows.map((row) => header.map((key) => row[key]))].map((row) => row.map(csvEscape).join(',')).join('\r\n');
   const { startDate, endDate } = submittedDateBounds(calculated);
@@ -977,6 +995,9 @@ function buildCalendarSync(calculated, totals) {
   const employee = employeeName.value.trim();
   const { startDate, endDate: lastDate } = submittedDateBounds(calculated);
   const payMonth = payMonthKeyForWeek(startDate, lastDate);
+  const period = window.GMTPayPeriods && typeof window.GMTPayPeriods.periodForDate === 'function'
+    ? window.GMTPayPeriods.periodForDate(startDate || lastDate)
+    : null;
   const weeklyEvent = startDate && lastDate ? {
     type: 'timesheet',
     title: `Timesheet submitted: ${employee} | Week ${startDate}`,
@@ -998,6 +1019,9 @@ function buildCalendarSync(calculated, totals) {
     weekStart: startDate,
     weekEnd: lastDate,
     payMonth,
+    cycleStart: period?.start || '',
+    cycleEnd: period?.cycleEnd || '',
+    payrollFriday: period?.payrollFriday || period?.payrollEnd || period?.end || '',
     submittedAt: new Date().toISOString(),
     events: [...(weeklyEvent ? [weeklyEvent] : []), ...absences]
   };
@@ -1435,6 +1459,9 @@ function createEmailForm() {
     <input type="hidden" name="gmt_week_start" data-clean-field="gmtWeekStart">
     <input type="hidden" name="gmt_week_end" data-clean-field="gmtWeekEnd">
     <input type="hidden" name="gmt_pay_month" data-clean-field="gmtPayMonth">
+    <input type="hidden" name="gmt_cycle_start" data-clean-field="gmtCycleStart">
+    <input type="hidden" name="gmt_cycle_end" data-clean-field="gmtCycleEnd">
+    <input type="hidden" name="gmt_payroll_friday" data-clean-field="gmtPayrollFriday">
     <input type="hidden" name="gmt_year" data-clean-field="gmtYear">
     <input type="hidden" name="gmt_month" data-clean-field="gmtMonth">
     <input type="hidden" name="gmt_worked_hours" data-clean-field="gmtWorkedHours">
@@ -1488,12 +1515,12 @@ async function submitTimesheet(event) {
   try {
     await ensureXlsxLoaded();
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
-    const csvFile = buildCsvFile(calculated);
     const calendarSync = buildCalendarSync(calculated, totals);
     // Preserve the source ID when this form was opened from protected history.
     // That makes a correction update the existing record instead of creating a
     // second submission for the same employee and week.
     const submissionId = editSourceId || await buildTimesheetSubmissionId(calendarSync, calculated);
+    const csvFile = buildCsvFile(calculated, submissionId);
     const workbookKey = buildTimesheetWorkbookKey(calendarSync);
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
     // Send machine-readable envelopes with every submission. The intake flow
@@ -1558,6 +1585,9 @@ async function submitTimesheet(event) {
     field('gmtEmployeeUpn').value = calendarSyncWithIds.employeeUpn;
     field('gmtWeekStart').value = calendarSyncWithIds.weekStart;
     field('gmtWeekEnd').value = calendarSyncWithIds.weekEnd;
+    field('gmtCycleStart').value = calendarSyncWithIds.cycleStart || '';
+    field('gmtCycleEnd').value = calendarSyncWithIds.cycleEnd || '';
+    field('gmtPayrollFriday').value = calendarSyncWithIds.payrollFriday || '';
     const payMonth = calendarSyncWithIds.payMonth || payMonthKeyForWeek(calendarSyncWithIds.weekStart, calendarSyncWithIds.weekEnd);
     const coverage = window.GMTTimesheetCoverage && await window.GMTTimesheetCoverage.fromPortal(
       window.GMTPortalApi, window.GMTPayPeriods, payMonth, userEmail, calculated

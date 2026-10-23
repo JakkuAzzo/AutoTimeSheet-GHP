@@ -9,6 +9,19 @@
     "storage": "GMT Web-App SharePoint / Shared Documents / Timesheets",
     "index": "Timesheet Submissions Microsoft List"
   },
+  "recordIdentity": {
+    "sourceFields": ["gmt_record_id", "gmt_submission_id", "recordId", "record_id", "submissionId", "Source record ID"],
+    "rowKey": "Use the original source submission ID; for dated weekly rows, append the source Date as emitted by GMT Timesheet Record JSON.",
+    "missingId": "reject-before-workbook-write",
+    "csvProducerRule": "Weekly CSV rows include Employee, Employee email and Source record ID matching the structured JSON recordId; clock CSV rows include Employee, Employee email, Action and the original gmt_record_id as Source record ID.",
+    "forbiddenFallbacks": [
+      "employee/date/action/time",
+      "employee/date/index",
+      "Calendar Sync event.syncEventId",
+      "Outlook message ID"
+    ],
+    "companionMergeKey": ["Source record ID", "Employee", "Date"]
+  },
   "observedLive": {
     "trigger": "Shared mailbox V2 on accounts8765@gmtelectservsltd.onmicrosoft.com / Inbox; this address is absent from the loaded Exchange mailbox list and the trigger has reported ErrorInvalidUser",
     "connection": "Amanda.BB@gmt-services.co.uk Outlook connection",
@@ -30,7 +43,7 @@
   ],
   "routing": {
     "authority": "The Date field of every daily row; weekStart, weekEnd, subject and receive date are not payroll dates",
-    "periodPolicy": "Use pay-periods.js: four-week cycles anchored 2026-08-24, labelled by the Friday in week four. The displayed 2026-09 payroll Friday is 2026-09-18; the immediately following weekend remains in that cycle until payroll policy says otherwise.",
+    "periodPolicy": "Use pay-periods.js: the four-week cycle anchored 2026-08-24 runs through 2026-09-20. Payroll is processed on Friday 2026-09-18. The cycle-end date and payroll Friday are separate dates; daily row dates determine the pay month.",
     "mixedPayMonths": "Partition a legacy attachment into one per-pay-month row array. Never rewrite its Date values to fit the named week. Replacement snapshots must belong to exactly one declared pay month.",
     "folder": "/Timesheets/{payYear}/{payMonthNumber}/{employeeName}",
     "workbook": "GMT Timesheet - {employeeName} - Pay Month {payMonth}.xlsx",

@@ -10,6 +10,9 @@
     "gmt_record_id",
     "gmt_submitted_at"
   ],
+  "optionalCommon": [
+    "gmt_updated_at"
+  ],
   "timesheet": {
     "required": [
       "gmt_submission_id",
@@ -38,7 +41,14 @@
     "attachmentRule": "Accept only non-inline XLSX, CSV, GMT Timesheet Record JSON and GMT Calendar Sync JSON files. Filter array stores the four controlled file classes; Filter array 2 selects the record JSON for the Excel upsert. Reject every other JSON or inline attachment.",
     "filingMode": "monthly-upsert",
     "dedupeKey": "gmt_record_id",
-    "workbookKey": "gmt_workbook_key"
+    "workbookKey": "gmt_workbook_key",
+    "recordIdentity": {
+      "sourceFields": ["gmt_record_id", "gmt_submission_id", "recordId", "record_id", "submissionId", "Source record ID"],
+      "missingId": "reject-before-workbook-write",
+      "derivedFallbacks": false,
+      "csvProducerRule": "Weekly CSV rows carry Source record ID equal to the matching GMT Timesheet Record JSON recordId (submissionId plus Date); clock CSV rows carry the original gmt_record_id.",
+      "companionMergeKey": ["Source record ID", "Employee", "Date"]
+    }
   },
   "estimate": {
     "required": [

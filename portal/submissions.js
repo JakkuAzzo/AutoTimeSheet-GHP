@@ -88,7 +88,10 @@
   function currentEmployee() { return employeeFilter && employeeFilter.value ? String(employeeFilter.value).toLowerCase() : ""; }
   function employeeKey(record) {
     if (!record || record.is_demo || actionKey(record) === "enquiries") return "";
-    return String(record.employee_upn || record.employee_name || "").trim().toLowerCase();
+    // Keep audit-list filtering on the same exact roster/name resolution used
+    // to group pay-month sheets. The history response is already authorized;
+    // this only maps a unique roster name to its UPN within that response.
+    return sheetEmployeeKey(record);
   }
   function compactDate(record) {
     if (record && record.record_date) return String(record.record_date);
@@ -111,6 +114,25 @@
       if (routed.length) return routed.sort()[0];
     }
     return dates.length ? dates[0].slice(0, 7) : "";
+  }
+  function payMonthKeyForDate(date) {
+    if (!date) return "";
+    return window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
+      ? window.GMTPayPeriods.payMonthKeyForDate(date)
+      : date.slice(0, 7);
+  }
+  function matchesPayMonth(record, month) {
+    if (!month) return true;
+    var months = recordRows(record).map(function (row) {
+      return payMonthKeyForDate(rowDate(row));
+    }).filter(Boolean);
+    return months.length ? months.indexOf(month) !== -1 : payMonthForRecord(record) === month;
+  }
+  function hasDayInPayMonth(record, day, month) {
+    return recordRows(record).some(function (row) {
+      var date = rowDate(row);
+      return date === day && (!month || payMonthKeyForDate(date) === month);
+    });
   }
   function rowDate(row) {
     if (!row || typeof row !== "object") return "";
@@ -145,6 +167,11 @@
     return (label === "Canonical employee month workbook replay 2026-09-17-02" || label === "ARCHIVE REAL") && recordRows(record).length === 0;
   }
   function recordId(record) { return String(record && (record.source_record_id || record.record_id || record.id) || ""); }
+  function authoritativeSourceRecordId(record) { return String(record && (record.source_record_id || record.record_id) || ""); }
+  function sourceRecordIdDetail(record) {
+    var id = authoritativeSourceRecordId(record);
+    return id ? '<p><strong>Source record ID:</strong> ' + safe(id) + '</p>' : '';
+  }
   function recordUpdated(record) {
     var value = record && (record.updated_at || record.updatedAt || record.submitted_at || record.submittedAt || "");
     var time = Date.parse(String(value));
@@ -329,15 +356,18 @@
     var selectedType = currentTab && currentTab !== "all" ? currentTab : "";
     var selectedEmployee = currentEmployee();
     var selectedMonth = payMonthFilter && payMonthFilter.value ? String(payMonthFilter.value) : "";
-    var dailyRecords = window.GMTCalendarData && typeof window.GMTCalendarData.combineDailyRecords === "function"
-      ? window.GMTCalendarData.combineDailyRecords(records, { employees: historyMeta && historyMeta.completion && historyMeta.completion.employees || [] })
-      : [];
-    var displayRecords = records.filter(function (record) { return !isTimesheetLike(record) || record.is_demo; }).concat(dailyRecords);
-    return displayRecords.filter(function (record) {
+    // This workspace is an audit/history list: retain each authorised source
+    // record so its count and version identity do not collapse into calendar
+    // day rollups. Calendar consumers can continue using combineDailyRecords.
+    return records.filter(function (record) {
       if (selectedType === "timesheets" ? !isTimesheetLike(record) : (selectedType && actionKey(record) !== selectedType)) return false;
       if (selectedEmployee && employeeKey(record) !== selectedEmployee) return false;
-      if (selectedMonth && payMonthForRecord(record) !== selectedMonth) return false;
-      if (selectedDay && !recordRows(record).some(function (row) { return rowDate(row) === selectedDay; })) return false;
+      if (selectedMonth && selectedDay) {
+        if (!hasDayInPayMonth(record, selectedDay, selectedMonth)) return false;
+      } else {
+        if (selectedMonth && !matchesPayMonth(record, selectedMonth)) return false;
+        if (selectedDay && !hasDayInPayMonth(record, selectedDay, "")) return false;
+      }
       return true;
     });
   }
@@ -445,7 +475,7 @@
     var payload = payloadFor(record);
     var data = jobPreviewData(record);
     var selectedType = String(record.card_type || payload.cardType || "EC").toUpperCase() === "MTA" ? "MTA" : "EC";
-    preview.innerHTML = '<div class="submission-document-preview"><div class="job-card-preview-heading"><div><p class="portal-card-kicker">' + safe(selectedType) + ' card</p><h3>' + safe(record.is_demo ? "Example job card" : (record.job_ref || record.record_id || "Job card")) + '</h3></div><div class="job-card-preview-toggle" role="group" aria-label="Preview card format"><button type="button" class="secondary' + (selectedType === "EC" ? ' is-selected' : '') + '" data-submission-card-type="EC" aria-pressed="' + String(selectedType === "EC") + '">EC card</button><button type="button" class="secondary' + (selectedType === "MTA" ? ' is-selected' : '') + '" data-submission-card-type="MTA" aria-pressed="' + String(selectedType === "MTA") + '">MTA card</button></div></div><div class="job-card-preview" data-submission-job-sheet>' + (selectedType === "MTA" ? renderMtaJobSheet(data) : renderEcJobSheet(data)) + '</div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + '</div>';
+    preview.innerHTML = '<div class="submission-document-preview"><div class="job-card-preview-heading"><div><p class="portal-card-kicker">' + safe(selectedType) + ' card</p><h3>' + safe(record.is_demo ? "Example job card" : (record.job_ref || record.record_id || "Job card")) + '</h3></div><div class="job-card-preview-toggle" role="group" aria-label="Preview card format"><button type="button" class="secondary' + (selectedType === "EC" ? ' is-selected' : '') + '" data-submission-card-type="EC" aria-pressed="' + String(selectedType === "EC") + '">EC card</button><button type="button" class="secondary' + (selectedType === "MTA" ? ' is-selected' : '') + '" data-submission-card-type="MTA" aria-pressed="' + String(selectedType === "MTA") + '">MTA card</button></div></div><div class="job-card-preview" data-submission-job-sheet>' + (selectedType === "MTA" ? renderMtaJobSheet(data) : renderEcJobSheet(data)) + '</div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + sourceRecordIdDetail(record) + '</div>';
     preview.querySelectorAll("[data-submission-card-type]").forEach(function (button) {
       button.addEventListener("click", function () {
         var type = button.getAttribute("data-submission-card-type") === "MTA" ? "MTA" : "EC";
@@ -473,7 +503,7 @@
   function renderEstimatePreview(record) {
     var d = estimatePreviewData(record);
     var rows = d.items.map(function (item) { return '<tr><td>' + safe(item.description) + '</td><td>' + safe(item.quantity) + '</td><td>' + safe(money(item.unit)) + '</td><td>' + safe(money(item.quantity * item.unit)) + '</td></tr>'; }).join("") || '<tr><td colspan="4">No line items added.</td></tr>';
-    preview.innerHTML = '<div class="estimate-paper-header"><img class="estimate-paper-logo" src="../image.png" alt="GMT Electrical Services Ltd logo"><div class="estimate-paper-company"><p>Electric Motor Repairs &amp; Rewinds</p><p>Electrical &amp; Mechanical Engineers</p><p>Air Conditioning Repair &amp; Service</p><p>93-95 Gloucester Rd, Croydon CR0 2DN</p><p>Tel 020 8683 0464</p><p>info@gmt-services.co.uk</p></div></div><h1 class="estimate-paper-title">Estimate</h1><div class="estimate-paper-meta"><div><p><strong>For the attention of:</strong> ' + safe(d.attention) + '</p><p><strong>Company:</strong> ' + safe(d.company) + '</p><p><strong>Re:</strong> ' + safe(d.reference) + '</p></div><div><p><strong>Date:</strong> ' + safe(d.date) + '</p><p><strong>Estimate no:</strong> ' + safe(d.number) + '</p></div></div><div class="estimate-paper-body"><p>' + safe(d.opening).replace(/\n/g, '<br>') + '</p><table class="estimate-paper-table"><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>' + rows + '</tbody></table><div class="estimate-paper-total"><p><span>Subtotal</span><strong>' + safe(money(d.subtotal)) + '</strong></p><p><span>VAT (' + safe(d.vatRate) + '%)</span><strong>' + safe(money(d.vat)) + '</strong></p><p class="grand-total"><span>Total</span><strong>' + safe(money(d.total)) + '</strong></p></div></div><p class="estimate-paper-terms">' + safe(d.terms) + '<br><br>Estimate validity: ' + safe(d.validity) + ' days.</p><p>Regards,<br>' + safe(d.preparedBy) + '</p>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '');
+    preview.innerHTML = '<div class="estimate-paper-header"><img class="estimate-paper-logo" src="../image.png" alt="GMT Electrical Services Ltd logo"><div class="estimate-paper-company"><p>Electric Motor Repairs &amp; Rewinds</p><p>Electrical &amp; Mechanical Engineers</p><p>Air Conditioning Repair &amp; Service</p><p>93-95 Gloucester Rd, Croydon CR0 2DN</p><p>Tel 020 8683 0464</p><p>info@gmt-services.co.uk</p></div></div><h1 class="estimate-paper-title">Estimate</h1><div class="estimate-paper-meta"><div><p><strong>For the attention of:</strong> ' + safe(d.attention) + '</p><p><strong>Company:</strong> ' + safe(d.company) + '</p><p><strong>Re:</strong> ' + safe(d.reference) + '</p></div><div><p><strong>Date:</strong> ' + safe(d.date) + '</p><p><strong>Estimate no:</strong> ' + safe(d.number) + '</p></div></div><div class="estimate-paper-body"><p>' + safe(d.opening).replace(/\n/g, '<br>') + '</p><table class="estimate-paper-table"><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>' + rows + '</tbody></table><div class="estimate-paper-total"><p><span>Subtotal</span><strong>' + safe(money(d.subtotal)) + '</strong></p><p><span>VAT (' + safe(d.vatRate) + '%)</span><strong>' + safe(money(d.vat)) + '</strong></p><p class="grand-total"><span>Total</span><strong>' + safe(money(d.total)) + '</strong></p></div></div><p class="estimate-paper-terms">' + safe(d.terms) + '<br><br>Estimate validity: ' + safe(d.validity) + ' days.</p><p>Regards,<br>' + safe(d.preparedBy) + '</p>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + sourceRecordIdDetail(record);
   }
 
   function renderTaskPreview(record) {
@@ -483,7 +513,7 @@
     var assignee = record.assignee || payload.assignee || "Unassigned";
     var due = record.due_date || payload.due || record.record_date || "No due date";
     var priority = record.priority || payload.priority || "Normal";
-    preview.innerHTML = '<div class="submission-task-preview"><div class="submission-task-preview-header"><img class="submission-task-preview-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><div><p class="portal-card-kicker">GMT task</p><h2>' + safe(title) + '</h2></div><span class="portal-status">' + safe(record.status || "Example only") + '</span></div><div class="submission-task-preview-meta"><p><strong>Job reference:</strong> ' + safe(job) + '</p><p><strong>Assigned to:</strong> ' + safe(assignee) + '</p><p><strong>Due:</strong> ' + safe(due) + '</p><p><strong>Priority:</strong> ' + safe(priority) + '</p></div><div class="submission-task-preview-notes"><strong>Notes</strong><p>' + safe(payload.notes || "Example task for the GMT operational workflow.") + '</p></div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + '</div>';
+    preview.innerHTML = '<div class="submission-task-preview"><div class="submission-task-preview-header"><img class="submission-task-preview-logo" src="../assets/brand/gmt-icon.png" alt="GMT Electrical Services Ltd logo"><div><p class="portal-card-kicker">GMT task</p><h2>' + safe(title) + '</h2></div><span class="portal-status">' + safe(record.status || "Example only") + '</span></div><div class="submission-task-preview-meta"><p><strong>Job reference:</strong> ' + safe(job) + '</p><p><strong>Assigned to:</strong> ' + safe(assignee) + '</p><p><strong>Due:</strong> ' + safe(due) + '</p><p><strong>Priority:</strong> ' + safe(priority) + '</p></div><div class="submission-task-preview-notes"><strong>Notes</strong><p>' + safe(payload.notes || "Example task for the GMT operational workflow.") + '</p></div>' + (record.is_demo ? '<p class="portal-history-demo">Example preview only. This row is not a submitted GMT record.</p>' : '') + sourceRecordIdDetail(record) + '</div>';
   }
 
   function renderEnquiryPreview(record) {
@@ -494,7 +524,7 @@
       return '<article class="enquiry-thread-message ' + (outbound ? 'is-outbound' : 'is-inbound') + '"><div class="enquiry-thread-message-meta"><strong>' + safe(message.author || (outbound ? "GMT team" : record.customer_name || "Customer")) + '</strong><time datetime="' + safe(message.at || "") + '">' + safe(message.at || "") + '</time></div><p>' + safe(message.body || message.subject || "") + '</p></article>';
     }).join("") : '<p class="small-text">No message body has been filed yet. Open the inbox thread to review the source conversation.</p>';
     var outlookLink = record.conversation_url ? '<p><a class="button button-link" href="' + safe(record.conversation_url) + '" target="_blank" rel="noopener">Open inbox thread</a></p>' : '<p class="small-text">The Outlook conversation link will appear after the Microsoft 365 intake flow links this enquiry.</p>';
-    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">Customer enquiry</p><h2>' + safe(record.customer_name || "Unnamed customer") + '</h2></div><span class="portal-status">' + safe(record.status || "New") + '</span></div><div class="timesheet-paper-meta"><p><strong>Request:</strong> ' + safe(record.request_type || "General enquiry") + '</p><p><strong>Email:</strong> ' + safe(record.customer_email || "Not provided") + '</p><p><strong>Phone:</strong> ' + safe(record.customer_phone || "Not provided") + '</p><p><strong>Inbox:</strong> ' + safe(record.mailbox || "GMT enquiries inbox") + ' · ' + safe(record.inbox_status || "Awaiting inbox synchronisation") + '</p><p><strong>Thread ID:</strong> ' + safe(record.thread_id || record.conversation_id || "Not linked") + '</p></div><section class="enquiry-thread" aria-label="Enquiry email thread"><h3>Email thread</h3>' + thread + '</section>' + outlookLink + '<form class="enquiry-reply-form" data-enquiry-reply-form="' + safe(record.source_record_id || "") + '"><label for="enquiry-reply">Add to this thread<textarea id="enquiry-reply" name="reply" rows="4" placeholder="Add an internal note or reply for Accounts to send" required></textarea></label><button type="submit" class="secondary">Save to protected thread</button><p class="small-text" data-enquiry-reply-status role="status">Replies are saved to the protected record. Microsoft 365 inbox sending remains flow-managed.</p></form>';
+    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">Customer enquiry</p><h2>' + safe(record.customer_name || "Unnamed customer") + '</h2></div><span class="portal-status">' + safe(record.status || "New") + '</span></div><div class="timesheet-paper-meta"><p><strong>Request:</strong> ' + safe(record.request_type || "General enquiry") + '</p><p><strong>Email:</strong> ' + safe(record.customer_email || "Not provided") + '</p><p><strong>Phone:</strong> ' + safe(record.customer_phone || "Not provided") + '</p><p><strong>Inbox:</strong> ' + safe(record.mailbox || "GMT enquiries inbox") + ' · ' + safe(record.inbox_status || "Awaiting inbox synchronisation") + '</p><p><strong>Thread ID:</strong> ' + safe(record.thread_id || record.conversation_id || "Not linked") + '</p>' + sourceRecordIdDetail(record) + '</div><section class="enquiry-thread" aria-label="Enquiry email thread"><h3>Email thread</h3>' + thread + '</section>' + outlookLink + '<form class="enquiry-reply-form" data-enquiry-reply-form="' + safe(record.source_record_id || "") + '"><label for="enquiry-reply">Add to this thread<textarea id="enquiry-reply" name="reply" rows="4" placeholder="Add an internal note or reply for Accounts to send" required></textarea></label><button type="submit" class="secondary">Save to protected thread</button><p class="small-text" data-enquiry-reply-status role="status">Replies are saved to the protected record. Microsoft 365 inbox sending remains flow-managed.</p></form>';
     var replyForm = preview.querySelector("[data-enquiry-reply-form]");
     if (replyForm) replyForm.addEventListener("submit", function (event) { saveEnquiryReply(event, record); });
   }
@@ -573,6 +603,8 @@
     var canOpenFull = sheet.records.length ? timesheetHref(sheet.records[0], "", sheet.payMonth) : "timesheets.html";
     var roster = historyMeta && historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
     var employeeSchedule = roster.find(function (entry) { return String(entry.employee_upn || "").toLowerCase() === String(sheet.employeeUpn || "").toLowerCase(); });
+    var sheetPeriod = window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth ? window.GMTPayPeriods.periodForMonth(sheet.payMonth) : null;
+    var payrollFriday = sheetPeriod && (sheetPeriod.payrollFriday || sheetPeriod.payrollEnd || sheetPeriod.end) || "";
     var coverage = window.GMTTimesheetCoverage && window.GMTTimesheetCoverage.summarize({ period: window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth(sheet.payMonth), employeeEmail: sheet.employeeUpn, records: [], submittedRows: sheet.rows.map(function (item) { return item.row; }), workdays: employeeSchedule && employeeSchedule.schedule_weekdays });
     var coverageNote = "";
     if (coverage) {
@@ -580,13 +612,7 @@
       var outstanding = coverage.overdue.concat(coverage.upcoming);
       coverageNote = '<details class="pay-month-edit-note" data-pay-month-coverage><summary>' + completed + ' of ' + coverage.expected.length + ' scheduled days recorded or explained' + (outstanding.length ? ' · ' + outstanding.length + ' need attention' : ' · complete') + '</summary><p>' + (outstanding.length ? 'Still needing an entry or a user-entered absence reason: ' + safe(outstanding.join(', ')) + '. ' : '') + 'Missing days are never marked absent automatically.</p></details>';
     }
-    preview.innerHTML = '<div class="pay-month-sheet-preview"><div class="timesheet-paper-header"><div><p class="portal-card-kicker">' + safe(monthLabel(sheet.payMonth)) + '</p><h2>' + safe(sheet.employeeName) + '</h2><p class="small-text">' + safe(sheet.employeeUpn) + ' · ' + editorRows.length + ' daily row' + (editorRows.length === 1 ? '' : 's') + '</p></div><span class="portal-status ' + (editable ? 'approved' : 'pending') + '">' + (editable ? 'Editable' : 'Read only') + '</span></div><div class="timesheet-paper-meta"><p><strong>Pay month:</strong> ' + safe(sheet.payMonth) + '</p><p><strong>Window:</strong> ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).start || '') + ' to ' + safe((window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth && window.GMTPayPeriods.periodForMonth(sheet.payMonth) || {}).end || '') + '</p><p><strong>Month total hours:</strong> ' + safe(displayHours(sheet.totals.workedActual)) + '</p><p><strong>Updated:</strong> ' + safe(latest.updated_at || latest.submitted_at || 'Not recorded') + '</p></div>' + (selectedDay ? '<p class="small-text">Showing entries for ' + safe(selectedDay) + '. Month total remains for the full pay month.</p>' : '') + offScheduleNote + coverageNote + (editNotice ? '<p class="pay-month-edit-note"><strong>Change note:</strong> ' + safe(editNotice) + '</p>' : '') + (unrecordedBreaks ? '<p class="pay-month-edit-note">' + unrecordedBreaks + ' row(s) have no recorded break. ' + provisionalTotals + ' total(s) show elapsed time before any break deduction and need review.</p>' : '') + '<form data-pay-month-edit-form><div class="pay-month-table-scroll"><table class="timesheet-paper-rows pay-month-edit-table"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Total hours</th><th>Notes</th><th>Actions</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8">' + (selectedDay ? 'No daily rows are available for this day.' : 'No daily rows are available.') + '</td></tr>') + '</tbody></table></div><div class="pay-month-sheet-total"><span>Pay month total</span><strong data-pay-month-total-hours>' + safe(displayHours(sheet.totals.workedActual)) + '</strong></div><div class="pay-month-edit-actions">' + (editable ? '<button type="button" class="secondary" data-add-day>Add day</button><button type="submit">Save changes</button>' : '<span class="small-text">This pay month is read-only for your account.</span>') + '<a class="button button-link secondary" href="' + safe(canOpenFull) + '">Open full editor</a><button type="button" class="secondary pay-month-download" data-pay-month-download>Download full pay-month spreadsheet</button><span class="small-text pay-month-download-status" data-pay-month-download-status role="status"></span><span class="small-text" data-pay-month-save-status role="status"></span></div></form></div>';
-    var sheetPeriod = window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth ? window.GMTPayPeriods.periodForMonth(sheet.payMonth) : null;
-    var periodWindow = preview.querySelector('.timesheet-paper-meta p:nth-child(2)');
-    if (sheetPeriod && periodWindow) {
-      periodWindow.innerHTML = '<strong>Pay-month span:</strong> ' + safe(sheetPeriod.start) + ' to ' + safe(sheetPeriod.cycleEnd || sheetPeriod.end) +
-        (sheetPeriod.end && sheetPeriod.end !== sheetPeriod.cycleEnd ? '<br><span class="small-text">Payroll Friday: ' + safe(sheetPeriod.end) + '</span>' : '');
-    }
+    preview.innerHTML = '<div class="pay-month-sheet-preview"><div class="timesheet-paper-header"><div><p class="portal-card-kicker">' + safe(monthLabel(sheet.payMonth)) + '</p><h2>' + safe(sheet.employeeName) + '</h2><p class="small-text">' + safe(sheet.employeeUpn) + ' · ' + editorRows.length + ' daily row' + (editorRows.length === 1 ? '' : 's') + '</p></div><span class="portal-status ' + (editable ? 'approved' : 'pending') + '">' + (editable ? 'Editable' : 'Read only') + '</span></div><div class="timesheet-paper-meta"><p><strong>Pay month:</strong> ' + safe(sheet.payMonth) + '</p><p><strong>Cycle start:</strong> ' + safe(sheetPeriod && sheetPeriod.start || '') + '</p><p><strong>Cycle end:</strong> ' + safe(sheetPeriod && sheetPeriod.cycleEnd || '') + '</p><p><strong>Payroll Friday:</strong> ' + safe(payrollFriday) + '</p><p><strong>Month total hours:</strong> ' + safe(displayHours(sheet.totals.workedActual)) + '</p><p><strong>Updated:</strong> ' + safe(latest.updated_at || latest.submitted_at || 'Not recorded') + '</p></div>' + (selectedDay ? '<p class="small-text">Showing entries for ' + safe(selectedDay) + '. Month total remains for the full pay month.</p>' : '') + offScheduleNote + coverageNote + (editNotice ? '<p class="pay-month-edit-note"><strong>Change note:</strong> ' + safe(editNotice) + '</p>' : '') + (unrecordedBreaks ? '<p class="pay-month-edit-note">' + unrecordedBreaks + ' row(s) have no recorded break. ' + provisionalTotals + ' total(s) show elapsed time before any break deduction and need review.</p>' : '') + '<form data-pay-month-edit-form><div class="pay-month-table-scroll"><table class="timesheet-paper-rows pay-month-edit-table"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break</th><th>Absence</th><th>Total hours</th><th>Notes</th><th>Actions</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8">' + (selectedDay ? 'No daily rows are available for this day.' : 'No daily rows are available.') + '</td></tr>') + '</tbody></table></div><div class="pay-month-sheet-total"><span>Pay month total</span><strong data-pay-month-total-hours>' + safe(displayHours(sheet.totals.workedActual)) + '</strong></div><div class="pay-month-edit-actions">' + (editable ? '<button type="button" class="secondary" data-add-day>Add day</button><button type="submit">Save changes</button>' : '<span class="small-text">This pay month is read-only for your account.</span>') + '<a class="button button-link secondary" href="' + safe(canOpenFull) + '">Open full editor</a><button type="button" class="secondary pay-month-download" data-pay-month-download>Download full pay-month spreadsheet</button><span class="small-text pay-month-download-status" data-pay-month-download-status role="status"></span><span class="small-text" data-pay-month-save-status role="status"></span></div></form></div>';
     var form = preview.querySelector("[data-pay-month-edit-form]");
     var targetDay = requestedDay();
     if (targetDay && requestedRecordId() && sheet.records.some(function (record) { return recordId(record) === requestedRecordId(); })) {
@@ -814,7 +840,10 @@
       employeeUpn: sheet.employeeUpn,
       payMonth: sheet.payMonth,
       weekStart: period.start,
-      weekEnd: period.end,
+      weekEnd: period.cycleEnd || period.end,
+      cycleStart: period.start,
+      cycleEnd: period.cycleEnd || period.end,
+      payrollFriday: period.payrollFriday || period.payrollEnd || period.end,
       submittedAt: payload.editedAt || new Date().toISOString(),
       editedBy: payload.editedBy || "",
       deletedDays: (payload.deletedDays || []).slice(),
@@ -866,6 +895,7 @@
     var employee = String(record.employee_name || record.employee_upn || "GMT employee").trim();
     var editor = portalEditorLabel();
     var changedAt = new Date().toISOString();
+    var period = window.GMTPayPeriods && window.GMTPayPeriods.periodForMonth ? window.GMTPayPeriods.periodForMonth(payMonth) : null;
     add("_subject", "[GMT][TIMESHEET][UPDATE] " + employee + " | Pay month " + payMonth);
     add("_template", "box");
     add("_captcha", "false");
@@ -879,6 +909,9 @@
     add("gmt_employee", employee);
     add("gmt_employee_email", record.employee_upn || "");
     add("gmt_pay_month", payMonth || "");
+    add("gmt_cycle_start", payload.cycleStart || period && period.start || "");
+    add("gmt_cycle_end", payload.cycleEnd || period && (period.cycleEnd || period.end) || "");
+    add("gmt_payroll_friday", payload.payrollFriday || period && (period.payrollFriday || period.payrollEnd || period.end) || "");
     add("gmt_changed_dates", changedRows.map(function (item) { return item.values && item.values.date || ""; }).filter(Boolean).join(", "));
     add("gmt_edited_by", editor);
     add("gmt_edited_at", changedAt);
@@ -975,6 +1008,11 @@
         employeeName: sheet.employeeName,
         employeeEmail: sheet.employeeUpn,
         payMonth: sheet.payMonth,
+        weekStart: period.start,
+        weekEnd: period.cycleEnd || period.end,
+        cycleStart: period.start,
+        cycleEnd: period.cycleEnd || period.end,
+        payrollFriday: period.payrollFriday || period.payrollEnd || period.end,
         rows: Object.keys(corrected).sort().map(function (date) { return corrected[date]; }),
         deletedDays: Object.keys(deleted).sort(),
         editedAt: changedAt,
@@ -983,7 +1021,7 @@
       });
       if (button) button.disabled = true;
       if (feedback) feedback.textContent = "Saving this employee's pay-month changes…";
-      await window.GMTPortalApi.saveRecord({ recordId: id, kind: "timesheets", action: "pay_month_correction", status: "Submitted", editMode: true, employeeName: sheet.employeeName, employeeEmail: sheet.employeeUpn, startDate: period.start, endDate: period.end, recordDate: changedAt.slice(0, 10), updatedAt: changedAt, payload: payload });
+      await window.GMTPortalApi.saveRecord({ recordId: id, kind: "timesheets", action: "pay_month_correction", status: "Submitted", editMode: true, employeeName: sheet.employeeName, employeeEmail: sheet.employeeUpn, startDate: period.start, endDate: period.cycleEnd || period.end, recordDate: changedAt.slice(0, 10), updatedAt: changedAt, payload: payload });
       var notificationRecord = { source_record_id: id, employee_name: sheet.employeeName, employee_upn: sheet.employeeUpn };
       var queueIssue = "";
       try { await queuePayMonthWorkbook(id, sheet, payload, period); }
@@ -1015,10 +1053,11 @@
     var sparseDetail = sparseTimesheet(record)
       ? '<p class="portal-history-warning"><strong>Daily detail unavailable:</strong> ' + safe(record.daily_detail_issue || "The Microsoft 365 history response returned the submission header without its daily rows.") + '</p><p class="small-text">Only the submitted header is available here. Clock-in, clock-out, break and total-hour values will appear after the intake/history flow returns the attached daily rows.</p>'
       : '';
+    var sourceIdDetail = sourceRecordIdDetail(record);
     var timesheetAction = actionKey(record) === "timesheets"
       ? '<a class="button button-link" href="' + safe(timesheetHref(record, day)) + '">Open pay-month spreadsheet</a>'
       : '';
-    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p></div>' + sparseDetail + dailyRollupDetail(record) + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions">' + timesheetAction + '<a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
+    preview.innerHTML = '<div class="timesheet-paper-header"><div><p class="portal-card-kicker">GMT submission</p><h2>' + safe(employee) + '</h2></div><span class="portal-status">' + safe(statusValue) + '</span></div><div class="timesheet-paper-meta"><p><strong>Type:</strong> ' + safe(label) + '</p><p><strong>Period:</strong> ' + safe(period(record)) + '</p><p><strong>Submitted:</strong> ' + safe(record.is_demo ? "Example data" : (record.submitted_at || record.submittedAt || "Not recorded")) + '</p><p><strong>Updated:</strong> ' + safe(record.is_demo ? "Example data" : (record.updated_at || record.updatedAt || record.submitted_at || "Not recorded")) + '</p><p><strong>Source:</strong> ' + safe(record.is_demo ? "GMT demonstration" : (record.source || "Protected GMT portal")) + '</p>' + sourceIdDetail + '</div>' + sparseDetail + dailyRollupDetail(record) + demoDescription + '<p class="small-text">This view is filtered by the signed-in account privilege. Open the source area for the full document.</p><div class="portal-item-actions">' + timesheetAction + '<a class="button button-link" href="' + destination(record) + '">Open ' + safe(label) + '</a></div>';
   }
   function filteredSheets() {
     var month = payMonthFilter && payMonthFilter.value ? String(payMonthFilter.value) : "";
@@ -1108,6 +1147,7 @@
     var items = Array.isArray(data && data.records) ? data.records : deliveryRecords().map(function (record) {
       var dispatch = record.dispatch || {};
       return {
+        recordId: String(record.source_record_id || record.record_id || ""),
         employeeName: record.employee_name || record.employee_upn || "Timesheet correction",
         date: compactDate(record),
         status: dispatch.status,
@@ -1129,7 +1169,11 @@
       var state = String(record.status || "unknown").toLowerCase();
       var label = labels[state] || state.replace(/[_-]/g, " ");
       var updated = record.sentAt || record.queuedAt || record.updatedAt || "";
-      return '<li class="submissions-delivery-item"><div><strong>' + safe(record.employeeName || record.employee_name || "Timesheet correction") + '</strong><span class="portal-status ' + (state === "failed" ? "pending" : state === "sent" ? "approved" : "") + '">' + safe(label) + '</span></div><p>' + safe(record.date || "Date not recorded") + (record.attempts ? ' · ' + safe(record.attempts) + ' attempt' + (Number(record.attempts) === 1 ? "" : "s") : "") + (updated ? ' · ' + safe(updated) : "") + '</p>' + (record.error ? '<p class="submissions-delivery-error"><strong>Details:</strong> ' + safe(record.error) + '</p>' : "") + '</li>';
+      var sourceId = String(record.recordId || record.record_id || "");
+      var sourceIdDetail = sourceId
+        ? '<p><strong>Source record ID:</strong> ' + safe(sourceId) + '</p>'
+        : '<p class="portal-history-warning">Source record ID unavailable; this item cannot be reconciled to a source record.</p>';
+      return '<li class="submissions-delivery-item"><div><strong>' + safe(record.employeeName || record.employee_name || "Timesheet correction") + '</strong><span class="portal-status ' + (state === "failed" ? "pending" : state === "sent" ? "approved" : "") + '">' + safe(label) + '</span></div><p>' + safe(record.date || "Date not recorded") + (record.attempts ? ' · ' + safe(record.attempts) + ' attempt' + (Number(record.attempts) === 1 ? "" : "s") : "") + (updated ? ' · ' + safe(updated) : "") + '</p>' + sourceIdDetail + (record.error ? '<p class="submissions-delivery-error"><strong>Details:</strong> ' + safe(record.error) + '</p>' : "") + '</li>';
     }).join("");
     var providerCopy = data && data.providerStatus === "not-configured"
       ? "The outbound email route is not configured, so queued corrections have not been handed off."
@@ -1155,7 +1199,7 @@
     } catch (error) {
       showDeliveryStatus({ providerStatus: "unknown", records: deliveryRecords().map(function (record) {
         var dispatch = record.dispatch || {};
-        return { employeeName: record.employee_name || record.employee_upn, date: compactDate(record), status: dispatch.status, attempts: dispatch.attempts, queuedAt: dispatch.queued_at, sentAt: dispatch.sent_at, error: dispatch.error };
+        return { recordId: String(record.source_record_id || record.record_id || ""), employeeName: record.employee_name || record.employee_upn, date: compactDate(record), status: dispatch.status, attempts: dispatch.attempts, queuedAt: dispatch.queued_at, sentAt: dispatch.sent_at, error: dispatch.error };
       }), counts: deliveryRecords().reduce(function (counts, record) {
         var state = String(record.dispatch.status || "").toLowerCase();
         if (Object.hasOwn(counts, state)) counts[state] += 1;

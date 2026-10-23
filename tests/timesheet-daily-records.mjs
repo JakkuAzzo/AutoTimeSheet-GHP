@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import vm from 'node:vm';
 
+const require = createRequire(import.meta.url);
+const { payMonthKeyForWeek } = require('../pay-periods.js');
 const source = readFileSync(new URL('../script.js', import.meta.url), 'utf8');
 const start = source.indexOf('function buildTimesheetRecordFile(');
 const end = source.indexOf('\nfunction submissionKeyPart', start);
@@ -12,7 +15,7 @@ const rows = [
   {Date:'2026-09-01',Status:'Absence',Start:'',Finish:'',Break:'No break',
     'Worked hours':0,'Basic hours':0,'OT x1.5 hours':0,'OT x2.0 hours':0,'Absence reason':'Sick',Note:''}
 ];
-const context = vm.createContext({File, allRowsForExport:()=>rows,
+const context = vm.createContext({File, allRowsForExport:()=>rows, payMonthKeyForWeek,
   employeeName:{value:'Validation Employee'}, employeeEmail:{value:'validation@example.com'}});
 vm.runInContext(source.slice(start,end),context);
 const file = context.buildTimesheetRecordFile({weekStart:'2026-08-31',weekEnd:'2026-09-06',
@@ -22,6 +25,8 @@ assert.ok(Array.isArray(records));
 assert.equal(records.length,2);
 assert.equal(records[0].recordId,'validation-week|2026-08-31');
 assert.equal(records[1].recordId,'validation-week|2026-09-01');
+assert.equal(records[0].payMonth,'2026-09');
+assert.equal(records[1].payMonth,'2026-09');
 assert.equal(records[1].date,'2026-09-01');
 assert.equal(records[0].basicHours,8);
 assert.equal(records[0].startTime,'08:00');

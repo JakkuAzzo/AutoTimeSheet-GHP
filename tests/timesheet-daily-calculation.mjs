@@ -84,7 +84,7 @@ try {
     };
   });
   assert.match(periodUi.payMonth, /^[A-Z][a-z]+ \d{4}$/);
-  assert.match(periodUi.period, /^Pay-period workbook: \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}\. You can submit any dated week; routing is automatic\.$/);
+  assert.match(periodUi.period, /^Cycle start: .+\. Cycle end: .+\. Payroll Friday: .+\. Entry dates route to .+\.$/);
   assert.equal(periodUi.legacyAriaHidden, 'true');
   assert.equal(periodUi.legacyOpacity, '0');
   assert.equal(periodUi.legacyPointerEvents, 'none');

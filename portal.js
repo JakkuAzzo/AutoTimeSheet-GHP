@@ -47,6 +47,9 @@
   let jobCardArchiveFilters = {};
   let selectedJobCardArchiveId = '';
   let selectedJobCardArchiveContentUrl = '';
+  let pendingJobCardSubmission = null;
+  let jobCardAttachmentRequestId = 0;
+  const jobCardAttachmentObjectUrls = new Set();
   let jobCardArchiveRequestId = 0;
   let jobCardArchiveSearchRequestId = 0;
 
@@ -68,9 +71,9 @@
     return true;
   }
 
-  async function updateProtectedRecord(record, status, issue = '') {
+  async function updateProtectedRecord(record, status, issue = '', updatedAt = new Date().toISOString()) {
     if (!portalApiEnabled()) return false;
-    await window.GMTPortalApi.updateRecord(record.recordId, { ...record, status, issue, updatedAt: new Date().toISOString() });
+    await window.GMTPortalApi.updateRecord(record.recordId, { ...record, status, issue, updatedAt });
     return true;
   }
 
@@ -166,7 +169,7 @@
     const isJobCard = kind.startsWith('Job Card');
     const endpoint = isJobCard ? jobCardFormSubmitEndpoint() : categoryFormSubmitEndpoint(kind);
     if (!endpoint) {
-      logNotification(kind, `${kind} stored locally only. FormSubmit is not configured.`);
+      logNotification(kind, `${kind} was not submitted because FormSubmit is not configured.`);
       return false;
     }
     ensurePortalSubmitFrame();
@@ -176,7 +179,7 @@
     form.target = 'portal-formsubmit-frame';
     form.enctype = 'multipart/form-data';
     form.hidden = true;
-    const submittedAt = new Date().toISOString();
+    const submittedAt = fields.submitted_at || fields.updated_at || new Date().toISOString();
 
     const add = (name, value) => {
       const input = document.createElement('input');
@@ -251,6 +254,7 @@
       add('gmt_month', parts.month);
       add('gmt_calendar_name', 'GMT Operational Calendar');
       add('gmt_submitted_at', submittedAt);
+      if (fields.updated_at) add('gmt_updated_at', fields.updated_at);
     }
     Object.entries(fields).forEach(([name, value]) => add(name, value));
     if (!('submitted_at' in fields) && !('updated_at' in fields)) add('submitted_at', submittedAt);
@@ -307,9 +311,47 @@
     };
   }
 
+  function releaseJobCardAttachmentUrls() {
+    jobCardAttachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    jobCardAttachmentObjectUrls.clear();
+  }
+
+  function formatJobCardAttachmentSize(value) {
+    const bytes = Number(value) || 0;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  async function loadJobCardAttachments(job) {
+    const requestId = ++jobCardAttachmentRequestId;
+    const host = document.querySelector('[data-job-card-attachments]');
+    if (!host || !job?.remote || !window.GMTPortalApi?.jobCardRecordAttachments) return;
+    host.innerHTML = '<p class="small-text">Loading protected attachments…</p>';
+    try {
+      const result = await window.GMTPortalApi.jobCardRecordAttachments(job.id);
+      if (requestId !== jobCardAttachmentRequestId || selectedJobId !== String(job.id || '')) return;
+      const attachments = Array.isArray(result?.attachments) ? result.attachments : [];
+      if (!attachments.length) {
+        host.innerHTML = '<p class="small-text">No attachments are saved with this job-card revision.</p>';
+        return;
+      }
+      host.innerHTML = `<h4>Protected attachments (${attachments.length})</h4><ul class="job-card-attachment-list">${attachments.map((attachment) => `<li class="job-card-attachment-row" data-job-attachment-row>
+        <div><strong>${safe(attachment.file_name || 'Attachment')}</strong><small>${safe(attachment.content_type || 'File')} · ${formatJobCardAttachmentSize(attachment.size_bytes)} · ${safe(attachment.uploaded_at || '')}</small></div>
+        <button type="button" class="secondary" data-job-attachment-open="${safe(attachment.attachment_id)}" data-job-attachment-record="${safe(job.id)}" data-job-attachment-name="${safe(attachment.file_name || 'attachment')}" data-job-attachment-type="${safe(attachment.content_type || '')}">Load file</button>
+        <span class="small-text" data-job-attachment-feedback role="status"></span><div data-job-attachment-preview></div>
+      </li>`).join('')}</ul>`;
+    } catch (error) {
+      if (requestId !== jobCardAttachmentRequestId || selectedJobId !== String(job.id || '')) return;
+      host.innerHTML = `<p class="small-text">Protected attachments could not be loaded: ${safe(error?.message || 'Please try again.')}</p>`;
+    }
+  }
+
   function renderJobHistoryPreview(job) {
     const preview = $('#job-card-history-preview');
     if (!preview) return;
+    jobCardAttachmentRequestId += 1;
+    releaseJobCardAttachmentUrls();
     if (!job) {
       preview.innerHTML = '<p class="small-text">Select a job card to preview it.</p>';
       return;
@@ -336,8 +378,10 @@
       ${safeJobEmailUrl(job.emailUrl) ? `<p class="small-text"><a href="${safe(safeJobEmailUrl(job.emailUrl))}" target="_blank" rel="noopener">Open job email</a></p>` : ''}
       <div class="job-card-history-document">${job.cardType === 'MTA' ? renderMtaJobPreview(data) : renderEcJobPreview(data)}</div>
       <p class="small-text">${job.invoiceNumber ? `Invoice ${safe(job.invoiceNumber)}${job.xeroReference ? ` · Xero ${safe(job.xeroReference)}` : ''}` : 'Invoice number pending Accounts allocation.'}${job.xeroInvoiceStatus ? ` · Xero status ${safe(job.xeroInvoiceStatus)}` : ''}${job.xeroLastSyncedAt ? ` · Synced ${safe(job.xeroLastSyncedAt)}` : ''}</p>
+      ${job.remote ? `<section class="job-card-attachments" data-job-card-attachments aria-label="Attachments for ${safe(job.ref || 'job card')}"><p class="small-text">Loading protected attachments…</p></section>` : ''}
       <div class="portal-item-actions"><button type="button" class="secondary" data-job-revise="${safe(job.id)}">Create revision</button></div>
       ${accountFields}`;
+    if (job.remote) loadJobCardAttachments(job);
     loadRecordInvoiceLinks('job-cards', job.id, $('#job-card-invoice-links'), canUseXero);
   }
 
@@ -742,8 +786,32 @@
       </article>`).join('') : '<p class="small-text">No notification log entries yet.</p>';
   }
 
+  function calendarRequestStatus(status) {
+    const value = String(status || 'Pending approval').trim();
+    return ['submitted', 'saved'].includes(value.toLowerCase()) ? 'Pending approval' : value;
+  }
+
+  function calendarStatusMessage(status) {
+    const value = calendarRequestStatus(status);
+    switch (value.toLowerCase()) {
+      case 'pending approval': return 'Awaiting licensed accounts approval.';
+      case 'cancelled': return 'Cancellation recorded in portal history; Microsoft 365 processing is not confirmed.';
+      case 'approved': return 'Approved in portal history; shared-calendar publication is shown in the published feed.';
+      case 'rejected': return 'Request marked rejected in portal history.';
+      default: return `Status is recorded as ${value}; publication is not confirmed.`;
+    }
+  }
+
   function renderCalendar() {
-    const events = store.get(keys.calendar, []).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const uniqueEvents = new Map();
+    store.get(keys.calendar, []).forEach((event) => {
+      const key = String(event.recordId || event.id || '');
+      const current = uniqueEvents.get(key);
+      if (!current) uniqueEvents.set(key, event);
+      else if (calendarRequestStatus(current.status).toLowerCase() === 'pending approval'
+        && calendarRequestStatus(event.status).toLowerCase() === 'cancelled') uniqueEvents.set(key, event);
+    });
+    const events = [...uniqueEvents.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
     const list = $('#calendar-list');
     if (!list) return;
     if (!events.length) {
@@ -751,7 +819,11 @@
       return;
     }
     calendarIndex.clear();
-    events.forEach((event) => calendarIndex.set(String(event.id || event.recordId), event));
+    events.forEach((event) => {
+      event.status = calendarRequestStatus(event.status);
+      calendarIndex.set(String(event.id || event.recordId), event);
+    });
+    store.set(keys.calendar, events);
     list.innerHTML = events.map((event) => `
       <article class="portal-item calendar-date-group">
         <strong>${safe(event.date)} · ${safe(event.title)}</strong>
@@ -759,8 +831,8 @@
         <p class="portal-item-meta">${safe(event.type)} · ${safe(event.owner || 'No owner')}</p>
         <p>${safe(event.notes || 'No notes')}</p>
         <div class="portal-item-actions">
-          <span class="small-text">${event.status === 'Pending approval' ? 'Awaiting licensed accounts approval.' : 'Published from the approved calendar feed.'}</span>
-          ${event.status !== 'Cancelled' ? `<button type="button" class="secondary" data-calendar-edit="${event.id}">Edit</button>` : ''}
+          <span class="small-text">${safe(calendarStatusMessage(event.status))}</span>
+          ${event.status === 'Pending approval' ? `<button type="button" class="secondary" data-calendar-edit="${event.id}">Edit</button>` : ''}
           ${event.status === 'Pending approval' ? `<button type="button" class="secondary danger" data-calendar-delete="${event.id}">Cancel request</button>` : ''}
         </div>
       </article>`).join('');
@@ -903,7 +975,7 @@
   }
 
   async function loadProtectedCalendar() {
-    if (!portalApiEnabled()) return;
+    if (!$('#calendar-form') || !portalApiEnabled()) return;
     try {
       const body = await window.GMTPortalApi.history('calendar');
       const remoteEvents = (body && Array.isArray(body.records) ? body.records : []).map((record) => ({
@@ -913,16 +985,140 @@
         type: record.event_type || 'General',
         owner: record.owner || record.employee_name || '',
         notes: record.notes || '',
-        status: record.status || 'Pending approval',
+        status: calendarRequestStatus(record.status),
         requestedBy: record.employee_name || '',
-        recordId: record.source_record_id
+        recordId: record.source_record_id,
+        submittedAt: record.submitted_at || '',
+        updatedAt: record.updated_at || ''
       }));
       const localEvents = store.get(keys.calendar, []);
-      store.set(keys.calendar, [...remoteEvents, ...localEvents.filter((local) => !remoteEvents.some((remote) => String(remote.id) === String(local.id)))]);
+      const remoteRecordIds = new Set(remoteEvents.map((remote) => String(remote.recordId || remote.id)));
+      store.set(keys.calendar, [...remoteEvents, ...localEvents.filter((local) => !remoteRecordIds.has(String(local.recordId || local.id)))]);
       renderCalendar();
     } catch (_) {
       // Local calendar requests remain visible if the protected service is unavailable.
     }
+  }
+
+  const JOB_CARD_ATTACHMENT_MIME_TYPES = {
+    pdf: 'application/pdf', gif: 'image/gif', heic: 'image/heic', heif: 'image/heif',
+    jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp'
+  };
+
+  function jobCardAttachmentFilenameError(fileName) {
+    const name = String(fileName || '');
+    if (!name || name !== name.trim() || /["*:<>?\/\\|\u0000-\u001f\u007f]/.test(name)) {
+      return `${name || 'This file'} has a filename SharePoint cannot store. Remove characters such as ", *, :, <, >, ?, /, \\, or |, and remove leading or trailing spaces.`;
+    }
+    return '';
+  }
+
+  function jobCardQuickXorHash(bytes) {
+    const block = new Uint8Array(20);
+    let bitOffset = 0;
+    for (let offset = 0; offset < bytes.length; offset += 1) {
+      const value = bytes[offset];
+      const byteIndex = Math.floor(bitOffset / 8);
+      const shift = bitOffset % 8;
+      block[byteIndex] ^= (value << shift) & 0xff;
+      if (shift > 0) block[(byteIndex + 1) % block.length] ^= value >>> (8 - shift);
+      bitOffset = (bitOffset + 11) % 160;
+    }
+    let length = BigInt(bytes.length);
+    for (let index = 0; index < 8; index += 1) {
+      block[12 + index] ^= Number(length & 0xffn);
+      length >>= 8n;
+    }
+    return btoa(Array.from(block, (byte) => String.fromCharCode(byte)).join(''));
+  }
+
+  async function jobCardAttachmentMetadata(file) {
+    const filenameError = jobCardAttachmentFilenameError(file?.name);
+    if (filenameError) throw new Error(filenameError);
+    const extension = String(file?.name || '').split('.').pop().toLowerCase();
+    const contentType = JOB_CARD_ATTACHMENT_MIME_TYPES[extension] || '';
+    const browserType = String(file?.type || '').toLowerCase();
+    if (!contentType || (browserType && browserType !== 'application/octet-stream' && browserType !== contentType)) throw new Error(`${file?.name || 'This file'} must be a supported image or PDF with a matching file type.`);
+    if (!file.size || file.size > 20 * 1024 * 1024) throw new Error(`${file.name} must be 20 MiB or smaller.`);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    const sha256 = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return { fileName: file.name, contentType, sizeBytes: file.size, sha256, quickXorHash: jobCardQuickXorHash(bytes) };
+  }
+
+  async function uploadPendingJobCardAttachments(pending, status) {
+    if (!pending.files.length) return;
+    if (!portalApiEnabled() || !window.GMTPortalApi?.startJobCardRecordAttachment || !window.GMTPortalApi?.uploadJobCardRecordAttachment) {
+      throw new Error('Protected attachment upload is unavailable. Keep this form open and try again when the portal connection is restored.');
+    }
+    while (pending.nextAttachmentIndex < pending.files.length) {
+      const index = pending.nextAttachmentIndex;
+      const file = pending.files[index];
+      if (status) status.textContent = `Preparing ${file.name} (${index + 1} of ${pending.files.length})…`;
+      const metadata = pending.metadata[index] || await jobCardAttachmentMetadata(file);
+      pending.metadata[index] = metadata;
+      let session = pending.sessions[index];
+      if (!session || !session.attachmentId || Date.parse(session.expirationDateTime) <= Date.now() + 5000) {
+        session = await window.GMTPortalApi.startJobCardRecordAttachment(pending.recordId, metadata);
+        if (session?.attachment?.attachment_id) {
+          pending.nextAttachmentIndex += 1;
+          continue;
+        }
+        if (!session?.attachmentId) throw new Error('The protected attachment upload reservation was not returned.');
+        pending.sessions[index] = session;
+      }
+      if (status) status.textContent = `Uploading ${file.name} (${index + 1} of ${pending.files.length})…`;
+      await window.GMTPortalApi.uploadJobCardRecordAttachment(pending.recordId, session.attachmentId, file, metadata.contentType);
+      pending.sessions[index] = null;
+      pending.nextAttachmentIndex += 1;
+    }
+  }
+
+  async function continueJobCardSubmission(pending, form, button, status) {
+    button.disabled = true;
+    if (pending.files.length && !portalApiEnabled()) throw new Error('Sign in to the protected portal before adding job-card attachments.');
+    if (status) status.textContent = pending.saved ? 'Resuming the saved job card…' : 'Saving job card to protected history…';
+    if (!pending.saved) pending.saved = await saveProtectedRecord(pending.protectedRecord);
+    await uploadPendingJobCardAttachments(pending, status);
+    const job = pending.job;
+    const sent = sendPortalFormSubmit('Job Card', {
+      job_reference: job.ref,
+      client: job.client,
+      site_address: job.site,
+      assigned_engineer: job.engineer,
+      planned_date: job.date,
+      card_type: job.cardType,
+      status: job.jobStatus,
+      description: job.description,
+      record_id: pending.recordId,
+      job_status: job.jobStatus,
+      job_revision: job.revision,
+      previous_record_id: job.previousRecordId,
+      job_email_url: job.emailUrl,
+      job_email_message_id: job.emailMessageId,
+      submitted_at: new Date().toISOString()
+    }, { file: pending.files[0] || null });
+    if (pending.saved) {
+      try { await updateProtectedRecord(pending.protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
+    }
+    const jobs = store.get(keys.jobs, []);
+    jobs.unshift(job);
+    store.set(keys.jobs, jobs);
+    form.reset();
+    pendingJobCardSubmission = null;
+    jobCardRevisionSource = null;
+    if (status) status.textContent = '';
+    button.textContent = 'Create job card';
+    button.disabled = false;
+    const revisionNotice = $('#job-revision-notice');
+    if (revisionNotice) revisionNotice.textContent = '';
+    prefillPortalIdentity();
+    renderJobPreview();
+    logNotification('Job card', sent
+      ? `Job card ${job.ref || job.client || job.id} submitted for admin review.`
+      : `Job card ${job.ref || job.client || job.id} stored locally only. It still needs an approved submission route.`);
+    renderJobs();
+    loadProtectedJobs();
   }
 
   function bindJobs() {
@@ -987,6 +1183,33 @@
       const selectButton = event.target.closest('[data-job-select]');
       if (selectButton) {
         selectJobHistory(selectButton.dataset.jobSelect);
+        return;
+      }
+      const attachmentButton = event.target.closest('[data-job-attachment-open]');
+      if (attachmentButton && window.GMTPortalApi?.fetchJobCardRecordAttachment) {
+        const row = attachmentButton.closest('[data-job-attachment-row]');
+        const feedback = row?.querySelector('[data-job-attachment-feedback]');
+        const preview = row?.querySelector('[data-job-attachment-preview]');
+        const recordId = attachmentButton.dataset.jobAttachmentRecord || '';
+        const attachmentId = attachmentButton.dataset.jobAttachmentOpen || '';
+        const fileName = attachmentButton.dataset.jobAttachmentName || 'job-card-attachment';
+        const contentType = attachmentButton.dataset.jobAttachmentType || '';
+        if (!row || !preview || !recordId || !attachmentId || recordId !== selectedJobId) return;
+        attachmentButton.disabled = true;
+        if (feedback) feedback.textContent = 'Loading protected file…';
+        try {
+          const blob = await window.GMTPortalApi.fetchJobCardRecordAttachment(recordId, attachmentId);
+          if (recordId !== selectedJobId || !row.isConnected) return;
+          const objectUrl = URL.createObjectURL(blob);
+          jobCardAttachmentObjectUrls.add(objectUrl);
+          const downloadLink = `<a href="${safe(objectUrl)}" download="${safe(fileName)}">Download ${safe(fileName)}</a>`;
+          preview.innerHTML = `${contentType.startsWith('image/') ? `<img class="job-card-attachment-image" src="${safe(objectUrl)}" alt="${safe(fileName)}">` : ''}<p>${contentType === 'application/pdf' ? `<a href="${safe(objectUrl)}" target="_blank" rel="noopener">Open PDF: ${safe(fileName)}</a>` : downloadLink}</p>`;
+          if (feedback) feedback.textContent = 'Protected file loaded.';
+          attachmentButton.textContent = 'Loaded';
+        } catch (error) {
+          if (feedback) feedback.textContent = error.message || 'Protected file could not be opened.';
+          attachmentButton.disabled = false;
+        }
         return;
       }
       const reviseButton = event.target.closest('[data-job-revise]');
@@ -1126,19 +1349,56 @@
     });
     $('#job-card-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const jobs = store.get(keys.jobs, []);
-      const imageFile = $('#job-image')?.files?.[0] || null;
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const status = $('#job-attachment-status');
+      if (pendingJobCardSubmission) {
+        try {
+          await continueJobCardSubmission(pendingJobCardSubmission, form, button, status);
+          form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = false; });
+        } catch (error) {
+          if (status) status.textContent = `The saved job card is waiting for completion: ${error.message || 'Please retry.'} The same record will be used when you retry.`;
+          if (button) { button.disabled = false; button.textContent = 'Retry saved job card'; }
+          form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = true; });
+        }
+        return;
+      }
+
+      const files = Array.from($('#job-image')?.files || []);
+      const totalBytes = files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+      if (files.length > 10 || files.some((file) => !file.size || file.size > 20 * 1024 * 1024) || totalBytes > 100 * 1024 * 1024) {
+        if (status) status.textContent = 'Choose at most 10 files, 20 MiB each and 100 MiB total per job-card revision.';
+        return;
+      }
+      const invalidFilename = files.find((file) => jobCardAttachmentFilenameError(file.name));
+      if (invalidFilename) {
+        if (status) status.textContent = jobCardAttachmentFilenameError(invalidFilename.name);
+        return;
+      }
+      const unsupported = files.find((file) => {
+        const extension = String(file.name || '').split('.').pop().toLowerCase();
+        const expected = JOB_CARD_ATTACHMENT_MIME_TYPES[extension] || '';
+        const browserType = String(file.type || '').toLowerCase();
+        return !expected || (browserType && browserType !== 'application/octet-stream' && browserType !== expected);
+      });
+      if (unsupported) {
+        if (status) status.textContent = `${unsupported.name} is not a supported image or PDF with a matching file type.`;
+        return;
+      }
+      if (files.length && !portalApiEnabled()) {
+        if (status) status.textContent = 'Sign in to the protected portal before adding job-card attachments.';
+        return;
+      }
+
       const revisionSource = jobCardRevisionSource;
       const job = {
         id: id(), ref: $('#job-ref').value.trim(), client: $('#job-client').value.trim(), site: $('#job-site').value.trim(), engineer: $('#job-engineer').value.trim(), date: $('#job-date').value, description: $('#job-description').value.trim(), cardType: $('#job-card-type').value, status: 'Received', jobStatus: 'Received', revision: revisionSource ? Number(revisionSource.revision || 1) + 1 : 1, previousRecordId: revisionSource?.id || '',
         emailUrl: $('#job-email-link')?.value.trim() || '', emailMessageId: $('#job-email-message-id')?.value.trim() || ''
       };
-      jobs.unshift(job);
-      store.set(keys.jobs, jobs);
       // Every submitted revision gets a new protected record. The job reference
-      // still groups the chain, while this ID prevents an update from replacing
-      // the earlier card or its invoice trail.
+      // groups the chain, while this ID keeps each revision's attachments separate.
       const recordId = `job-${job.ref || 'unreferenced'}-${job.id}`;
+      job.id = recordId;
       const protectedRecord = {
         recordId,
         kind: 'job-cards',
@@ -1166,42 +1426,16 @@
           updateReason: ''
         }
       };
+      pendingJobCardSubmission = { job, protectedRecord, recordId, files, metadata: [], sessions: [], nextAttachmentIndex: 0, saved: false };
+      form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = true; });
       try {
-        await saveProtectedRecord(protectedRecord);
+        await continueJobCardSubmission(pendingJobCardSubmission, form, button, status);
+        form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = false; });
       } catch (error) {
-        logNotification('Job card', `Job card could not be saved to protected history: ${error.message || 'service unavailable'}.`);
-        renderJobs();
-        return;
+        if (status) status.textContent = `The job card is waiting for completion: ${error.message || 'Please retry.'} The same record will be used when you retry.`;
+        if (button) { button.disabled = false; button.textContent = 'Retry saved job card'; }
+        form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = true; });
       }
-      const sent = sendPortalFormSubmit('Job Card', {
-        job_reference: job.ref,
-        client: job.client,
-        site_address: job.site,
-        assigned_engineer: job.engineer,
-        planned_date: job.date,
-        card_type: job.cardType,
-        status: job.jobStatus,
-        description: job.description,
-        record_id: recordId,
-        job_status: job.jobStatus,
-        job_revision: job.revision,
-        previous_record_id: job.previousRecordId,
-        job_email_url: job.emailUrl,
-        job_email_message_id: job.emailMessageId,
-        submitted_at: new Date().toISOString()
-      }, { file: imageFile });
-      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
-      event.target.reset();
-      jobCardRevisionSource = null;
-      const revisionNotice = $('#job-revision-notice');
-      if (revisionNotice) revisionNotice.textContent = '';
-      prefillPortalIdentity();
-      renderJobPreview();
-      logNotification('Job card', sent
-        ? `Job card ${job.ref || job.client || job.id} submitted for admin review.`
-        : `Job card ${job.ref || job.client || job.id} stored locally only. It still needs an approved submission route.`);
-      renderJobs();
-      loadProtectedJobs();
     });
   }
 
@@ -1390,7 +1624,9 @@
       const editingId = $('#calendar-edit-id')?.value.trim() || '';
       const previous = editingId ? events.find((item) => String(item.id || item.recordId) === editingId) : null;
       const entryId = editingId || id();
-      const entry = { id: entryId, title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: previous?.requestedBy || portalProfileName(), recordId: previous?.recordId || `calendar-${entryId}` };
+      const submittedAt = previous?.submittedAt || new Date().toISOString();
+      const updatedAt = previous ? new Date().toISOString() : '';
+      const entry = { id: entryId, title: $('#calendar-title').value.trim(), date: $('#calendar-date').value, type, owner: $('#calendar-owner').value.trim(), notes: $('#calendar-notes').value.trim(), status: 'Pending approval', requestedBy: previous?.requestedBy || portalProfileName(), recordId: previous?.recordId || `calendar-${entryId}`, submittedAt, ...(previous ? { updatedAt } : {}) };
       if (!entry.title || !entry.date) return;
       const existingIndex = events.findIndex((item) => String(item.id || item.recordId) === String(entry.id));
       if (existingIndex >= 0) events[existingIndex] = entry;
@@ -1401,13 +1637,15 @@
         kind: 'calendar',
         action: previous ? 'update_request' : 'create_request',
         status: entry.status,
-        submittedAt: new Date().toISOString(),
+        submittedAt,
+        ...(previous ? { updatedAt } : {}),
         employeeName: entry.requestedBy,
         employeeEmail: portalProfile().username || '',
         recordDate: entry.date,
         payload: { title: entry.title, date: entry.date, type: entry.type, owner: entry.owner, notes: entry.notes }
       };
-      try { await saveProtectedRecord(protectedRecord); } catch (error) {
+      let protectedSaved = false;
+      try { protectedSaved = await saveProtectedRecord(protectedRecord); } catch (error) {
         logNotification('Calendar', `Calendar request could not be saved to protected history: ${error.message || 'service unavailable'}.`);
         renderCalendar();
         return;
@@ -1415,7 +1653,7 @@
       event.target.reset();
       prefillPortalIdentity();
       const sent = sendPortalFormSubmit(previous ? 'Calendar Update' : 'Calendar Request', {
-        event_id: entry.id,
+        event_id: entry.recordId,
         event_title: entry.title,
         event_date: entry.date,
         event_type: entry.type,
@@ -1424,12 +1662,17 @@
         requested_by_upn: portalProfile().username || '',
         status: entry.status,
         notes: entry.notes,
-        submitted_at: new Date().toISOString()
+        submitted_at: submittedAt,
+        ...(previous ? { updated_at: updatedAt } : {})
       });
-      try { await updateProtectedRecord(protectedRecord, sent ? 'Submitted' : 'Saved'); } catch (_) {}
-      logNotification('Calendar', sent
-        ? `${previous ? 'Calendar update' : 'Calendar request'} submitted for accounts approval: ${entry.title}.`
-        : `${previous ? 'Calendar update' : 'Calendar request'} stored locally only. It still needs an approved submission route: ${entry.title}.`);
+      const requestLabel = previous ? 'Calendar update' : 'Calendar request';
+      logNotification('Calendar', protectedSaved
+        ? (sent
+          ? `${requestLabel} saved for Accounts review. Email submission attempted; delivery is not confirmed: ${entry.title}.`
+          : `${requestLabel} saved for Accounts review. No email route is configured: ${entry.title}.`)
+        : (sent
+          ? `${requestLabel} email submission attempted, but protected history was unavailable. Delivery is not confirmed: ${entry.title}.`
+          : `${requestLabel} was not saved or emailed because no protected service or email route is configured: ${entry.title}.`));
       renderCalendar();
       $('#calendar-edit-id').value = '';
       $('#calendar-submit-button').textContent = 'Submit calendar request';
@@ -1455,23 +1698,45 @@
         return;
       }
       if (del) {
-        const item = calendarIndex.get(String(del.dataset.calendarDelete)) || events.find((entry) => String(entry.id || entry.recordId) === String(del.dataset.calendarDelete));
-        if (item) {
-          sendPortalFormSubmit('Calendar Update', { event_id: item.id, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, updated_at: new Date().toISOString() });
-          try {
-            await updateProtectedRecord({
-              recordId: item.recordId || `calendar-${item.id}`,
-              kind: 'calendar',
-              action: 'update_request',
-              employeeName: item.requestedBy || portalProfileName(),
-              employeeEmail: portalProfile().username || '',
-              recordDate: item.date,
-              payload: { title: item.title, date: item.date, type: item.type, owner: item.owner, notes: item.notes }
-            }, 'Cancelled');
-          } catch (_) {}
+        const item = events.find((entry) => [entry.id, entry.recordId].some((value) => String(value || '') === String(del.dataset.calendarDelete))) || calendarIndex.get(String(del.dataset.calendarDelete));
+        if (!item || item.status !== 'Pending approval') {
+          logNotification('Calendar', 'Only a pending calendar request can be cancelled.');
+          return;
         }
-        store.set(keys.calendar, events.filter((entry) => entry.id !== del.dataset.calendarDelete));
-        logNotification('Calendar', 'Calendar request cancelled.');
+        const recordId = item.recordId || `calendar-${item.id}`;
+        try {
+          let submittedAt = item.submittedAt || item.submitted_at || '';
+          if (!submittedAt && portalApiEnabled() && typeof window.GMTPortalApi.getRecord === 'function') {
+            const response = await window.GMTPortalApi.getRecord(recordId);
+            submittedAt = response?.record?.submitted_at || response?.record?.submittedAt || '';
+          }
+          if (!submittedAt) throw new Error('Original submission time is unavailable. Refresh the calendar requests and try again.');
+          const updatedAt = new Date().toISOString();
+          const saved = await updateProtectedRecord({
+            recordId,
+            kind: 'calendar',
+            action: 'update_request',
+            employeeName: item.requestedBy || portalProfileName(),
+            employeeEmail: portalProfile().username || '',
+            recordDate: item.date,
+            payload: { title: item.title, date: item.date, type: item.type, owner: item.owner, notes: item.notes }
+          }, 'Cancelled', '', updatedAt);
+          if (!saved) throw new Error('Protected request service is unavailable.');
+          const cancellationIds = new Set([del.dataset.calendarDelete, item.id, item.recordId].filter(Boolean).map(String));
+          const updatedEvents = events.map((entry) => ([entry.id, entry.recordId].some((value) => cancellationIds.has(String(value || '')))
+            ? { ...entry, status: 'Cancelled', updatedAt }
+            : entry));
+          if (!updatedEvents.some((entry) => [entry.id, entry.recordId].some((value) => cancellationIds.has(String(value || ''))))) {
+            updatedEvents.push({ ...item, status: 'Cancelled', updatedAt });
+          }
+          store.set(keys.calendar, updatedEvents);
+          const sent = sendPortalFormSubmit('Calendar Update', { event_id: recordId, event_title: item.title, event_date: item.date, event_type: item.type, owner_or_requester: item.owner, requested_by: item.requestedBy || portalProfileName(), requested_by_upn: portalProfile().username || '', status: 'Cancelled', notes: item.notes, submitted_at: submittedAt, updated_at: updatedAt });
+          logNotification('Calendar', sent
+            ? 'Cancellation saved for Accounts review. Email submission attempted; delivery is not confirmed.'
+            : 'Cancellation saved in protected history, but no email route is configured. Accounts may still see the request as pending.');
+        } catch (error) {
+          logNotification('Calendar', 'Cancellation could not be saved; the request remains unchanged. ' + (error.message || 'Protected request service unavailable.'));
+        }
       }
       renderCalendar();
     });
@@ -1483,6 +1748,7 @@
       prefillPortalIdentity();
     });
     $('#export-ics-btn')?.addEventListener('click', exportCalendarIcs);
+    loadProtectedCalendar();
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -1490,12 +1756,13 @@
     bindTabs(); bindJobs(); bindTasks(); bindOrg(); bindNotifications(); bindCalendar();
     renderJobs(); renderTasks(); renderOrg(); renderNotifications(); renderCalendar();
     prefillPortalIdentity();
+    loadProtectedTasks();
     loadProtectedJobs().finally(() => loadJobCardArchive());
     loadProtectedTasks();
   });
   window.addEventListener('beforeunload', () => {
     if (selectedJobCardArchiveContentUrl) URL.revokeObjectURL(selectedJobCardArchiveContentUrl);
   });
-  document.addEventListener('gmtportalidentity', prefillPortalIdentity);
+  document.addEventListener('gmtportalidentity', () => { prefillPortalIdentity(); loadProtectedCalendar(); });
   document.addEventListener('gmtportalprofile', prefillPortalIdentity);
 })();

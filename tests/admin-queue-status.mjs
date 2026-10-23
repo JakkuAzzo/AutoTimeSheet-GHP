@@ -22,6 +22,8 @@ const db = mockDb(rows);
 const pending = await adminQueueStatus({ DB: db, FORM_SUBMIT_TIMESHEET_ENDPOINT: 'https://formsubmit.co/example', PAY_MONTH_REPLAY_READY: 'false' }, { isAdmin: true });
 assert.equal(pending.providerStatus, 'awaiting-workbook-route');
 assert.deepEqual(pending.counts, { queued: 1, sending: 0, failed: 1, sent: 1, skipped: 0 });
+assert.equal(pending.records[0].recordId, 'correction-1', 'queue status preserves the stored source record ID');
+assert.equal(pending.records[1].recordId, 'correction-2', 'each queue state remains tied to its source record');
 assert.equal(pending.records[1].error, 'Workbook route not certified');
 assert.equal(pending.records[2].status, 'sent');
 assert.equal('owner_upn' in pending.records[0], false, 'the read-only status response exposes no mailbox identity');
