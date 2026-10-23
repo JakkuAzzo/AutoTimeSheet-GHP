@@ -39,6 +39,7 @@
     "test:xero:integration-contract": "node tests/xero-integration-contract.mjs",
     "test:xero:invoice-order": "node tests/xero-invoice-order.test.mjs",
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
+    "test:portal:navigation": "node tests/dashboard-tools-navigation.browser.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:offsite-clock:policy": "node tests/offsite-clock-policy.mjs",
