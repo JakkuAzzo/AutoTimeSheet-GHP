@@ -3,6 +3,7 @@ import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-r
 import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
 import { getJobCardArchiveRecord, getJobCardBatch, jobCardBatchStatus, normalizeJobCardEntry, queryJobCardArchive, reviewJobCardArchive, startJobCardBatch, upsertJobCardArchive, upsertJobCardSourceFile } from './job-card-archive.js';
+import { offsiteClockEndpoint } from './offsite-clock.js';
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
@@ -149,6 +150,7 @@ function tokenIdentity(claims, env) {
   const operationsAdminUpns = csvSet(env.OPERATIONS_ADMIN_UPNS);
   const hrAdminUpns = csvSet(env.HR_ADMIN_UPNS);
   const xeroAdminUpns = csvSet(env.XERO_ADMIN_UPNS);
+  const offsiteDutyManagerUpns = csvSet(env.OFFSITE_DUTY_MANAGER_UPNS);
   const groups = Array.isArray(claims.groups) ? claims.groups.map((item) => String(item).toLowerCase()) : [];
   const isAdmin = adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group));
   const isHrAdmin = isAdmin || hrAdminUpns.has(upn);
@@ -161,6 +163,7 @@ function tokenIdentity(claims, env) {
     isAdmin,
     isHrAdmin,
     isTimesheetViewer: timesheetViewerUpns.has(upn),
+    canReviewOffsite: offsiteDutyManagerUpns.has(upn),
     canManagePayMonthStarts: payMonthStartAdminUpns.has(upn),
     isXeroAdmin: isAdmin || xeroAdminUpns.has(upn),
     isOperationsAdmin: isAdmin || operationsAdminUpns.has(upn),
@@ -3277,7 +3280,7 @@ async function adminUsersEndpoint(request, env, identity, origin) {
       FROM portal_access_assignments ORDER BY owner_upn, role`).all();
     const names = new Map(staffDirectory(env).map((entry) => [entry.upn, entry.name]));
     const configured = [];
-    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['timesheets', 'TIMESHEET_VIEWER_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS']]) {
+    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['timesheets', 'TIMESHEET_VIEWER_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS'], ['offsite-duty-manager', 'OFFSITE_DUTY_MANAGER_UPNS']]) {
       for (const upn of csvSet(env[variable])) configured.push({ owner_upn: upn, display_name: names.get(upn) || upn, role, updated_at: 'Worker configuration', managed: false });
     }
     if (csvSet(env.ADMIN_GROUP_IDS).size) configured.push({ owner_upn: 'Configured Entra group', display_name: 'GMT portal administrator group', role: 'admin', updated_at: 'Entra group configuration', managed: false });
@@ -4337,9 +4340,12 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/access' && request.method === 'GET') {
     return json({ isAdmin: identity.isAdmin, isHrAdmin: identity.isHrAdmin, isXeroAdmin: identity.isXeroAdmin,
       isOperationsAdmin: identity.isOperationsAdmin, isJobCardAdmin: identity.isJobCardAdmin,
+      canReviewOffsite: identity.canReviewOffsite === true,
       canManagePayMonthStarts: identity.canManagePayMonthStarts,
       roles: identity.assignedRoles || [] }, 200, origin || '');
   }
+  const offsiteClockResponse = await offsiteClockEndpoint(request, env, identity, readJson);
+  if (offsiteClockResponse) return json(offsiteClockResponse.body, offsiteClockResponse.status, origin || '');
   if (url.pathname === '/api/pay-month-starts' && ['GET', 'POST'].includes(request.method)) {
     return payMonthStartsEndpoint(request, env, identity, origin || '');
   }

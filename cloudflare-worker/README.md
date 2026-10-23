@@ -51,6 +51,13 @@ details, Outlook conversation ID/link, and an append-only message projection.
    records owner-filtered. `JOB_CARD_ADMIN_UPNS` can additionally grant job-card
    access to identities such as `info@gmt-services.co.uk`. Full administrators
    retain access to all categories.
+   `OFFSITE_DUTY_MANAGER_UPNS` grants the separate off-site shift sign-off
+   capability. It does not grant administrator, timesheet, or payroll access,
+   and full administrator status alone does not grant this capability. Keep
+   the list empty until Duty Manager accounts are explicitly assigned. Apply
+   `migrations/0013_offsite_clock.sql` before deploying code that enables
+   `/portal/offsite-clock.html`; these entries and their audit events are stored
+   separately from payroll clock and timesheet records.
 6. Store the activated timesheet FormSubmit endpoint as the Worker secret
    `FORM_SUBMIT_TIMESHEET_ENDPOINT`. The endpoint is never returned to the
    browser. The default dispatch window is Friday at 18:00 Europe/London and
