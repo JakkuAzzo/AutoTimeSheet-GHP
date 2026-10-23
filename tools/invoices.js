@@ -12,6 +12,7 @@
   var refresh = $("xero-refresh");
   var loadButton = $("xero-invoice-load");
   var listStatus = $("xero-invoice-status-message");
+  var provenance = $("xero-invoice-provenance");
   var progress = $("xero-invoice-progress");
   var table = $("xero-invoice-table");
   var invoiceSearch = $("xero-invoice-search");
@@ -26,6 +27,8 @@
   var recordSelect = $("xero-invoice-links");
   var recordSearch = $("xero-record-search");
   var recordChips = $("xero-invoice-links-chips");
+  var recordSearchStatus = $("xero-record-search-status");
+  var recordLoadMore = $("xero-record-load-more");
   var selectedPanel = $("xero-invoice-selected");
   var saveButton = $("xero-create-invoice");
   var sendButton = $("xero-send-invoice");
@@ -39,6 +42,12 @@
   var lookupsPromise = Promise.resolve();
   var invoiceRows = [];
   var recordRows = [];
+  var recordQuery = "";
+  var recordOffset = 0;
+  var recordHasMore = false;
+  var recordSearchRevision = 0;
+  var recordSearchTimer = null;
+  var registerState = window.GMTInvoiceRegisterState;
   var invoiceCacheKey = function () { return "gmt-xero-invoice-index:" + selectedTenant(); };
 
   function initViewportEffects(root) {
@@ -47,11 +56,35 @@
   }
 
   function readInvoiceCache() {
-    try { var raw = sessionStorage.getItem(invoiceCacheKey()); var parsed = raw ? JSON.parse(raw) : null; return parsed && Array.isArray(parsed.invoices) ? parsed : null; } catch (_) { return null; }
+    if (!registerState) return null;
+    return registerState.load(sessionStorage, invoiceCacheKey(), selectedTenant());
   }
 
-  function writeInvoiceCache(invoices, tenant) {
-    try { sessionStorage.setItem(invoiceCacheKey(), JSON.stringify({ cached_at: new Date().toISOString(), tenant: tenant || "Xero", invoices: invoices })); } catch (_) {}
+  function writeInvoiceCache(pages, invoices, complete) {
+    if (!registerState) return false;
+    var snapshot = registerState.makeSnapshot(selectedTenant(), new Date().toISOString(), pages, invoices, complete);
+    return registerState.save(sessionStorage, invoiceCacheKey(), snapshot, selectedTenant());
+  }
+
+  function formatPageTimestamp(value) {
+    var date = new Date(value || "");
+    if (!Number.isFinite(date.getTime())) return "time unavailable";
+    return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" }).format(date);
+  }
+
+  function renderInvoiceProvenance(summary, savedAt, label) {
+    if (!provenance || !summary) return;
+    var counts = summary.source_counts || {};
+    var timestamps = summary.timestamps || {};
+    var parts = [
+      (counts.sharepoint || 0) + " SharePoint page(s)",
+      (counts.xero || 0) + " Xero page(s)",
+      (counts.unarchived || 0) + " page(s) not saved to SharePoint"
+    ];
+    var range = timestamps.oldest_at && timestamps.newest_at
+      ? "Page data from " + formatPageTimestamp(timestamps.oldest_at) + " to " + formatPageTimestamp(timestamps.newest_at)
+      : "Page timestamps unavailable";
+    provenance.textContent = (label ? label + " · " : "") + parts.join(" · ") + " · " + range + (savedAt ? " · Complete snapshot saved " + formatPageTimestamp(savedAt) : "");
   }
 
   function safe(value) {
@@ -102,26 +135,59 @@
     return String(select && select.value || tenantId || "");
   }
 
+  function formatCheckedAt(value) {
+    var date = new Date(value || "");
+    if (!Number.isFinite(date.getTime())) return "time unavailable";
+    return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" }).format(date);
+  }
+
+  function connectionHealthText(connection) {
+    if (connection.identity_status === "mismatch") return "Tenant identity mismatch";
+    if (connection.refresh_health === "reconnect_required") return "Reconnect required";
+    if (connection.refresh_health === "unavailable") return "Verification unavailable";
+    if (connection.refresh_health === "not_configured") return "Not configured";
+    if (connection.refresh_health === "healthy" && connection.identity_status === "verified") return "Verified with Xero";
+    return "Checking Xero connection";
+  }
+
   function renderConnections() {
     var list = connectionList();
-    var reconnectNeeded = list.some(function (item) { return !!item.last_error; });
     if (list.length && !tenantId) tenantId = String(list[0].tenant_id || "");
-    if (chip) chip.textContent = reconnectNeeded ? "Reconnect required" : (list.length ? "Connected" : (xeroBody && xeroBody.configured ? "Not connected" : "Not configured"));
+    var active = list.find(function (item) { return String(item.tenant_id) === selectedTenant(); }) || list[0] || null;
+    var reconnectNeeded = list.some(function (item) {
+      return item.refresh_health === "reconnect_required" || item.identity_status === "mismatch" || (!item.refresh_health && !!item.last_error);
+    });
+    var activeHealth = active ? connectionHealthText(active) : "";
+    if (chip) chip.textContent = !xeroBody || !xeroBody.configured
+      ? "Not configured"
+      : (!list.length ? "Not connected" : (activeHealth === "Verified with Xero" ? "Connected · verified" : activeHealth));
     if (connect) {
       connect.hidden = list.length > 0 && !reconnectNeeded;
       connect.style.display = connect.hidden ? "none" : "";
       connect.textContent = reconnectNeeded ? "Reconnect Xero" : "Connect Xero";
     }
-    if (status) status.textContent = xeroBody && xeroBody.configured
-      ? (reconnectNeeded ? "Xero needs to be reauthorised. Reconnect the Accounts connection to restore invoice access." : (list.length ? "The Accounts Xero connection is ready. Invoices are managed in Xero and linked GMT records are logged here." : "Xero is configured but no organisation is connected yet. Connect once to enable Accounts invoice management."))
-      : "Xero is not configured on the portal service yet.";
+    if (status) {
+      if (!xeroBody || !xeroBody.configured) status.textContent = "Xero is not configured on the portal service yet.";
+      else if (!list.length) status.textContent = "Xero is configured but no organisation is connected yet. Connect once to enable Accounts invoice access.";
+      else if (active && active.identity_status === "verified" && active.refresh_health === "healthy") {
+        status.textContent = "Verified " + (active.tenant_name || "Xero organisation") + " (tenant " + active.tenant_id + ") with Xero at " + formatCheckedAt(active.checked_at) + ".";
+      } else if (active && active.identity_status === "mismatch") {
+        status.textContent = active.health_error || "The active Xero organisation does not match the saved tenant identity. Reconnect Xero to restore the Accounts mapping.";
+      } else if (active && active.refresh_health === "reconnect_required") {
+        status.textContent = active.health_error || active.last_error || "Xero authorisation expired. Reconnect Xero to restore invoice access.";
+      } else if (active && active.refresh_health === "unavailable") {
+        status.textContent = active.health_error || "Xero could not verify the saved connection right now. Retry the check shortly.";
+      } else {
+        status.textContent = "Xero connection health is not available.";
+      }
+    }
     if (!connections) return;
     if (!list.length) { connections.innerHTML = '<p class="portal-history-empty">No Xero organisation is connected.</p>'; return; }
     connections.innerHTML = list.length === 1
-      ? '<p><strong>' + safe(list[0].tenant_name || "Xero organisation") + '</strong><br><span class="small-text">' + safe(list[0].connected_at || "") + (list[0].last_error ? ' · ' + safe(list[0].last_error) : '') + '</span></p>'
-      : '<label>Organisation<select aria-label="Choose Xero organisation">' + list.map(function (item) { return '<option value="' + safe(item.tenant_id) + '"' + (String(item.tenant_id) === tenantId ? ' selected' : '') + '>' + safe(item.tenant_name || item.tenant_id) + '</option>'; }).join("") + '</select></label>';
+      ? '<p><strong>' + safe(list[0].tenant_name || "Xero organisation") + '</strong><br><span class="small-text">Tenant ID: <code>' + safe(list[0].tenant_id) + '</code><br>' + safe(connectionHealthText(list[0])) + ' · checked ' + safe(formatCheckedAt(list[0].checked_at)) + (list[0].health_error ? '<br>' + safe(list[0].health_error) : '') + '</span></p>'
+      : '<label>Organisation<select aria-label="Choose Xero organisation">' + list.map(function (item) { return '<option value="' + safe(item.tenant_id) + '"' + (String(item.tenant_id) === tenantId ? ' selected' : '') + '>' + safe((item.tenant_name || "Xero organisation") + " · " + item.tenant_id + " · " + connectionHealthText(item)) + '</option>'; }).join("") + '</select></label>';
     var select = connections.querySelector("select");
-    if (select) select.addEventListener("change", function () { tenantId = select.value; refreshTenantData(); });
+    if (select) select.addEventListener("change", function () { tenantId = select.value; renderConnections(); refreshTenantData(); });
   }
 
   function filterInvoiceRows(invoices) {
@@ -171,10 +237,94 @@
     }).join("") || '<span class="small-text">No estimates or job cards linked yet.</span>';
   }
 
-  function filterRecordRows() {
-    var query = String(recordSearch && recordSearch.value || "").trim().toLowerCase();
+  function recordOptionLabel(record) {
+    return (record.kind === "estimates" ? "Estimate" : "Job card") + " · " + (record.title || record.record_id) +
+      (record.is_candidate ? " · OCR candidate" : "") + (record.customer ? " · " + record.customer : "") +
+      (record.total == null ? "" : " · " + money(record.total, "GBP"));
+  }
+
+  function renderRecordOptions() {
     if (!recordSelect) return;
-    Array.prototype.forEach.call(recordSelect.options, function (option) { option.hidden = Boolean(query && option.textContent.toLowerCase().indexOf(query) < 0); });
+    var selected = new Map();
+    Array.prototype.forEach.call(recordSelect.selectedOptions || [], function (option) {
+      if (option.value) selected.set(option.value, option.textContent);
+    });
+    var records = recordRows.slice();
+    var seen = new Set(records.map(function (record) { return String(record.record_id); }));
+    selected.forEach(function (label, recordId) {
+      if (!seen.has(recordId)) records.push({ record_id: recordId, display_label: label });
+    });
+    recordSelect.innerHTML = records.map(function (record) {
+      var recordId = String(record.record_id || "");
+      var label = record.display_label == null ? recordOptionLabel(record) : record.display_label;
+      return '<option value="' + safe(recordId) + '"' + (selected.has(recordId) ? ' selected' : '') + '>' + safe(label) + '</option>';
+    }).join("") || '<option value="" disabled>No active estimates or job cards match</option>';
+    if (recordLoadMore) recordLoadMore.hidden = !recordHasMore;
+  }
+
+  function applyRecordPage(result, query, append) {
+    var page = result || {};
+    var incoming = Array.isArray(page.records) ? page.records : [];
+    if (append) {
+      var seen = new Set(recordRows.map(function (record) { return String(record.record_id); }));
+      incoming.forEach(function (record) {
+        if (!seen.has(String(record.record_id))) { recordRows.push(record); seen.add(String(record.record_id)); }
+      });
+    } else {
+      recordRows = incoming.slice();
+    }
+    recordQuery = String(query || "").trim();
+    recordOffset = page.pagination && Number.isInteger(page.pagination.next_offset) ? page.pagination.next_offset : recordRows.length;
+    recordHasMore = page.pagination ? page.pagination.has_more === true : incoming.length === 100;
+    renderRecordOptions();
+    if (recordSearchStatus) {
+      var count = recordRows.length + " record(s)";
+      recordSearchStatus.textContent = (recordQuery ? count + ' matching “' + recordQuery + '”' : count + " loaded") + (recordHasMore ? " · more available" : "");
+    }
+    renderRecordChips();
+  }
+
+  async function searchRecordPage(query, append) {
+    if (!api.xeroRecords) return;
+    var normalized = String(query || "").trim();
+    if (append && normalized !== recordQuery) return;
+    var revision = ++recordSearchRevision;
+    var offset = append ? recordOffset : 0;
+    if (!append) {
+      recordQuery = normalized;
+      recordRows = [];
+      recordHasMore = false;
+      renderRecordOptions();
+      if (recordSearchStatus) recordSearchStatus.textContent = "Searching GMT records…";
+    }
+    if (recordLoadMore) recordLoadMore.disabled = true;
+    try {
+      var result = await api.xeroRecords(normalized, 100, offset);
+      if (revision !== recordSearchRevision) return;
+      applyRecordPage(result, normalized, append);
+    } catch (error) {
+      if (revision === recordSearchRevision && recordSearchStatus) recordSearchStatus.textContent = error && error.message ? error.message : "GMT records could not be loaded.";
+    } finally {
+      if (revision === recordSearchRevision && recordLoadMore) recordLoadMore.disabled = false;
+    }
+  }
+
+  function setLinkedRecords(links) {
+    if (!recordSelect) return;
+    var selectedIds = new Set((Array.isArray(links) ? links : []).map(function (link) { return String(link.record_id || ""); }).filter(Boolean));
+    var options = new Map();
+    Array.prototype.forEach.call(recordSelect.options, function (option) { if (option.value) options.set(option.value, option); });
+    (Array.isArray(links) ? links : []).forEach(function (link) {
+      var recordId = String(link.record_id || "");
+      if (!recordId || options.has(recordId)) return;
+      var option = document.createElement("option");
+      option.value = recordId;
+      option.textContent = (link.record_kind === "estimates" ? "Estimate" : "Job card") + " · " + (link.record_title || recordId) + (link.is_candidate ? " · OCR candidate" : "");
+      recordSelect.appendChild(option);
+      options.set(recordId, option);
+    });
+    options.forEach(function (option, recordId) { option.selected = selectedIds.has(recordId); });
+    renderRecordChips();
   }
 
   function renderRelatedRecords(links, detail) {
@@ -206,35 +356,40 @@
     if (cached) {
       invoiceRows = cached.invoices;
       renderInvoices(invoiceRows);
+      renderInvoiceProvenance(cached, cached.saved_at, "Saved complete snapshot; loading source pages");
       if (listStatus) listStatus.textContent = cached.invoices.length + " cached invoice" + (cached.invoices.length === 1 ? "" : "s") + " shown · refreshing from Xero…";
     }
     if (progress) { progress.hidden = false; progress.removeAttribute("value"); }
     if (listStatus) listStatus.textContent = refreshFromXero ? "Refreshing invoice history from Xero and updating the SharePoint archive…" : "Loading invoice history from the SharePoint archive…";
     try {
-      var all = [], page = 1, batch = [], archivedPages = 0, xeroPages = 0, unarchivedPages = 0;
+      var all = [], page = 1, batch = [], pageLimit = 1000, hasMore = false, complete = false;
+      var pages = [];
       do {
         var result = await api.xeroInvoices(tenantId, 100, page, "", refreshFromXero === true);
         batch = result && Array.isArray(result.invoices) ? result.invoices : [];
-        if (result && result.archive && result.archive.source === "sharepoint") archivedPages += 1;
-        else if (result && result.archive && result.archive.source === "xero") {
-          xeroPages += 1;
-          if (!result.archive.stored) unarchivedPages += 1;
-        }
+        pages.push(result || {});
         all = all.concat(batch);
         invoiceRows = all;
         renderInvoices(all);
         if (progress) progress.value = page;
         if (listStatus) listStatus.textContent = all.length + " invoice" + (all.length === 1 ? "" : "s") + " loaded…";
+        pageLimit = Math.max(1, Number(result && result.pagination && result.pagination.page_limit) || 1000);
+        hasMore = result && result.pagination ? result.pagination.has_more === true : batch.length >= 100;
+        if (!hasMore) complete = true;
+        if (page >= pageLimit && hasMore) break;
         page += 1;
-      } while (batch.length === 100 && page <= 1000);
+      } while (hasMore);
       if (progress) { progress.hidden = true; progress.removeAttribute("value"); }
       if (accessGate) accessGate.hidden = true;
       renderConnections();
-      writeInvoiceCache(all, result && result.tenant && result.tenant.tenant_name || "Xero");
+      var pageSummary = registerState ? registerState.summarizePages(pages) : null;
+      var snapshotSaved = complete && writeInvoiceCache(pages, all, true);
+      renderInvoiceProvenance(pageSummary, snapshotSaved ? new Date().toISOString() : "", complete ? "Complete register" : "Partial register");
       if (listStatus) {
-        if (unarchivedPages) listStatus.textContent = all.length + " invoices loaded; " + unarchivedPages + " page(s) could not be saved to the SharePoint archive. Retry refresh to archive them.";
-        else if (xeroPages) listStatus.textContent = all.length + " invoices loaded; " + xeroPages + " page(s) fetched from Xero and saved to SharePoint, " + archivedPages + " page(s) served from the archive.";
-        else if (archivedPages) listStatus.textContent = all.length + " invoices loaded from the SharePoint archive.";
+        if (!complete) listStatus.textContent = all.length + " invoices shown; the register reached the page limit and may be incomplete. The previous complete snapshot is preserved.";
+        else if (pageSummary && pageSummary.source_counts.unarchived) listStatus.textContent = all.length + " invoices loaded; " + pageSummary.source_counts.unarchived + " page(s) could not be saved to the SharePoint archive. Retry refresh to archive them.";
+        else if (pageSummary && pageSummary.source_counts.xero) listStatus.textContent = all.length + " invoices loaded; " + pageSummary.source_counts.xero + " page(s) fetched from Xero and " + pageSummary.source_counts.sharepoint + " page(s) served from the SharePoint archive.";
+        else if (pageSummary && pageSummary.source_counts.sharepoint) listStatus.textContent = all.length + " invoices loaded from the SharePoint archive.";
         else listStatus.textContent = all.length + " invoices loaded; archive status is unavailable from the portal service.";
       }
     } catch (error) {
@@ -243,8 +398,8 @@
       // result look like a portal failure.
       renderInvoices(invoiceRows);
       if (invoiceRows.length) {
-        writeInvoiceCache(invoiceRows, "Xero");
-        if (listStatus) listStatus.textContent = invoiceRows.length + " invoices loaded; more could not be fetched right now. Try Refresh to continue.";
+        if (listStatus) listStatus.textContent = invoiceRows.length + " invoices shown; more could not be fetched right now. The previous complete snapshot is preserved. Try Refresh to continue.";
+        if (registerState && pages.length) renderInvoiceProvenance(registerState.summarizePages(pages), "", "Partial register");
       } else if (listStatus) {
         listStatus.textContent = error && error.message ? error.message : "The Xero invoice register could not be loaded.";
       }
@@ -323,7 +478,7 @@
   async function loadLookups() {
     if (!api.xeroSetupData || !api.xeroRecords) return;
     try {
-      var results = await Promise.allSettled([api.xeroSetupData(selectedTenant()), api.xeroRecords()]);
+      var results = await Promise.allSettled([api.xeroSetupData(selectedTenant()), api.xeroRecords("", 100, 0)]);
       var errors = [];
       if (results[0].status === "fulfilled") {
         setupData = results[0].value || {};
@@ -334,15 +489,11 @@
         if (contactSelect) contactSelect.innerHTML = '<option value="">Xero customers unavailable — use Refresh</option>';
       }
       if (results[1].status === "fulfilled") {
-        var records = results[1].value && results[1].value.records || [];
-        recordRows = records;
-        if (recordSelect) recordSelect.innerHTML = records.map(function (record) { return '<option value="' + safe(record.record_id) + '">' + safe((record.kind === "estimates" ? "Estimate" : "Job card") + " · " + record.title + (record.is_candidate ? " · OCR candidate" : "") + (record.customer ? " · " + record.customer : "") + (record.total == null ? "" : " · " + money(record.total, "GBP"))) + '</option>'; }).join("") || '<option value="">No active estimates or job cards</option>';
+        applyRecordPage(results[1].value, "", false);
       } else {
         errors.push(results[1].reason && results[1].reason.message || "GMT records could not be loaded");
         if (recordSelect) recordSelect.innerHTML = '<option value="">GMT records unavailable — use Refresh</option>';
       }
-      filterRecordRows();
-      renderRecordChips();
       if (editingInvoiceId && lines) {
         lines.querySelectorAll(".xero-invoice-line").forEach(function (row) {
           var account = row.querySelector('[data-line="account"]'); var tax = row.querySelector('[data-line="tax"]');
@@ -398,8 +549,7 @@
       if (lines) lines.innerHTML = "";
       (detail.line_items || []).forEach(addLine);
       if (!detail.line_items || !detail.line_items.length) addLine();
-      if (recordSelect) Array.prototype.forEach.call(recordSelect.options, function (option) { option.selected = (detail.links || []).some(function (link) { return link.record_id === option.value; }); });
-      renderRecordChips();
+      setLinkedRecords(detail.links || []);
       setEditorEditable(!!detail.policy?.canEdit);
       if (saveLinksButton) saveLinksButton.hidden = false;
       if (auditPanel) {
@@ -449,17 +599,19 @@
     try { var result = await api.xeroConnect(); if (result && result.authorization_url) window.location.assign(result.authorization_url); else if (status) status.textContent = "Xero authorisation URL was not returned."; }
     catch (error) { if (status) status.textContent = error && error.message ? error.message : "Xero could not be connected."; connect.disabled = false; }
   });
-  if (refresh) refresh.addEventListener("click", function () {
-    try { sessionStorage.removeItem(invoiceCacheKey()); } catch (_) {}
-    loadInvoices(true);
-  });
+  if (refresh) refresh.addEventListener("click", function () { loadInvoices(true); });
   if (loadButton) loadButton.addEventListener("click", loadInvoices);
   if (statusFilter) statusFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (invoiceSearch) invoiceSearch.addEventListener("input", function () { renderInvoices(invoiceRows); });
   if (customerFilter) customerFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (fromFilter) fromFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
   if (toFilter) toFilter.addEventListener("change", function () { renderInvoices(invoiceRows); });
-  if (recordSearch) recordSearch.addEventListener("input", filterRecordRows);
+  if (recordSearch) recordSearch.addEventListener("input", function () {
+    clearTimeout(recordSearchTimer);
+    var query = recordSearch.value;
+    recordSearchTimer = setTimeout(function () { searchRecordPage(query, false); }, 250);
+  });
+  if (recordLoadMore) recordLoadMore.addEventListener("click", function () { searchRecordPage(recordQuery, true); });
   if (recordSelect) recordSelect.addEventListener("change", renderRecordChips);
   if (editor) editor.addEventListener("input", renderInvoicePreview);
   if (editor) editor.addEventListener("change", renderInvoicePreview);

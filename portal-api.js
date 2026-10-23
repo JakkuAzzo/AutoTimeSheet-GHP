@@ -480,8 +480,12 @@
     return request("/api/xero/setup-data" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
   }
 
-  function xeroRecords() {
-    return request("/api/xero/records", { method: "GET" });
+  function xeroRecords(query, limit, offset) {
+    var params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (limit) params.set("limit", String(limit));
+    if (offset != null) params.set("offset", String(offset));
+    return request("/api/xero/records" + (params.toString() ? "?" + params.toString() : ""), { method: "GET" });
   }
 
   function xeroInvoice(invoiceId, tenantId) {

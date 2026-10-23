@@ -3746,66 +3746,215 @@ async function completeXeroConnection(request, env) {
 }
 
 async function xeroConnectionRows(env) {
-  const result = await env.DB.prepare(`SELECT tenant_id, connection_id, tenant_name, tenant_type, scopes,
-    connected_by_upn, connected_at, updated_at, last_error FROM xero_connections ORDER BY tenant_name`).all();
+  const result = await env.DB.prepare('SELECT * FROM xero_connections ORDER BY tenant_name').all();
   return result.results || [];
 }
 
-async function xeroStatus(env, identity, origin) {
+async function xeroStatus(env, identity, origin, fetchImpl = fetch) {
   requireXeroAdmin(identity);
   const settings = xeroSettings(env);
   const connections = await xeroConnectionRows(env);
-  return json({
-    configured: settings.configured,
-    scopes: settings.scopes.split(/\s+/).filter(Boolean),
-    redirect_uri: settings.redirectUri || '',
-    connections: connections.map((connection) => ({
+  const checkedAt = now();
+  const healthConnections = [];
+  const refreshResults = new Map();
+  for (const connection of connections) {
+    let refreshHealth = 'not_configured';
+    let identityStatus = 'unverified';
+    let tenantName = text(connection.tenant_name, 'Xero organisation', 500);
+    let healthError = '';
+    let lastError = text(connection.last_error, '', 1000);
+
+    if (settings.configured) {
+      try {
+        const savedRefreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
+        let refreshResult = refreshResults.get(savedRefreshToken);
+        if (!refreshResult) {
+          try {
+            refreshResult = { token: await refreshXeroAccessToken(env, connection, fetchImpl) };
+          } catch (error) {
+            refreshResult = { error };
+          }
+          refreshResults.set(savedRefreshToken, refreshResult);
+        }
+        if (refreshResult.error) throw refreshResult.error;
+        const token = refreshResult.token;
+        lastError = '';
+        const response = await fetchImpl(`${settings.apiUrl}/connections`, { headers: xeroApiHeaders(token.accessToken) });
+        if (!response.ok) {
+          refreshHealth = 'unavailable';
+          healthError = response.status >= 500
+            ? 'Xero tenant verification is temporarily unavailable.'
+            : 'Xero could not verify the saved organisation. Retry the check or reconnect if the problem continues.';
+        } else {
+          let liveConnections = null;
+          try { liveConnections = await response.json(); } catch (_) {}
+          if (!Array.isArray(liveConnections)) {
+            refreshHealth = 'unavailable';
+            healthError = 'Xero returned an invalid tenant verification response.';
+          } else {
+            refreshHealth = 'healthy';
+            const matched = liveConnections.find((item) =>
+              text(item?.tenantId, '', 160) === connection.tenant_id &&
+              text(item?.id || item?.connectionId, '', 160) === connection.connection_id
+            );
+            if (matched) {
+              identityStatus = 'verified';
+              tenantName = text(matched.tenantName, tenantName, 500);
+            } else {
+              identityStatus = 'mismatch';
+              healthError = 'The active Xero connection does not match the saved tenant identity. Reconnect Xero to restore the Accounts mapping.';
+            }
+          }
+        }
+      } catch (error) {
+        const reconnectRequired = error?.code === 'XERO_REAUTH_REQUIRED';
+        refreshHealth = reconnectRequired ? 'reconnect_required' : 'unavailable';
+        healthError = text(error?.publicMessage, reconnectRequired
+          ? 'Xero authorisation expired. Reconnect Xero to restore invoice access.'
+          : 'Xero could not verify its authorisation right now.', 500);
+        if (reconnectRequired) lastError = healthError;
+      }
+    } else {
+      healthError = 'Xero is not fully configured on the portal service.';
+    }
+
+    healthConnections.push({
       tenant_id: connection.tenant_id,
       connection_id: connection.connection_id,
-      tenant_name: connection.tenant_name,
+      tenant_name: tenantName,
       tenant_type: connection.tenant_type,
       scopes: String(connection.scopes || '').split(/\s+/).filter(Boolean),
       connected_by_upn: connection.connected_by_upn,
       connected_at: connection.connected_at,
       updated_at: connection.updated_at,
-      last_error: connection.last_error || ''
-    }))
+      last_error: lastError,
+      refresh_health: refreshHealth,
+      identity_status: identityStatus,
+      checked_at: checkedAt,
+      health_error: healthError
+    });
+  }
+  return json({
+    configured: settings.configured,
+    scopes: settings.scopes.split(/\s+/).filter(Boolean),
+    redirect_uri: settings.redirectUri || '',
+    checked_at: checkedAt,
+    connections: healthConnections
   }, 200, origin || '');
 }
 
 async function refreshXeroAccessToken(env, connection, fetchImpl = fetch) {
   const settings = xeroSettings(env);
   if (!settings.configured) throw Object.assign(new Error('Xero is not configured on the portal service'), { status: 503 });
-  const refreshToken = await decryptXeroSecret(connection.refresh_token_ciphertext, connection.refresh_token_iv, settings);
+  let currentConnection = connection;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const refreshToken = await decryptXeroSecret(currentConnection.refresh_token_ciphertext, currentConnection.refresh_token_iv, settings);
+    const tokenHash = await sha256Base64Url(refreshToken);
+    const leaseId = crypto.randomUUID();
+    await acquireXeroRefreshLock(env, tokenHash, leaseId);
+    try {
+      const latestConnection = await env.DB.prepare('SELECT * FROM xero_connections WHERE tenant_id = ?').bind(currentConnection.tenant_id).first();
+      if (!latestConnection) throw Object.assign(new Error('The requested Xero organisation is not connected'), { status: 404 });
+      const latestRefreshToken = await decryptXeroSecret(latestConnection.refresh_token_ciphertext, latestConnection.refresh_token_iv, settings);
+      if (latestRefreshToken !== refreshToken) {
+        currentConnection = latestConnection;
+        continue;
+      }
+      return await refreshXeroAccessTokenLocked(env, latestConnection, settings, refreshToken, tokenHash, leaseId, fetchImpl);
+    } finally {
+      try {
+        await env.DB.prepare('DELETE FROM xero_refresh_locks WHERE token_hash = ? AND lease_id = ?').bind(tokenHash, leaseId).run();
+      } catch (_) {
+        // An expired lease can be reclaimed by the next request.
+      }
+    }
+  }
+  throw Object.assign(new Error('Xero authorisation is being refreshed. Retry shortly.'), {
+    status: 503,
+    code: 'XERO_REFRESH_BUSY',
+    publicMessage: 'Xero authorisation is being refreshed. Retry shortly.'
+  });
+}
+
+async function acquireXeroRefreshLock(env, tokenHash, leaseId) {
+  const startedAt = Date.now();
+  const leaseDurationMs = 120_000;
+  while (Date.now() - startedAt < 10_000) {
+    const timestamp = Date.now();
+    const result = await env.DB.prepare(`INSERT INTO xero_refresh_locks (token_hash, lease_id, lease_expires_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(token_hash) DO UPDATE SET lease_id = excluded.lease_id, lease_expires_at = excluded.lease_expires_at
+      WHERE xero_refresh_locks.lease_expires_at <= ?`).bind(tokenHash, leaseId, timestamp + leaseDurationMs, timestamp).run();
+    if (Number(result?.meta?.changes || 0) === 1) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw Object.assign(new Error('Xero authorisation is being refreshed. Retry shortly.'), {
+    status: 503,
+    code: 'XERO_REFRESH_BUSY',
+    publicMessage: 'Xero authorisation is being refreshed. Retry shortly.'
+  });
+}
+
+async function refreshXeroAccessTokenLocked(env, connection, settings, refreshToken, tokenHash, leaseId, fetchImpl) {
+  const savedConnections = await xeroConnectionRows(env);
+  const sharedConnections = [];
+  for (const savedConnection of savedConnections) {
+    try {
+      const savedToken = await decryptXeroSecret(savedConnection.refresh_token_ciphertext, savedConnection.refresh_token_iv, settings);
+      if (savedToken === refreshToken) sharedConnections.push(savedConnection);
+    } catch (_) {
+      // A separately damaged tenant token must not block a valid tenant refresh.
+    }
+  }
+  if (!sharedConnections.some((item) => item.tenant_id === connection.tenant_id)) sharedConnections.push(connection);
   const response = await fetchImpl(settings.tokenUrl, {
     method: 'POST',
     headers: { Authorization: xeroBasicAuth(settings), 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
+    signal: AbortSignal.timeout(30_000)
   });
   const responseText = await response.text();
   let body = null;
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
-  if (!response.ok || !body?.access_token) {
+  if (!response.ok || !body?.access_token || !text(body?.refresh_token, '', 5000)) {
     const message = xeroErrorMessage(body, `Xero token refresh failed (${response.status})`);
     await env.DB.prepare('UPDATE xero_connections SET last_error = ?, updated_at = ? WHERE tenant_id = ?').bind(message, now(), connection.tenant_id).run();
     const invalidGrant = String(body?.error || '').toLowerCase() === 'invalid_grant' || /consum|invalid.grant|refresh token/i.test(String(body?.error_description || body?.message || ''));
     throw Object.assign(new Error(message), {
       status: 503,
+      code: invalidGrant ? 'XERO_REAUTH_REQUIRED' : 'XERO_REFRESH_FAILED',
       publicMessage: invalidGrant
         ? 'Xero authorisation expired or its refresh token was already used. Reconnect Xero to restore invoice access.'
         : 'Xero could not refresh its authorisation. Retry shortly or reconnect Xero to restore invoice access.'
     });
   }
-  const nextRefreshToken = text(body.refresh_token, refreshToken, 5000);
+  const nextRefreshToken = text(body.refresh_token, '', 5000);
   const encrypted = await encryptXeroSecret(nextRefreshToken, settings);
-  await env.DB.prepare(`UPDATE xero_connections SET refresh_token_ciphertext = ?, refresh_token_iv = ?, scopes = ?,
-    updated_at = ?, last_error = NULL WHERE tenant_id = ?`).bind(
-    encrypted.ciphertext,
-    encrypted.iv,
-    text(body.scope || connection.scopes, connection.scopes || settings.scopes, 1000),
-    now(),
-    connection.tenant_id
-  ).run();
+  const updatedAt = now();
+  const scopes = text(body.scope || connection.scopes, connection.scopes || settings.scopes, 1000);
+  const statements = [];
+  for (const sharedConnection of sharedConnections) {
+    statements.push(env.DB.prepare(`UPDATE xero_connections SET refresh_token_ciphertext = ?, refresh_token_iv = ?, scopes = ?,
+      updated_at = ?, last_error = NULL WHERE tenant_id = ? AND refresh_token_ciphertext = ? AND refresh_token_iv = ?`).bind(
+      encrypted.ciphertext,
+      encrypted.iv,
+      scopes,
+      updatedAt,
+      sharedConnection.tenant_id,
+      sharedConnection.refresh_token_ciphertext,
+      sharedConnection.refresh_token_iv
+    ));
+    // D1 batch rolls the token-row updates back together if any compare-and-swap
+    // misses. The NOT NULL constraint makes a missed update abort the batch.
+    statements.push(env.DB.prepare(`UPDATE xero_refresh_locks
+      SET lease_expires_at = CASE WHEN changes() = 1 AND lease_id = ? THEN lease_expires_at ELSE NULL END
+      WHERE token_hash = ? AND lease_id = ?`).bind(leaseId, tokenHash, leaseId));
+    if (sharedConnection.tenant_id === connection.tenant_id) {
+      connection.refresh_token_ciphertext = encrypted.ciphertext;
+      connection.refresh_token_iv = encrypted.iv;
+    }
+  }
+  await env.DB.batch(statements);
   return { accessToken: body.access_token, expiresAt: xeroTokenExpiry(body.expires_in) };
 }
 
@@ -3855,8 +4004,12 @@ async function lookupXeroInvoiceEndpoint(request, env, identity, origin) {
 
 async function listXeroInvoices(env, tenantId = '', options = {}) {
   const connection = await selectXeroConnection(env, tenantId);
-  const limit = Math.min(Math.max(Number(options.limit || 50), 1), 100);
-  const page = Math.min(Math.max(Number(options.page || 1), 1), 1000);
+  const requestedLimit = Number(options.limit ?? 50);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100) : 50;
+  const page = Number(options.page ?? 1);
+  if (!Number.isInteger(page) || page < 1 || page > 1000) {
+    throw Object.assign(new Error('Invoice page must be an integer between 1 and 1000'), { status: 400 });
+  }
   const status = text(options.status, '', 40);
   const cachePath = xeroInvoiceArchivePagePath(connection.tenant_id, page, limit, status);
   if (options.refresh !== true) {
@@ -3867,6 +4020,7 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
         invoices: cached.invoices,
         page,
         page_size: limit,
+        pagination: { page_limit: 1000, has_more: cached.invoices.length === limit },
         refreshed_at: cached.cached_at,
         archive: { source: 'sharepoint', stored: true, cached_at: cached.cached_at }
       };
@@ -3883,7 +4037,10 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
   let body = null;
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
   if (!response.ok) throw Object.assign(new Error(xeroErrorMessage(body, `Xero invoice list failed (${response.status})`)), { status: 502 });
-  const invoices = Array.isArray(body?.Invoices) ? body.Invoices : [];
+  if (!Array.isArray(body?.Invoices)) {
+    throw Object.assign(new Error('Xero invoice list returned an invalid response'), { status: 502 });
+  }
+  const invoices = body.Invoices;
   const cachedAt = now();
   let stored = false;
   try {
@@ -3906,6 +4063,7 @@ async function listXeroInvoices(env, tenantId = '', options = {}) {
     invoices: invoices.slice(0, limit).map(xeroInvoiceProjection),
     page,
     page_size: limit,
+    pagination: { page_limit: 1000, has_more: invoices.length >= limit },
     refreshed_at: cachedAt,
     archive: { source: 'xero', stored, cached_at: stored ? cachedAt : '' }
   };
@@ -4004,15 +4162,35 @@ function xeroLinkedRecordDisplay(row, payload) {
   };
 }
 
-async function xeroInvoiceRecords(env, identity, origin) {
+async function xeroInvoiceRecords(request, env, identity, origin) {
   requireXeroAdmin(identity);
+  const url = new URL(request.url);
+  const query = text(url.searchParams.get('q'), '', 200).toLowerCase();
+  const requestedLimit = Number(url.searchParams.get('limit') || 100);
+  const requestedOffset = Number(url.searchParams.get('offset') || 0);
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || !Number.isSafeInteger(requestedOffset) || requestedOffset < 0 || requestedOffset > 1000000) {
+    throw Object.assign(new Error('Record lookup pagination is invalid'), { status: 400 });
+  }
+  const limit = Math.min(requestedLimit, 100);
+  const offset = requestedOffset;
+  const search = query ? ` AND (
+      instr(lower(r.record_id), ?) > 0 OR
+      instr(lower(COALESCE(r.payload_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.candidates_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.confirmed_json, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.ocr_text, '')), ?) > 0 OR
+      instr(lower(COALESCE(a.source_file, '')), ?) > 0
+    )` : '';
+  const values = query ? [query, query, query, query, query, query, limit + 1, offset] : [limit + 1, offset];
   const result = await env.DB.prepare(`SELECT r.record_id, r.kind, r.status, r.employee_name, r.record_date, r.payload_json,
       a.candidates_json, a.confirmed_json, a.review_state AS archive_review_state,
-      a.source_file, a.source_page
+      a.source_file, a.source_page, a.ocr_text
     FROM records r LEFT JOIN job_card_archive a ON a.record_id=r.record_id
-    WHERE r.kind IN ('estimates', 'job-cards') AND r.status <> 'Deleted'
-    ORDER BY r.updated_at DESC LIMIT 500`).all();
-  return json({ records: (result.results || []).map((row) => {
+    WHERE r.kind IN ('estimates', 'job-cards') AND r.status <> 'Deleted'${search}
+    ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?`).bind(...values).all();
+  const rows = result.results || [];
+  const hasMore = rows.length > limit;
+  return json({ records: rows.slice(0, limit).map((row) => {
     const payload = payloadObject(row);
     const display = xeroLinkedRecordDisplay(row, payload);
     return {
@@ -4024,7 +4202,7 @@ async function xeroInvoiceRecords(env, identity, origin) {
       date: text(row.record_date, '', 10),
       total: Number.isFinite(Number(payload.total)) ? Number(payload.total) : null
     };
-  }) }, 200, origin || '');
+  }), pagination: { has_more: hasMore, next_offset: hasMore ? offset + limit : null } }, 200, origin || '');
 }
 
 async function persistExactInvoiceJobCardLinks(env, connection, invoice, identity) {
@@ -4635,7 +4813,7 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/xero/status' && request.method === 'GET') return xeroStatus(env, identity, origin || '');
   if (url.pathname === '/api/estimates/index' && ['GET', 'POST'].includes(request.method)) { requireEstimateArchiveAccess(identity); return request.method === 'GET' ? estimateIndexListEndpoint(request, env, identity, origin || '') : estimateIndexUpsertEndpoint(request, env, identity, origin || ''); }
   if (url.pathname === '/api/xero/setup-data' && request.method === 'GET') return xeroSetupDataEndpoint(request, env, identity, origin || '');
-  if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(env, identity, origin || '');
+  if (url.pathname === '/api/xero/records' && request.method === 'GET') return xeroInvoiceRecords(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'GET') return listXeroInvoicesEndpoint(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices' && request.method === 'POST') return createXeroInvoice(request, env, identity, origin || '');
   if (url.pathname === '/api/xero/invoices/lookup' && request.method === 'POST') return lookupXeroInvoiceEndpoint(request, env, identity, origin || '');
@@ -4834,6 +5012,7 @@ export {
   xeroOAuthStateMatches,
   xeroInvoiceProjection,
   xeroInvoicePayload,
+  xeroInvoiceRecords,
   xeroInvoiceDeliveryStatus,
   xeroInvoicePaymentStatus,
   xeroInvoiceMutationPolicy,
