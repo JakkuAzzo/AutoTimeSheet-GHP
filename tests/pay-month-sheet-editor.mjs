@@ -63,6 +63,10 @@ try {
   await page.locator('#submissions-day').fill('');
   await page.locator('#submissions-day').dispatchEvent('change');
   await page.locator('[data-sheet-index]').filter({ hasText: 'Matthew' }).click();
+  const periodDetails = await page.locator('#submissions-preview .timesheet-paper-meta').innerText();
+  assert.match(periodDetails, /Cycle start: 2026-08-24/);
+  assert.match(periodDetails, /Cycle end: 2026-09-20/);
+  assert.match(periodDetails, /Payroll Friday: 2026-09-18/);
   const rows = page.locator('[data-pay-month-edit-form] [data-sheet-row]');
   assert.equal(await rows.count(), 3, 'the actual Date column places all Matthew days in the same pay month');
   assert.match(await page.locator('[data-pay-month-coverage]').innerText(), /3 of 20 scheduled days recorded or explained/);
@@ -95,6 +99,10 @@ try {
   assert.equal(filing.mode, 'replace-pay-month');
   assert.equal(filing.employeeEmail, 'matthew@gmt-services.co.uk');
   assert.equal(filing.payMonth, '2026-09');
+  assert.equal(filing.cycleStart, '2026-08-24');
+  assert.equal(filing.cycleEnd, '2026-09-20');
+  assert.equal(filing.payrollFriday, '2026-09-18');
+  assert.equal(filing.weekEnd, '2026-09-20', 'weekEnd on the month snapshot denotes the cycle end');
   assert.deepEqual(filing.rows.map((row) => row.date), ['2026-08-31', '2026-09-02', '2026-09-03']);
   assert.deepEqual(filing.deletedDays, ['2026-09-01']);
   assert.equal(filing.rows.find((row) => row.date === '2026-09-02').breakMinutes, 120);

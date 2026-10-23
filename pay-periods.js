@@ -114,6 +114,7 @@
         start: start,
         end: friday,
         payrollEnd: friday,
+        payrollFriday: friday,
         nextStart: nextStart,
         cycleEnd: shiftDate(nextStart, -1)
       };
@@ -156,6 +157,7 @@
         if (nextStartOverride && nextStartOverride > period.start) period.nextStart = nextStartOverride;
         period.end = payrollFridayBefore(period.nextStart);
         period.payrollEnd = period.end;
+        period.payrollFriday = period.end;
         period.cycleEnd = shiftDate(period.nextStart, -1);
         if (!candidates.some(function (candidate) { return candidate.start === period.start; })) candidates.push(period);
       }

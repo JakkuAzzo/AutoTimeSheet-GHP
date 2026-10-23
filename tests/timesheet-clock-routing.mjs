@@ -312,10 +312,10 @@ try {
     assert.equal(workbook.firstAllRow['Worked hours'], entry.worked);
     assert.match(csv.csv, /TEST Clock QA/);
     assert.match(csv.csv, new RegExp(entry.label));
-    const parsedClockCsvBook = createTimesheetWorkbook('Clock Tester', '2026-07');
+    const parsedClockCsvBook = createTimesheetWorkbook('TEST Clock QA', '2026-09');
     const parsedClockCsv = parseCsvThroughOfficeScript(parsedClockCsvBook, csv.name, csv.csv);
     assert.equal(parsedClockCsv.created, 1, 'clock CSV from the browser producer must parse through the Office Script');
-    assert.equal(parsedClockCsvBook.rows[1][0], 'Clock Tester');
+    assert.equal(parsedClockCsvBook.rows[1][0], 'TEST Clock QA');
     assert.equal(parsedClockCsvBook.rows[1][5], entry.action, 'clock CSV preserves the event action');
     assert.equal(parsedClockCsvBook.rows[1][16], 'Workshop', 'clock CSV preserves the work location');
     assert.equal(parsedClockCsvBook.rows[1][19], fields.get('gmt_record_id'),

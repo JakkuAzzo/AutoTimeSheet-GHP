@@ -12,6 +12,7 @@ import {
 const historyFrame = fs.readFileSync(new URL('../portal/history-frame.js', import.meta.url), 'utf8');
 const historyPage = fs.readFileSync(new URL('../portal/timesheets.html', import.meta.url), 'utf8');
 const worker = fs.readFileSync(new URL('../cloudflare-worker/src/index.js', import.meta.url), 'utf8');
+const calendarActions = fs.readFileSync(new URL('../portal/calendar-actions.js', import.meta.url), 'utf8');
 const contract = JSON.parse(fs.readFileSync(new URL('../power-platform/portal-timesheet-history-contract.json', import.meta.url), 'utf8'));
 
 const timeZone = 'Europe/London';
@@ -29,6 +30,11 @@ const currentPeriod = payPeriods.periodForMonth(currentPayMonth);
 const previousPeriod = payPeriods.periodForMonth(previousPayMonth);
 const olderPeriod = payPeriods.periodForMonth(olderPayMonth);
 assert.ok(currentPeriod && previousPeriod && olderPeriod, 'pay-period helper should resolve current, previous, and older cycles');
+
+const knownPeriod = payPeriods.periodForDate('2026-08-24');
+assert.equal(knownPeriod.cycleEnd, '2026-09-20', 'the cycle includes Sunday 20 September');
+assert.equal(knownPeriod.payrollFriday, '2026-09-18', 'the payroll processing date is the preceding Friday');
+assert.notEqual(knownPeriod.cycleEnd, knownPeriod.payrollFriday, 'cycle end and payroll Friday remain distinct dates');
 
 const currentRecord = {
   record_id: 'timesheet-current-pay-month',
@@ -78,6 +84,7 @@ let domReady;
 const historyContext = {
   window: {
     GMT_APP_CONFIG: { portalApiEndpoint: '/api/history' },
+    GMTPayPeriods: payPeriods,
     GMTPortalApi: { history: async () => ({ records: [projectRow(currentRecord), projectRow(previousRecord), projectRow(olderRecord)], meta: {} }) },
     location: { search: '' },
     addEventListener() {}
@@ -94,18 +101,22 @@ assert.match(elements['history-frame-list'].innerHTML, /Employee/);
 assert.match(elements['history-frame-list'].innerHTML, /Previous employee/);
 assert.match(elements['history-frame-list'].innerHTML, /Older employee/);
 assert.match(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-current-pay-month/);
-assert.doesNotMatch(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-previous-pay-month/);
+assert.match(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-previous-pay-month/);
 assert.doesNotMatch(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-older-pay-month/);
-assert.match(elements['history-frame-list'].innerHTML, /Viewable at any time; editing is limited to the current pay month\./);
+assert.match(elements['history-frame-list'].innerHTML, /Editable during the current or previous pay month\./);
+assert.equal(payPeriods.payMonthKeyForDate(today), currentPayMonth);
 
 assert.match(historyPage, /All timesheets may be viewed\. New entries can be filed for any date; permitted users can correct records in the current or previous pay month\. Earlier pay months remain read-only\./);
-assert.match(historyFrame, /Viewable at any time; editing is limited to the current pay month\./);
-assert.match(historyFrame, /function currentPayMonth\(\)/);
-assert.match(historyFrame, /Only timesheets made within the current pay month may be edited\./);
+assert.match(historyFrame, /Editable during the current or previous pay month\./);
+assert.match(historyFrame, /editablePayMonthKeys/);
+assert.match(historyFrame, /Only timesheets in the current or previous pay months may be edited\./);
 assert.match(worker, /isCurrentPayMonthRecord/);
 assert.match(worker, /Only the current and previous pay months may be edited\./);
 assert.match(worker, /import payPeriods from ['"]\.\.\/\.\.\/pay-periods\.js['"]/);
 assert.match(worker, /function defaultPayPeriods\(\)\s*\{\s*return payPeriods;\s*\}/);
+assert.match(calendarActions, /Cycle start:/);
+assert.match(calendarActions, /Cycle end:/);
+assert.match(calendarActions, /Payroll Friday:/);
 assert.doesNotMatch(worker, /globalThis\.GMTPayPeriods/);
 assert.equal(contract.editing.window, 'current-pay-month');
 assert.equal(contract.visibility.timesheetHistory, 'all authorised timesheets remain viewable');

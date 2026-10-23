@@ -161,6 +161,12 @@ const history = await listRecords(new Request('https://gmt.example/api/history?k
 assert.equal(history.records.length, 1);
 assert.equal(history.records[0].employee_name, 'Jason');
 assert.equal(history.meta.synthetic_record_count, 1);
+assert.ok(history.meta.completion, 'timesheet viewers receive completion metadata');
+assert.equal(
+  history.meta.completion.counts.missing,
+  history.meta.completion.employees.filter((employee) => employee.status === 'missing').length,
+  'completion counts match the live-period status summary'
+);
 assert.equal(history.meta.can_view_all_timesheets, true);
 assert.equal(history.meta.visible_scope, 'all employee timesheets and clock records');
 assert.deepEqual(history.meta.completion.employees.map((employee) => employee.employee_name).sort(), staffDirectory(env).map((employee) => employee.name).sort());

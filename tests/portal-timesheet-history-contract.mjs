@@ -45,7 +45,10 @@ assert.match(config, /portalApiScopes:\s*\["openid",\s*"profile",\s*"email"\]/);
 assert.match(config, /timesheetHistoryScopes:\s*\["https:\/\/service\.flow\.microsoft\.com\/\/\.default"\]/);
 assert.match(auth, /window\.location\.origin \+ portalRootPath\(\)/);
 assert.doesNotMatch(auth, /oauth2\/v2\.0\/logout/i, 'portal sign out must not sign the browser out of Microsoft');
-assert.match(timesheet, /const submissionId = editSourceId \|\| buildTimesheetSubmissionId\(calendarSync\)/);
+assert.match(timesheet, /const submissionId = editSourceId \|\| await buildTimesheetSubmissionId\(calendarSync, calculated\)/,
+  'edits preserve their original source ID and new submissions derive one from current calculated rows');
+assert.match(timesheet, /const canonicalRows = \(calculated \|\| \[\]\)\.map\(\(row\) => \[row\.date, row\.start, row\.finish, row\.lunchMinutes, row\.absenceStatus, row\.description, row\.note\]\)/,
+  'the generated source ID reflects the current daily row content');
 assert.match(config, /timesheetHistoryEndpoint:\s*["']?["']/);
 assert.doesNotMatch(page, /sharepoint\.com/i, 'the browser must not call SharePoint directly');
 assert.match(portalApi, /X-GMT-Upstream-Authorization/);

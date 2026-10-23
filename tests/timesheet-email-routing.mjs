@@ -8,7 +8,11 @@ import { createTimesheetWorkbook, parseCsvThroughOfficeScript } from './helpers/
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const require = createRequire(new URL('../package.json', import.meta.url));
-const { chromium } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
+const browserName = process.env.TIMESHEET_BROWSER || 'chromium';
+const browserTypes = { chromium, firefox, webkit };
+const browserType = browserTypes[browserName];
+if (!browserType) throw new Error(`Unsupported TIMESHEET_BROWSER '${browserName}'. Use chromium, firefox, or webkit.`);
 
 const mime = {
   '.css': 'text/css',
@@ -53,14 +57,45 @@ const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 
 let browser;
 try {
-  browser = await chromium.launch({
+  browser = await browserType.launch({
     headless: true,
-    ...(existsSync(chromePath) ? { executablePath: chromePath } : {})
+    ...(browserName === 'chromium' && existsSync(chromePath) ? { executablePath: chromePath } : {})
   });
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.addInitScript(() => {
     localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Profile Tester', contactEmail: 'profile.tester@example.com', username: 'profile.tester@gmt-services.co.uk' }));
+  });
+  await page.addInitScript(() => {
+    const target = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    const append = Node.prototype.appendChild;
+    window.__xlsxLoadAttempts = 0;
+    Node.prototype.appendChild = function (node) {
+      if (node instanceof HTMLScriptElement && node.src === target) {
+        const attempt = ++window.__xlsxLoadAttempts;
+        window.setTimeout(() => {
+          if (attempt === 1) {
+            node.onerror?.(new Event('error'));
+            return;
+          }
+          window.XLSX = {
+            utils: {
+              book_new: () => ({ SheetNames: [], Sheets: {} }),
+              json_to_sheet: (rows) => ({ rows }),
+              aoa_to_sheet: (rows) => {
+                if (rows[0]?.[0] === 'GMT Pay-month Timesheet Submission') window.__capturedWorkbookTotals = rows;
+                return { rows };
+              },
+              book_append_sheet: (book, sheet, name) => { book.SheetNames.push(name); book.Sheets[name] = sheet; }
+            },
+            write: () => new Uint8Array(2048).buffer
+          };
+          node.onload?.(new Event('load'));
+        }, 0);
+        return node;
+      }
+      return append.call(this, node);
+    };
   });
   const logs = [];
   page.on('console', (msg) => {
@@ -139,7 +174,17 @@ try {
   await page.locator('[data-field="finish"]').first().fill('16:00');
   await page.locator('[data-field="lunchHad"]').first().fill('0');
   await page.locator('#submit-btn').click();
+  await page.waitForFunction(() => /Could not load Excel generator/.test(document.querySelector('#form-toast-message')?.textContent || ''), null, { timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.__xlsxLoadAttempts), 1, 'the simulated first Excel-generator load fails once');
+  await page.locator('#submit-btn').click();
   await page.waitForFunction(() => window.__submittedForms.length === 1, null, { timeout: 15000 });
+  assert.equal(await page.evaluate(() => window.__xlsxLoadAttempts), 2, 'a later submit retries the failed Excel-generator load');
+  const workbookTotals = await page.evaluate(() => window.__capturedWorkbookTotals);
+  assert.ok(workbookTotals.some((row) => row[0] === 'Timesheet cycle start' && row[1] === '2026-06-01'));
+  assert.ok(workbookTotals.some((row) => row[0] === 'Timesheet cycle end' && row[1] === '2026-06-28'));
+  assert.ok(workbookTotals.some((row) => row[0] === 'Payroll Friday (Accounts processing date)' && row[1] === '2026-06-26'));
+  const periodLabel = await page.locator('#timesheet-period-display').textContent();
+  assert.match(periodLabel, /Cycle start: 2026-06-01\. Cycle end: 2026-06-28\. Payroll Friday: 2026-06-26\./);
 
   const result = await page.evaluate(() => window.__submittedForms[0]);
   const config = await page.evaluate(() => ({
@@ -201,6 +246,9 @@ try {
   assert.equal(result.fields.gmt_employee_upn, 'routing.tester@example.com');
   assert.equal(result.fields.gmt_week_start, '2026-06-22');
   assert.equal(result.fields.gmt_week_end, '2026-06-22');
+  assert.equal(result.fields.gmt_cycle_start, '2026-06-01');
+  assert.equal(result.fields.gmt_cycle_end, '2026-06-28');
+  assert.equal(result.fields.gmt_payroll_friday, '2026-06-26');
   assert.equal(result.fields.gmt_year, '2026');
   assert.equal(result.fields.gmt_month, '06');
   assert.equal(result.fields.gmt_worked_hours, '8');
@@ -275,7 +323,7 @@ try {
   assert.equal(thirdFields.gmt_worked_hours, '3.5');
   assert.equal(JSON.parse(thirdFields.gmt_calendar_sync_payload).events[0].startDate, '2026-06-23');
 
-  console.log(JSON.stringify(result, null, 2));
+  console.log(`PASS: weekly timesheet attachment and retry flow in ${browserName}.`);
 } finally {
   await browser?.close();
   await new Promise((resolveClose) => server.close(resolveClose));

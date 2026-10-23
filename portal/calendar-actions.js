@@ -53,8 +53,9 @@
       : (year && year.value ? year.value : "") + "-" + (month && month.value ? month.value : "");
   }
 
-  // Use the central GMT payroll-period calendar so 24 August–18 September
-  // stays together in Pay Month 2026-09 and future dates route consistently.
+  // Use the central GMT payroll-period calendar so the cycle from 24 August
+  // through 20 September stays in Pay Month 2026-09; payroll is processed on
+  // Friday 18 September. Future dates route from the same cycle policy.
   function payMonthKeyForDate(value) {
     var helper = window.GMTPayPeriods;
     return helper && typeof helper.payMonthKeyForDate === "function"
@@ -473,7 +474,7 @@
     dialogDate.textContent = day;
     var period = helper && typeof helper.periodForDate === "function" ? helper.periodForDate(day) : null;
     dialogNote.textContent = period
-      ? "Choose an action for this date. New timesheet entries are always accepted and filed to the " + period.key + " pay-month workbook (" + period.start + " to " + period.end + ")."
+      ? "Choose an action for this date. New timesheet entries are always accepted and filed to the " + period.key + " pay-month workbook. Cycle start: " + period.start + ". Cycle end: " + (period.cycleEnd || period.end) + ". Payroll Friday: " + (period.payrollFriday || period.payrollEnd || period.end) + "."
       : "Choose an action for this date. New timesheet entries are accepted and routed to the matching pay-month workbook automatically.";
     timesheetLink.href = href("/timesheets/create.html", { day: day }, "#day-" + day);
     if (selectedEntry) selectEntry(day, selectedEntry);

@@ -40,6 +40,9 @@ assert.equal(form.get('gmt_record_id'), record.record_id);
 assert.equal(form.get('gmt_action'), 'correction');
 assert.equal(form.get('gmt_workbook_key'), 'timesheet-queue-tester-gmt-services-co-uk-2026-09');
 assert.equal(form.get('gmt_pay_month'), '2026-09');
+assert.equal(form.get('gmt_cycle_start'), '2026-08-24');
+assert.equal(form.get('gmt_cycle_end'), '2026-09-20');
+assert.equal(form.get('gmt_payroll_friday'), '2026-09-18');
 assert.equal(form.get('attachment').name, 'GMT Timesheet - Queue Tester - 2026-09-07.xlsx');
 assert.equal(form.get('attachment_csv').name, 'GMT Timesheet - Queue Tester - 2026-09-07.csv');
 
@@ -56,22 +59,26 @@ assert.equal(spoofedForm.get('gmt_employee_upn'), 'queue.tester@gmt-services.co.
 
 function mockDb(queueRows, attachmentRows) {
   const calls = [];
+  const readAll = (sql, args = []) => {
+    calls.push({ method: 'all', sql, args });
+    if (/FROM dispatch_queue/i.test(sql)) return { results: queueRows };
+    if (/FROM record_attachments/i.test(sql)) return { results: attachmentRows };
+    if (/FROM pay_month_start_settings/i.test(sql)) return { results: [] };
+    return { results: [] };
+  };
   return {
     calls,
     prepare(sql) {
       return {
-        async all() {
-          calls.push({ method: 'all', sql, args: [] });
-          return { results: [] };
-        },
+        // D1 supports read methods on the prepared statement itself when a
+        // query has no placeholders. The Worker loads pay-period settings
+        // this way before it binds the dispatch queue query.
+        async all() { return readAll(sql); },
+        async first() { calls.push({ method: 'first', sql, args: [] }); return null; },
+        async run() { calls.push({ method: 'run', sql, args: [] }); return { meta: { changes: 1 } }; },
         bind(...args) {
           return {
-            async all() {
-              calls.push({ method: 'all', sql, args });
-              if (/FROM dispatch_queue/i.test(sql)) return { results: queueRows };
-              if (/FROM record_attachments/i.test(sql)) return { results: attachmentRows };
-              return { results: [] };
-            },
+            async all() { return readAll(sql, args); },
             async first() { calls.push({ method: 'first', sql, args }); return null; },
             async run() { calls.push({ method: 'run', sql, args }); return { meta: { changes: 1 } }; }
           };
@@ -101,6 +108,42 @@ assert.equal(sent.sent, 1);
 assert.equal(sent.failed, 0);
 assert.equal(sentForm.get('gmt_record_id'), record.record_id);
 assert.ok(db.calls.some((call) => call.method === 'run' && /status = 'sent'/i.test(call.sql)), 'successful dispatch is marked sent');
+
+const retryRow = { ...record, dispatch_status: 'queued', attempts: 0, next_attempt_at: '2026-09-11T17:00:00.000Z' };
+const retryDb = mockDb([retryRow], attachments.map((item) => ({
+  field_name: item.fieldName,
+  file_name: item.fileName,
+  content_type: item.contentType,
+  content_base64: item.contentBase64,
+  size_bytes: item.sizeBytes
+})));
+const attemptedForms = [];
+const firstAttempt = await dispatchQueued({ ...enabled, FORM_SUBMIT_TIMESHEET_ENDPOINT: 'https://formsubmit.co/example', DB: retryDb }, {
+  now: '2026-09-11T17:00:00.000Z',
+  fetchImpl: async (_url, options) => {
+    attemptedForms.push(options.body);
+    return { ok: false, status: 503, text: async () => '' };
+  }
+});
+assert.equal(firstAttempt.failed, 1);
+const retryUpdate = retryDb.calls.find((call) => call.method === 'run' && /status = 'failed'/i.test(call.sql));
+assert.equal(retryUpdate.args[1], '2026-09-11T17:05:00.000Z', 'a transient delivery failure receives a five-minute retry time');
+retryRow.dispatch_status = 'failed';
+retryRow.attempts = 1;
+retryRow.next_attempt_at = retryUpdate.args[1];
+const retried = await dispatchQueued({ ...enabled, FORM_SUBMIT_TIMESHEET_ENDPOINT: 'https://formsubmit.co/example', DB: retryDb }, {
+  now: retryRow.next_attempt_at,
+  fetchImpl: async (_url, options) => {
+    attemptedForms.push(options.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ success: true }) };
+  }
+});
+assert.equal(retried.sent, 1, 'a due failed correction can be retried');
+assert.equal(attemptedForms.length, 2);
+assert.equal(attemptedForms[0].get('gmt_record_id'), record.record_id);
+assert.equal(attemptedForms[1].get('gmt_record_id'), record.record_id, 'retry keeps the same idempotency record ID');
+assert.equal(attemptedForms[0].get('gmt_attachment_manifest'), attemptedForms[1].get('gmt_attachment_manifest'));
+assert.deepEqual([...attemptedForms[1].getAll('attachment')].map((file) => file.name), ['GMT Timesheet - Queue Tester - 2026-09-07.xlsx']);
 
 const incompletePayMonth = { ...record, action: 'pay_month_correction', record_id: 'gmt-paymonth-2026-09-queue-tester' };
 const heldDb = mockDb([{ ...incompletePayMonth, dispatch_status: 'queued', attempts: 0, next_attempt_at: '2026-09-11T17:00:00.000Z' }], []);
