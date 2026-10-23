@@ -84,6 +84,7 @@ let domReady;
 const historyContext = {
   window: {
     GMT_APP_CONFIG: { portalApiEndpoint: '/api/history' },
+    GMTPayPeriods: payPeriods,
     GMTPortalApi: { history: async () => ({ records: [projectRow(currentRecord), projectRow(previousRecord), projectRow(olderRecord)], meta: {} }) },
     location: { search: '' },
     addEventListener() {}
@@ -100,14 +101,15 @@ assert.match(elements['history-frame-list'].innerHTML, /Employee/);
 assert.match(elements['history-frame-list'].innerHTML, /Previous employee/);
 assert.match(elements['history-frame-list'].innerHTML, /Older employee/);
 assert.match(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-current-pay-month/);
-assert.doesNotMatch(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-previous-pay-month/);
+assert.match(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-previous-pay-month/);
 assert.doesNotMatch(elements['history-frame-list'].innerHTML, /history-frame\.html\?edit=timesheet-older-pay-month/);
-assert.match(elements['history-frame-list'].innerHTML, /Viewable at any time; editing is limited to the current pay month\./);
+assert.match(elements['history-frame-list'].innerHTML, /Editable during the current or previous pay month\./);
+assert.equal(payPeriods.payMonthKeyForDate(today), currentPayMonth);
 
 assert.match(historyPage, /All timesheets may be viewed\. New entries can be filed for any date; permitted users can correct records in the current or previous pay month\. Earlier pay months remain read-only\./);
-assert.match(historyFrame, /Viewable at any time; editing is limited to the current pay month\./);
-assert.match(historyFrame, /function currentPayMonth\(\)/);
-assert.match(historyFrame, /Only timesheets made within the current pay month may be edited\./);
+assert.match(historyFrame, /Editable during the current or previous pay month\./);
+assert.match(historyFrame, /editablePayMonthKeys/);
+assert.match(historyFrame, /Only timesheets in the current or previous pay months may be edited\./);
 assert.match(worker, /isCurrentPayMonthRecord/);
 assert.match(worker, /Only the current and previous pay months may be edited\./);
 assert.match(worker, /import payPeriods from ['"]\.\.\/\.\.\/pay-periods\.js['"]/);
