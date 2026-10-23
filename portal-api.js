@@ -142,12 +142,40 @@
     return request('/api/offsite-clock/clock-in', { method: 'POST', body: body || {} });
   }
 
+  function offsiteClockLunchStart(body) {
+    return request('/api/offsite-clock/lunch-start', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteClockLunchEnd(body) {
+    return request('/api/offsite-clock/lunch-end', { method: 'POST', body: body || {} });
+  }
+
   function offsiteClockOut(body) {
     return request('/api/offsite-clock/clock-out', { method: 'POST', body: body || {} });
   }
 
   function offsiteClockDecision(entryId, body) {
     return request('/api/offsite-clock/' + encodeURIComponent(String(entryId || '')) + '/decision', { method: 'POST', body: body || {} });
+  }
+
+  function offsiteBookingsMine() {
+    return request('/api/offsite-bookings/mine', { method: 'GET' });
+  }
+
+  function offsiteBookingsPending() {
+    return request('/api/offsite-bookings/pending', { method: 'GET' });
+  }
+
+  function createOffsiteBooking(body) {
+    return request('/api/offsite-bookings', { method: 'POST', body: body || {} });
+  }
+
+  function amendOffsiteBooking(bookingId, body) {
+    return request('/api/offsite-bookings/' + encodeURIComponent(String(bookingId || '')), { method: 'PATCH', body: body || {} });
+  }
+
+  function offsiteBookingDecision(bookingId, body) {
+    return request('/api/offsite-bookings/' + encodeURIComponent(String(bookingId || '')) + '/decision', { method: 'POST', body: body || {} });
   }
 
   function estimateIndexList() {
@@ -525,8 +553,15 @@
     offsiteClockMine: offsiteClockMine,
     offsiteClockPending: offsiteClockPending,
     offsiteClockIn: offsiteClockIn,
+    offsiteClockLunchStart: offsiteClockLunchStart,
+    offsiteClockLunchEnd: offsiteClockLunchEnd,
     offsiteClockOut: offsiteClockOut,
     offsiteClockDecision: offsiteClockDecision,
+    offsiteBookingsMine: offsiteBookingsMine,
+    offsiteBookingsPending: offsiteBookingsPending,
+    createOffsiteBooking: createOffsiteBooking,
+    amendOffsiteBooking: amendOffsiteBooking,
+    offsiteBookingDecision: offsiteBookingDecision,
     estimateIndexList: estimateIndexList,
     searchEstimateArchive: searchEstimateArchive,
     jobCardArchiveSearch: jobCardArchiveSearch,

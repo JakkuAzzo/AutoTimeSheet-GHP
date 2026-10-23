@@ -1,6 +1,7 @@
 (() => {
   const CONFIG = window.GMT_APP_CONFIG || {};
   const EVENT_ACTIONS = ['clock_in', 'lunch_start', 'lunch_end', 'clock_out'];
+  const OFFSITE_ACTIONS = ['clock_in', 'lunch_start', 'lunch_end', 'clock_out'];
 
   function cleanEndpoint(value) {
     return String(value || '').trim();
@@ -187,7 +188,26 @@
   }
 
   function updateClockCard(card) {
-    const action = card.elements.clock_action.value;
+    const mode = String(card.elements.clock_location_mode?.value || 'in_office');
+    const activeEntry = card.__offsiteActiveEntry || null;
+    let action = card.elements.clock_action.value;
+    if (mode === 'off_site' && !OFFSITE_ACTIONS.includes(action)) {
+      action = 'clock_in';
+      card.elements.clock_action.value = action;
+    }
+    if (mode === 'off_site') {
+      const preferredAction = activeEntry
+        ? (!activeEntry.lunchStartAt ? 'lunch_start' : (!activeEntry.lunchEndAt ? 'lunch_end' : 'clock_out'))
+        : 'clock_in';
+      const currentAvailable = activeEntry
+        ? OFFSITE_ACTIONS.includes(action) && action !== 'clock_in' && !(action === 'lunch_start' && (activeEntry.lunchStartAt || activeEntry.lunchEndAt)) && !(action === 'lunch_end' && (!activeEntry.lunchStartAt || activeEntry.lunchEndAt))
+        : action === 'clock_in';
+      if (!currentAvailable) {
+        action = preferredAction;
+        card.elements.clock_action.value = action;
+      }
+    }
+    const inOffsiteMode = mode === 'off_site';
     const text = actionText(action);
     const isAbsent = action === 'absent';
     const isFullDay = action === 'full_day';
@@ -197,44 +217,175 @@
     const timeField = card.querySelector('[data-clock-time-field]');
     const absenceField = card.querySelector('[data-absence-field]');
     const fullDay = card.querySelector('[data-full-day-fields]');
+    const offsiteHelp = card.querySelector('[data-clock-offsite-help]');
+    const locationRequirement = card.querySelector('[data-clock-location-requirement]');
+    const dateTime = card.querySelector('.portal-clock-date-time');
 
-    if (title) title.textContent = text.title;
-    if (description) description.textContent = text.description;
-    if (submit) submit.textContent = text.submit;
+    if (title) title.textContent = inOffsiteMode ? `Off-site ${text.title.toLowerCase()}` : text.title;
+    if (description) description.textContent = inOffsiteMode
+      ? 'GMT records the event time. Your completed shift needs Duty Manager approval before it appears in your timesheet.'
+      : text.description;
+    if (submit) submit.textContent = inOffsiteMode ? `Record off-site ${action.replace('_', ' ')}` : text.submit;
     if (timeField) timeField.hidden = isAbsent || isFullDay;
     if (absenceField) absenceField.hidden = !isAbsent;
     if (fullDay) fullDay.hidden = !isFullDay;
+    if (offsiteHelp) offsiteHelp.hidden = !inOffsiteMode;
+    if (locationRequirement) locationRequirement.textContent = inOffsiteMode ? 'required' : 'optional';
+    if (dateTime) dateTime.hidden = inOffsiteMode;
 
-    card.elements.clock_time.disabled = isAbsent || isFullDay;
-    card.elements.clock_time.required = !isAbsent && !isFullDay;
+    card.elements.clock_time.disabled = inOffsiteMode || isAbsent || isFullDay;
+    card.elements.clock_time.required = !inOffsiteMode && !isAbsent && !isFullDay;
+    card.elements.clock_date.disabled = inOffsiteMode;
+    card.elements.clock_location.required = inOffsiteMode;
     setDisabled(card.elements.absence_reason, !isAbsent);
     ['day_start', 'day_lunch_start', 'day_lunch_end', 'day_finish'].forEach((name) => {
       setDisabled(card.elements[name], !isFullDay);
     });
     card.querySelectorAll('[data-clock-action]').forEach((button) => {
+      if (!inOffsiteMode) {
+        button.hidden = false;
+        button.disabled = false;
+      } else {
+        const buttonAction = button.dataset.clockAction;
+        const allowed = OFFSITE_ACTIONS.includes(buttonAction);
+        button.hidden = !allowed || Boolean(activeEntry && buttonAction === 'clock_in') || (!activeEntry && buttonAction !== 'clock_in');
+        button.disabled = Boolean(inOffsiteMode && activeEntry && (
+          (buttonAction === 'lunch_start' && (activeEntry.lunchStartAt || activeEntry.lunchEndAt)) ||
+          (buttonAction === 'lunch_end' && (!activeEntry.lunchStartAt || activeEntry.lunchEndAt)) ||
+          (buttonAction === 'clock_out' && activeEntry.lunchStartAt && !activeEntry.lunchEndAt)
+        ));
+      }
       button.setAttribute('aria-pressed', String(button.dataset.clockAction === action));
     });
     card.dataset.currentAction = action;
   }
 
-  function captureCurrentLocation(card) {
-    const input = card.elements.clock_location;
-    const status = card.querySelector('[data-location-status]');
-    if (!input || !status) return;
-    if (!navigator.geolocation) {
-      status.textContent = 'Location is not available in this browser. Enter a site manually if needed.';
+  function offsiteAccountKey() {
+    const profile = portalProfile();
+    return safeKeyPart(profile.username || profile.notificationEmail || profile.subject || 'signed-in-account');
+  }
+
+  function offsiteStorageKey(key) {
+    return `gmt.portal.dashboard.offsite.${offsiteAccountKey()}.${key}`;
+  }
+
+  function offsiteRequestId(key) {
+    const storageKey = offsiteStorageKey(`request.${key}`);
+    try {
+      const existing = localStorage.getItem(storageKey);
+      if (existing) return existing;
+    } catch (_) {}
+    const value = `offsite-${window.crypto && typeof window.crypto.randomUUID === 'function'
+      ? window.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`}`;
+    try { localStorage.setItem(storageKey, value); } catch (_) {}
+    return value;
+  }
+
+  function hasOffsiteRequest(key) {
+    try { return Boolean(localStorage.getItem(offsiteStorageKey(`request.${key}`))); } catch (_) { return false; }
+  }
+
+  function clearOffsiteRequest(key) {
+    try { localStorage.removeItem(offsiteStorageKey(`request.${key}`)); } catch (_) {}
+  }
+
+  async function refreshOffsiteState(card) {
+    const api = window.GMTPortalApi;
+    if (!api || typeof api.offsiteClockMine !== 'function') return null;
+    const result = await api.offsiteClockMine();
+    const entries = Array.isArray(result && result.entries) ? result.entries : [];
+    const active = entries.find((entry) => entry && entry.status === 'clocked_in') || null;
+    card.__offsiteActiveEntry = active;
+    if (active) {
+      try { localStorage.setItem(offsiteStorageKey('active-entry'), active.entryId); } catch (_) {}
+    }
+    updateClockCard(card);
+    return active;
+  }
+
+  function coordinateLocation(value) {
+    return /^\s*-?\d{1,3}(?:\.\d+)?,\s*-?\d{1,3}(?:\.\d+)?\s*(?:\(.*\))?$/i.test(String(value || ''));
+  }
+
+  async function handleOffsiteSubmit(card, payload) {
+    const api = window.GMTPortalApi;
+    if (!api || typeof api.enabled !== 'function' || !api.enabled()) {
+      showStatus(card, 'error', 'The protected off-site clock service is not connected. The event has not been sent to Accounts.');
       return;
     }
-    status.textContent = 'Requesting location permission…';
-    navigator.geolocation.getCurrentPosition((position) => {
-      const latitude = Number(position.coords.latitude).toFixed(5);
-      const longitude = Number(position.coords.longitude).toFixed(5);
-      const accuracy = Number.isFinite(position.coords.accuracy) ? ` (±${Math.round(position.coords.accuracy)} m)` : '';
-      input.value = `Current location: ${latitude}, ${longitude}${accuracy}`;
-      status.textContent = 'Current location captured. Review it before submitting.';
-    }, () => {
-      status.textContent = 'Location was not captured. Enter a site manually if needed.';
-    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+    if (!OFFSITE_ACTIONS.includes(payload.action)) {
+      showStatus(card, 'error', 'Choose clock in, lunch start, lunch end or clock out for off-site work.');
+      return;
+    }
+    const site = String(payload.location || '').trim();
+    if (payload.action === 'clock_in' && !site) {
+      showStatus(card, 'error', 'Enter a road, business or site name before clocking in.');
+      return;
+    }
+    if (site && coordinateLocation(site)) {
+      showStatus(card, 'error', 'Enter a road, business or site name instead of coordinates.');
+      return;
+    }
+    const submitButton = card.querySelector('[data-clock-submit]');
+    if (card.dataset.submitting === 'true') return;
+    card.dataset.submitting = 'true';
+    if (submitButton) { submitButton.disabled = true; submitButton.dataset.originalText = submitButton.textContent; submitButton.textContent = 'Recording…'; }
+    try {
+      const storedEntryId = (() => { try { return localStorage.getItem(offsiteStorageKey('active-entry')) || ''; } catch (_) { return ''; } })();
+      const active = await refreshOffsiteState(card);
+      const entryId = active?.entryId || storedEntryId;
+      const key = payload.action === 'clock_in' ? 'clock-in' : `${payload.action}-${entryId || 'unknown'}`;
+      const hasRetry = hasOffsiteRequest(key);
+      if (payload.action === 'clock_in' && active && !hasRetry) {
+        showStatus(card, 'error', 'An off-site shift is already in progress. Record lunch or clock out first.');
+        return;
+      }
+      if (payload.action !== 'clock_in' && !active && !storedEntryId) {
+        showStatus(card, 'error', 'No active off-site shift was found. Start your shift with Clock in.');
+        return;
+      }
+      if (payload.action === 'lunch_start' && active && (active.lunchStartAt || active.lunchEndAt) && !hasRetry) {
+        showStatus(card, 'error', 'Lunch start has already been recorded for this shift.');
+        return;
+      }
+      if (payload.action === 'lunch_end' && active && (!active.lunchStartAt || active.lunchEndAt) && !hasRetry) {
+        showStatus(card, 'error', 'Record lunch start before lunch end.');
+        return;
+      }
+      if (payload.action === 'clock_out' && active?.lunchStartAt && !active.lunchEndAt && !hasRetry) {
+        showStatus(card, 'error', 'Record lunch end before clocking out.');
+        return;
+      }
+      const body = { requestId: offsiteRequestId(key) };
+      if (payload.action === 'clock_in') body.site = site;
+      else body.entryId = entryId;
+      const methods = {
+        clock_in: 'offsiteClockIn',
+        lunch_start: 'offsiteClockLunchStart',
+        lunch_end: 'offsiteClockLunchEnd',
+        clock_out: 'offsiteClockOut'
+      };
+      if (typeof api[methods[payload.action]] !== 'function') throw new Error('The protected off-site clock service is missing this action. The event was not sent to Accounts.');
+      const result = await api[methods[payload.action]](body);
+      clearOffsiteRequest(key);
+      if (payload.action === 'clock_in' && result?.entry?.entryId) {
+        try { localStorage.setItem(offsiteStorageKey('active-entry'), result.entry.entryId); } catch (_) {}
+      }
+      if (payload.action === 'clock_out') {
+        try { localStorage.removeItem(offsiteStorageKey('active-entry')); } catch (_) {}
+      }
+      await refreshOffsiteState(card);
+      showStatus(card, 'ok', payload.action === 'clock_out'
+        ? 'Clock out recorded. Your completed shift is awaiting Duty Manager approval before it enters your timesheet.'
+        : `${actionLabel(payload.action)} recorded by GMT. The completed off-site shift will need manager approval before timesheet entry.`);
+    } catch (error) {
+      showStatus(card, 'error', error && error.message || 'Off-site clock action could not be recorded. You can retry safely.');
+    } finally {
+      card.dataset.submitting = 'false';
+      if (submitButton) { submitButton.disabled = false; delete submitButton.dataset.originalText; }
+      updateClockCard(card);
+    }
   }
 
   function ensureSubmitFrame() {
@@ -518,6 +669,7 @@
       actionLabel: actionLabel(action),
       date: card.elements.clock_date.value || localDate(),
       time: EVENT_ACTIONS.includes(action) ? (card.elements.clock_time.value || localTime()) : '',
+      locationMode: String(card.elements.clock_location_mode?.value || 'in_office'),
       absenceReason: action === 'absent' ? (card.elements.absence_reason.value || '') : '',
       location: String(card.elements.clock_location?.value || '').trim(),
       note: card.elements.clock_note.value.trim(),
@@ -560,6 +712,10 @@
     const card = event.currentTarget;
     if (card.dataset.submitting === 'true') return;
     const payload = buildPayload(card);
+    if (payload.locationMode === 'off_site') {
+      await handleOffsiteSubmit(card, payload);
+      return;
+    }
     const endpoint = timesheetEndpoint();
     if (!payload.employeeName) {
       showStatus(card, 'error', 'Enter your name first.');
@@ -653,8 +809,16 @@
           showStatus(card, '', '');
         });
       });
-      const locationButton = card.querySelector('[data-use-location]');
-      if (locationButton) locationButton.addEventListener('click', () => captureCurrentLocation(card));
+      const locationMode = card.elements.clock_location_mode;
+      if (locationMode) locationMode.addEventListener('change', async () => {
+        card.__offsiteActiveEntry = null;
+        updateClockCard(card);
+        showStatus(card, '', '');
+        if (locationMode.value === 'off_site') {
+          try { await refreshOffsiteState(card); }
+          catch (error) { showStatus(card, 'error', error && error.message || 'The protected off-site shift could not be checked.'); }
+        }
+      });
       card.addEventListener('submit', handleSubmit);
     });
   }
