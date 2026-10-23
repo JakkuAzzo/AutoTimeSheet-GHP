@@ -4,6 +4,7 @@ import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateReco
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
 import { getJobCardArchiveRecord, getJobCardBatch, jobCardBatchStatus, normalizeJobCardEntry, queryJobCardArchive, reviewJobCardArchive, startJobCardBatch, upsertJobCardArchive, upsertJobCardSourceFile } from './job-card-archive.js';
 import { offsiteClockEndpoint } from './offsite-clock.js';
+import { completeJobCardAttachmentUpload, expireJobCardAttachmentUploadSession, findCompletedJobCardAttachment, getJobCardAttachment, getJobCardAttachmentUploadSession, listJobCardAttachments, normalizeJobCardAttachmentMetadata, readJobCardAttachmentBytes, reserveJobCardAttachmentUploadSession } from './job-card-attachments.js';
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
@@ -1583,6 +1584,192 @@ async function jobCardArchiveContentEndpoint(env, identity, recordId, origin) {
     'content-disposition': `inline; filename="${row.record_id}.pdf"`, 'cache-control': 'private, no-store',
     'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
     'x-frame-options': 'SAMEORIGIN', ...(origin ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true', vary: 'Origin' } : {})
+  } });
+}
+
+async function jobCardRecordForAttachment(env, identity, recordId, { write = false } = {}) {
+  const row = await env.DB.prepare('SELECT * FROM records WHERE record_id=?').bind(recordId).first();
+  if (!row) throw Object.assign(new Error('Record not found'), { status: 404 });
+  if (row.kind !== 'job-cards') throw Object.assign(new Error('Attachments are only available for job cards'), { status: 400 });
+  if (row.status === 'Deleted') throw Object.assign(new Error('Record has been deleted'), { status: 410 });
+  if (write && row.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
+  const permitted = write ? canAccessRecord(identity, row) : canReadHistoryRecord(identity, row);
+  if (!permitted) throw Object.assign(new Error('Record access is not permitted'), { status: 403 });
+  return row;
+}
+
+async function jobCardAttachmentStartEndpoint(request, env, identity, recordId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId, { write: true });
+  const metadata = normalizeJobCardAttachmentMetadata(await readJson(request));
+  const existing = await findCompletedJobCardAttachment(env, record.record_id, metadata);
+  if (existing) {
+    await cleanupDuplicateJobCardAttachmentObjectsForTarget(env, existing.attachment_id);
+    return json({ attachment: (await listJobCardAttachments(env, record.record_id)).find((item) => item.attachment_id === existing.attachment_id), duplicate: true }, 200, origin || '');
+  }
+  const attachmentId = crypto.randomUUID();
+  const safeRecordFolder = /^[A-Za-z0-9_-]{1,180}$/.test(record.record_id) ? record.record_id : `record-${await sha256Base64Url(record.record_id)}`;
+  const expectedPath = `JobCards/Attachments/${safeRecordFolder}/${attachmentId}-${metadata.fileName}`;
+  const expirationDateTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const reserved = await reserveJobCardAttachmentUploadSession(env, {
+    attachmentId, recordId: record.record_id, metadata, expectedPath,
+    expiresAt: expirationDateTime, actor: identity
+  });
+  if (!reserved) throw Object.assign(new Error('A job-card revision can have at most 10 attachments and 100 MiB total'), { status: 413 });
+  return json({ attachmentId, expirationDateTime }, 201, origin || '');
+}
+
+async function uploadJobCardAttachmentToSharePoint(env, session, bytes) {
+  const expectedName = `${session.attachment_id}-${session.file_name}`;
+  const path = `/root:/${encodeDrivePath(session.expected_path)}`;
+  const existingResponse = await graphSharePointRequest(env, path);
+  if (existingResponse.ok) {
+    let existing;
+    try { existing = await existingResponse.json(); } catch (_) { existing = null; }
+    if (!existing?.id || !existing.file || existing.name !== expectedName) {
+      throw Object.assign(new Error('SharePoint attachment path is occupied by an unexpected item'), { status: 409 });
+    }
+    // Never adopt a prior object based on provider metadata alone. Replace it
+    // with the request bytes already checked against the reserved SHA-256.
+    const cleanup = await graphSharePointRequest(env, `/items/${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+    if (!cleanup.ok && cleanup.status !== 404) throw Object.assign(new Error('SharePoint could not clear a prior incomplete attachment'), { status: 503 });
+  } else if (existingResponse.status !== 404) {
+    throw Object.assign(new Error('SharePoint could not verify the attachment destination'), { status: 503 });
+  }
+
+  const createResponse = await graphSharePointRequest(env, `${path}:/createUploadSession`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ item: { name: expectedName, '@microsoft.graph.conflictBehavior': 'fail' } })
+  });
+  if (!createResponse.ok) throw Object.assign(new Error('SharePoint could not create the job-card attachment upload session'), { status: 503 });
+  let graphSession;
+  try { graphSession = await createResponse.json(); } catch (_) { graphSession = null; }
+  const uploadUrl = text(graphSession?.uploadUrl, '', 5000);
+  const expiresAt = text(graphSession?.expirationDateTime, '', 80);
+  if (!uploadUrl || !/^https:\/\//i.test(uploadUrl) || !Number.isFinite(Date.parse(expiresAt))) {
+    throw Object.assign(new Error('SharePoint returned an invalid attachment upload session'), { status: 503 });
+  }
+
+  try {
+    const chunkBytes = 10 * 1024 * 1024;
+    let item = null;
+    for (let offset = 0; offset < bytes.byteLength; offset += chunkBytes) {
+      const end = Math.min(offset + chunkBytes, bytes.byteLength);
+      const chunk = bytes.slice(offset, end);
+      const response = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Length': String(chunk.byteLength),
+          'Content-Range': `bytes ${offset}-${end - 1}/${bytes.byteLength}`,
+          'Content-Type': 'application/octet-stream'
+        },
+        body: chunk
+      });
+      if (!response.ok) throw Object.assign(new Error('SharePoint could not store the job-card attachment'), { status: 503 });
+      if (end === bytes.byteLength) {
+        try { item = await response.json(); } catch (_) { item = null; }
+      }
+    }
+    if (!item?.id) throw Object.assign(new Error('SharePoint did not confirm the uploaded attachment'), { status: 503 });
+    return item;
+  } catch (error) {
+    try { await fetch(uploadUrl, { method: 'DELETE' }); } catch (_) {}
+    throw error;
+  }
+}
+
+async function deleteGraphSharePointItem(env, itemId) {
+  const response = await graphSharePointRequest(env, `/items/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+  return response.ok || response.status === 404;
+}
+
+async function cleanupDuplicateJobCardAttachmentObject(env, session) {
+  const itemId = text(session?.orphan_item_id, '', 500);
+  if (!itemId) return;
+  if (!await deleteGraphSharePointItem(env, itemId)) {
+    throw Object.assign(new Error('SharePoint could not remove the duplicate attachment object'), { status: 503 });
+  }
+  await env.DB.prepare(`UPDATE job_card_attachment_upload_sessions SET orphan_item_id=NULL
+    WHERE attachment_id=? AND status='duplicate' AND orphan_item_id=?`).bind(session.attachment_id, itemId).run();
+}
+
+async function cleanupDuplicateJobCardAttachmentObjectsForTarget(env, targetAttachmentId) {
+  const result = await env.DB.prepare(`SELECT attachment_id, orphan_item_id FROM job_card_attachment_upload_sessions
+    WHERE duplicate_of=? AND status='duplicate' AND orphan_item_id IS NOT NULL`).bind(targetAttachmentId).all();
+  for (const session of result.results || []) await cleanupDuplicateJobCardAttachmentObject(env, session);
+}
+
+async function jobCardAttachmentUploadEndpoint(request, env, identity, recordId, attachmentId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId, { write: true });
+  const session = await getJobCardAttachmentUploadSession(env, record.record_id, attachmentId);
+  if (session.status === 'complete' || session.status === 'duplicate') {
+    if (session.status === 'duplicate') await cleanupDuplicateJobCardAttachmentObject(env, session);
+    const completed = await completeJobCardAttachmentUpload(env, session, null);
+    const attachment = (await listJobCardAttachments(env, record.record_id)).find((item) => item.attachment_id === completed.attachment.attachment_id);
+    return json({ ok: true, attachment, duplicate: completed.duplicate }, 200, origin || '');
+  }
+  if (session.status !== 'uploading') throw Object.assign(new Error('Attachment upload session is no longer active'), { status: 410 });
+  if (Date.parse(session.expires_at) <= Date.now()) {
+    await expireJobCardAttachmentUploadSession(env, session.attachment_id);
+    throw Object.assign(new Error('Attachment upload session expired; select the file again to retry'), { status: 410 });
+  }
+  if (!session.expected_path) throw Object.assign(new Error('Attachment upload session is incomplete'), { status: 409 });
+
+  const bytes = await readJobCardAttachmentBytes(request, session);
+  const folderPath = session.expected_path.split('/').slice(0, -1).join('/');
+  await ensureSharePointFolder(env, folderPath);
+  const item = await uploadJobCardAttachmentToSharePoint(env, session, bytes);
+
+  let result;
+  try {
+    result = await completeJobCardAttachmentUpload(env, session, item);
+  } catch (error) {
+    if (Number(error?.status) === 409 && item?.id) {
+      if (await deleteGraphSharePointItem(env, item.id)) await expireJobCardAttachmentUploadSession(env, session.attachment_id);
+    }
+    throw error;
+  }
+  if (result.duplicate) {
+    const duplicateSession = await getJobCardAttachmentUploadSession(env, record.record_id, session.attachment_id);
+    await cleanupDuplicateJobCardAttachmentObject(env, duplicateSession);
+  }
+  const attachment = (await listJobCardAttachments(env, record.record_id)).find((entry) => entry.attachment_id === result.attachment.attachment_id);
+  return json({ ok: true, attachment, duplicate: result.duplicate }, 200, origin || '');
+}
+
+async function jobCardAttachmentCompleteEndpoint(env, identity, recordId, attachmentId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId, { write: true });
+  const session = await getJobCardAttachmentUploadSession(env, record.record_id, attachmentId);
+  if (session.status === 'complete' || session.status === 'duplicate') {
+    if (session.status === 'duplicate') await cleanupDuplicateJobCardAttachmentObject(env, session);
+    const completed = await completeJobCardAttachmentUpload(env, session, null);
+    return json({ ok: true, attachment: (await listJobCardAttachments(env, record.record_id)).find((item) => item.attachment_id === completed.attachment.attachment_id), duplicate: completed.duplicate }, 200, origin || '');
+  }
+  if (session.status === 'uploading' && Date.parse(session.expires_at) <= Date.now()) {
+    await expireJobCardAttachmentUploadSession(env, session.attachment_id);
+    throw Object.assign(new Error('Attachment upload session expired; select the file again to retry'), { status: 410 });
+  }
+  if (session.status === 'uploading') {
+    throw Object.assign(new Error('Upload the file through the authenticated content route before completing the attachment'), { status: 409 });
+  }
+  throw Object.assign(new Error('Attachment upload session is no longer active'), { status: 410 });
+}
+
+async function jobCardAttachmentContentEndpoint(env, identity, recordId, attachmentId, origin) {
+  const record = await jobCardRecordForAttachment(env, identity, recordId);
+  const attachment = await getJobCardAttachment(env, record.record_id, attachmentId);
+  const response = await graphSharePointRequest(env, `/items/${encodeURIComponent(attachment.sharepoint_item_id)}/content`);
+  if (!response.ok) throw Object.assign(new Error('Job-card attachment could not be retrieved'), { status: response.status === 404 ? 404 : 503 });
+  const filename = encodeURIComponent(attachment.file_name).replace(/[!'()*]/g, (character) => '%' + character.charCodeAt(0).toString(16).toUpperCase());
+  return new Response(response.body, { status: 200, headers: {
+    'content-type': attachment.content_type,
+    'content-length': String(attachment.size_bytes),
+    'content-disposition': `inline; filename*=UTF-8''${filename}`,
+    'cache-control': 'private, no-store',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; sandbox",
+    'x-frame-options': 'SAMEORIGIN',
+    ...(origin ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true', vary: 'Origin' } : {})
   } });
 }
 
@@ -4450,12 +4637,31 @@ async function handle(request, env, ctx) {
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
 
+  const attachmentContentMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/attachments\/([^/]+)\/content$/);
+  if (attachmentContentMatch) {
+    const recordId = decodeURIComponent(attachmentContentMatch[1]);
+    const attachmentId = decodeURIComponent(attachmentContentMatch[2]);
+    if (request.method === 'GET') return jobCardAttachmentContentEndpoint(env, identity, recordId, attachmentId, origin || '');
+    if (request.method === 'PUT') return jobCardAttachmentUploadEndpoint(request, env, identity, recordId, attachmentId, origin || '');
+  }
+  const attachmentCompleteMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/attachments\/([^/]+)\/complete$/);
+  if (attachmentCompleteMatch && request.method === 'POST') {
+    return jobCardAttachmentCompleteEndpoint(env, identity, decodeURIComponent(attachmentCompleteMatch[1]), decodeURIComponent(attachmentCompleteMatch[2]), origin || '');
+  }
   const attachmentMatch = url.pathname.match(/^\/api\/records\/([^/]+)\/attachments$/);
-  if (attachmentMatch && request.method === 'POST') {
+  if (attachmentMatch && ['GET', 'POST'].includes(request.method)) {
     const recordId = decodeURIComponent(attachmentMatch[1]);
     const existing = await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
-    if (request.method === 'GET' ? !canViewRecord(identity, existing) : !canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (existing.kind === 'job-cards') {
+      if (request.method === 'GET') {
+        await jobCardRecordForAttachment(env, identity, recordId);
+        return json({ attachments: await listJobCardAttachments(env, recordId) }, 200, origin || '');
+      }
+      return jobCardAttachmentStartEndpoint(request, env, identity, recordId, origin || '');
+    }
+    if (request.method !== 'POST') return json({ error: 'Attachments are only available for job cards' }, 400, origin || '');
+    if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (existing.kind !== 'timesheets') return json({ error: 'Only timesheet corrections can be queued' }, 400, origin || '');
     const body = await readJson(request);
