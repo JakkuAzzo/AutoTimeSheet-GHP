@@ -405,6 +405,9 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .training-intro p {
   margin-bottom: 0;
 }
+.training-intro p + p {
+  margin-top: .5rem;
+}
 .training-video-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -436,6 +439,23 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
   background: #17241b;
   border: 1px solid #6e7a6c;
   border-radius: .45rem;
+}
+.training-transcript {
+  margin-top: .7rem;
+  border-top: 1px solid var(--line);
+  padding-top: .55rem;
+}
+.training-transcript summary {
+  color: var(--green);
+  cursor: pointer;
+  font-weight: 800;
+}
+.training-transcript ol {
+  display: grid;
+  gap: .45rem;
+  margin: .65rem 0 0;
+  padding-left: 1.35rem;
+  line-height: 1.45;
 }
 .portal-profile-card {
   display: grid;

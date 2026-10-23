@@ -41,6 +41,7 @@
     "test:portal:request-routing": "node tests/portal-request-routing.mjs",
     "test:portal:navigation": "node tests/dashboard-tools-navigation.browser.mjs",
     "record:training": "node tools/record-staff-walkthrough.mjs all",
+    "test:training": "node tests/training-assets-contract.mjs && node --test tests/training-audit-sample.mjs && node tests/training-playback-smoke.mjs",
     "test:timesheets:clock-routing": "node tests/timesheet-clock-routing.mjs",
     "test:offsite-clock:policy": "node tests/offsite-clock-policy.mjs",
     "test:offsite-clock:lifecycle": "node tests/offsite-clock-lifecycle.mjs",
