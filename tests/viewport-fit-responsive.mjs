@@ -77,6 +77,11 @@ try {
         const main = document.querySelector('main:not([hidden])');
         const firstSnapPanel = document.querySelector('[data-scroll-snap]');
         const firstSnapRect = firstSnapPanel?.getBoundingClientRect();
+        const contactSection = document.querySelector('main > .contact-section[data-scroll-snap]');
+        const contactCard = contactSection?.querySelector('.contact-card');
+        const contactTailGap = contactSection && contactCard
+          ? Math.round(contactSection.getBoundingClientRect().bottom - contactCard.getBoundingClientRect().bottom)
+          : null;
         const panels = [...document.querySelectorAll('[data-scroll-snap]')].map((panel) => {
           const rect = panel.getBoundingClientRect();
           const style = getComputedStyle(panel);
@@ -90,6 +95,7 @@ try {
             clientHeight: panel.clientHeight,
             scrollHeight: panel.scrollHeight,
             overflowY: style.overflowY,
+            maxHeight: style.maxHeight,
             snapAlign: style.scrollSnapAlign
           };
         });
@@ -112,6 +118,7 @@ try {
           firstPanelTop: firstSnapRect ? Math.round(firstSnapRect.top) : null,
           firstPanelHeight: firstSnapRect ? Math.round(firstSnapRect.height) : null,
           firstPanelOffset: getComputedStyle(root).getPropertyValue('--gmt-public-first-section-offset').trim(),
+          contactTailGap,
           panels
         };
       });
@@ -122,12 +129,15 @@ try {
       if (layout.hasPortalShell && !['hidden', 'clip'].includes(layout.rootOverflowY)) failures.push(`${route} at ${width}x${height}: portal document root is not constrained to its viewport`);
       if (layout.hasPortalShell && layout.mainOverflowY !== 'auto') failures.push(`${route} at ${width}x${height}: portal content is not contained in a scrollable viewport panel`);
       if (publicMarketingRoutes.includes(route) && layout.rootScrollBehavior !== 'smooth') failures.push(`${route} at ${width}x${height}: public page does not enable smooth anchor scrolling`);
-      if (layout.panels.length && layout.firstPanelBottom > height + 1) failures.push(`${route} at ${width}x${height}: first section ends at ${layout.firstPanelBottom}px (top ${layout.firstPanelTop}px, height ${layout.firstPanelHeight}px, offset ${layout.firstPanelOffset})`);
+      const viewportFitted = width <= 1024;
+      if (viewportFitted && layout.panels.length && layout.firstPanelBottom > height + 1) failures.push(`${route} at ${width}x${height}: first section ends at ${layout.firstPanelBottom}px (top ${layout.firstPanelTop}px, height ${layout.firstPanelHeight}px, offset ${layout.firstPanelOffset})`);
+      if (route === '/' && layout.contactTailGap !== null && layout.contactTailGap > 32) failures.push(`/${width}x${height}: contact section leaves ${layout.contactTailGap}px after its content before the footer`);
       for (const panel of layout.panels) {
         if (panel.left < -1 || panel.right > width + 1) failures.push(`${route} at ${width}x${height}: ${panel.className} extends beyond viewport width`);
-        if (panel.height > height + 1) failures.push(`${route} at ${width}x${height}: ${panel.className} is ${panel.height}px tall`);
+        if (viewportFitted && panel.height > height + 1) failures.push(`${route} at ${width}x${height}: ${panel.className} is ${panel.height}px tall`);
+        if (!viewportFitted && panel.maxHeight !== 'none') failures.push(`${route} at ${width}x${height}: ${panel.className} is capped at ${panel.maxHeight} on a laptop or desktop viewport`);
         if (panel.snapAlign !== 'start') failures.push(`${route} at ${width}x${height}: ${panel.className} does not align to the snap start`);
-        if (panel.scrollHeight > panel.clientHeight + 1 && !['auto', 'scroll'].includes(panel.overflowY)) {
+        if (viewportFitted && panel.scrollHeight > panel.clientHeight + 1 && !['auto', 'scroll'].includes(panel.overflowY)) {
           failures.push(`${route} at ${width}x${height}: ${panel.className} clips ${panel.scrollHeight - panel.clientHeight}px of content`);
         }
       }
@@ -180,7 +190,7 @@ try {
           viewportHeight: innerHeight
         }));
         if (activeSnap.ready !== 'true' || !activeSnap.type.includes('y')) failures.push(`${route} at ${width}x${height}: public scroll does not activate vertical snap`);
-        if (activeSnap.firstPanelBottom > activeSnap.viewportHeight + 1) failures.push(`${route} at ${width}x${height}: first public section extends below viewport after snap activation`);
+        if (width <= 1024 && activeSnap.firstPanelBottom > activeSnap.viewportHeight + 1) failures.push(`${route} at ${width}x${height}: first public section extends below viewport after snap activation`);
       }
       if (route === '/portal/') {
         await page.mouse.move(Math.floor(width / 2), Math.floor(height / 2));
@@ -205,7 +215,7 @@ try {
         viewportHeight: innerHeight
       }));
       if (snap.ready !== 'true' || !snap.type.includes('y')) failures.push('/: public scroll does not enable vertical section snapping after user scroll');
-      if (snap.firstPanelBottom > snap.viewportHeight + 1) failures.push('/: the first public section extends beyond the viewport after snap activation');
+      if (page.viewportSize().width <= 1024 && snap.firstPanelBottom > snap.viewportHeight + 1) failures.push('/: the first public section extends beyond the viewport after snap activation');
     }
     if (route === '/portal/') {
       await page.mouse.move(160, 160);

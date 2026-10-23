@@ -4268,38 +4268,49 @@ body {
 
 }
 
-/* Keep each public snap section inside the device viewport. Long sections and
-   carousels remain fully readable through their own vertical scroll area. */
-[data-scroll-snap] {
-  box-sizing: border-box;
-  height: calc(100vh - var(--gmt-scroll-offset, 0px));
-  height: calc(100svh - var(--gmt-scroll-offset, 0px));
-  min-height: 0 !important;
-  max-height: calc(100vh - var(--gmt-scroll-offset, 0px));
-  max-height: calc(100svh - var(--gmt-scroll-offset, 0px));
-  margin-block: 0 !important;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: auto;
-  scroll-snap-align: start;
-  scroll-margin-block-start: var(--gmt-scroll-offset, 0px);
-}
+/* Fit public sections to the available screen on phones and tablets. On larger
+   screens they keep their natural content height and use the page scroller. */
+@media (max-width: 1024px) {
+  [data-scroll-snap] {
+    box-sizing: border-box;
+    height: calc(100vh - var(--gmt-scroll-offset, 0px));
+    height: calc(100svh - var(--gmt-scroll-offset, 0px));
+    min-height: 0 !important;
+    max-height: calc(100vh - var(--gmt-scroll-offset, 0px));
+    max-height: calc(100svh - var(--gmt-scroll-offset, 0px));
+    margin-block: 0 !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: auto;
+    scroll-snap-align: start;
+    scroll-margin-block-start: var(--gmt-scroll-offset, 0px);
+  }
 
-[data-public-first-snap="true"] {
-  height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
-  height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
-  max-height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
-  max-height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
-}
+  [data-public-first-snap="true"] {
+    height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
+    height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
+    max-height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
+    max-height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
+  }
 
-.content-carousel.is-carousel-enhanced {
-  overflow-x: hidden;
-  overflow-y: auto;
-}
+  .content-carousel.is-carousel-enhanced {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 
-.content-carousel.is-carousel-enhanced .content-carousel-track {
-  overflow-x: hidden;
-  overflow-y: visible;
+  .content-carousel.is-carousel-enhanced .content-carousel-track {
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+
+  /* The final short contact section should finish at its content, not leave a
+     viewport-sized blank panel before the footer. */
+  main > .contact-section[data-scroll-snap] {
+    height: auto;
+    min-height: 0 !important;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
