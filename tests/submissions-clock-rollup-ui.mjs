@@ -28,24 +28,36 @@ const ids = [
   'download-all-sheets', 'download-all-sheets-status'
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, element(id)]));
-const tabs = ['all', 'timesheets', 'calendar'].map((value) => element('tab-' + value, { 'data-submission-tab': value }));
+const tabs = ['all', 'timesheets', 'calendar', 'enquiries', 'job-cards', 'estimates', 'tasks'].map((value) => element('tab-' + value, { 'data-submission-tab': value }));
 const kicker = element('pay-month-kicker');
 let domReady;
 const employee = { employee_name: 'Michelle Reid', employee_upn: 'MichelleR.admin@gmt-services.co.uk' };
-const roster = [{ employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk' }];
+const roster = [
+  { employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk' },
+  { employee_name: 'Alex Smith', employee_upn: 'alex.one@gmt-services.co.uk' },
+  { employee_name: 'Alex Smith', employee_upn: 'alex.two@gmt-services.co.uk' }
+];
 const records = [
   { employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk', kind: 'timesheets', action: 'submission', status: 'Queued for Accounts', record_date: '2026-10-13', source_record_id: 'timesheet-week', updated_at: '2026-10-13T16:09:00Z', payload: { rows: [{ Date: '2026-10-13', Start: '08:45', Finish: '17:00', 'Lunch start': '14:00', 'Lunch end': '14:30', Break: 30, 'Worked hours': 7.75 }] } },
   { ...employee, kind: 'clock', action: 'clock_in', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-in', updated_at: '2026-10-13T08:45:00Z', payload: { row: { Date: '2026-10-13', Start: '08:45' } } },
   { ...employee, kind: 'clock', action: 'lunch_start', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'lunch-start', updated_at: '2026-10-13T14:00:00Z', payload: { row: { Date: '2026-10-13', 'Lunch start': '14:00' } } },
   { ...employee, kind: 'clock', action: 'lunch_end', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'lunch-end', updated_at: '2026-10-13T14:30:00Z', payload: { row: { Date: '2026-10-13', 'Lunch end': '14:30' } } },
-  { ...employee, kind: 'clock', action: 'clock_out', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-out', updated_at: '2026-10-13T17:00:00Z', payload: { row: { Date: '2026-10-13', Finish: '17:00' } } }
+  { ...employee, kind: 'clock', action: 'clock_out', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'clock-out', updated_at: '2026-10-13T17:00:00Z', payload: { row: { Date: '2026-10-13', Finish: '17:00' } } },
+  { ...employee, kind: 'calendar', action: 'calendar_request', status: 'Pending approval', record_date: '2026-10-13', source_record_id: 'calendar-request', updated_at: '2026-10-13T17:10:00Z', payload: { rows: [{ date: '2026-10-13' }] } },
+  { ...employee, kind: 'timesheets', action: 'submission', status: 'Submitted', start_date: '2026-10-13', end_date: '2026-11-02', source_record_id: 'timesheet-cross-month', updated_at: '2026-11-02T17:10:00Z', payload: { rows: [{ Date: '2026-10-13' }, { Date: '2026-11-02' }] } },
+  { ...employee, kind: 'enquiries', action: 'customer_enquiry', status: 'New', record_date: '2026-10-13', source_record_id: 'enquiry-source', customer_name: 'Customer', payload: { rows: [{ date: '2026-10-13' }] } },
+  { ...employee, kind: 'job-cards', action: 'job_card', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'job-card-source', payload: { rows: [{ date: '2026-10-13' }] } },
+  { ...employee, kind: 'estimates', action: 'estimate', status: 'Submitted', record_date: '2026-10-13', source_record_id: 'estimate-source', payload: { rows: [{ date: '2026-10-13' }] } },
+  { ...employee, kind: 'tasks', action: 'task', status: 'Open', record_date: '2026-10-13', source_record_id: 'task-source', payload: { rows: [{ date: '2026-10-13' }] } },
+  { employee_name: 'Michelle Reid', kind: 'clock', action: 'clock_in', status: 'Submitted', record_date: '2026-10-14', source_record_id: 'clock-name-only', payload: { row: { Date: '2026-10-14', Start: '08:45' } } },
+  { employee_name: 'Alex Smith', kind: 'clock', action: 'clock_in', status: 'Submitted', record_date: '2026-10-15', source_record_id: 'clock-ambiguous-name', payload: { row: { Date: '2026-10-15', Start: '08:45' } } }
 ];
 const context = {
   window: {
     location: { search: '?day=2026-10-13' },
     GMTCalendarData: calendar,
     GMTPayPeriods: { payMonthKeyForDate(date) { return String(date).slice(0, 7); } },
-    GMTPortalApi: { enabled() { return true; }, async history() { return { records, meta: { can_view_all_timesheets: false, visible_scope: 'this account submissions', completion: { employees: roster } } }; } }
+    GMTPortalApi: { enabled() { return true; }, async history() { return { records, meta: { can_view_all_timesheets: true, visible_scope: 'all authorized submissions', completion: { employees: roster } } }; } }
   },
   document: {
     getElementById(id) { return elements[id] || null; },
@@ -57,15 +69,41 @@ const context = {
 
 vm.runInNewContext(source, context, { filename: 'portal/submissions.js' });
 await domReady();
-assert.equal(elements['submissions-status'].textContent, '5 authorised records loaded. Access: this account submissions.');
+assert.equal(elements['submissions-status'].textContent, '13 authorised records loaded. Access: all authorized submissions.');
 tabs[0].listeners.click();
-assert.equal(elements['pay-month-list-count'].textContent, '1 item', 'the all-records view displays one combined entry');
+assert.equal(elements['pay-month-list-count'].textContent, '13 items', 'the all-records view count matches the authorised source-record count');
 assert.match(elements['submissions-list'].innerHTML, /Timesheet/);
-assert.doesNotMatch(elements['submissions-list'].innerHTML, /Clock \/ breaks/);
-assert.match(elements['submissions-preview'].innerHTML, /08:45/);
-assert.match(elements['submissions-preview'].innerHTML, /17:00/);
-assert.match(elements['submissions-preview'].innerHTML, /7h 45m/);
-assert.match(elements['submissions-preview'].innerHTML, /5 source entries/);
+assert.match(elements['submissions-list'].innerHTML, /Clock \/ breaks/, 'the all-records view retains individual clock source records');
+assert.match(elements['submissions-preview'].innerHTML, /Source record ID:<\/strong> timesheet-week/, 'the selected source version is identifiable by its authoritative record ID');
 assert.match(elements['submissions-preview'].innerHTML, /Queued for Accounts/);
+elements['submissions-employee'].value = 'micheller.admin@gmt-services.co.uk';
+elements['submissions-employee'].listeners.change();
+assert.equal(elements['pay-month-list-count'].textContent, '11 items', 'a unique roster name maps a name-only source record to its authorized UPN');
+assert.match(elements['submissions-list'].innerHTML, /2026-10-14/, 'the name-only clock source record is included for its roster UPN');
+assert.doesNotMatch(elements['submissions-list'].innerHTML, /2026-10-15/, 'an ambiguous roster name is not assigned to a selected UPN');
+elements['submissions-employee'].value = '';
+elements['submissions-employee'].listeners.change();
+assert.equal(elements['pay-month-list-count'].textContent, '13 items');
+tabs[2].listeners.click();
+assert.equal(elements['pay-month-list-count'].textContent, '1 item', 'the category filter reduces the all-records list to matching records');
+assert.match(elements['submissions-list'].innerHTML, /Calendar request/);
+tabs[0].listeners.click();
+elements['submissions-day'].value = '2026-10-13';
+elements['submissions-day'].listeners.change();
+elements['submissions-pay-month'].value = '2026-11';
+elements['submissions-pay-month'].listeners.change();
+assert.equal(elements['pay-month-list-count'].textContent, '0 items', 'month and day filters cannot be satisfied by different rows in the same source record');
+elements['submissions-day'].value = '2026-11-02';
+elements['submissions-day'].listeners.change();
+assert.equal(elements['pay-month-list-count'].textContent, '1 item', 'a multi-month source record appears once for a matching later pay month');
+assert.match(elements['submissions-preview'].innerHTML, /Source record ID:<\/strong> timesheet-cross-month/);
+elements['submissions-pay-month'].value = '2026-10';
+elements['submissions-pay-month'].listeners.change();
+elements['submissions-day'].value = '2026-10-13';
+elements['submissions-day'].listeners.change();
+for (const [index, sourceId] of [[3, 'enquiry-source'], [4, 'job-card-source'], [5, 'estimate-source'], [6, 'task-source']]) {
+  tabs[index].listeners.click();
+  assert.match(elements['submissions-preview'].innerHTML, new RegExp('Source record ID:<\\/strong> ' + sourceId), 'specialized previews expose their authoritative source record ID');
+}
 
-console.log('Submitted Documents clock rollup UI: PASS');
+console.log('Submitted Documents source-record count and identity: PASS');
