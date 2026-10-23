@@ -30,6 +30,7 @@ try {
   assert.match(flatTimesheets, /calendar-actions\.js\?v=/);
   assert.ok(fs.existsSync(path.join(output, 'public-site-mapfix-20260928.js')));
   assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));
+  assert.ok(fs.existsSync(path.join(output, 'reviews', 'index.html')));
   assert.ok(fs.existsSync(path.join(output, 'pay-periods.js')));
   assert.ok(fs.existsSync(path.join(output, 'responsive-tables.js')));
   assert.ok(fs.existsSync(path.join(output, 'responsive-tables.css')));

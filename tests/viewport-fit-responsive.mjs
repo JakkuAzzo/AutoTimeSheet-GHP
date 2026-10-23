@@ -22,7 +22,7 @@ function listHtmlFiles(directory, prefix = '') {
   });
 }
 const allRoutes = listHtmlFiles(root).sort();
-const publicMarketingRoutes = allRoutes.filter((route) => route === '/' || route.startsWith('/services/') || route.startsWith('/process/'));
+const publicMarketingRoutes = allRoutes.filter((route) => route === '/' || route === '/reviews/' || route.startsWith('/services/') || route.startsWith('/process/'));
 const routes = process.env.GMT_PUBLIC_SITE_ONLY === '1' ? publicMarketingRoutes : allRoutes;
 const viewports = [[320, 568], [390, 844], [667, 375], [768, 1024], [1280, 720], [1440, 900]];
 const server = createServer((request, response) => {

@@ -25,7 +25,8 @@ const expectedPages = [
   'process/electric-motor-repair/',
   'process/pump-repair/',
   'process/fan-extractor-servicing/',
-  'process/gearbox-refurbishment/'
+  'process/gearbox-refurbishment/',
+  'reviews/'
 ];
 
 const homepage = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
@@ -66,6 +67,8 @@ assert.match(publicSiteScript, /tab\.addEventListener\(['"]keydown['"]/,
 assert.match(homepage, /href="#services"/,
   'The homepage service navigation must target the service carousel');
 assert.match(homepage, /href="\/process\/"/);
+assert.match(homepage, /href="\/reviews\/"[^>]*>[^<]*customer testimonials/i,
+  'The homepage review section must link to the separate customer testimonials page');
 assert.equal((homepage.match(/class="button primary service-enquiry-link" href="\/#workshop-enquiry" data-enquire-nav/g) || []).length, 9,
   'Each homepage service card must have an enquiry button wired to open the mobile form');
 assert.equal((homepage.match(/class="service-benefit"/g) || []).length, 9,
@@ -89,21 +92,37 @@ for (const route of expectedPages) {
   assert.match(html, /class="skip-link"/, `Missing skip link: ${route}`);
   assert.match(html, /rel="canonical"/, `Missing canonical URL: ${route}`);
   assert.match(html, /#workshop-enquiry/, `Missing enquiry CTA: ${route}`);
-  if (route !== 'services/' && route !== 'process/') {
+  if ((route.startsWith('services/') || route.startsWith('process/')) && route !== 'services/' && route !== 'process/') {
     const indexPage = route.startsWith('services/') ? serviceIndex : processIndex;
     assert.match(indexPage, new RegExp(route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       `Directory page must link to ${route}`);
   }
   assert.match(sitemap, new RegExp(route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
     `Sitemap must list ${route}`);
-  assert.doesNotMatch(html, /\b(?:24[- ]hour|same[- ]day|48[- ]hour|ATEX|flameproof|1,000\s*kW|10[-–]30%|3[-–]5x|OEM[- ]standard|£\s?4,800)\b/i,
-    `Unapproved performance or compliance claim found on ${route}`);
+  // The approved testimonial source is quoted verbatim; the marketing-claim guard applies to GMT-authored copy.
+  if (route !== 'reviews/') {
+    assert.doesNotMatch(html, /\b(?:24[- ]hour|same[- ]day|48[- ]hour|ATEX|flameproof|1,000\s*kW|10[-–]30%|3[-–]5x|OEM[- ]standard|£\s?4,800)\b/i,
+      `Unapproved performance or compliance claim found on ${route}`);
+  }
   for (const asset of html.matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)) {
     assert.ok(fs.existsSync(path.join(repo, asset[1].slice(1))), `Missing page asset ${asset[1]} on ${route}`);
   }
 }
 
 assert.match(robots, /Sitemap:\s*https:\/\/gmt-services\.co\.uk\/sitemap\.xml/i);
+
+const testimonialsPage = fs.readFileSync(path.join(repo, 'reviews/index.html'), 'utf8');
+assert.match(testimonialsPage, /Customer testimonials/i);
+assert.match(testimonialsPage, /public-site\.css\?v=customer-testimonials-20261023-v1/,
+  'The testimonials page must request the current stylesheet so its card layout is not hidden by an older cached asset');
+assert.match(testimonialsPage, /provided to GMT Electrical Services/i,
+  'Submitted testimonials must be clearly distinguished from Google reviews');
+assert.equal((testimonialsPage.match(/class="customer-testimonial-card"/g) || []).length, 16,
+  'All sixteen approved testimonials from the supplied documents must be included');
+assert.match(testimonialsPage, /Michael T\./);
+assert.match(testimonialsPage, /Commercial Office Ventilation Upgrade/);
+assert.doesNotMatch(testimonialsPage, /Google review/i,
+  'Customer-submitted testimonials must not be presented as Google reviews');
 
 const output = fs.mkdtempSync(path.join(os.tmpdir(), 'gmt-marketing-pages-'));
 try {
