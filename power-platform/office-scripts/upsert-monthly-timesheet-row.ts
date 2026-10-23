@@ -9,6 +9,10 @@
 
 type MonthlyTimesheetRecord = {
   recordId?: string;
+  record_id?: string;
+  submissionId?: string;
+  gmt_record_id?: string;
+  gmt_submission_id?: string;
   employeeName?: string;
   employeeEmail?: string;
   weekStart?: string;
@@ -60,6 +64,7 @@ type CalendarSyncEnvelope = {
   weekEnd?: string;
   submittedAt?: string;
   submissionId?: string;
+  recordId?: string;
   events?: CalendarSyncEvent[];
   rows?: Record<string, unknown>[];
 };
@@ -155,15 +160,23 @@ function firstField(body: string, names: string[]): string {
   return "";
 }
 
+function withSourceRecordId(record: MonthlyTimesheetRecord): MonthlyTimesheetRecord {
+  const explicitRecordId = text(record.recordId || record.record_id || record.gmt_record_id).trim();
+  const parentSubmissionId = text(record.gmt_submission_id || record.submissionId).trim();
+  const date = text(record.date).trim();
+  return {
+    ...record,
+    recordId: explicitRecordId || (parentSubmissionId && date ? parentSubmissionId + "|" + date : parentSubmissionId)
+  };
+}
+
 function parseFormSubmitBody(input: string): MonthlyTimesheetRecord[] {
   const body = decodeHtml(input);
   const employeeName = firstField(body, ["gmt_employee", "employee_name"]);
   const employeeEmail = firstField(body, ["gmt_employee_upn", "gmt_employee_email", "email"]);
   const action = firstField(body, ["gmt_action", "clock_action"]) || "submission";
   const date = firstField(body, ["gmt_clock_date", "clock_date"]);
-  const clockTime = firstField(body, ["gmt_clock_time", "clock_time"]);
-  const recordId = firstField(body, ["gmt_record_id", "gmt_submission_id"]) ||
-    [employeeEmail || employeeName, date, action, clockTime].join("|");
+  const recordId = firstField(body, ["gmt_record_id", "gmt_submission_id"]);
   if (!employeeName && !employeeEmail) return [];
   return [{
     recordId, employeeName, employeeEmail,
@@ -221,34 +234,30 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
     return index >= 0 ? text(cells[index]).trim() : '';
   };
   const nameMatch = /^GMT Timesheet - (.+?) - (\d{4}-\d{2}-\d{2})\.csv$/i.exec(fileName.trim());
-  const employeeName = nameMatch ? nameMatch[1].trim() : '';
+  const fileEmployeeName = nameMatch ? nameMatch[1].trim() : '';
   const rows: MonthlyTimesheetRecord[] = [];
   const weekStartValue = nameMatch ? nameMatch[2] : '';
   lines.slice(1).forEach((line, rowIndex) => {
     const cells = parseCsvLine(line);
+    const employeeName = valueAt(cells, 'Employee') || valueAt(cells, 'Employee name') || fileEmployeeName;
     const employeeEmail = valueAt(cells, 'Employee email') || valueAt(cells, 'Email');
     const sourceDate = valueAt(cells, 'Date');
     const weekStart = valueAt(cells, 'Week start') || weekStartValue || sourceDate;
     const weekEnd = valueAt(cells, 'Week end') || weekStart;
     if (!sourceDate) return;
     const date = sourceDate;
-    // CSV exports do not always include an employee-email column. Derive the
-    // same stable identity slug used by the portal's JSON/calendar payloads so
-    // a CSV replay merges with an existing daily row instead of creating a
-    // duplicate source record. When a future export includes an email, prefer
-    // that value because it is authoritative.
-    const identitySource = employeeEmail || ((employeeName || 'employee') + '@gmt-services.co.uk');
-    const identity = identitySource.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const submissionId = 'timesheet-' + identity + '-' + weekStart;
+    // CSV rows may enter the workbook only when they carry the original source
+    // record ID. Missing IDs stay blank and are rejected before workbook writes.
+    const sourceRecordId = valueAt(cells, 'Source record ID') || valueAt(cells, 'gmt_record_id') || valueAt(cells, 'gmt_submission_id');
     const submittedNote = valueAt(cells, 'Note');
-    rows.push({
-      recordId: submissionId + '|' + (date || weekStart),
+    const record: MonthlyTimesheetRecord = {
+      recordId: sourceRecordId,
       employeeName,
       employeeEmail,
       weekStart,
       weekEnd,
       date: date || weekStart,
-      action: 'submission',
+      action: valueAt(cells, 'Action') || 'submission',
       status: valueAt(cells, 'Status') || 'Recorded',
       absenceReason: valueAt(cells, 'Absence reason'),
       startTime: valueAt(cells, 'Start'),
@@ -257,13 +266,15 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
       basicHours: valueAt(cells, 'Basic hours'),
       ot15Hours: valueAt(cells, 'OT x1.5 hours'),
       ot20Hours: valueAt(cells, 'OT x2.0 hours'),
+      location: valueAt(cells, 'Location / site'),
       note: submittedNote,
       submittedAt: ''
-    });
+    };
     // The source row number is intentionally included in the note only when
     // the submitted CSV did not provide any identifying detail. It makes a
     // malformed row traceable without changing valid payroll values.
-    if (!employeeName && rows[rowIndex].note === '') rows[rowIndex].note = 'CSV source row ' + (rowIndex + 2);
+    if (!record.employeeName && record.note === '') record.note = 'CSV source row ' + (rowIndex + 2);
+    rows.push(record);
   });
   return rows;
 }
@@ -271,12 +282,11 @@ function parseCsvSubmitBody(input: string, fileName: string): MonthlyTimesheetRe
 function calendarRecords(envelope: CalendarSyncEnvelope): MonthlyTimesheetRecord[] {
   const employeeName = text(envelope.employeeName || envelope.employee).trim();
   const employeeEmail = text(envelope.employeeEmail || envelope.employeeUpn).trim();
-  const submissionId = text(envelope.submissionId).trim();
+  const submissionId = text(envelope.submissionId || envelope.recordId).trim();
   const events = Array.isArray(envelope.events) ? envelope.events : [];
-  return events.map((event, index) => {
+  return events.map((event) => {
     const date = text(event.startDate).trim();
-    const recordId = submissionId && date ? submissionId + '|' + date :
-      text(event.syncEventId).trim() || [employeeEmail || employeeName, envelope.weekStart || date, date, index].join('|');
+    const recordId = submissionId && date ? submissionId + '|' + date : '';
     return {
       recordId,
       employeeName,
@@ -305,15 +315,15 @@ function rowRecords(envelope: CalendarSyncEnvelope): MonthlyTimesheetRecord[] {
   if (!Array.isArray(envelope.rows)) return [];
   const employeeName = text(envelope.employeeName || envelope.employee).trim();
   const employeeEmail = text(envelope.employeeEmail || envelope.employeeUpn).trim();
-  const submissionId = text(envelope.submissionId).trim();
-  return envelope.rows.map((row, index) => {
+  const submissionId = text(envelope.submissionId || envelope.recordId).trim();
+  return envelope.rows.map((row) => {
     const value = (names: string[]): string => {
       for (const name of names) if (row[name] != null && text(row[name]).trim()) return text(row[name]).trim();
       return '';
     };
     const date = value(['date', 'Date']);
     return {
-      recordId: value(['recordId', 'record_id']) || (submissionId ? submissionId + '|' + date : employeeName + '|' + date + '|' + index),
+      recordId: value(['recordId', 'record_id', 'gmt_record_id', 'gmt_submission_id']) || (submissionId && date ? submissionId + '|' + date : ''),
       employeeName: employeeName || value(['employeeName', 'employee_name']),
       employeeEmail: employeeEmail || value(['employeeEmail', 'employee_email']),
       weekStart: text(envelope.weekStart || date), weekEnd: text(envelope.weekEnd || date), date,
@@ -340,11 +350,11 @@ function parseRecords(input: string): MonthlyTimesheetRecord[] {
   }
   try {
     const parsed = JSON.parse(value) as MonthlyTimesheetRecord | MonthlyTimesheetRecord[] | CalendarSyncEnvelope;
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed)) return parsed.map((record) => withSourceRecordId(record));
     const envelope = parsed as CalendarSyncEnvelope;
     if (Array.isArray(envelope.events)) return calendarRecords(envelope);
     if (Array.isArray(envelope.rows)) return rowRecords(envelope);
-    return [parsed as MonthlyTimesheetRecord];
+    return [withSourceRecordId(parsed as MonthlyTimesheetRecord)];
   } catch (_error) {
     if (sourceName.toLowerCase().endsWith('.csv')) return parseCsvSubmitBody(value, sourceName);
     return parseFormSubmitBody(value);
@@ -474,7 +484,7 @@ function refreshReconciliation(workbook: ExcelScript.Workbook, sheet: ExcelScrip
 function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult {
   const parsed = parseRecords(recordJson);
   if (!parsed.length || parsed.some((record) => !record || !text(record.recordId).trim() || !text(record.employeeName).trim())) {
-    throw new Error("No valid timesheet records: employeeName and recordId are required.");
+    throw new Error("No valid timesheet records: employeeName and the original source record ID are required.");
   }
   const skippedRecords = parsed.filter((record) => isSyntheticOrAdminRecord(record));
   const records = parsed.filter((record) => !isSyntheticOrAdminRecord(record));
@@ -523,8 +533,8 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
     // carries the clock and break detail. Merge those two representations when
     // one side is merely an enrichment; retain distinct, conflicting versions.
     const dayMatches = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
+      text(row[19]).trim() === id &&
       text(row[0]).trim().toLowerCase() === text(values[0]).trim().toLowerCase() &&
-      normalizedCell(row[2], 2) === normalizedCell(values[2], 2) &&
       normalizedCell(row[4], 4) === normalizedCell(values[4], 4)
     );
     const detailed = (row: (string | number | boolean)[]): boolean =>

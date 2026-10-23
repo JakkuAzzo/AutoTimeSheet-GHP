@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { existsSync, statSync, createReadStream, readFileSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createTimesheetWorkbook, parseCsvThroughOfficeScript } from './helpers/monthly-timesheet-office-script.mjs';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const require = createRequire(new URL('../package.json', import.meta.url));
@@ -309,6 +310,14 @@ try {
     assert.equal(workbook.firstAllRow['Worked hours'], entry.worked);
     assert.match(csv.csv, /TEST Clock QA/);
     assert.match(csv.csv, new RegExp(entry.label));
+    const parsedClockCsvBook = createTimesheetWorkbook('Clock Tester', '2026-07');
+    const parsedClockCsv = parseCsvThroughOfficeScript(parsedClockCsvBook, csv.name, csv.csv);
+    assert.equal(parsedClockCsv.created, 1, 'clock CSV from the browser producer must parse through the Office Script');
+    assert.equal(parsedClockCsvBook.rows[1][0], 'Clock Tester');
+    assert.equal(parsedClockCsvBook.rows[1][5], entry.action, 'clock CSV preserves the event action');
+    assert.equal(parsedClockCsvBook.rows[1][16], 'Workshop', 'clock CSV preserves the work location');
+    assert.equal(parsedClockCsvBook.rows[1][19], fields.get('gmt_record_id'),
+      'clock CSV carries the same original source ID as the clock record attachment');
     if (entry.absence) assert.equal(workbook.firstAllRow['Absence reason'], entry.absence);
     assert.equal(workbook.firstAllRow['Location / site'], 'Workshop');
     if (entry.action === 'full_day') {

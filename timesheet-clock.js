@@ -335,6 +335,7 @@
       'Employee email': payload.employeeEmail,
       Status: absent ? 'Absent' : 'Recorded',
       Category: payload.actionLabel,
+      Action: payload.action,
       'Week start': payload.date,
       'Week end': payload.date,
       Day: payload.actionLabel,
@@ -352,6 +353,7 @@
       'OT x1.5 hours': 0,
       'OT x2.0 hours': 0,
       'Weighted hours': formatHours(hours.worked),
+      'Source record ID': clockRecordId(payload),
       Note: payload.note || (absent ? `${payload.absenceReason} recorded for the full day.` : `${payload.actionLabel} timestamp only`)
     };
   }
