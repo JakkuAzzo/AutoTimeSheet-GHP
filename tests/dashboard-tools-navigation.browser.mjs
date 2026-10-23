@@ -59,6 +59,8 @@ async function openRoute(path, options = {}) {
   let accessCalls = 0;
   const historyKinds = [];
   let historyFailuresRemaining = options.historyFailureCount || 0;
+  let taskCalls = 0;
+  let taskFailuresRemaining = options.taskFailureCount || 0;
   let releaseAccess;
   const accessGate = options.holdAccess ? new Promise((resolveAccess) => { releaseAccess = resolveAccess; }) : null;
   await page.route(`${apiOrigin}/api/access`, async (route) => {
@@ -80,6 +82,15 @@ async function openRoute(path, options = {}) {
     }
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ records: options.historyRecords || [] }) });
   });
+  await page.route(`${apiOrigin}/api/tasks**`, async (route) => {
+    taskCalls += 1;
+    if (options.taskFailure || taskFailuresRemaining > 0) {
+      if (taskFailuresRemaining > 0) taskFailuresRemaining -= 1;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Synthetic task outage' }) });
+      return;
+    }
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ records: options.taskRecords || [], pending: [] }) });
+  });
   await page.route('**/config.js?*', async (route) => {
     await route.fulfill({
       contentType: 'application/javascript',
@@ -91,7 +102,7 @@ async function openRoute(path, options = {}) {
     const main = document.querySelector('main');
     return main && !main.hidden;
   });
-  return { page, accessCalls: () => accessCalls, historyKinds: () => historyKinds.slice(), releaseAccess: () => releaseAccess && releaseAccess() };
+  return { page, accessCalls: () => accessCalls, taskCalls: () => taskCalls, historyKinds: () => historyKinds.slice(), releaseAccess: () => releaseAccess && releaseAccess() };
 }
 
 async function assertInternalLinksResolve(page) {
@@ -210,13 +221,13 @@ try {
   assert.equal(submittedDocumentHref, '/portal/submissions.html?record=synthetic-task-1', 'notification details should link to the served Submitted documents route');
   assert.equal((await notificationPage.page.request.get(`${origin}${submittedDocumentHref}`)).status(), 200, 'the notification destination should resolve locally');
 
-  const dashboardError = await openRoute('/portal/', { access: employeeAccess, historyFailure: true });
+  const dashboardError = await openRoute('/portal/', { access: employeeAccess, historyFailure: true, taskFailure: true });
   await dashboardError.page.locator('[data-updates-next]').click();
   await dashboardError.page.waitForFunction(() => !document.querySelector('#portal-task-board-status').textContent.startsWith('Loading'));
   assert.equal(await dashboardError.page.locator('#portal-task-board-status').innerText(), 'Synthetic history outage');
   assert.equal(await dashboardError.page.locator('#portal-notification-status').innerText(), 'Notifications could not be loaded.');
 
-  const dashboardRetry = await openRoute('/portal/', { access: employeeAccess, historyFailureCount: 2 });
+  const dashboardRetry = await openRoute('/portal/', { access: employeeAccess, historyFailureCount: 2, taskFailureCount: 1 });
   await dashboardRetry.page.locator('[data-updates-next]').click();
   await dashboardRetry.page.waitForFunction(() => !document.querySelector('#portal-task-board-status').textContent.startsWith('Loading')
     && !document.querySelector('#portal-notification-status').textContent.startsWith('Loading'));
@@ -224,10 +235,11 @@ try {
   assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry notifications' }).isVisible(), true, 'the Updates error should offer a retry');
   await dashboardRetry.page.getByRole('button', { name: 'Retry task history' }).click();
   await dashboardRetry.page.getByRole('button', { name: 'Retry notifications' }).click();
-  await dashboardRetry.page.waitForFunction(() => document.querySelector('#portal-task-board-status').textContent === 'No submitted tasks yet.'
+  await dashboardRetry.page.waitForFunction(() => document.querySelector('#portal-task-board-status').textContent === 'No tasks yet.'
     && document.querySelector('#portal-notification-status').textContent === 'No new notifications.');
   assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry task history' }).isVisible(), false, 'a recovered Task Board should clear its retry');
   assert.equal(dashboardRetry.historyKinds().filter((kind) => kind === 'tasks').length, 2, 'retry should reload task history independently');
+  assert.equal(dashboardRetry.taskCalls(), 2, 'retry should reload the workflow task source independently');
   assert.equal(dashboardRetry.historyKinds().filter((kind) => kind === 'all').length, 3, 'notification retry should share its own history request; calendar loading remains separate');
 
   console.log('Dashboard and Tools route navigation, role access and loading/error states: PASS');

@@ -42,6 +42,9 @@ window.GMT_APP_CONFIG = {
   // durable history/edit store; keep the origin empty until it is deployed.
   portalApiEndpoint: "",
   portalApiScopes: [],
+  // Add the delegated Flow Service scope only after task workflow consent and
+  // the protected Worker's TASK_WORKFLOW_URL have both been configured.
+  taskWorkflowScopes: [],
   portalHistoryEndpoint: "",
   portalHistoryScopes: [],
 

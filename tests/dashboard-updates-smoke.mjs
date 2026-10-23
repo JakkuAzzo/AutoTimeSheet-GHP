@@ -37,6 +37,16 @@ const tasks = Array.from({ length: 12 }, (_, index) => ({
   due_date: `2026-10-${String(index + 1).padStart(2, '0')}`,
   updated_at: `2026-10-${String(index + 1).padStart(2, '0')}T12:00:00Z`
 }));
+const workflowTasks = tasks.map((task) => ({
+  taskId: task.source_record_id,
+  title: task.task_title,
+  assigneeUpn: task.assignee,
+  requesterName: task.employee_name,
+  status: task.status === 'Complete' ? 'Completed' : task.status,
+  jobReference: task.job_reference,
+  dueDate: task.due_date,
+  updatedAt: task.updated_at
+}));
 const enquiries = Array.from({ length: 10 }, (_, index) => ({
   kind: 'enquiries',
   source_record_id: `enquiry-${index + 1}`,
@@ -51,6 +61,13 @@ const notificationRecords = [
   ...enquiries,
   { kind: 'timesheets', source_record_id: 'timesheet-1', employee_name: 'Sample Engineer', updated_at: '2026-10-13T14:00:00Z' }
 ];
+const legacyOnlyTask = {
+  kind: 'tasks',
+  source_record_id: 'legacy-task-only',
+  task_title: 'Legacy history task',
+  status: 'Submitted',
+  job_reference: 'GMT-LEGACY'
+};
 
 const browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
 const pages = [];
@@ -64,22 +81,29 @@ async function createDashboardPage(viewport, scenario) {
   const failTasks = scenario === 'error' || scenario === 'task-error';
   const failNotifications = scenario === 'error' || scenario === 'notification-error';
   const invalidNotifications = scenario === 'invalid-notifications';
+  const pendingTaskOperation = scenario === 'pending-task'
+    ? { action: 'transition', error: 'The update was not confirmed.', task: { ...workflowTasks[0], title: 'Unconfirmed completion', status: 'Completed' } }
+    : null;
   await page.evaluate(({ fixtureTasks, fixtureNotifications, failure }) => {
     window.GMTPortalApi = {
       enabled: () => !failure.disconnected,
+      tasks: async () => {
+        if (failure.tasks) throw new Error('Protected tasks unavailable for this check.');
+        return { records: fixtureTasks, pending: failure.pendingTaskOperation ? [failure.pendingTaskOperation] : [] };
+      },
       history: async (kind) => {
-        if ((kind === 'tasks' && failure.tasks) || (kind !== 'tasks' && failure.notifications)) {
+        if (kind === 'tasks' && failure.taskHistory) throw new Error('Protected history unavailable for this check.');
+        if (kind !== 'tasks' && failure.notifications) {
           throw new Error('Protected history unavailable for this check.');
         }
-        if (kind !== 'tasks' && failure.invalidNotifications) return { unexpected: true };
-        if (kind === 'tasks') return { records: fixtureTasks };
-        return { records: fixtureNotifications };
+        if (failure.invalidNotifications) return { unexpected: true };
+        return { records: kind === 'tasks' ? fixtureNotifications.filter((record) => record.kind === 'tasks') : fixtureNotifications };
       }
     };
   }, {
-    fixtureTasks: empty ? [] : tasks,
-    fixtureNotifications: empty ? [] : notificationRecords,
-    failure: { tasks: failTasks, notifications: failNotifications, invalidNotifications, disconnected }
+    fixtureTasks: empty ? [] : workflowTasks,
+    fixtureNotifications: empty ? [] : scenario === 'legacy-extra' ? [...notificationRecords, legacyOnlyTask] : notificationRecords,
+    failure: { tasks: failTasks, taskHistory: scenario === 'error', notifications: failNotifications, invalidNotifications, disconnected, pendingTaskOperation }
   });
   await page.addScriptTag({ path: resolve(repoRoot, 'portal/dashboard-updates.js') });
   await page.waitForFunction(() => {
@@ -120,6 +144,10 @@ try {
   assert.match(await firstTask.innerText(), /50%/);
   assert.match(await page.locator('#portal-task-board').innerText(), /Task 12/);
 
+  const mergedHistoryPage = await createDashboardPage({ width: 390, height: 844 }, 'legacy-extra');
+  assert.equal(await mergedHistoryPage.locator('#portal-task-board .portal-task-card').count(), tasks.length + 1, 'legacy tasks remain visible alongside workflow tasks');
+  assert.match(await mergedHistoryPage.locator('#portal-task-board').innerText(), /Legacy history task/);
+
   await page.locator('[data-notification-index="0"]').click();
   assert.equal(await page.locator('.portal-notification-dialog[open]').count(), 1, 'notification details should still open');
   await page.locator('[data-notification-close]').click();
@@ -154,7 +182,7 @@ try {
 
   const emptyPage = await createDashboardPage({ width: 390, height: 844 }, 'empty');
   assert.equal(await emptyPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
-  assert.equal(await emptyPage.locator('#portal-task-board-status').innerText(), 'No submitted tasks yet.');
+  assert.equal(await emptyPage.locator('#portal-task-board-status').innerText(), 'No tasks yet.');
   assert.equal(await emptyPage.locator('#portal-notification-status').innerText(), 'No new notifications.');
   assert.match(await emptyPage.locator('#portal-notifications').innerText(), /no new notifications/i);
   assert.equal(await emptyPage.locator('#portal-notifications').getAttribute('aria-live'), null, 'notification count should be the only live announcement');
@@ -171,9 +199,18 @@ try {
   assert.doesNotMatch(await notificationsErrorPage.locator('#portal-notifications').innerText(), /No new notifications/);
 
   const tasksErrorPage = await createDashboardPage({ width: 390, height: 844 }, 'task-error');
-  assert.equal(await tasksErrorPage.locator('#portal-task-board-status').innerText(), 'Protected history unavailable for this check.');
-  assert.equal(await tasksErrorPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
+  assert.equal(await tasksErrorPage.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'history records remain visible when the workflow source fails');
+  assert.match(await tasksErrorPage.locator('#portal-task-board-status').innerText(), /one task source could not be loaded/);
   assert.equal(await tasksErrorPage.locator('#portal-notifications [data-notification-index]').count(), 8, 'Updates should remain available when the Task Board fails independently');
+
+  const pendingTaskPage = await createDashboardPage({ width: 390, height: 844 }, 'pending-task');
+  assert.equal(await pendingTaskPage.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'a failed update does not add a duplicate task card');
+  const pendingTaskCard = pendingTaskPage.locator('#portal-task-board .portal-task-card').first();
+  const pendingTaskCardText = await pendingTaskCard.innerText();
+  assert.match(pendingTaskCardText, /Replace motor bearings at north wing/, 'a failed update keeps the last confirmed List task visible');
+  assert.match(pendingTaskCardText, /In-Progress/, 'the confirmed status remains visible');
+  assert.doesNotMatch(pendingTaskCardText, /Unconfirmed completion|Completed/, 'the pending operation payload must not replace confirmed task fields');
+  assert.match(pendingTaskCardText, /The update was not confirmed\./, 'the failed sync remains visible alongside the confirmed task');
 
   const disconnectedPage = await createDashboardPage({ width: 390, height: 844 }, 'disconnected');
   assert.equal(await disconnectedPage.locator('#portal-notification-status').innerText(), 'Notifications are not connected.');
