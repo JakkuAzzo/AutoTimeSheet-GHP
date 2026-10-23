@@ -142,6 +142,9 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-updates-clock-slide .clock-card > .clock-status { grid-column: 1 / -1; }
 .portal-updates-clock-slide .clock-card [data-clock-identity] { align-self: center; margin: 0; font-size: .78rem; }
 .portal-updates-clock-slide .clock-location-control button { width: auto; margin-top: 0; }
+.portal-updates-clock-slide .clock-location-mode,
+.portal-updates-clock-slide .clock-offsite-help { grid-column: 1 / -1; }
+.clock-offsite-help { margin: .25rem 0; padding: .55rem .7rem; color: #123d1d; background: #edf5ed; border-radius: .55rem; }
 .portal-clock-date-time { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .65rem; }
 .portal-updates-clock-slide .clock-actions { gap: .3rem; }
 .portal-updates-clock-slide .clock-actions button { min-height: 36px; padding: .35rem .5rem; }
@@ -362,7 +365,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .enquiry-reply-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(24, 72, 52, .16); }
 .enquiry-reply-form textarea { min-height: 6rem; width: 100%; }
 .portal-profile-card.account-settings-page { margin-top: 1.5rem; }
-.clock-location-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; align-items: end; }
+.clock-location-control { display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; align-items: end; }
 .clock-location-control button { width: auto; white-space: nowrap; }
 .clock-location-status { min-height: 1.3em; margin: 0; }
 .portal-overview-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .85rem; margin: 1rem 0; }

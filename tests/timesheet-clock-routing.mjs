@@ -125,6 +125,7 @@ try {
       employeeName: card?.elements.employee_name.value || '',
       employeeEmail: JSON.parse(localStorage.getItem('gmt.portal.profile.v1') || '{}').username,
       action: card?.elements.clock_action.value || '',
+      locationMode: card?.elements.clock_location_mode.value || '',
       actionButtons: card?.querySelectorAll('[data-clock-action]').length || 0,
       date: card?.elements.clock_date.value || '',
       time: card?.elements.clock_time.value || '',
@@ -253,6 +254,7 @@ try {
   assert.equal(beforeSubmit.employeeName, 'TEST Clock QA', 'clock card should inherit portal profile name');
   assert.equal(beforeSubmit.employeeEmail, 'test-clock@example.test');
   assert.equal(beforeSubmit.action, 'clock_in');
+  assert.equal(beforeSubmit.locationMode, 'in_office');
   assert.equal(beforeSubmit.actionButtons, 6, 'action row should include four clock actions, absent and full-day plus control');
   assert.match(beforeSubmit.date, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(beforeSubmit.time, /^\d{2}:\d{2}$/);
@@ -319,7 +321,68 @@ try {
     }
   });
 
-    console.log(JSON.stringify({ browser: browserName, responsiveContext, futureTimeAttempt, retryStatus: retryAttempt.status, beforeSubmit, layout, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
+  await page.evaluate(() => {
+    window.__offsiteEvents = [];
+    window.__offsiteEntries = [];
+    window.GMTPortalApi = {
+      enabled: () => true,
+      offsiteClockMine: async () => ({ entries: window.__offsiteEntries }),
+      offsiteClockIn: async (body) => {
+        window.__offsiteEvents.push({ action: 'clock_in', ...body });
+        const entry = { entryId: 'TEST-dashboard-offsite-001', status: 'clocked_in', site: body.site, workDate: '2026-10-16', clockInAt: '2026-10-16T15:00:00.000Z' };
+        window.__offsiteEntries = [entry];
+        return { entry };
+      },
+      offsiteClockLunchStart: async (body) => {
+        window.__offsiteEvents.push({ action: 'lunch_start', ...body });
+        window.__offsiteEntries[0].lunchStartAt = '2026-10-16T15:05:00.000Z';
+        return { entry: window.__offsiteEntries[0] };
+      },
+      offsiteClockLunchEnd: async (body) => {
+        window.__offsiteEvents.push({ action: 'lunch_end', ...body });
+        window.__offsiteEntries[0].lunchEndAt = '2026-10-16T15:10:00.000Z';
+        return { entry: window.__offsiteEntries[0] };
+      },
+      offsiteClockOut: async (body) => {
+        window.__offsiteEvents.push({ action: 'clock_out', ...body });
+        window.__offsiteEntries[0].status = 'awaiting_approval';
+        window.__offsiteEntries[0].clockOutAt = '2026-10-16T15:15:00.000Z';
+        return { entry: window.__offsiteEntries[0] };
+      }
+    };
+  });
+  const beforeOffsiteEmailCount = await page.evaluate(() => window.__submittedForms.length);
+  await card.locator('[name="clock_location_mode"]').selectOption('off_site');
+  await page.waitForFunction(() => document.querySelector('[data-clock-action="clock_in"]')?.hidden === false);
+  await card.locator('[name="clock_location"]').fill('51.3762, -0.0982');
+  await card.locator('[data-clock-submit]').click();
+  await page.waitForFunction(() => /instead of coordinates/.test(document.querySelector('.clock-status')?.textContent || ''));
+  assert.equal(await page.evaluate(() => window.__offsiteEvents.length), 0, 'coordinate-like off-site labels are rejected before the protected endpoint');
+  await card.locator('[name="clock_location"]').fill('TEST Client Road, Croydon');
+  await card.locator('[data-clock-submit]').click();
+  await page.waitForFunction(() => window.__offsiteEvents.length === 1);
+  for (let eventIndex = 1; eventIndex < 4; eventIndex += 1) {
+    await card.locator('[data-clock-submit]').click();
+    await page.waitForFunction((count) => window.__offsiteEvents.length === count, eventIndex + 1);
+  }
+  const offsiteRouting = await page.evaluate(() => ({
+    events: window.__offsiteEvents,
+    locationRequired: document.querySelector('[name="clock_location"]').required,
+    dateTimeHidden: document.querySelector('.portal-clock-date-time').hidden,
+    fullDayHidden: document.querySelector('[data-clock-action="full_day"]').hidden,
+    emailCount: window.__submittedForms.length,
+    status: document.querySelector('.clock-status')?.textContent || ''
+  }));
+  assert.deepEqual(offsiteRouting.events.map((event) => event.action), ['clock_in', 'lunch_start', 'lunch_end', 'clock_out']);
+  assert.equal(offsiteRouting.events[0].site, 'TEST Client Road, Croydon');
+  assert.ok(offsiteRouting.events.every((event) => event.requestId && !('time' in event) && !('date' in event)), 'off-site timestamps come from the protected server path');
+  assert.equal(offsiteRouting.locationRequired, true);
+  assert.equal(offsiteRouting.dateTimeHidden, true);
+  assert.equal(offsiteRouting.fullDayHidden, true);
+  assert.equal(offsiteRouting.emailCount, beforeOffsiteEmailCount, 'off-site events never use the direct-to-Accounts email path');
+  assert.match(offsiteRouting.status, /awaiting Duty Manager approval/i);
+
+    console.log(JSON.stringify({ browser: browserName, responsiveContext, futureTimeAttempt, retryStatus: retryAttempt.status, beforeSubmit, layout, offsiteRouting: { actions: offsiteRouting.events.map((event) => event.action), emailCount: offsiteRouting.emailCount }, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
     await browser.close();
     browser = null;
   }
