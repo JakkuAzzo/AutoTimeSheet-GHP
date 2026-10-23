@@ -94,6 +94,20 @@ Modify these staff-facing pages, whether they currently use shared styles or hav
 - [x] **Step 2: Review the final diff** for all routes in Scope Inventory, accidental changes to protected workflows, hidden content when motion is disabled, and snap rules leaking onto workflow pages.
 - [x] **Step 3: Commit** the portal asset-version updates with the integrated responsive update.
 
+### Task 5: Verify authenticated portal routes with synthetic workflow state
+
+**Files:**
+- Modify: `tests/viewport-fit-responsive.mjs`
+- Modify: authenticated portal layout styles only when a route-level check proves clipping or overflow
+
+**Test boundary:** Use a synthetic `.test` identity, a local MSAL stand-in, local GET-only API fixtures, and synthetic records. Reject or block every external request and every API mutation, including focused-route runs. A focused initialization probe sends POST, PATCH, and DELETE to the local fixture and verifies each attempt makes the viewport run fail. Do not use production identities, provider data, or submit forms.
+
+- [x] **Step 1: Exercise the real portal sign-in reveal** with the local synthetic identity and assert each protected route becomes authenticated and visible before testing its layout.
+- [x] **Step 2: Seed dynamic states** for long form values and validation messages, table rows, calendar events, job-card archive results, estimate previews and archive dialogs, and invoice rows and editor lines.
+- [x] **Step 3: Check each protected route** at 320×568, 390×844, 667×375, 768×1024, 1280×720, and 1440×900 for usable visible controls, clipped panels or dialogs, and page-level horizontal overflow. Confirm non-dashboard routes do not snap and reduced motion disables motion.
+- [x] **Step 4: Fix only failures in authenticated portal layouts** and rerun the viewport and responsive-table checks.
+- [x] **Step 5: Commit the route-level coverage and any scoped layout fixes.**
+
 ## Delivery Boundary
 
 This plan ends with a locally reviewed implementation. It does not merge or deploy the Staff Portal; deployment requires a separate explicit release step.
