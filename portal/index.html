@@ -140,7 +140,8 @@
         <div><span class="portal-card-kicker">Shared information</span><h2 id="portal-calendar-title">Calendar</h2></div>
         <a class="portal-text-link" href="timesheets.html">Open timesheet calendar <span aria-hidden="true">→</span></a>
       </div>
-      <p id="portal-calendar-status" class="small-text" role="status">Loading shared calendar…</p>
+      <p id="portal-calendar-status" class="small-text" role="status">Loading published shared calendar…</p>
+      <button type="button" class="secondary" data-portal-calendar-retry>Reload calendar</button>
       <div class="portal-calendar-toolbar"><button type="button" class="icon-button" data-portal-calendar-prev aria-label="Previous month">&lt;</button><button type="button" class="portal-calendar-month-picker" data-portal-calendar-picker aria-haspopup="dialog" aria-controls="portal-calendar-month-input"><span data-portal-calendar-title></span></button><input id="portal-calendar-month-input" class="sr-only" data-portal-calendar-input type="month" tabindex="-1" aria-label="Choose calendar month"><button type="button" class="icon-button" data-portal-calendar-next aria-label="Next month">&gt;</button></div>
       <fieldset class="calendar-filters" data-calendar-filters><legend>Show</legend><label><input type="checkbox" data-calendar-filter="timesheets" checked> Timesheets</label><label><input type="checkbox" data-calendar-filter="jobcards" checked> Job cards</label><label><input type="checkbox" data-calendar-filter="estimates" checked> Estimates</label><label><input type="checkbox" data-calendar-filter="tasks" checked> Tasks</label><label><input type="checkbox" data-calendar-filter="enquiries" checked> Enquiries</label><label><input type="checkbox" data-calendar-filter="invoices" checked> Invoices</label><label><input type="checkbox" data-calendar-filter="calendar" checked> Calendar events</label><label><input type="checkbox" data-calendar-filter="other" checked> Other</label></fieldset>
       <div class="portal-calendar-month" data-portal-calendar aria-label="Current month calendar"></div>
@@ -154,8 +155,8 @@
 <script defer src="../timesheet-coverage.js?v=pay-month-start-20261016"></script>
 <script defer src="../timesheet-clock.js?v=pay-month-start-20261016"></script>
 <script defer src="calendar-data.js?v=source-date-20260927"></script>
-<script defer src="calendar-actions.js?v=pay-month-start-20261016"></script>
-<script defer src="calendar-preview.js?v=paymonth-calendar-20260928a"></script>
+<script defer src="calendar-actions.js?v=calendar-request-quick-edit-20261017"></script>
+<script defer src="calendar-preview.js?v=published-calendar-retry-20261017"></script>
 <script defer src="dashboard-updates.js?v=dashboard-route-retry-20261017-v1"></script>
 </body>
 </html>

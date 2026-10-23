@@ -10,6 +10,9 @@
     "gmt_record_id",
     "gmt_submitted_at"
   ],
+  "optionalCommon": [
+    "gmt_updated_at"
+  ],
   "timesheet": {
     "required": [
       "gmt_submission_id",
