@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#123d1d">
+<title>Engineer Off-Site | GMT Staff Portal</title>
+<link rel="stylesheet" href="../styles.css?v=portal-responsive-layout-20261016-v4">
+<link rel="stylesheet" href="../portal.css?v=portal-responsive-layout-20261016-v6">
+<link rel="stylesheet" href="offsite-clock.css?v=offsite-clock-20261023-v1">
+<script src="../config.js?v=portal-api-live-20260915"></script>
+<script defer src="../viewport-effects.js?v=viewport-shell-20261016-v1"></script>
+<script defer src="auth.js?v=portal-responsive-motion-20261015-v1"></script>
+</head>
+<body>
+<header class="app-header portal-header">
+  <div class="brand-block">
+    <img src="../image.webp" alt="GMT Electrical Services Ltd logo" class="site-logo" width="1536" height="1024">
+    <div><p class="eyebrow">GMT Staff Portal</p><h1>Engineer Off-Site</h1><p class="portal-header-subtitle">Record an off-site shift and request Duty Manager sign-off</p></div>
+  </div>
+  <nav class="header-actions" aria-label="Portal navigation">
+    <a href="index.html">Dashboard</a>
+    <a href="submissions.html">Submitted documents</a>
+    <button type="button" id="portal-sign-out" hidden>Sign out</button>
+  </nav>
+</header>
+<main class="app-main offsite-main" hidden>
+  <section class="card offsite-page-card" data-scroll-reveal aria-labelledby="offsite-title">
+    <div class="offsite-heading">
+      <div><p class="eyebrow">Separate from payroll clock records</p><h2 id="offsite-title">Off-site shift</h2><p>Times are recorded by GMT when you clock in and out. A Duty Manager must sign off the completed entry.</p></div>
+      <span class="portal-secure-chip">Signed-in GMT account</span>
+    </div>
+    <div class="offsite-content-grid">
+      <section class="offsite-panel" aria-labelledby="offsite-clock-title">
+        <h3 id="offsite-clock-title">Your shift</h3>
+        <form data-offsite-clock-form>
+          <label>Off-site location<input name="offsite_site" type="text" maxlength="240" autocomplete="off" required placeholder="Client site or work location"></label>
+          <div class="offsite-clock-actions">
+            <button type="button" data-offsite-clock-in>Clock in</button>
+            <button type="button" class="secondary" data-offsite-clock-out hidden>Clock out</button>
+          </div>
+          <p class="small-text offsite-status" data-offsite-status role="status" aria-live="polite">Checking your current off-site shift…</p>
+        </form>
+        <h3 class="offsite-history-heading">Recent off-site entries</h3>
+        <div class="offsite-entry-list" data-offsite-entries aria-live="polite"><p class="small-text">Loading your entries…</p></div>
+      </section>
+      <section class="offsite-panel offsite-manager-panel" data-offsite-manager-queue hidden aria-labelledby="offsite-manager-title">
+        <h3 id="offsite-manager-title">Duty Manager sign-off</h3>
+        <p class="small-text">Review completed off-site entries. You cannot approve or reject your own entry.</p>
+        <p class="small-text offsite-status" data-offsite-manager-status role="status" aria-live="polite">Loading entries awaiting sign-off…</p>
+        <div class="offsite-entry-list" data-offsite-pending-list aria-live="polite"></div>
+      </section>
+    </div>
+  </section>
+</main>
+<script defer src="../portal-api.js?v=portal-api-offsite-clock-20261023-v1"></script>
+<script defer src="offsite-clock.js?v=offsite-clock-20261023-v1"></script>
+</body>
+</html>

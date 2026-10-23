@@ -1573,7 +1573,7 @@ body.modal-open {
 }
 
 .workshop-enquiry-card p.workshop-enquiry-status.is-visible {
-  max-height: 4rem;
+  max-height: 12rem;
   margin-top: .75rem;
   opacity: 1;
   transform: translateY(0);
@@ -2972,7 +2972,6 @@ body {
 
 .google-review-card {
   box-sizing: border-box;
-  flex: 0 0 50%;
   min-width: 0;
   min-height: 190px;
   display: flex;
@@ -2980,7 +2979,20 @@ body {
   justify-content: center;
   align-items: center;
   padding: clamp(1.4rem, 4vw, 2.6rem);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .98);
   text-align: center;
+}
+
+.google-review-slide {
+  box-sizing: border-box;
+  flex: 0 0 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: clamp(.7rem, 2vw, 1.2rem);
 }
 
 .google-review-quote {
@@ -2996,8 +3008,12 @@ body {
 .google-review-attribution a { color: var(--green-2); text-underline-offset: .18em; }
 .google-review-attribution span { color: var(--muted); font-weight: 600; }
 
-.google-review-rating-slide { width: 100%; }
-.google-review-rating-slide .google-review-quote { margin-bottom: .9rem; }
+.google-review-rating-slide {
+  grid-template-columns: 1fr;
+  align-content: center;
+  padding: clamp(1.2rem, 3vw, 2rem);
+}
+.google-review-rating-slide .google-review-quote { margin: 0; }
 
 .google-review-rating-list {
   display: grid;
@@ -3036,6 +3052,8 @@ body {
 }
 
 @media (max-width: 620px) {
+  .google-review-slide:not(.google-review-rating-slide) { grid-template-columns: 1fr; }
+  .google-review-card { min-height: 150px; padding: 1.1rem; }
   .google-review-rating-list { grid-template-columns: 1fr; }
   .google-review-rating-list a { min-height: 44px; }
 }
@@ -3185,11 +3203,35 @@ body {
 .marketing-list-card > p:nth-of-type(2) { flex: 1; color: var(--muted); }
 .marketing-list-card h2 a { text-decoration-thickness: 1px; text-underline-offset: .16em; }
 .marketing-list-card .text-link { margin-top: .6rem; }
+.customer-testimonial-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.2rem 0 1.5rem;
+}
+.customer-testimonial-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: clamp(1rem, 2vw, 1.4rem);
+  border: 1px solid var(--line);
+  border-radius: .85rem;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(18, 61, 29, .05);
+}
+.customer-testimonial-card .eyebrow { margin: 0 0 .55rem; color: var(--green-2); font-weight: 800; }
+.customer-testimonial-card h2 { margin: 0; color: var(--green); font-size: 1.15rem; line-height: 1.25; }
+.customer-testimonial-rating { margin: .55rem 0; color: #a87908; letter-spacing: .08em; }
+.customer-testimonial-card blockquote { flex: 1; margin: 0 0 .9rem; color: #35413a; line-height: 1.6; }
+.customer-testimonial-card blockquote p { margin: 0; }
+.customer-testimonial-attribution { margin: auto 0 0; padding-top: .75rem; border-top: 1px solid var(--line); color: var(--green); font-weight: 800; line-height: 1.4; }
+.customer-testimonial-attribution span { display: block; color: var(--muted); font-size: .92rem; font-weight: 600; }
 .marketing-page .site-footer { color: #e9efe8; }
 
 @media (max-width: 820px) {
   .marketing-trust-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .marketing-capabilities-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .customer-testimonial-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .marketing-story-section { grid-template-columns: 1fr; }
   .marketing-page-hero { grid-template-columns: 1fr; }
   .marketing-page-hero img { max-height: 320px; }
@@ -3203,6 +3245,7 @@ body {
   .marketing-related ul,
   .marketing-list-grid { grid-template-columns: 1fr; }
   .marketing-capabilities-grid { grid-template-columns: 1fr; }
+  .customer-testimonial-grid { grid-template-columns: 1fr; }
   .marketing-capabilities-grid > a {
     align-self: start;
     height: auto;
@@ -4243,40 +4286,104 @@ body {
 
 }
 
-/* Keep each public snap section inside the device viewport. Long sections and
-   carousels remain fully readable through their own vertical scroll area. */
-[data-scroll-snap] {
-  box-sizing: border-box;
-  height: calc(100vh - var(--gmt-scroll-offset, 0px));
-  height: calc(100svh - var(--gmt-scroll-offset, 0px));
-  min-height: 0 !important;
-  max-height: calc(100vh - var(--gmt-scroll-offset, 0px));
-  max-height: calc(100svh - var(--gmt-scroll-offset, 0px));
-  margin-block: 0 !important;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: auto;
-  scroll-snap-align: start;
-  scroll-margin-block-start: var(--gmt-scroll-offset, 0px);
-}
+/* Fit public sections to the available screen on phones and tablets. On larger
+   screens they keep their natural content height and use the page scroller. */
+@media (max-width: 1024px) {
+  [data-scroll-snap] {
+    box-sizing: border-box;
+    height: calc(100vh - var(--gmt-scroll-offset, 0px));
+    height: calc(100svh - var(--gmt-scroll-offset, 0px));
+    min-height: 0 !important;
+    max-height: calc(100vh - var(--gmt-scroll-offset, 0px));
+    max-height: calc(100svh - var(--gmt-scroll-offset, 0px));
+    margin-block: 0 !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: auto;
+    scroll-snap-align: start;
+    scroll-margin-block-start: var(--gmt-scroll-offset, 0px);
+  }
 
-[data-public-first-snap="true"] {
-  height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
-  height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
-  max-height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
-  max-height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
-}
+  [data-public-first-snap="true"] {
+    height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
+    height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
+    max-height: calc(100vh - var(--gmt-public-first-section-offset, 0px));
+    max-height: calc(100svh - var(--gmt-public-first-section-offset, 0px));
+  }
 
-.content-carousel.is-carousel-enhanced {
-  overflow-x: hidden;
-  overflow-y: auto;
-}
+  .content-carousel.is-carousel-enhanced {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 
-.content-carousel.is-carousel-enhanced .content-carousel-track {
-  overflow-x: hidden;
-  overflow-y: visible;
+  .content-carousel.is-carousel-enhanced .content-carousel-track {
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+
+  /* The final short contact section should finish at its content, not leave a
+     viewport-sized blank panel before the footer. */
+  main > .contact-section[data-scroll-snap] {
+    height: auto;
+    min-height: 0 !important;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html[data-public-scroll-snap-ready="true"] {
+    scroll-snap-type: none;
+  }
+
   [data-scroll-snap] { scroll-behavior: auto; }
+}
+
+.public-next-section-control {
+  position: fixed;
+  z-index: 15;
+  inset-inline-start: 50%;
+  inset-block-end: max(.75rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  justify-content: center;
+  gap: .55rem;
+  max-width: calc(100vw - 1.25rem);
+  min-height: 44px;
+  padding: .65rem 1rem;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 999px;
+  color: var(--white);
+  background: var(--green);
+  box-shadow: 0 5px 20px rgba(17, 24, 39, .2);
+  font: inherit;
+  font-size: .93rem;
+  font-weight: 750;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+}
+
+[data-scroll-snap].public-next-section-current {
+  padding-block-end: calc(var(--public-next-section-original-padding, 0px) + var(--public-next-section-clearance, 0px));
+}
+
+.public-next-section-control:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+
+.public-next-section-control[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 420px) {
+  .public-next-section-control {
+    gap: .4rem;
+    min-height: 42px;
+    padding: .55rem .8rem;
+    font-size: .84rem;
+  }
 }

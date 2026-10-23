@@ -17,6 +17,7 @@ try {
 
   const publicRoot = fs.readFileSync(path.join(output, 'index.html'), 'utf8');
   const portalRoot = fs.readFileSync(path.join(output, 'portal', 'index.html'), 'utf8');
+  const offsiteClockPage = fs.readFileSync(path.join(output, 'portal', 'offsite-clock.html'), 'utf8');
 
   assert.match(publicRoot, /<title>GMT Electrical Services \| Motor, Pump, Fan &amp; Gearbox Repairs Croydon<\/title>/);
   assert.match(publicRoot, /public-site\.css/);
@@ -30,11 +31,16 @@ try {
   assert.match(flatTimesheets, /calendar-actions\.js\?v=/);
   assert.ok(fs.existsSync(path.join(output, 'public-site-mapfix-20260928.js')));
   assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));
+  assert.ok(fs.existsSync(path.join(output, 'reviews', 'index.html')));
   assert.ok(fs.existsSync(path.join(output, 'pay-periods.js')));
   assert.ok(fs.existsSync(path.join(output, 'responsive-tables.js')));
   assert.ok(fs.existsSync(path.join(output, 'responsive-tables.css')));
   assert.match(portalRoot, /responsive-tables\.js\?v=/);
   assert.match(portalRoot, /responsive-tables\.css\?v=/);
+  assert.match(portalRoot, /href="offsite-clock\.html"/);
+  assert.match(offsiteClockPage, /offsite-clock\.js\?v=/);
+  assert.ok(fs.existsSync(path.join(output, 'portal', 'offsite-clock.js')));
+  assert.ok(fs.existsSync(path.join(output, 'portal', 'offsite-clock.css')));
   assert.ok(fs.existsSync(path.join(output, 'timesheet-clock-transport.js')));
   assert.ok(fs.existsSync(path.join(output, 'timesheet-row-policy.js')));
   assert.ok(!fs.existsSync(path.join(output, 'calendar', 'index.html')));

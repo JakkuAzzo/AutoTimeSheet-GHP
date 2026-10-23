@@ -19,10 +19,57 @@ const mime = {
   '.svg': 'image/svg+xml'
 };
 
-const server = createServer((req, res) => {
+let uploadSequence = 0;
+let protectedUploadCount = 0;
+const uploadSessions = new Map();
+const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   const rawPath = url.pathname.endsWith('/') ? `${url.pathname}index.html` : url.pathname;
   const filePath = normalize(join(repoRoot, rawPath));
+
+  const replyJson = (body, status = 200) => {
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(body));
+  };
+  const readJson = async () => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    return chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+  };
+  const readBytes = async () => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    return Buffer.concat(chunks);
+  };
+
+  if (url.pathname === '/api/history' && req.method === 'GET') { replyJson({ records: [], meta: {} }); return; }
+  if (url.pathname === '/api/job-cards/archive/access' && req.method === 'GET') { replyJson({ canImport: false }); return; }
+  if (url.pathname === '/api/job-cards/archive/search' && req.method === 'GET') { replyJson({ records: [], nextCursor: null }); return; }
+  if (url.pathname.startsWith('/api/records/') && url.pathname.endsWith('/invoices') && req.method === 'GET') { replyJson({ invoices: [], links: [] }); return; }
+  if (url.pathname === '/api/records' && req.method === 'POST') {
+    const record = await readJson();
+    replyJson({ ok: true, record_id: record.recordId, created: true }, 201);
+    return;
+  }
+  if (url.pathname.startsWith('/api/records/') && req.method === 'PATCH') { replyJson({ ok: true }); return; }
+  if (/^\/api\/records\/[^/]+\/attachments$/.test(url.pathname) && req.method === 'POST') {
+    const metadata = await readJson();
+    if (!/^[a-f0-9]{64}$/.test(metadata.sha256 || '') || !/^[A-Za-z0-9+/]{27}=$/.test(metadata.quickXorHash || '')) { replyJson({ error: 'invalid hash metadata' }, 400); return; }
+    const attachmentId = `email-routing-${++uploadSequence}`;
+    uploadSessions.set(attachmentId, metadata);
+    replyJson({ attachmentId, expirationDateTime: new Date(Date.now() + 30 * 60_000).toISOString() }, 201);
+    return;
+  }
+  const attachmentUpload = url.pathname.match(/^\/api\/records\/[^/]+\/attachments\/([^/]+)\/content$/);
+  if (attachmentUpload && req.method === 'PUT') {
+    const attachmentId = decodeURIComponent(attachmentUpload[1]);
+    const metadata = uploadSessions.get(attachmentId);
+    const bytes = await readBytes();
+    if (!metadata || bytes.length !== metadata.sizeBytes) { replyJson({ error: 'invalid attachment body' }, 413); return; }
+    protectedUploadCount += 1;
+    replyJson({ ok: true, attachment: { attachment_id: attachmentId } });
+    return;
+  }
 
   if (!filePath.startsWith(repoRoot) || !existsSync(filePath) || !statSync(filePath).isFile()) {
     res.writeHead(404);
@@ -34,7 +81,8 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/javascript' });
     const config = readFileSync(filePath, 'utf8')
       .replace(/(entraSpaAuth:\s*\{\s*enabled:\s*)true/, '$1false')
-      .replace(/(portalApiEndpoint:\s*)["'][^"']*["']/, '$1""')
+      .replace(/(portalApiEndpoint:\s*)["'][^"']*["']/, `$1"http://127.0.0.1:${server.address().port}"`)
+      .replace(/portalApiScopes:\s*\[[^\]]*\]/, 'portalApiScopes: []')
       .replace(/(portalHistoryEndpoint:\s*)["'][^"']*["']/, '$1""');
     res.end(config);
     return;
@@ -59,6 +107,11 @@ try {
   });
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  let directProviderUploadCount = 0;
+  await page.route('https://upload.example.test/**', async (route) => {
+    directProviderUploadCount += 1;
+    await route.abort();
+  });
   await page.addInitScript(() => {
     localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Profile Engineer' }));
   });
@@ -169,6 +222,9 @@ try {
   assert.equal(imageJobForm.cc, 'gmtelectricalservices+jobcards@outlook.com');
   assert.deepEqual(noImageForm.files, []);
   assert.deepEqual(imageJobForm.files, [{ name: 'attachment', files: ['completion-photo.png'] }]);
+  assert.equal(uploadSequence, 1, 'the image also receives a protected SharePoint upload session');
+  assert.equal(protectedUploadCount, 1, 'the image bytes are uploaded through the protected Worker route');
+  assert.equal(directProviderUploadCount, 0, 'the browser does not receive or use a SharePoint upload URL');
   assert.equal(result.some((form) => form.action.includes('jobcard-images') || form.cc.includes('jobcard-images')), false, 'jobcard-images routing must not be used');
 
   const imageFields = new Map(imageJobForm.fields);
