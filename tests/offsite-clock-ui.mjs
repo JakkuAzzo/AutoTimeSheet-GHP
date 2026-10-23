@@ -38,6 +38,18 @@ window.GMTPortalApi = {
   offsiteClockMine: async () => ({ entries: window.__offsiteState.entries }),
   offsiteClockPending: async () => ({ entries: window.__offsiteState.pending.filter((entry) => entry.status === 'awaiting_approval') }),
   offsiteClockIn: async (body) => {
+    const requestProfile = JSON.parse(localStorage.getItem('gmt.portal.profile.v1') || '{}');
+    window.__offsiteState.requests = window.__offsiteState.requests || [];
+    window.__offsiteState.requests.push({ requestId: body.requestId, subject: requestProfile.subject || '' });
+    if (window.__offsiteState.loseResponseOnce) {
+      window.__offsiteState.loseResponseOnce = false;
+      window.__offsiteState.lostRequestId = body.requestId;
+      window.__offsiteState.lostOwner = requestProfile.subject || '';
+      throw new Error('TEST response lost after server acceptance');
+    }
+    if (body.requestId === window.__offsiteState.lostRequestId && requestProfile.subject !== window.__offsiteState.lostOwner) {
+      throw new Error('Duplicate request ID belongs to another signed-in account');
+    }
     const entry = { entryId: 'TEST-offsite-entry-001', ownerName: 'TEST Engineer', site: body.site, status: 'clocked_in', clockInAt: '2026-10-23T08:00:00.000Z' };
     window.__offsiteState.entries.unshift(entry);
     return { entry };
@@ -105,6 +117,25 @@ try {
       await managerPage.waitForFunction(() => /Approved/.test(document.querySelector('[data-offsite-manager-status]')?.textContent || ''));
       assert.equal(await managerPage.locator('[data-offsite-pending-entry]').count(), 1, `${browserName} removes the approved entry from the queue`);
       assert.equal(await managerPage.evaluate(() => window.__offsiteState.pending[0].status), 'approved');
+
+      const retryPage = await browser.newPage(pageOptions);
+      await retryPage.addInitScript(() => {
+        window.__offsiteState = { role: 'engineer', entries: [], pending: [], loseResponseOnce: true };
+        localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ subject: 'TEST-account-A', username: 'engineer-a@example.test' }));
+      });
+      await retryPage.route('**/portal-api.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: apiShim }));
+      await retryPage.goto(`http://127.0.0.1:${port}/portal/offsite-clock.html`, { waitUntil: 'load' });
+      await retryPage.locator('[name="offsite_site"]').fill('TEST account A site');
+      await retryPage.locator('[data-offsite-clock-in]').click();
+      await retryPage.waitForFunction(() => /response lost after server acceptance/.test(document.querySelector('[data-offsite-status]')?.textContent || ''));
+      await retryPage.evaluate(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ subject: 'TEST-account-B', username: 'engineer-b@example.test' })));
+      await retryPage.locator('[data-offsite-clock-in]').click();
+      await retryPage.waitForFunction(() => /Clocked in at|Duplicate request ID belongs/.test(document.querySelector('[data-offsite-status]')?.textContent || ''));
+      const retryRequests = await retryPage.evaluate(() => window.__offsiteState.requests);
+      assert.equal(retryRequests.length, 2, `${browserName} retries the uncertain request after an account switch`);
+      assert.notEqual(retryRequests[0].requestId, retryRequests[1].requestId, `${browserName} scopes idempotency keys to the signed-in account`);
+      assert.match(await retryPage.locator('[data-offsite-status]').textContent(), /Clocked in at/, `${browserName} completes after the account-scoped retry`);
+      await retryPage.close();
       console.log(JSON.stringify({ browser: browserName, viewport, engineerClockFlow: 'clocked_in -> awaiting_approval', managerDecision: 'approved' }));
       await managerPage.close();
       await engineerPage.close();

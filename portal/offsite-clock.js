@@ -23,7 +23,7 @@
   }
 
   function requestId(key) {
-    var storageKey = storagePrefix + key;
+    var storageKey = requestStorageKey(key);
     try {
       var existing = localStorage.getItem(storageKey);
       if (existing) return existing;
@@ -36,7 +36,16 @@
   }
 
   function clearRequestId(key) {
-    try { localStorage.removeItem(storagePrefix + key); } catch (_) {}
+    try { localStorage.removeItem(requestStorageKey(key)); } catch (_) {}
+  }
+
+  function requestStorageKey(key) {
+    var account = "signed-in-account";
+    try {
+      var profile = JSON.parse(localStorage.getItem("gmt.portal.profile.v1") || "{}");
+      account = String(profile.subject || profile.username || account).trim().toLowerCase() || account;
+    } catch (_) {}
+    return storagePrefix + encodeURIComponent(account) + "." + key;
   }
 
   function prettyTime(value) {
