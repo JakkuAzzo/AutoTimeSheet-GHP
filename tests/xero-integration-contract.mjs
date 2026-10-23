@@ -19,7 +19,7 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const [worker, migration, refreshLockMigration, page, portal, api, readme, invoicesPage, invoicesUi, invoiceMigration, auth, estimatesUi] = await Promise.all([
   readFile(resolve(root, 'cloudflare-worker/src/index.js'), 'utf8'),
   readFile(resolve(root, 'cloudflare-worker/migrations/0002_xero.sql'), 'utf8'),
-  readFile(resolve(root, 'cloudflare-worker/migrations/0015_xero_refresh_locks.sql'), 'utf8'),
+  readFile(resolve(root, 'cloudflare-worker/migrations/0017_xero_refresh_locks.sql'), 'utf8'),
   readFile(resolve(root, 'jobs/index.html'), 'utf8'),
   readFile(resolve(root, 'portal.js'), 'utf8'),
   readFile(resolve(root, 'portal-api.js'), 'utf8'),
