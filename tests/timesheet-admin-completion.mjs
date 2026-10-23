@@ -167,6 +167,10 @@ assert.equal(
   history.meta.completion.employees.filter((employee) => employee.status === 'missing').length,
   'completion counts match the live-period status summary'
 );
+assert.equal(history.meta.can_view_all_timesheets, true);
+assert.equal(history.meta.visible_scope, 'all employee timesheets and clock records');
+assert.deepEqual(history.meta.completion.employees.map((employee) => employee.employee_name).sort(), staffDirectory(env).map((employee) => employee.name).sort());
+assert.equal(history.meta.completion.counts.missing, history.meta.completion.employees.filter((employee) => employee.status === 'missing').length);
 
 console.log(JSON.stringify({
   payMonth: summary.pay_month,

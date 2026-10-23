@@ -34,6 +34,14 @@
     return date.getUTCFullYear() === parts[0] && date.getUTCMonth() === parts[1] - 1 && date.getUTCDate() === parts[2];
   }
 
+  function portalProfile() {
+    try {
+      var raw = window.localStorage && window.localStorage.getItem("gmt.portal.profile.v1");
+      var profile = raw ? JSON.parse(raw) : {};
+      return profile && typeof profile === "object" ? profile : {};
+    } catch (_) { return {}; }
+  }
+
   function currentPayMonth() {
     var parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
     var year = parts.find(function (part) { return part.type === "year"; });
@@ -336,15 +344,27 @@
       var date = String(values.get("date") || "");
       var title = String(values.get("title") || "").trim();
       if (!validDay(date) || !title) { status.textContent = "Enter a title and valid date."; return; }
-      if (!window.GMTPortalApi || typeof window.GMTPortalApi.saveRecord !== "function") { status.textContent = "Protected requests are unavailable in this session."; return; }
-      var recordId = String(form.dataset.editRecordId || "") || "calendar-" + Date.now() + "-" + Math.random().toString(16).slice(2);
-      var payload = { title: title, date: date, type: String(values.get("type") || "Holiday"), notes: String(values.get("notes") || ""), owner: "" };
+      if (!window.GMTPortalApi || typeof window.GMTPortalApi.saveRecord !== "function" || (typeof window.GMTPortalApi.enabled === "function" && !window.GMTPortalApi.enabled())) { status.textContent = "Protected requests are unavailable in this session."; return; }
+      var profile = portalProfile();
+      var requesterName = String(profile.name || "");
+      var requesterUpn = String(profile.username || profile.upn || "");
+      var recordId = String(form.dataset.editRecordId || form.dataset.requestRecordId || "") || "calendar-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      var updated = Boolean(form.dataset.editRecordId);
+      var submittedAt = updated ? String(form.dataset.originalSubmittedAt || "") : new Date().toISOString();
+      var updatedAt = updated ? new Date().toISOString() : "";
+      if (updated && !submittedAt) {
+        status.textContent = "Original request creation time is unavailable. Reload the calendar request before editing.";
+        return;
+      }
+      form.dataset.requestRecordId = recordId;
+      var payload = { title: title, date: date, type: String(values.get("type") || "Holiday"), notes: String(values.get("notes") || ""), owner: requesterName };
       button.disabled = true;
       status.textContent = "Saving request…";
       try {
-        await window.GMTPortalApi.saveRecord({ recordId: recordId, kind: "calendar", action: form.dataset.editRecordId ? "update_request" : "create_request", status: "Pending approval", recordDate: date, submittedAt: new Date().toISOString(), payload: payload });
-        var queued = queueCalendarRequestEmail(recordId, payload, Boolean(form.dataset.editRecordId));
-        status.textContent = queued ? "Request saved; Accounts email queued." : "Request saved for Accounts review.";
+        var saved = await window.GMTPortalApi.saveRecord({ recordId: recordId, kind: "calendar", action: updated ? "update_request" : "create_request", status: "Pending approval", recordDate: date, submittedAt: submittedAt, ...(updated ? { updatedAt: updatedAt } : {}), employeeName: requesterName, employeeEmail: requesterUpn, payload: payload });
+        if (saved === null) throw new Error("Protected request service is unavailable.");
+        var attempted = queueCalendarRequestEmail(recordId, payload, updated, requesterName, requesterUpn, submittedAt, updatedAt);
+        status.textContent = attempted ? "Request saved. Email submission attempted; delivery is not confirmed." : "Request saved for Accounts review. No email route is configured.";
         document.dispatchEvent(new CustomEvent("gmt:history-record-updated", { detail: { recordId: recordId } }));
         window.setTimeout(function () { if (requestDialog && requestDialog.open) requestDialog.close(); }, 1800);
       } catch (error) {
@@ -356,7 +376,7 @@
     return requestDialog;
   }
 
-  function queueCalendarRequestEmail(recordId, payload, updated) {
+  function queueCalendarRequestEmail(recordId, payload, updated, requesterName, requesterUpn, submittedAt, updatedAt) {
     var config = window.GMT_APP_CONFIG || {};
     var endpoint = config.calendarFormSubmitEndpoint || config.fallbackFormSubmitEndpoint || config.formSubmitEndpoint;
     if (!endpoint) return false;
@@ -375,13 +395,37 @@
       form.appendChild(input);
     }
     add("_subject", updated ? "GMT calendar request update" : "GMT calendar request");
+    add("_template", "box");
     add("_captcha", "false");
+    add("_url", window.location.href);
+    add("submission_type", updated ? "Calendar Update" : "Calendar Request");
     if (config.formSubmitCc) add("_cc", config.formSubmitCc);
+    var date = String(payload.date || "");
+    var match = date.match(/^(\d{4})-(\d{2})-/);
+    var action = updated ? "update_request" : "create_request";
+    add("gmt_schema_version", "1");
+    add("gmt_type", "calendar");
+    add("gmt_action", action);
     add("gmt_record_id", recordId);
+    add("gmt_status", "Pending approval");
+    add("gmt_employee", requesterName || "");
+    add("gmt_requester_upn", requesterUpn || "");
+    add("gmt_year", match ? match[1] : "");
+    add("gmt_month", match ? match[2] : "");
+    add("gmt_calendar_name", "GMT Operational Calendar");
+    add("gmt_submitted_at", submittedAt || new Date().toISOString());
+    if (updatedAt) {
+      add("gmt_updated_at", updatedAt);
+      add("updated_at", updatedAt);
+    }
+    add("event_id", recordId);
     add("event_title", payload.title);
-    add("event_date", payload.date);
+    add("event_date", date);
     add("event_type", payload.type);
     add("notes", payload.notes);
+    add("requested_by", requesterName || "");
+    add("requested_by_upn", requesterUpn || "");
+    add("submitted_at", submittedAt || new Date().toISOString());
     document.body.appendChild(frame);
     document.body.appendChild(form);
     form.submit();
@@ -394,12 +438,16 @@
     var form = target.querySelector("form");
     form.reset();
     form.dataset.editRecordId = recordId || "";
+    form.dataset.requestRecordId = recordId || "";
+    form.dataset.originalSubmittedAt = "";
     form.elements.date.value = validDay(day) ? day : "";
     form.querySelector("[data-calendar-request-status]").textContent = "";
     if (recordId && window.GMTPortalApi && typeof window.GMTPortalApi.getRecord === "function") {
       try {
         var result = await window.GMTPortalApi.getRecord(recordId);
-        var payload = result && (result.payload || result.record && result.record.payload) || {};
+        var record = result && result.record || result || {};
+        var payload = result && (result.payload || record.payload) || {};
+        form.dataset.originalSubmittedAt = String(record.submitted_at || record.submittedAt || payload.submittedAt || "");
         form.elements.title.value = payload.title || "Calendar request";
         form.elements.date.value = validDay(payload.date) ? payload.date : form.elements.date.value;
         form.elements.type.value = payload.type || "General";

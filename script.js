@@ -879,8 +879,13 @@ function buildWorkbook(calculated, totals, weighted) {
   return new File([array], `GMT Timesheet - ${employeeName.value.trim() || 'Employee'} - Pay Month ${payMonth || 'unspecified'} - Week ${startDate || 'unspecified'}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-function buildCsvFile(calculated) {
-  const rows = allRowsForExport(calculated);
+function buildCsvFile(calculated, submissionId) {
+  const rows = allRowsForExport(calculated).map((row) => ({
+    Employee: employeeName.value.trim(),
+    'Employee email': employeeEmail.value.trim(),
+    ...row,
+    'Source record ID': `${submissionId}|${row.Date}`
+  }));
   const header = Object.keys(rows[0] || {});
   const csv = [header, ...rows.map((row) => header.map((key) => row[key]))].map((row) => row.map(csvEscape).join(',')).join('\r\n');
   const { startDate, endDate } = submittedDateBounds(calculated);
@@ -1510,12 +1515,12 @@ async function submitTimesheet(event) {
   try {
     await ensureXlsxLoaded();
     const xlsxFile = buildWorkbook(calculated, totals, weighted);
-    const csvFile = buildCsvFile(calculated);
     const calendarSync = buildCalendarSync(calculated, totals);
     // Preserve the source ID when this form was opened from protected history.
     // That makes a correction update the existing record instead of creating a
     // second submission for the same employee and week.
     const submissionId = editSourceId || await buildTimesheetSubmissionId(calendarSync, calculated);
+    const csvFile = buildCsvFile(calculated, submissionId);
     const workbookKey = buildTimesheetWorkbookKey(calendarSync);
     const calendarSyncWithIds = addCalendarEventKeys(calendarSync, submissionId);
     // Send machine-readable envelopes with every submission. The intake flow

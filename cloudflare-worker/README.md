@@ -51,6 +51,13 @@ details, Outlook conversation ID/link, and an append-only message projection.
    records owner-filtered. `JOB_CARD_ADMIN_UPNS` can additionally grant job-card
    access to identities such as `info@gmt-services.co.uk`. Full administrators
    retain access to all categories.
+   `OFFSITE_DUTY_MANAGER_UPNS` grants the separate off-site shift sign-off
+   capability. It does not grant administrator, timesheet, or payroll access,
+   and full administrator status alone does not grant this capability. Keep
+   the list empty until Duty Manager accounts are explicitly assigned. Apply
+   `migrations/0013_offsite_clock.sql` before deploying code that enables
+   `/portal/offsite-clock.html`; these entries and their audit events are stored
+   separately from payroll clock and timesheet records.
 6. Store the activated timesheet FormSubmit endpoint as the Worker secret
    `FORM_SUBMIT_TIMESHEET_ENDPOINT`. The endpoint is never returned to the
    browser. The default dispatch window is Friday at 18:00 Europe/London and
@@ -106,6 +113,39 @@ invoice number, Xero reference, previous-card ID, and optional Outlook message
 link. Each submitted revision receives a new protected record ID, so an update
 can be assigned a new invoice while the earlier card remains in the chain.
 
+## Protected job-card attachments
+
+This checkout reserves migration number `0013` for separately tracked work and
+does not include that file. Migration `0014` depends only on the existing
+`records` table, not on objects from `0013`; when both migrations are present
+in a release bundle, apply them in numerical order through Wrangler. New EC/MTA
+submissions can attach up to 10 images or PDFs per revision, with a 20 MiB
+per-file limit and a 100 MiB aggregate limit. `POST /api/records/:recordId/attachments`
+atomically reserves that
+revision's count and byte quota in D1 and returns an opaque attachment ID and
+expiry. The browser sends bytes to
+`PUT /api/records/:recordId/attachments/:attachmentId/content`; the Worker
+counts and hashes the complete body, verifies its file signature against the
+declared image or PDF type, and only then contacts Graph. The Worker uses the
+existing Graph resumable upload-session protocol to send bounded chunks into
+`JobCards/Attachments/<record-id>/<attachment-id>-<filename>`. The preauthenticated
+Graph upload URL stays in Worker memory and is never stored, logged, or returned
+to the browser. D1 stores verified metadata, the private SharePoint pointer,
+reservation state, and an upload audit event, but not file bytes.
+The Worker rejects filenames containing double quotes, asterisks, colons,
+angle brackets, question marks, slashes, backslashes, or vertical bars, plus
+leading/trailing whitespace, before creating a quota reservation. The portal
+performs the same check before saving a new protected job-card record.
+
+`POST /api/records/:recordId/attachments` and its idempotent `/complete` route
+use the existing record write policy. `/complete` returns metadata only for an
+already completed or duplicate session; an active session returns 409 and can
+only complete through the byte-validating `/content` upload route.
+`GET /api/records/:recordId/attachments`
+and the authenticated `/content` download route follow the shared job-card
+history read policy. Scanned archive imports remain Accounts-managed. No
+SharePoint permission or Graph secret change is required.
+
 ## Estimate email archive data contract
 
 `estimate_index` remains the canonical estimate-number/client lookup used by
@@ -130,11 +170,11 @@ SharePoint access policy, and bounded read-only backfill have been verified.
 ## Xero connection
 
 The Worker contains a protected, Accounts-only Xero OAuth connection and
-read-only invoice-linking flow. It uses Xero's server-side authorisation-code
-flow, requests `offline_access` plus the granular
-`accounting.invoices.read` scope, discovers the connected tenant through the
-Connections endpoint, and encrypts rotating refresh tokens before storing them
-in D1. No Xero secret or token is sent to the Pages bundle.
+invoice register. It uses Xero's server-side authorisation-code flow, discovers
+the connected tenant through the Connections endpoint, and encrypts rotating
+refresh tokens before storing them in D1. `XERO_SCOPES` is the existing scope
+configuration; this integration work does not add or broaden scopes. No Xero
+secret or token is sent to the Pages bundle.
 
 Create a Xero OAuth 2.0 app with the **Auth Code** grant type and register this
 exact redirect URI:
@@ -189,10 +229,46 @@ trigger another Xero request on each visit.
 
 The Accounts “Refresh from Xero” action adds `refresh=1`, bypasses cached pages,
 and replaces each SharePoint page with the current Xero result. Ordinary visits
-read the SharePoint pages. The response's `archive.source` and `archive.stored`
-fields distinguish archive hits, live Xero reads, and a successful Xero read
-whose SharePoint write failed. Only a SharePoint 404 is treated as a cache
+read the SharePoint pages. The response's `archive.source`, `archive.stored`,
+and `archive.cached_at` fields distinguish archive hits, live Xero reads, and a
+successful Xero read whose SharePoint write failed, and carry the source page
+timestamp. `pagination.page_limit` is 1000; `pagination.has_more` stays true
+when a full page is returned, including a full page 1000, so the browser can
+label a capped walk incomplete. Only a SharePoint 404 is treated as a cache
 miss; authentication or service errors are surfaced instead of silently
-re-reading old history from Xero. The endpoint remains restricted to the
-authenticated Accounts administrator check and requires the configured
-`SHAREPOINT_GRAPH_CLIENT_SECRET`, site, and drive settings.
+re-reading old history from Xero. The browser reports the page source counts
+and oldest/newest page timestamps without applying an automatic freshness
+expiry. Its `sessionStorage` snapshot is bound to a tenant ID and replaced only
+after a complete walk; a failed or capped walk can remain visible for the
+current visit but cannot overwrite that complete snapshot. Refresh remains the
+explicit way to reread archived pages from Xero. The endpoint remains
+restricted to the authenticated Accounts administrator check and requires the
+configured `SHAREPOINT_GRAPH_CLIENT_SECRET`, site, and drive settings.
+
+`GET /api/xero/status` refreshes each distinct saved token once and verifies
+the saved tenant ID and connection ID against Xero `GET /connections`. Tenant
+rows that shared a token receive its rotation together. Migration
+`0016_xero_refresh_locks.sql` adds a short-lived D1 lock so concurrent Worker
+requests cannot consume the same rotating token at once. It follows the
+off-site attendance, Job Cards and calendar workflow migrations 0013 through
+0015. Each connection
+reports `refresh_health` (`healthy`, `reconnect_required`,
+`unavailable`, or `not_configured`), `identity_status` (`verified`, `mismatch`,
+or `unverified`), and `checked_at`; transient Xero failures remain distinct
+from a rejected refresh token. Safe error text is returned for Accounts
+diagnostics. Access and refresh tokens remain server-side. The status probe may
+rotate the stored OAuth refresh token, but it does not create, edit, send, void,
+or pay an Xero invoice.
+
+`GET /api/xero/records?q=&limit=&offset=` is the Accounts job-card and estimate
+picker. It searches record IDs, references and payload fields, archived
+candidate/confirmed metadata, source filenames, and job-card OCR text. Pages
+contain at most 100 records and include `pagination.has_more` and
+`pagination.next_offset`; search results remain protected by the Xero Accounts
+administrator check. OCR-derived values continue to be labelled as candidates
+until Accounts confirms them.
+
+These read paths do not perform Xero invoice create, edit, send, void, or payment
+actions, and do not change the configured scope list. Existing SharePoint archive
+pages are replaced only by the explicit refresh path; this flow does not delete
+archived pages or Xero source invoices.

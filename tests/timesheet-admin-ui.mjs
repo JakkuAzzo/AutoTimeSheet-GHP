@@ -52,6 +52,6 @@ elements['portal-history-employee'].value = 'matthew@gmt-services.co.uk';
 elements['portal-history-employee'].listeners.change();
 assert.equal(elements['portal-history-employee'].value, 'matthew@gmt-services.co.uk');
 
-messageListener({ origin: 'https://gmt.test', data: { type: 'gmt:history-records', records: [], meta: { is_admin: true, completion } } });
+messageListener({ origin: 'https://gmt.test', data: { type: 'gmt:history-records', records: [], meta: { is_admin: true, can_view_all_timesheets: true, completion } } });
 
 console.log('Accounts timesheet staff filter without completion table: PASS');
