@@ -38,6 +38,15 @@ const employee = tokenIdentity(baseClaims('engineer@example.test', 'synthetic-en
 assert.equal(employee.canReviewOffsite, false, 'unconfigured engineers cannot review off-site entries');
 
 const wrangler = await readFile(new URL('../cloudflare-worker/wrangler.toml', import.meta.url), 'utf8');
-assert.match(wrangler, /^OFFSITE_DUTY_MANAGER_UPNS\s*=\s*""\s*$/m, 'the PR ships with no assigned Duty Manager accounts');
+const configuredManagers = wrangler.match(/^OFFSITE_DUTY_MANAGER_UPNS\s*=\s*"([^"]*)"\s*$/m)?.[1].split(',') || [];
+assert.deepEqual(configuredManagers, [
+  'micheller.admin@gmt-services.co.uk',
+  'lidiaa.admin@gmt-services.co.uk',
+  'amanda.bb@gmtelectservsltd.onmicrosoft.com',
+  'faith.b@gmt-services.co.uk',
+  'accounts@gmt-services.co.uk',
+  'acc.gmtelect@outlook.com',
+  'acc.gmtelect@gmt-services.co.uk'
+], 'only the user-approved portal accounts are configured as Off-site Duty Managers');
 
 console.log('Off-site manager capability is isolated from administrator and timesheet-viewer access.');
