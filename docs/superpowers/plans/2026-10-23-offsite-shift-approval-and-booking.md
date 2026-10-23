@@ -97,4 +97,4 @@
 - [x] **Step 1: Verify approved `action: full_day` clock rows join the right employee/day and preserve lunch times in the existing timesheet projection.** Add a regression assertion before changing projection code, if needed.
 - [x] **Step 2: Run `node tests/offsite-clock-policy.mjs`, `node tests/offsite-clock-lifecycle.mjs`, `node tests/offsite-clock-ui.mjs`, `node tests/timesheet-clock-routing.mjs`, and `node tests/cloudflare-pages-public-root.mjs`.**
 - [x] **Step 3: Review the branch diff and confirm no live provider writes, in-office delivery changes, or unapproved source-record edits were included.**
-- [ ] **Step 4: Commit the change and prepare a PR against `main`; do not deploy until the review and production-release gate.**
+- [x] **Step 4: Commit the change and prepare a PR against `main`; do not deploy until the review and production-release gate.**
