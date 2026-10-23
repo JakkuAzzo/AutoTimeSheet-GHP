@@ -1,0 +1,37 @@
+.offsite-main { width: min(1160px, 100% - 2rem); margin-inline: auto; }
+.offsite-page-card { padding: clamp(1rem, 3vw, 2rem); }
+.offsite-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.25rem; margin-bottom: 1.25rem; }
+.offsite-heading h2 { margin: .15rem 0 .45rem; }
+.offsite-heading p:last-child { max-width: 46rem; }
+.offsite-content-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+.offsite-panel { min-width: 0; padding: 1.1rem; background: #fbfcfa; border: 1px solid var(--line); border-radius: 1rem; }
+.offsite-panel h3 { margin: 0 0 .8rem; color: var(--green); }
+.offsite-panel label { display: block; margin: .55rem 0; font-weight: 700; }
+.offsite-panel input, .offsite-panel textarea { display: block; width: 100%; min-width: 0; margin-top: .35rem; }
+.offsite-clock-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: .8rem; }
+.offsite-clock-actions button { min-width: 0; margin: 0; }
+.offsite-status { min-height: 1.4rem; margin: .7rem 0; overflow-wrap: anywhere; }
+.offsite-history-heading { margin-top: 1.25rem !important; }
+.offsite-entry-list { display: grid; gap: .7rem; min-width: 0; }
+.offsite-entry { min-width: 0; padding: .85rem; background: #fff; border: 1px solid var(--line); border-radius: .8rem; overflow-wrap: anywhere; }
+.offsite-entry h4 { margin: 0 0 .35rem; color: var(--ink); }
+.offsite-entry p { margin: .25rem 0; }
+.offsite-entry .offsite-entry-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .65rem; }
+.offsite-entry-actions button { width: auto; min-height: 42px; margin: 0; }
+.offsite-entry .offsite-reject-note { margin-top: .55rem; }
+.offsite-entry .offsite-decision-note { min-height: 4rem; }
+.offsite-manager-panel[hidden], [data-offsite-clock-out][hidden] { display: none; }
+
+@media (max-width: 760px) {
+  .offsite-main { width: min(100% - 1rem, 600px); }
+  .offsite-heading { display: block; }
+  .offsite-heading .portal-secure-chip { display: inline-flex; margin-top: .4rem; }
+  .offsite-content-grid { grid-template-columns: minmax(0, 1fr); }
+  .offsite-panel { padding: .85rem; }
+}
+
+@media (max-width: 430px) {
+  .offsite-clock-actions { grid-template-columns: minmax(0, 1fr); }
+  .offsite-clock-actions button, .offsite-entry-actions button { width: 100%; }
+  .offsite-entry .offsite-entry-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+}

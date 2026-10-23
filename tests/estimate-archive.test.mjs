@@ -11,6 +11,8 @@ const db = new DatabaseSync(':memory:');
 db.exec(await readFile(new URL('../cloudflare-worker/migrations/0007_estimate_index.sql', import.meta.url), 'utf8'));
 db.exec(await readFile(new URL('../cloudflare-worker/migrations/0008_estimate_mail_sources.sql', import.meta.url), 'utf8'));
 db.exec(migration);
+db.exec(await readFile(new URL('../cloudflare-worker/migrations/0011_portal_access_assignments.sql', import.meta.url), 'utf8'));
+db.exec(await readFile(new URL('../cloudflare-worker/migrations/0012_pay_month_start_settings.sql', import.meta.url), 'utf8'));
 db.exec(`CREATE TABLE records (
   record_id TEXT PRIMARY KEY, owner_oid TEXT NOT NULL DEFAULT '', owner_upn TEXT NOT NULL DEFAULT '',
   employee_name TEXT NOT NULL DEFAULT '', kind TEXT, action TEXT NOT NULL DEFAULT '', status TEXT,
@@ -182,8 +184,13 @@ const archiveListUrl = 'https://gmt-portal-api.example.workers.dev/api/archive/e
 assert.equal((await worker.fetch(new Request(archiveListUrl), routeEnv, {})).status, 401,
   'shared archive is denied without a signed-in tenant identity');
 const staffToken = await signedToken();
-const listed = await worker.fetch(new Request(archiveListUrl, { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
-assert.equal(listed.status, 200, 'ordinary authenticated GMT employees can search the shared archive');
+const adminUpn = 'accounts@gmt-services.co.uk';
+const adminToken = await signedToken({ oid: 'accounts-admin-oid', preferred_username: adminUpn, name: 'GMT Accounts Test Administrator' });
+const archiveEnv = { ...routeEnv, ADDITIONAL_ADMIN_UPNS: adminUpn };
+const deniedStaffArchive = await worker.fetch(new Request(archiveListUrl, { headers: { authorization: `Bearer ${staffToken}` } }), archiveEnv, {});
+assert.equal(deniedStaffArchive.status, 403, 'full estimate archive access remains limited to the configured administrator role');
+const listed = await worker.fetch(new Request(archiveListUrl, { headers: { authorization: `Bearer ${adminToken}` } }), archiveEnv, {});
+assert.equal(listed.status, 200, 'the configured administrator can search the protected archive');
 const listedBody = await listed.json();
 assert.equal(listedBody.records.length, 1);
 for (const privateField of ['source_message_id', 'internet_message_id', 'conversation_id', 'sharepoint_eml_item_id', 'sharepoint_manifest_item_id', 'provenance_json']) {
@@ -193,8 +200,8 @@ assert.ok(!JSON.stringify(listedBody).includes('provider-3'), 'provider message 
 assert.ok(!('canonical_id' in listedBody.records[0]), 'canonical provider identity never reaches the browser');
 assert.ok(!JSON.stringify(listedBody).includes('<new@example.test>'), 'Internet Message-ID values never reach the browser');
 const detailUrl = 'https://gmt-portal-api.example.workers.dev/api/archive/estimates/mail-3';
-const detailResponse = await worker.fetch(new Request(detailUrl, { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
-assert.equal(detailResponse.status, 200, 'ordinary authenticated staff can open archive message details');
+const detailResponse = await worker.fetch(new Request(detailUrl, { headers: { authorization: `Bearer ${adminToken}` } }), archiveEnv, {});
+assert.equal(detailResponse.status, 200, 'the configured administrator can open archive message details');
 const detailBody = await detailResponse.json();
 for (const privateField of ['source_message_id', 'internet_message_id', 'conversation_id', 'sharepoint_eml_item_id', 'sharepoint_manifest_item_id', 'provenance_json']) {
   assert.ok(!(privateField in detailBody.message), `shared archive detail redacts ${privateField}`);
@@ -203,19 +210,21 @@ assert.ok(!('canonical_id' in detailBody.message), 'canonical provider identity 
 assert.ok(!JSON.stringify(detailBody).includes('sp-mail-3'), 'SharePoint item IDs never reach the browser');
 assert.ok(!JSON.stringify(detailBody).includes('provider-3'), 'source provider message IDs never reach the browser');
 assert.ok(!JSON.stringify(detailBody).includes('<new@example.test>'), 'Internet Message-ID values never reach the browser');
-const threadResponse = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/archive/estimates/mail-1', { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
+const threadResponse = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/archive/estimates/mail-1', { headers: { authorization: `Bearer ${adminToken}` } }), archiveEnv, {});
 const threadBody = await threadResponse.json();
 assert.deepEqual(threadBody.conversation.map((item) => item.id), ['mail-1', 'mail-2'], 'conversation messages are ordered and paged through internal archive identifiers');
 assert.equal(threadBody.conversation[0].attachments[0].file_name, 'estimate.pdf', 'conversation detail includes attachment metadata for every archived message');
 assert.equal(threadBody.associations.find((item) => item.target_kind === 'job-card').target_id, 'job-42', 'staff can follow an exact linked job card');
 assert.ok(!('target_id' in threadBody.associations.find((item) => item.target_kind === 'invoice')), 'Xero invoice provider IDs remain private');
 const wrongTenantToken = await signedToken({ tid: 'wrong-tenant' });
-assert.equal((await worker.fetch(new Request(archiveListUrl, { headers: { authorization: `Bearer ${wrongTenantToken}` } }), routeEnv, {})).status, 401,
+assert.equal((await worker.fetch(new Request(archiveListUrl, { headers: { authorization: `Bearer ${wrongTenantToken}` } }), archiveEnv, {})).status, 401,
   'signed-in identities from another tenant cannot query the archive');
 const contentUrl = 'https://gmt-portal-api.example.workers.dev/api/archive/estimates/mail-1/content/eml';
 assert.equal((await worker.fetch(new Request(contentUrl), routeEnv, {})).status, 401,
   'SharePoint content cannot be proxied without portal authentication');
-assert.equal((await worker.fetch(new Request(contentUrl, { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {})).status, 503,
+assert.equal((await worker.fetch(new Request(contentUrl, { headers: { authorization: `Bearer ${staffToken}` } }), archiveEnv, {})).status, 403,
+  'non-admin users remain blocked from full archive content');
+assert.equal((await worker.fetch(new Request(contentUrl, { headers: { authorization: `Bearer ${adminToken}` } }), archiveEnv, {})).status, 503,
   'authenticated content retrieval fails closed until SharePoint service credentials are configured');
 const ingestUrl = 'https://gmt-portal-api.example.workers.dev/api/archive/sync/estimates';
 assert.equal((await worker.fetch(new Request(ingestUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }), routeEnv, {})).status, 503,
@@ -248,7 +257,7 @@ const duplicateMailboxIngest = await worker.fetch(new Request(ingestUrl, {
 assert.equal(duplicateMailboxIngest.status, 200);
 const duplicateMailboxBody = await duplicateMailboxIngest.json();
 assert.equal(duplicateMailboxBody.archive.id, collisionBody.archive.id, 'duplicate copies share one canonical archive message');
-const duplicateDetailResponse = await worker.fetch(new Request(`https://gmt-portal-api.example.workers.dev/api/archive/estimates/${collisionBody.archive.id}`, { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
+const duplicateDetailResponse = await worker.fetch(new Request(`https://gmt-portal-api.example.workers.dev/api/archive/estimates/${collisionBody.archive.id}`, { headers: { authorization: `Bearer ${adminToken}` } }), archiveEnv, {});
 const duplicateDetailBody = await duplicateDetailResponse.json();
 assert.deepEqual(duplicateDetailBody.sourceCopies.map((item) => item.mailbox).sort(), ['accounts@gmt-services.co.uk', 'info@gmt-services.co.uk'],
   'both mailbox occurrences remain visible as safe source-copy labels');
@@ -285,11 +294,15 @@ assert.deepEqual(emailEstimateAssociation && { ...emailEstimateAssociation, evid
   relationship: 'represents-estimate', confidence: 1, state: 'confirmed', provenance_kind: 'app-link',
   evidence_json: { field: 'portal_record.archiveMessageId', record_id: portalRecord.record_id }
 }, 'an estimate email explicitly upserted as a portal record gets a confirmed, provenance-backed archive link');
-const historyWithImportedEstimate = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/history?kind=estimates', { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
-assert.equal(historyWithImportedEstimate.status, 200);
+const historyWithImportedEstimate = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/history?kind=estimates', { headers: { authorization: `Bearer ${adminToken}` } }), archiveEnv, {});
+assert.equal(historyWithImportedEstimate.status, 200, await historyWithImportedEstimate.clone().text());
 const historyWithImportedEstimateBody = await historyWithImportedEstimate.json();
 assert.ok(historyWithImportedEstimateBody.records.some((record) => record.source_record_id === portalRecord.record_id && record.estimate_number === 'EST-PORTAL-1'),
-  'authenticated employees see confirmed imported estimate emails in the shared submitted-document history');
+  'an administrator can reconcile confirmed imported estimate emails into protected history');
+const employeeEstimateHistory = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/history?kind=estimates', { headers: { authorization: `Bearer ${staffToken}` } }), archiveEnv, {});
+assert.equal(employeeEstimateHistory.status, 200);
+assert.ok(!(await employeeEstimateHistory.json()).records.some((record) => record.source_record_id === portalRecord.record_id),
+  'integration finding: non-admin history remains owner-scoped for imported estimates under current Worker policy');
 const calendarContext = { window: {} };
 vm.runInNewContext(await readFile(new URL('../portal/calendar-data.js', import.meta.url), 'utf8'), calendarContext);
 const calendarEvents = calendarContext.window.GMTCalendarData.recordsToEvents(historyWithImportedEstimateBody.records, {});
@@ -328,7 +341,7 @@ assert.equal(secondJobMessage.associations.find((item) => item.target_kind === '
   'a unique exact job reference automatically creates a confirmed job-card association');
 assert.ok(secondJobMessage.associations.some((item) => item.target_kind === 'invoice' && item.target_reference === 'INV-009'),
   'an exact invoice number already linked to a job card creates a related invoice association');
-const combinedJobDetail = await worker.fetch(new Request(`https://gmt-portal-api.example.workers.dev/api/archive/estimates/${linkedBody.archive.id}`, { headers: { authorization: `Bearer ${staffToken}` } }), routeEnv, {});
+const combinedJobDetail = await worker.fetch(new Request(`https://gmt-portal-api.example.workers.dev/api/archive/estimates/${linkedBody.archive.id}`, { headers: { authorization: `Bearer ${adminToken}` } }), archiveEnv, {});
 const combinedJobBody = await combinedJobDetail.json();
 assert.ok(combinedJobBody.conversation.some((item) => item.id === secondJobMessage.archive.id),
   'opening an email associated with a job also surfaces a separate conversation linked to the same job');
@@ -358,15 +371,29 @@ globalThis.fetch = async (url, init = {}) => {
   }
   return new Response('', { status: 404 });
 };
-const appEnv = { ...routeEnv, SHAREPOINT_GRAPH_CLIENT_ID: 'test-client', SHAREPOINT_GRAPH_CLIENT_SECRET: 'test-secret', SHAREPOINT_SITE_ID: 'test-site', SHAREPOINT_DRIVE_ID: 'test-drive' };
+const appEnv = { ...archiveEnv, SHAREPOINT_GRAPH_CLIENT_ID: 'test-client', SHAREPOINT_GRAPH_CLIENT_SECRET: 'test-secret', SHAREPOINT_SITE_ID: 'test-site', SHAREPOINT_DRIVE_ID: 'test-drive' };
 const appUrl = 'https://gmt-portal-api.example.workers.dev/api/archive/estimates/app';
-const appBody = { fileName: 'estimate.doc', contentType: 'application/msword', contentBase64: Buffer.from('estimate bytes').toString('base64'), source_record_id: 'protected-estimate-record-1', estimate_number: 'EST-APP-1', customer: 'Acme Ltd', reference: 'JOB-101', invoice_number: 'INV-009' };
-insertTestRecord.run('protected-estimate-record-1', 'estimates', 'Sent to client', '2026-01-02', '2026-01-02T00:00:00Z', JSON.stringify({ estimateNumber: 'EST-APP-1', reference: 'JOB-101' }), '2026-01-02T00:00:00Z');
-const firstAppResponse = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify(appBody) }), appEnv, {});
+const appBody = { fileName: 'TEST-ESTIMATE-20261016-001.doc', contentType: 'application/msword', contentBase64: Buffer.from('GMT synthetic internal estimate bytes').toString('base64'), source_record_id: 'protected-estimate-record-1', estimate_number: 'TEST-ESTIMATE-20261016-001', customer: 'GMT Internal Test Only', customer_email: adminUpn, reference: 'JOB-101', invoice_number: 'INV-009' };
+insertTestRecord.run('protected-estimate-record-1', 'estimates', 'Sent to client', '2026-01-02', '2026-01-02T00:00:00Z', JSON.stringify({ estimateNumber: 'TEST-ESTIMATE-20261016-001', reference: 'JOB-101' }), '2026-01-02T00:00:00Z');
+db.prepare('UPDATE records SET owner_oid=?, owner_upn=? WHERE record_id=?').run('accounts-admin-oid', adminUpn, 'protected-estimate-record-1');
+insertTestRecord.run('foreign-estimate-record', 'estimates', 'Draft', '2026-01-03', '2026-01-03T00:00:00Z', '{}', '2026-01-03T00:00:00Z');
+const deniedStaffApp = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify(appBody) }), appEnv, {});
+assert.equal(deniedStaffApp.status, 403, 'non-admin estimate archive writes remain inside the current protected role policy');
+const missingSourceRecord = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, source_record_id: 'missing-estimate-record' }) }), appEnv, {});
+assert.equal(missingSourceRecord.status, 404, 'an app archive cannot be associated with a missing protected estimate');
+assert.equal(appUploads, 0, 'missing protected records are rejected before SharePoint upload');
+const foreignSourceRecord = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, source_record_id: 'foreign-estimate-record' }) }), appEnv, {});
+assert.equal(foreignSourceRecord.status, 404, 'an app archive cannot be associated with another owner’s estimate');
+assert.equal(appUploads, 0, 'foreign protected records are rejected before SharePoint upload');
+const firstAppResponse = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify(appBody) }), appEnv, {});
 assert.equal(firstAppResponse.status, 201, 'first app archive request stores the document');
 assert.match(appUploadPaths[0], /\/root:\/Estimates\/Sent%20from%20Portal\//,
   'estimates sent from the builder are stored in their dedicated SharePoint folder');
 const firstApp = await firstAppResponse.json();
+const appAttachment = db.prepare('SELECT message_id, file_name, sharepoint_item_id FROM archive_attachments WHERE id=?').get(firstApp.attachment_id);
+assert.equal(appAttachment.message_id, firstApp.id, 'the estimate document attachment is associated with its archive message');
+assert.equal(appAttachment.file_name, appBody.fileName);
+assert.equal(appAttachment.sharepoint_item_id, 'sp-app-1');
 assert.ok(firstApp.associations.some((item) => item.target_kind === 'estimate' && item.target_id === 'protected-estimate-record-1'),
   'app-created estimate archive automatically links to its protected GMT estimate record');
 assert.ok(firstApp.associations.some((item) => item.target_kind === 'job-card' && item.target_id === 'job-101'),
@@ -374,23 +401,23 @@ assert.ok(firstApp.associations.some((item) => item.target_kind === 'job-card' &
 assert.ok(firstApp.associations.some((item) => item.target_kind === 'invoice' && item.target_reference === 'INV-009' && !('target_id' in item)),
   'app archive returns a visible invoice reference while redacting its Xero provider ID');
 assert.ok(!JSON.stringify(firstApp).includes('provider-invoice-private'), 'app archive response never exposes Xero provider invoice IDs');
-const retryAppResponse = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify(appBody) }), appEnv, {});
+const retryAppResponse = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify(appBody) }), appEnv, {});
 assert.equal(retryAppResponse.status, 200, 'identical app archive retry returns the existing archive record');
 const retryApp = await retryAppResponse.json();
 assert.equal(retryApp.duplicate, true);
 assert.equal(retryApp.id, firstApp.id, 'app archive retry is idempotent by protected record and content hash');
 assert.equal(appUploads, 1, 'idempotent retry does not upload a second file');
-const metadataRevision = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, customer: 'ACME Limited' }) }), appEnv, {});
+const metadataRevision = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, customer: 'GMT Internal Test Only Ltd' }) }), appEnv, {});
 assert.equal(metadataRevision.status, 201, 'metadata-only corrections create a separately indexed revision');
 assert.notEqual((await metadataRevision.json()).id, firstApp.id);
 assert.equal(appUploadPaths[1], appUploadPaths[0], 'identical file bytes reuse the deterministic SharePoint path across metadata revisions');
-const conversationRevision = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, conversation_id: 'conversation-corrected' }) }), appEnv, {});
+const conversationRevision = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, conversation_id: 'conversation-corrected' }) }), appEnv, {});
 assert.equal(conversationRevision.status, 201, 'conversation metadata corrections create a separately indexed revision');
 assert.notEqual((await conversationRevision.json()).id, firstApp.id, 'conversation ID participates in the app archive metadata fingerprint');
-const changedApp = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, contentBase64: Buffer.from('revised estimate bytes').toString('base64') }) }), appEnv, {});
+const changedApp = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, contentBase64: Buffer.from('GMT synthetic revised estimate bytes').toString('base64') }) }), appEnv, {});
 assert.equal(changedApp.status, 201, 'a changed document creates a separately archived revision');
 assert.notEqual((await changedApp.json()).id, firstApp.id);
-const missingAppKey = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${staffToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, source_record_id: '' }) }), appEnv, {});
+const missingAppKey = await worker.fetch(new Request(appUrl, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...appBody, source_record_id: '' }) }), appEnv, {});
 assert.equal(missingAppKey.status, 400, 'app archive rejects requests without a stable source-record id');
 globalThis.fetch = originalFetch;
 db.close();

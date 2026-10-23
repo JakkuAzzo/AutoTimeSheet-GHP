@@ -9,6 +9,7 @@
   var monthInput = document.querySelector("[data-portal-calendar-input]");
   var previous = document.querySelector("[data-portal-calendar-prev]");
   var next = document.querySelector("[data-portal-calendar-next]");
+  var retry = document.querySelector("[data-portal-calendar-retry]");
   var viewDate = new Date();
   var events = [];
   var helper = window.GMTCalendarData || {};
@@ -94,33 +95,65 @@
   }
 
   async function load() {
-    var local = typeof helper.localEvents === "function" ? helper.localEvents() : [];
+    events = [];
+    render();
+    if (status) status.textContent = "Loading shared calendar and authorised portal records…";
+    if (retry) { retry.hidden = false; retry.disabled = true; retry.textContent = "Reload calendar"; }
+    var published = [];
+    var publishedLoaded = false;
+    var publishedFailed = false;
+    var authorised = [];
+    var employees = [];
+    var historyLoaded = false;
+    var historyFailed = false;
     try {
       var response = await fetch("../data/calendar/events.json?v=" + Date.now(), { cache: "no-store" });
-      if (response.ok) {
-        var body = await response.json();
-        local = Array.isArray(body) ? body : (Array.isArray(body.events) ? body.events : []);
-      }
-    } catch (_) {}
-    var protectedRecords = [];
-    var historyMeta = {};
-    if (window.GMTPortalApi && typeof window.GMTPortalApi.enabled === "function" && window.GMTPortalApi.enabled()) {
-      try {
-        // The dashboard requests all authorised dated records so its shared
-        // calendar matches Submitted documents. The narrower route remains
-        // available as `GMTPortalApi.history("calendar")` when only requests
-        // are needed.
-        var history = await window.GMTPortalApi.history("all");
-        protectedRecords = history && Array.isArray(history.records) ? history.records : [];
-        historyMeta = history && history.meta && typeof history.meta === "object" ? history.meta : {};
-      } catch (_) {}
+      if (!response || !response.ok) throw new Error("Calendar feed request failed");
+      var body = await response.json();
+      var feedEvents = Array.isArray(body) ? body : (body && Array.isArray(body.events) ? body.events : null);
+      if (!feedEvents) throw new Error("Calendar feed has an invalid format");
+      published = feedEvents;
+      publishedLoaded = true;
+    } catch (_) {
+      publishedFailed = true;
     }
-    var employees = historyMeta.completion && historyMeta.completion.employees || [];
-    var derived = typeof helper.recordsToEvents === "function" ? helper.recordsToEvents(protectedRecords, { employees: employees }) : [];
+
+    var api = window.GMTPortalApi;
+    if (api && typeof api.enabled === "function" && api.enabled() && typeof api.history === "function") {
+      try {
+        var history = await api.history("all");
+        authorised = history && Array.isArray(history.records) ? history.records : [];
+        employees = history && history.meta && history.meta.completion && Array.isArray(history.meta.completion.employees)
+          ? history.meta.completion.employees : [];
+        historyLoaded = true;
+      } catch (_) {
+        historyFailed = true;
+      }
+    }
+    var derived = typeof helper.recordsToEvents === "function"
+      ? helper.recordsToEvents(authorised, { employees: employees })
+      : [];
     events = typeof helper.mergeEvents === "function"
-      ? helper.mergeEvents(local.concat(derived), { employees: employees })
-      : local.concat(derived);
-    if (status) status.textContent = events.length ? "Shared calendar: " + events.length + " entr" + (events.length === 1 ? "y" : "ies") + "." : "Shared calendar connected. No events or dated submissions have been filed yet.";
+      ? helper.mergeEvents(published.concat(derived), { employees: employees })
+      : published.concat(derived);
+
+    if (status) {
+      var count = events.length;
+      var countLabel = count + " authorised calendar entr" + (count === 1 ? "y" : "ies");
+      if (publishedFailed && historyFailed) status.textContent = "Calendar sources unavailable. Published events and portal history could not be loaded.";
+      else if (publishedFailed) status.textContent = "Published calendar unavailable. Showing " + countLabel + ".";
+      else if (historyFailed) status.textContent = "Portal history unavailable. Showing " + published.length + " published event" + (published.length === 1 ? "" : "s") + ".";
+      else if (!count && publishedLoaded && historyLoaded) status.textContent = "No published events or authorised dated portal records are available yet.";
+      else if (publishedLoaded && historyLoaded) status.textContent = "Shared calendar: " + countLabel + ".";
+      else if (publishedLoaded) status.textContent = published.length
+        ? "Published shared calendar: " + published.length + " entr" + (published.length === 1 ? "y" : "ies") + "."
+        : "No published events are available on the shared calendar yet.";
+      else status.textContent = "No shared calendar source is available in this session.";
+    }
+    if (retry) {
+      retry.textContent = publishedFailed || historyFailed ? "Retry calendar load" : "Reload calendar";
+      retry.disabled = false;
+    }
     render();
   }
 
@@ -139,6 +172,7 @@
   });
   var filterGroup = document.querySelector("[data-calendar-filters]");
   if (filterGroup) filterGroup.addEventListener("change", render);
+  if (retry) retry.addEventListener("click", load);
   render();
   load();
 }());

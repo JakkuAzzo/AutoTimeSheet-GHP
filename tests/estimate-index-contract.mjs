@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import worker, { canAccessRecord, canViewRecord, listEstimateIndex, listRecords } from '../cloudflare-worker/src/index.js';
+import worker, { canAccessRecord, canViewRecord, listRecords } from '../cloudflare-worker/src/index.js';
 import { createEstimateIndexStore, canonicalEstimateInput, correlateEstimateRecords } from '../cloudflare-worker/src/estimate-index.js';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-const workerSource = await readFile(resolve(new URL('..', import.meta.url).pathname, 'cloudflare-worker/src/index.js'), 'utf8');
+import { fileURLToPath } from 'node:url';
+const workerSource = await readFile(resolve(fileURLToPath(new URL('..', import.meta.url)), 'cloudflare-worker/src/index.js'), 'utf8');
 
 const rows = [];
 const db = {
@@ -51,16 +52,53 @@ assert.match(workerSource, /estimateIndexUpsertEndpoint/);
 assert.match(workerSource, /estimateIndexListEndpoint/);
 assert.match(workerSource, /\/api\/estimates\/index/);
 const staffIdentity = { oid: 'staff-oid', upn: 'staff@gmt-services.co.uk', isAdmin: false, isOperationsAdmin: false, isJobCardAdmin: false };
-assert.equal((await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/estimates/index', { method: 'GET', headers: { authorization: 'Bearer invalid' } }), { DB: db }, {})).status, 401);
-await assert.doesNotReject(() => listEstimateIndex({ DB: db }, staffIdentity), 'authenticated staff identities can read the shared estimate index');
-assert.equal(canViewRecord(staffIdentity, { kind: 'estimates', owner_oid: 'other-oid' }), true);
+const tenant = '8b182d6b-6f34-4ca2-84ad-50ca712b5488';
+const audience = '01b5a6c6-f6c1-47cb-aebe-67f07f415e4b';
+const signing = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+const jwk = await crypto.subtle.exportKey('jwk', signing.publicKey);
+jwk.kid = 'estimate-index-contract-key';
+jwk.use = 'sig';
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (url) => String(url).includes('/discovery/v2.0/keys')
+  ? new Response(JSON.stringify({ keys: [jwk] }), { status: 200, headers: { 'content-type': 'application/json' } })
+  : new Response('', { status: 404 });
+const base64url = (value) => Buffer.from(value).toString('base64url');
+async function signedToken(claims) {
+  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: jwk.kid }));
+  const payload = base64url(JSON.stringify({
+    tid: tenant, aud: audience, iss: `https://login.microsoftonline.com/${tenant}/v2.0`,
+    exp: Math.floor(Date.now() / 1000) + 300, ...claims
+  }));
+  const signingInput = `${header}.${payload}`;
+  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signing.privateKey, new TextEncoder().encode(signingInput));
+  return `${signingInput}.${base64url(new Uint8Array(signature))}`;
+}
+const routeEnv = {
+  DB: db, ENTRA_TENANT_ID: tenant, ENTRA_AUDIENCES: audience,
+  ADDITIONAL_ADMIN_UPNS: 'accounts@gmt-services.co.uk'
+};
+const staffToken = await signedToken({ oid: staffIdentity.oid, preferred_username: staffIdentity.upn, name: 'GMT Staff Test' });
+const staffIndexResponse = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/estimates/index', {
+  headers: { authorization: `Bearer ${staffToken}` }
+}), routeEnv, {});
+assert.equal(staffIndexResponse.status, 403, 'a signed non-admin cannot read the administrator-only estimate index');
+const adminToken = await signedToken({ oid: 'accounts-admin-oid', preferred_username: 'accounts@gmt-services.co.uk', name: 'GMT Accounts Test Administrator' });
+const adminIndexResponse = await worker.fetch(new Request('https://gmt-portal-api.example.workers.dev/api/estimates/index', {
+  headers: { authorization: `Bearer ${adminToken}` }
+}), routeEnv, {});
+assert.equal(adminIndexResponse.status, 200, 'the configured administrator can read the estimate index route');
+assert.deepEqual((await adminIndexResponse.json()).estimates, []);
+assert.equal(canViewRecord(staffIdentity, { kind: 'estimates', owner_oid: 'other-oid', owner_upn: 'other@gmt-services.co.uk' }), false,
+  'ordinary employee history remains owner-scoped for estimates');
 assert.equal(canViewRecord(staffIdentity, { kind: 'job-cards', owner_oid: 'other-oid' }), true);
 assert.equal(canViewRecord(staffIdentity, { kind: 'timesheets', owner_oid: 'other-oid' }), false);
 assert.equal(canAccessRecord(staffIdentity, { kind: 'job-cards', owner_oid: 'other-oid' }), false, 'shared read access does not grant edit access');
 let listingSql = '';
 const listDb = { prepare(sql) { listingSql = sql; return { bind() { return { async all() { return { results: [] }; } }; } }; } };
 await listRecords(new Request('https://gmt-portal-api.example.workers.dev/api/records'), { DB: listDb }, staffIdentity);
-assert.match(listingSql, /r\.kind IN \('estimates', 'job-cards', 'conversations', 'email-conversations'\)/, 'staff history includes shared business records alongside owned records');
+assert.match(listingSql, /r\.kind IN \('job-cards'\)/, 'ordinary employee history shares job cards while estimate records remain owner-scoped');
+assert.match(workerSource, /url\.pathname === '\/api\/estimates\/index'.*requireEstimateArchiveAccess\(identity\)/,
+  'estimate-index reads and writes use the existing administrator-only archive gate');
 const ambiguous = correlateEstimateRecords([
   { canonical_id: 'a', client: 'Artic Building Services Ltd' },
   { canonical_id: 'b', client: 'Artic Building Services Ltd' }
@@ -116,4 +154,5 @@ for (const mailbox of ['info@gmt-services.co.uk', 'accounts@gmt-services.co.uk']
 }
 const excludedPersonalMailbox = await worker.fetch(new Request(archiveUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'X-GMT-Archive-Key': archiveEnv.ESTIMATE_MAIL_INGEST_KEY }, body: JSON.stringify({ ...archivePayload, mailbox: 'acc.gmtelect@outlook.com' }) }), archiveEnv, {});
 assert.equal(excludedPersonalMailbox.status, 403, 'the archive ingest endpoint excludes the inaccessible Outlook.com mailbox');
+globalThis.fetch = originalFetch;
 console.log('Estimate index contract: PASS');

@@ -45,8 +45,16 @@ try {
   browser = await chromium.launch({ headless: true, ...(existsSync(chromePath) ? { executablePath: chromePath } : {}) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.addInitScript(() => localStorage.setItem('gmt.portal.profile.v1', JSON.stringify({ name: 'Unlicensed Engineer', username: 'unlicensed.engineer@gmt-services.co.uk' })));
+  await page.addInitScript(() => localStorage.setItem('gmt_portal_tasks_v1', JSON.stringify([{ id: 'other-user-task', title: 'Other account private task', status: 'Approved' }])));
   await page.addInitScript(() => {
     window.__submittedForms = [];
+    window.__savedRecords = [];
+    window.__updatedRecords = [];
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__savedRecords.push(record); },
+      updateRecord: async (recordId, record) => { window.__updatedRecords.push({ recordId, ...record }); }
+    };
     HTMLFormElement.prototype.submit = function submitStub() {
       window.__submittedForms.push({
         action: this.action,
@@ -57,6 +65,15 @@ try {
   });
 
   await page.goto(`http://127.0.0.1:${port}/tasks/`, { waitUntil: 'load' });
+  assert.equal(await page.locator('#task-board').innerText().then((text) => text.includes('Other account private task')), false, 'browser-local task requests are not merged into the signed-in account view');
+  assert.match(await page.locator('#task-board').innerText(), /Protected task history is unavailable/i, 'the task board distinguishes unavailable protected history from an empty list');
+  await page.evaluate(() => {
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__savedRecords.push(record); },
+      updateRecord: async (recordId, record) => { window.__updatedRecords.push({ recordId, ...record }); }
+    };
+  });
   assert.equal(await page.locator('#task-assignee').inputValue(), 'Unlicensed Engineer');
   await page.locator('#task-title').fill('Inspect workshop pump');
   await page.locator('#task-job-ref').fill('GMT-TASK-001');
@@ -73,10 +90,55 @@ try {
   assert.equal(task.fields.gmt_year, '2026');
   assert.equal(task.fields.gmt_month, '07');
   assert.ok(task.fields.gmt_record_id);
-  assert.equal(await page.locator('#task-board').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true);
+  assert.equal(task.fields.gmt_submitted_at, task.fields.submitted_at);
+  assert.equal(task.fields.task_id, task.fields.gmt_record_id, 'D1 and FormSubmit task requests use the same stable record ID');
+  assert.equal(await page.evaluate(() => window.__savedRecords[0].recordId), task.fields.gmt_record_id);
+  assert.equal(await page.evaluate(() => window.__savedRecords[0].submittedAt), task.fields.gmt_submitted_at);
+  assert.equal(await page.evaluate(() => window.__updatedRecords.length), 0, 'request submission does not rewrite D1 status based on a hidden form submit');
   assert.equal(await page.locator('[data-task-move], [data-task-delete]').count(), 0, 'the static portal must not expose local task status controls');
+  assert.equal(await page.locator('[data-task-status]').count(), 0, 'the task board must not offer browser-side status transitions');
 
   await page.goto(`http://127.0.0.1:${port}/calendar/`, { waitUntil: 'load' });
+  await page.evaluate(() => {
+    window.__calendarHistoryRecord = {
+      source_record_id: 'calendar-legacy-001', event_title: 'Legacy calendar request', event_date: '2026-09-03',
+      event_type: 'General', owner: 'Unlicensed Engineer', notes: '', status: 'Saved',
+      employee_name: 'Unlicensed Engineer', submitted_at: '2026-09-01T08:00:00.000Z'
+    };
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__savedRecords.push(record); },
+      updateRecord: async (recordId, record) => {
+        window.__updatedRecords.push({ recordId, ...record });
+        if (recordId === window.__calendarHistoryRecord.source_record_id) {
+          window.__calendarHistoryRecord.status = record.status;
+          window.__calendarHistoryRecord.updated_at = record.updatedAt;
+        }
+      },
+      history: async (kind) => kind === 'calendar' ? ({ records: [window.__calendarHistoryRecord] }) : ({ records: [] })
+    };
+    document.dispatchEvent(new Event('gmtportalidentity'));
+  });
+  await page.waitForFunction(() => document.querySelectorAll('#calendar-list .calendar-date-group').length === 1
+    && document.querySelector('[data-calendar-delete="calendar-legacy-001"]'));
+  assert.equal(await page.locator('#calendar-list .calendar-date-group').count(), 1, 'protected calendar request history loads from the Worker');
+  assert.equal(await page.locator('#calendar-list').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true, 'legacy Saved requests are shown as pending approval');
+  await page.locator('[data-calendar-edit="calendar-legacy-001"]').click();
+  await page.locator('#calendar-title').fill('Legacy calendar request revised');
+  const legacyEdit = await submittedForm(page, '#calendar-form button[type="submit"]');
+  assert.equal(legacyEdit.fields.gmt_action, 'update_request');
+  assert.equal(legacyEdit.fields.gmt_record_id, 'calendar-legacy-001');
+  assert.equal(legacyEdit.fields.gmt_submitted_at, '2026-09-01T08:00:00.000Z', 'calendar edits preserve the original request submission timestamp');
+  assert.match(legacyEdit.fields.gmt_updated_at || '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'calendar edit carries a concrete update timestamp');
+  assert.equal(legacyEdit.fields.gmt_updated_at, legacyEdit.fields.updated_at, 'calendar edit envelope includes its protected record update timestamp');
+  assert.equal(await page.evaluate(() => window.__savedRecords.at(-1).updatedAt), legacyEdit.fields.gmt_updated_at, 'protected history and FormSubmit use the same calendar edit timestamp');
+  await page.locator('[data-calendar-delete="calendar-legacy-001"]').click();
+  await page.waitForFunction(() => window.__submittedForms.some((form) => form.fields.gmt_record_id === 'calendar-legacy-001' && form.fields.gmt_status === 'Cancelled'));
+  const legacyCancellation = await page.evaluate(() => window.__submittedForms.find((form) => form.fields.gmt_record_id === 'calendar-legacy-001' && form.fields.gmt_status === 'Cancelled'));
+  assert.equal(legacyCancellation.fields.gmt_submitted_at, '2026-09-01T08:00:00.000Z', 'protected history supplies the original submission timestamp for a legacy request');
+  assert.equal(legacyCancellation.fields.gmt_updated_at, legacyCancellation.fields.updated_at);
+  assert.equal(await page.evaluate(() => window.__updatedRecords.at(-1).updatedAt), legacyCancellation.fields.gmt_updated_at);
+  const updatesBeforeNewCalendarRequest = await page.evaluate(() => window.__updatedRecords.length);
   assert.equal(await page.locator('#calendar-owner').inputValue(), 'Unlicensed Engineer');
   await page.locator('#calendar-title').fill('Site survey');
   await page.locator('#calendar-date').fill('2026-07-21');
@@ -93,14 +155,29 @@ try {
   assert.equal(calendar.fields.gmt_month, '07');
   assert.equal(calendar.fields.gmt_calendar_name, 'GMT Operational Calendar');
   assert.ok(calendar.fields.gmt_record_id);
+  assert.equal(calendar.fields.gmt_submitted_at, calendar.fields.submitted_at);
+  assert.equal(await page.evaluate(() => window.__savedRecords.at(-1).submittedAt), calendar.fields.gmt_submitted_at);
+  assert.equal(calendar.fields.gmt_record_id, await page.evaluate(() => window.__savedRecords.at(-1).recordId));
+  assert.equal(await page.evaluate(() => window.__updatedRecords.length), updatesBeforeNewCalendarRequest, 'calendar form submission does not claim a delivery status');
   assert.equal(await page.locator('#calendar-list').innerText().then((text) => text.includes('Awaiting licensed accounts approval.')), true);
 
-  await page.locator('[data-calendar-delete]').click();
+  const newCalendarEntryId = calendar.fields.gmt_record_id.replace(/^calendar-/, '');
+  await page.locator(`[data-calendar-delete="${newCalendarEntryId}"]`).click();
   await page.waitForFunction(() => window.__submittedForms.some((form) => form.subject === '[GMT][CALENDAR][UPDATE] 2026-07-21 | Site survey'), null, { timeout: 5000 });
   const cancellation = await page.evaluate(() => window.__submittedForms.at(-1));
   assert.equal(cancellation.fields.gmt_action, 'update_request');
   assert.equal(cancellation.fields.gmt_status, 'Cancelled');
   assert.equal(cancellation.fields.gmt_requester_upn, 'unlicensed.engineer@gmt-services.co.uk');
+  assert.equal(cancellation.fields.gmt_record_id, calendar.fields.gmt_record_id, 'calendar cancellation retains the same stable request ID');
+  assert.equal(cancellation.fields.gmt_submitted_at, calendar.fields.gmt_submitted_at, 'calendar cancellation preserves the original request submission timestamp');
+  assert.equal(cancellation.fields.gmt_updated_at, cancellation.fields.updated_at, 'the cancellation envelope includes its update timestamp');
+  assert.equal(await page.evaluate(() => window.__updatedRecords.at(-1).recordId), calendar.fields.gmt_record_id);
+  assert.equal(await page.evaluate(() => window.__updatedRecords.at(-1).status), 'Cancelled');
+  assert.equal(await page.evaluate(() => window.__updatedRecords.at(-1).updatedAt), cancellation.fields.gmt_updated_at, 'protected history and FormSubmit use the same cancellation timestamp');
+  await page.waitForFunction(() => document.querySelectorAll('[data-calendar-delete]').length === 0, null, { timeout: 5000 });
+  assert.equal(await page.locator('[data-calendar-delete]').count(), 0, 'a saved cancellation is reflected without deleting the request record');
+  assert.equal(await page.locator('#calendar-list').innerText().then((text) => text.includes('Cancelled')), true);
+  assert.equal(await page.locator('#calendar-list').innerText().then((text) => text.includes('Microsoft 365 processing is not confirmed')), true);
   console.log(JSON.stringify({ task: { action: task.action, subject: task.subject }, calendar: { action: calendar.action, subject: calendar.subject } }, null, 2));
 } finally {
   await browser?.close();

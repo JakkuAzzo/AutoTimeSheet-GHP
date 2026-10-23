@@ -10,8 +10,10 @@
   var next = carousel.querySelector("[data-updates-next]");
   var board = document.getElementById("portal-task-board");
   var status = document.getElementById("portal-task-board-status");
+  var taskRetry = document.querySelector('[data-dashboard-retry="tasks"]');
   var notificationStatus = document.getElementById("portal-notification-status");
   var notificationList = document.getElementById("portal-notifications");
+  var notificationRetry = document.querySelector('[data-dashboard-retry="notifications"]');
   var current = 0;
   var notificationRecords = [];
   var notificationDialog = null;
@@ -93,7 +95,7 @@
     var title = notificationTitle(record, payload);
     var details = notificationDetails(record, payload);
     var full = Object.keys(payload).map(function (key) { return '<dt>' + safe(key.replace(/([A-Z])/g, " $1")) + '</dt><dd>' + safe(typeof payload[key] === "object" ? JSON.stringify(payload[key]) : payload[key]) + '</dd>'; }).join("");
-    if (body) body.innerHTML = '<p class="portal-card-kicker">' + safe(kind) + '</p><h3>' + safe(title) + '</h3><p class="small-text">' + safe(details) + '</p><dl class="portal-notification-details"><dt>Status</dt><dd>' + safe(record.status || payload.status || "Submitted") + '</dd><dt>Submitted</dt><dd>' + safe(record.submitted_at || payload.submittedAt || "Not recorded") + '</dd><dt>Updated</dt><dd>' + safe(record.updated_at || payload.updatedAt || "Not recorded") + '</dd>' + full + '</dl><p><a class="portal-text-link" href="/portal/submissions?record=' + encodeURIComponent(record.source_record_id || record.record_id || "") + '">Open in Submitted documents →</a></p>';
+    if (body) body.innerHTML = '<p class="portal-card-kicker">' + safe(kind) + '</p><h3>' + safe(title) + '</h3><p class="small-text">' + safe(details) + '</p><dl class="portal-notification-details"><dt>Status</dt><dd>' + safe(record.status || payload.status || "Submitted") + '</dd><dt>Submitted</dt><dd>' + safe(record.submitted_at || payload.submittedAt || "Not recorded") + '</dd><dt>Updated</dt><dd>' + safe(record.updated_at || payload.updatedAt || "Not recorded") + '</dd>' + full + '</dl><p><a class="portal-text-link" href="/portal/submissions.html?record=' + encodeURIComponent(record.source_record_id || record.record_id || "") + '">Open in Submitted documents →</a></p>';
     if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.setAttribute("open", "");
   }
 
@@ -217,9 +219,15 @@
 
   async function loadTasks() {
     if (!board || !status) return;
+    if (taskRetry) {
+      taskRetry.hidden = true;
+      taskRetry.disabled = true;
+    }
+    status.textContent = "Loading submitted tasks…";
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== "function" || !window.GMTPortalApi.enabled()) {
       status.textContent = "Protected task history is not connected.";
       renderTasks([]);
+      if (taskRetry) taskRetry.disabled = false;
       return;
     }
     try {
@@ -230,14 +238,23 @@
     } catch (error) {
       status.textContent = error && error.message ? error.message : "Submitted tasks could not be loaded.";
       renderTasks([]);
+      if (taskRetry) taskRetry.hidden = false;
+    } finally {
+      if (taskRetry) taskRetry.disabled = false;
     }
   }
 
   async function loadNotifications() {
     if (!notificationList) return;
+    if (notificationRetry) {
+      notificationRetry.hidden = true;
+      notificationRetry.disabled = true;
+    }
+    if (notificationStatus) notificationStatus.textContent = "Loading notifications…";
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.history !== "function" || !window.GMTPortalApi.enabled || !window.GMTPortalApi.enabled()) {
       if (notificationStatus) notificationStatus.textContent = "Notifications are not connected.";
       notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications are not connected</strong><small>Protected notifications are unavailable in this portal.</small></div></div>';
+      if (notificationRetry) notificationRetry.disabled = false;
       return;
     }
     try {
@@ -249,11 +266,16 @@
     } catch (_) {
       if (notificationStatus) notificationStatus.textContent = "Notifications could not be loaded.";
       notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
+      if (notificationRetry) notificationRetry.hidden = false;
+    } finally {
+      if (notificationRetry) notificationRetry.disabled = false;
     }
   }
 
   if (previous) previous.addEventListener("click", function () { show(current - 1); });
   if (next) next.addEventListener("click", function () { show(current + 1); });
+  if (taskRetry) taskRetry.addEventListener("click", loadTasks);
+  if (notificationRetry) notificationRetry.addEventListener("click", loadNotifications);
   dots.forEach(function (dot, index) {
     dot.addEventListener("click", function () { show(index); });
     dot.addEventListener("keydown", function (event) {

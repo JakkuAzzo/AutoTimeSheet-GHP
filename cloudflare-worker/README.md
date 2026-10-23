@@ -51,6 +51,13 @@ details, Outlook conversation ID/link, and an append-only message projection.
    records owner-filtered. `JOB_CARD_ADMIN_UPNS` can additionally grant job-card
    access to identities such as `info@gmt-services.co.uk`. Full administrators
    retain access to all categories.
+   `OFFSITE_DUTY_MANAGER_UPNS` grants the separate off-site shift sign-off
+   capability. It does not grant administrator, timesheet, or payroll access,
+   and full administrator status alone does not grant this capability. Keep
+   the list empty until Duty Manager accounts are explicitly assigned. Apply
+   `migrations/0013_offsite_clock.sql` before deploying code that enables
+   `/portal/offsite-clock.html`; these entries and their audit events are stored
+   separately from payroll clock and timesheet records.
 6. Store the activated timesheet FormSubmit endpoint as the Worker secret
    `FORM_SUBMIT_TIMESHEET_ENDPOINT`. The endpoint is never returned to the
    browser. The default dispatch window is Friday at 18:00 Europe/London and
@@ -105,6 +112,39 @@ Job-card payloads preserve the card reference, revision, lifecycle status,
 invoice number, Xero reference, previous-card ID, and optional Outlook message
 link. Each submitted revision receives a new protected record ID, so an update
 can be assigned a new invoice while the earlier card remains in the chain.
+
+## Protected job-card attachments
+
+This checkout reserves migration number `0013` for separately tracked work and
+does not include that file. Migration `0014` depends only on the existing
+`records` table, not on objects from `0013`; when both migrations are present
+in a release bundle, apply them in numerical order through Wrangler. New EC/MTA
+submissions can attach up to 10 images or PDFs per revision, with a 20 MiB
+per-file limit and a 100 MiB aggregate limit. `POST /api/records/:recordId/attachments`
+atomically reserves that
+revision's count and byte quota in D1 and returns an opaque attachment ID and
+expiry. The browser sends bytes to
+`PUT /api/records/:recordId/attachments/:attachmentId/content`; the Worker
+counts and hashes the complete body, verifies its file signature against the
+declared image or PDF type, and only then contacts Graph. The Worker uses the
+existing Graph resumable upload-session protocol to send bounded chunks into
+`JobCards/Attachments/<record-id>/<attachment-id>-<filename>`. The preauthenticated
+Graph upload URL stays in Worker memory and is never stored, logged, or returned
+to the browser. D1 stores verified metadata, the private SharePoint pointer,
+reservation state, and an upload audit event, but not file bytes.
+The Worker rejects filenames containing double quotes, asterisks, colons,
+angle brackets, question marks, slashes, backslashes, or vertical bars, plus
+leading/trailing whitespace, before creating a quota reservation. The portal
+performs the same check before saving a new protected job-card record.
+
+`POST /api/records/:recordId/attachments` and its idempotent `/complete` route
+use the existing record write policy. `/complete` returns metadata only for an
+already completed or duplicate session; an active session returns 409 and can
+only complete through the byte-validating `/content` upload route.
+`GET /api/records/:recordId/attachments`
+and the authenticated `/content` download route follow the shared job-card
+history read policy. Scanned archive imports remain Accounts-managed. No
+SharePoint permission or Graph secret change is required.
 
 ## Estimate email archive data contract
 
