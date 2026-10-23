@@ -23,7 +23,7 @@ SHAREPOINT_SITE_ID = "gmtelectservsltd.sharepoint.com,1ca23733-8e2a-4bc3-adb9-8d
 SHAREPOINT_DRIVE_ID = "b!MzeiHCqOw0utuY3X_MAEfQtjhDKdWuhApGsUODJTaQkE_LCubVqORJnNdwdXKGNF"
 ENTRA_AUDIENCES = "01b5a6c6-f6c1-47cb-aebe-67f07f415e4b,https://service.flow.microsoft.com/"
 ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,https://gmt-timesheets.pages.dev"
-ADDITIONAL_ADMIN_UPNS = "accounts@gmt-services.co.uk"
+ADDITIONAL_ADMIN_UPNS = "accounts@gmt-services.co.uk,faith.b@gmt-services.co.uk"
 HR_ADMIN_UPNS = "micheller.admin@gmt-services.co.uk,lidiaa.admin@gmt-services.co.uk"
 XERO_ADMIN_UPNS = "micheller.admin@gmt-services.co.uk,lidiaa.admin@gmt-services.co.uk"
 # Off-site approvals are limited to the managers approved for this workflow.

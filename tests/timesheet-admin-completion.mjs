@@ -157,11 +157,14 @@ const rows = [
   }
 ];
 const db = { prepare() { return { bind() { return { all: async () => ({ results: rows }) }; } }; } };
-const history = await listRecords(new Request('https://gmt.example/api/history?kind=all'), { DB: db, STAFF_DIRECTORY_JSON: env.STAFF_DIRECTORY_JSON }, { oid: 'accounts-oid', upn: 'acc.gmtelect@outlook.com', isAdmin: true, isJobCardAdmin: true });
+const history = await listRecords(new Request('https://gmt.example/api/history?kind=all'), { DB: db, STAFF_DIRECTORY_JSON: env.STAFF_DIRECTORY_JSON }, { oid: 'accounts-oid', upn: 'acc.gmtelect@outlook.com', isAdmin: true, isTimesheetViewer: true, isJobCardAdmin: true });
 assert.equal(history.records.length, 1);
 assert.equal(history.records[0].employee_name, 'Jason');
 assert.equal(history.meta.synthetic_record_count, 1);
-assert.equal(history.meta.completion.counts.missing, 3);
+assert.equal(history.meta.can_view_all_timesheets, true);
+assert.equal(history.meta.visible_scope, 'all employee timesheets and clock records');
+assert.deepEqual(history.meta.completion.employees.map((employee) => employee.employee_name).sort(), staffDirectory(env).map((employee) => employee.name).sort());
+assert.equal(history.meta.completion.counts.missing, history.meta.completion.employees.filter((employee) => employee.status === 'missing').length);
 
 console.log(JSON.stringify({
   payMonth: summary.pay_month,

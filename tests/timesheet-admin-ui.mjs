@@ -42,7 +42,7 @@ const completion = {
 };
 messageListener({
   origin: 'https://gmt.test',
-  data: { type: 'gmt:history-meta', meta: { is_admin: true, upstream: 'flow-permission-not-configured', synthetic_record_count: 1, completion } }
+  data: { type: 'gmt:history-meta', meta: { is_admin: true, can_view_all_timesheets: true, upstream: 'flow-permission-not-configured', synthetic_record_count: 1, completion } }
 });
 assert.equal(elements['portal-history-employee-filter'].hidden, false);
 assert.match(elements['portal-history-employee'].innerHTML, /Jason/);
@@ -52,6 +52,6 @@ elements['portal-history-employee'].value = 'matthew@gmt-services.co.uk';
 elements['portal-history-employee'].listeners.change();
 assert.equal(elements['portal-history-employee'].value, 'matthew@gmt-services.co.uk');
 
-messageListener({ origin: 'https://gmt.test', data: { type: 'gmt:history-records', records: [], meta: { is_admin: true, completion } } });
+messageListener({ origin: 'https://gmt.test', data: { type: 'gmt:history-records', records: [], meta: { is_admin: true, can_view_all_timesheets: true, completion } } });
 
 console.log('Accounts timesheet staff filter without completion table: PASS');
