@@ -198,6 +198,7 @@ function buildFixtures(root) {
   const saturdaySplit = createWordFile(root, 'saturday-split.docx', { employee: 'Fixture Saturday Split', rows: [row('Saturday 6th', '10:00am', '3:00pm', '0 mins', '0h 00m', '3h 00m', '2h 00m')] });
   const sundayOt = createWordFile(root, 'sunday-ot.docx', { employee: 'Fixture Sunday Ot', rows: [row('Sunday 7th', '9:00am', '1:00pm', '0 mins', '0h 00m', '0h 00m', '4h 00m')] });
   const overnight = createWordFile(root, 'overnight-typo.docx', { employee: 'Fixture Overnight', rows: [row('Friday 5th', '7:00pm', '6:00pm', '30 mins', '8h 00m', '2h 30m', '0h 00m')] });
+  const legacyPm = createWordFile(root, 'legacy-pm-finish.docx', { employee: 'Fixture Legacy PM', rows: [row('Monday 1st', '7.30', '6.00', '0', '8', '2.5', '0')] });
   const ainsley = createWordFile(root, 'AINSLEY TIMESHEET GMT WEEK 1st June 2026 (2).docx', { employee: 'Ainsley Williams', rows: ainsleyWeekRows });
   const cleanAppXlsxRows = [
     { label: 'Day 1', date: '2026-06-01', weekday: 'Monday', start: '08:00', finish: '17:00', breakLabel: '1 hour', worked: 8, basic: 8 },
@@ -222,6 +223,7 @@ function buildFixtures(root) {
   addCase({ name: 'saturday-before-after-1300', zip: createZip(root, 'saturday-before-after-1300.zip', [saturdaySplit]), expected: expected({ parsedRows: 1, actual: 5, basic: 0, ot15: 3, ot20: 2, employees: ['fixture saturday split'] }) });
   addCase({ name: 'sunday-ot-x20', zip: createZip(root, 'sunday-ot-x20.zip', [sundayOt]), expected: expected({ parsedRows: 1, actual: 4, basic: 0, ot20: 4, employees: ['fixture sunday ot'] }) });
   addCase({ name: 'overnight-typo-warning', zip: createZip(root, 'overnight-typo-warning.zip', [overnight]), expected: expected({ parsedRows: 1, actual: 22.5, basic: 8, ot15: 14.5, issues: 1, employees: ['fixture overnight'] }), warningIncludes: ['overnight shift', '7:00pm'] });
+  addCase({ name: 'legacy-unmarked-pm-finish', zip: createZip(root, 'legacy-unmarked-pm-finish.zip', [legacyPm]), expected: expected({ parsedRows: 1, actual: 10.5, basic: 8, ot15: 2.5, issues: 1, employees: ['fixture legacy pm'] }), warningIncludes: ['Finish 6.00 interpreted as PM-equivalent 18:00', 'confirm the source'] });
   addCase({ name: 'unsupported-file-included', zip: createZip(root, 'unsupported-file-included.zip', [cleanDocx, unsupportedDoc]), expected: expected({ parsedRows: 5, actual: 40, basic: 40, parseErrors: 1, employees: ['fixture alpha'] }) });
   addCase({ name: 'duplicate-week-file-scenario', zip: createZip(root, 'duplicate-week-file-scenario.zip', [employeeOne, employeeOne]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 1, actual: 80, basic: 80, employees: ['fixture person one'] }) });
 
@@ -338,6 +340,31 @@ async function runCase(page, port, item) {
   }
 
   assert.equal(result.horizontalOverflow, false, `${item.name} should not horizontally overflow mobile viewport`);
+
+  if (item.name === 'multiple-employees') {
+    assert.equal(await page.locator('#downloadXlsxBtn').isDisabled(), true, 'exports stay disabled in the all-employee view');
+    await page.locator('#employeeFilter').selectOption({ label: 'Fixture Person One' });
+    assert.equal(await page.locator('#combinedCards .combined-card').count(), 1, 'employee selection scopes combined totals');
+    assert.match(await page.locator('#combinedCards').textContent(), /Fixture Person One/);
+    assert.doesNotMatch(await page.locator('#combinedCards').textContent(), /Fixture Person Two/);
+    assert.equal(await page.locator('#downloadXlsxBtn').isDisabled(), false, 'a named employee can be exported');
+    const scopedAudit = JSON.parse(await page.locator('#rawPreview').textContent());
+    assert.deepEqual([...new Set(scopedAudit.audit.rows.map((sourceRow) => sourceRow.employee))], ['Fixture Person One']);
+    assert.doesNotMatch(JSON.stringify(scopedAudit), /Fixture Person Two/, 'filtered JSON excludes other employees');
+    await page.locator('[data-tab="exportsPane"]').click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#downloadXlsxBtn').click()
+    ]);
+    const exported = XLSX.readFile(await download.path());
+    const employeeTotals = XLSX.utils.sheet_to_json(exported.Sheets['Combined Totals']);
+    assert.deepEqual(employeeTotals.map((entry) => entry.Employee), ['Fixture Person One']);
+    await page.locator('#employeeFilter').selectOption({ label: 'Fixture Person Two' });
+    assert.equal(await page.locator('#combinedCards .combined-card').count(), 1, 'the filter can be changed to the next employee');
+    assert.match(await page.locator('#combinedCards').textContent(), /Fixture Person Two/);
+    assert.doesNotMatch(await page.locator('#combinedCards').textContent(), /Fixture Person One/);
+  }
+
   return result;
 }
 
