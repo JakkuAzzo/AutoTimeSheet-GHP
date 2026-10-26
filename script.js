@@ -475,6 +475,9 @@ function addDay(data = {}) {
           </select>
         </label>
       </div>
+      <label class="finish-next-day-option">Finish is next day
+        <input type="checkbox" name="day_${index}_finish_next_day" data-field="finishNextDay" ${data.finishNextDay === true ? 'checked' : ''}>
+      </label>
       <details class="additional-fields">
         <summary>Additional fields <span>optional</span></summary>
         <div class="additional-fields-body">
@@ -536,6 +539,7 @@ function rowFromCard(card, index) {
       date: get('date')?.value || '',
       start: get('start')?.value || '',
       finish: get('finish')?.value || '',
+      finishNextDay: Boolean(get('finishNextDay')?.checked),
       lunchHad: lunchMinutes > 0,
       lunchMinutes,
       absenceStatus: get('absenceStatus')?.value || 'NA',
@@ -559,11 +563,33 @@ function pruneUntouchedWeekendCards() {
   return removable.length;
 }
 
-function rawShiftMinutes(row) {
+function clockTime(minutes) {
+  const value = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+}
+
+function resolveFinishTime(row) {
   const start = parseTimeToMinutes(row.start);
   const finish = parseTimeToMinutes(row.finish);
+  if (start === null || finish === null) return { minutes: finish, finish: row.finish, correction: '', nextDay: false };
+  if (row.finishNextDay === true) return { minutes: finish + 1440, finish: row.finish, correction: '', nextDay: true };
+  if (finish >= start) return { minutes: finish, finish: row.finish, correction: row.finishCorrection || '', nextDay: false };
+
+  // Older entries often used a 12-hour clock without an AM/PM marker. Treat
+  // the finish as PM only when that gives a plausible same-day shift of at
+  // most 16 hours. Longer ambiguous entries remain next-day shifts.
+  const pmEquivalent = finish + 12 * 60;
+  if (pmEquivalent > start && pmEquivalent < 1440 && pmEquivalent - start <= 16 * 60) {
+    return { minutes: pmEquivalent, finish: clockTime(pmEquivalent), correction: 'PM equivalent', nextDay: false };
+  }
+  return { minutes: finish + 1440, finish: row.finish, correction: '', nextDay: true };
+}
+
+function rawShiftMinutes(row) {
+  const start = parseTimeToMinutes(row.start);
+  const finish = resolveFinishTime(row).minutes;
   if (start === null || finish === null) return null;
-  return finish < start ? finish + 1440 - start : finish - start;
+  return finish - start;
 }
 
 function workedMinutes(row) {
@@ -576,9 +602,8 @@ function workedMinutes(row) {
 
 function splitSaturday(row) {
   const start = parseTimeToMinutes(row.start);
-  let finish = parseTimeToMinutes(row.finish);
+  let finish = resolveFinishTime(row).minutes;
   if (start === null || finish === null) return { basic: 0, ot15: 0, ot20: 0, total: null, workedActual: null };
-  if (finish < start) finish += 1440;
   const cutoff = 13 * 60;
   let before = Math.max(0, Math.min(finish, cutoff) - start);
   let after = Math.max(0, finish - Math.max(start, cutoff));
@@ -592,9 +617,17 @@ function splitSaturday(row) {
 
 function calculateRows(rows) {
   return rows.map((row) => {
+    const finishResolution = resolveFinishTime(row);
+    const calculatedRow = {
+      ...row,
+      ...(finishResolution.correction === 'PM equivalent' ? { sourceFinish: row.sourceFinish || row.finish } : {}),
+      finish: finishResolution.finish,
+      finishCorrection: finishResolution.correction,
+      finishNextDay: finishResolution.nextDay
+    };
     const day = dayName(row.date);
     if (futureWorkDate(row)) {
-      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: `${row.date} is in the future. Only Sick, Holiday or Un-Paid can be entered ahead of time.` };
+      return { ...calculatedRow, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: `${row.date} is in the future. Only Sick, Holiday or Un-Paid can be entered ahead of time.` };
     }
     if (row.absenceStatus === 'Un-Paid') {
       const numeric = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
@@ -606,31 +639,31 @@ function calculateRows(rows) {
           : clockMinutes === null ? (sourceHours === null ? null : sourceHours * 60)
             : Math.max(0, clockMinutes - normaliseBreakMinutes(row.lunchMinutes));
       const reportedWorkedHours = sourceHours === null && sourceMinutes !== null ? sourceMinutes / 60 : sourceHours;
-      return { ...row, dayName: day, reportedWorkedMinutes: sourceMinutes, reportedWorkedHours, workedMinutes: 0, workedHours: 0, totalMinutes: 0, workedActual: 0, total: 0, basic: 0, basicHours: 0, ot15: 0, ot15Hours: 0, ot20: 0, ot20Hours: 0, weightedHours: 0, appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, appliedTotal: 0, absent: true, note: 'Un-Paid time off records zero payable hours.' };
+      return { ...calculatedRow, dayName: day, reportedWorkedMinutes: sourceMinutes, reportedWorkedHours, workedMinutes: 0, workedHours: 0, totalMinutes: 0, workedActual: 0, total: 0, basic: 0, basicHours: 0, ot15: 0, ot15Hours: 0, ot20: 0, ot20Hours: 0, weightedHours: 0, appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, appliedTotal: 0, absent: true, note: 'Un-Paid time off records zero payable hours.' };
     }
     if (row.absenceStatus === 'Holiday') {
-      return { ...row, dayName: day, workedActual: 0, total: HOLIDAY_PAID_MINUTES, basic: HOLIDAY_PAID_MINUTES, ot15: 0, ot20: 0, absent: true, note: 'Holiday counts as 8h basic.' };
+      return { ...calculatedRow, dayName: day, workedActual: 0, total: HOLIDAY_PAID_MINUTES, basic: HOLIDAY_PAID_MINUTES, ot15: 0, ot20: 0, absent: true, note: 'Holiday counts as 8h basic.' };
     }
     if (row.absenceStatus === 'Sick') {
-      return { ...row, dayName: day, workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: true, note: 'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
+      return { ...calculatedRow, dayName: day, workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: true, note: 'Sick day recorded. Sick entitlement must be handled by admin/payroll.' };
     }
     const startMinutes = parseTimeToMinutes(row.start);
-    const finishMinutes = parseTimeToMinutes(row.finish);
+    const finishMinutes = finishResolution.minutes;
     if (startMinutes !== null && finishMinutes !== null && startMinutes === finishMinutes) {
-      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish cannot be the same time.' };
+      return { ...calculatedRow, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish cannot be the same time.' };
     }
     const actual = workedMinutes(row);
     if (actual === null) {
-      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish are required unless absence reason is Sick or Holiday.' };
+      return { ...calculatedRow, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: 'Start and finish are required unless absence reason is Sick or Holiday.' };
     }
     if (row.absenceStatus === 'Time Off') {
-      return { ...row, dayName: day, workedActual: actual, total: actual, basic: actual, ot15: 0, ot20: 0, absent: false, note: 'Time Off records the completed worked hours only.' };
+      return { ...calculatedRow, dayName: day, workedActual: actual, total: actual, basic: actual, ot15: 0, ot20: 0, absent: false, note: 'Time Off records the completed worked hours only.' };
     }
-    if (day === 'Sunday') return { ...row, dayName: day, workedActual: actual, total: actual, basic: 0, ot15: 0, ot20: actual, absent: false, note: 'Sunday is OT x2.0.' };
-    if (day === 'Saturday') return { ...row, dayName: day, ...splitSaturday(row), absent: false, note: 'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
+    if (day === 'Sunday') return { ...calculatedRow, dayName: day, workedActual: actual, total: actual, basic: 0, ot15: 0, ot20: actual, absent: false, note: 'Sunday is OT x2.0.' };
+    if (day === 'Saturday') return { ...calculatedRow, dayName: day, ...splitSaturday(row), absent: false, note: 'Saturday before 1pm is OT x1.5; after 1pm is OT x2.0.' };
     const basic = Math.min(actual, BASIC_DAY_MINUTES);
     const ot15 = Math.max(0, actual - BASIC_DAY_MINUTES);
-    return { ...row, dayName: day, workedActual: actual, total: actual, basic, ot15, ot20: 0, absent: false, note: ot15 ? 'Weekday: up to 8h basic plus daily excess as OT x1.5.' : 'Weekday hours equal finish minus start and break.' };
+    return { ...calculatedRow, dayName: day, workedActual: actual, total: actual, basic, ot15, ot20: 0, absent: false, note: ot15 ? 'Weekday: up to 8h basic plus daily excess as OT x1.5.' : 'Weekday hours equal finish minus start and break.' };
   });
 }
 
@@ -702,7 +735,7 @@ function updateMiniSummary(card, row) {
   if (row.dayName) bits.push(row.dayName);
   if (row.date) bits.push(row.date);
   if (row.absenceStatus !== 'NA') bits.push(row.absenceStatus);
-  if (!isFullDayAbsence(row) && (row.start || row.finish)) bits.push(`${row.start || '?'}-${row.finish || '?'}`);
+  if (!isFullDayAbsence(row) && (row.start || row.finish)) bits.push(`${row.start || '?'}-${row.finish || '?'}${row.finishNextDay ? ' next day' : ''}`);
   if (!isFullDayAbsence(row) && row.lunchMinutes) bits.push(breakLabel(row.lunchMinutes));
   summary.textContent = bits.length ? bits.join(' · ') : 'Not filled in yet';
 }
@@ -713,7 +746,13 @@ function resultPill(label, minutes, className = '') {
 }
 
 function resultPills(row) {
+  const finishNote = row.finishCorrection === 'PM equivalent'
+    ? `<span class="pill warn">Finish treated as ${escapeHtml(row.finish)} (PM equivalent)</span>`
+    : row.finishNextDay
+      ? '<span class="pill warn">Finish is next day</span>'
+      : '';
   return [
+    finishNote,
     resultPill('Worked', row.workedActual),
     resultPill('Basic', row.appliedBasic ?? row.basic),
     resultPill('OT 1.5', row.appliedOt15 ?? row.ot15),
@@ -838,7 +877,12 @@ function allRowsForExport(calculated) {
     'OT x1.5 hours': hours(row.appliedOt15 ?? row.ot15),
     'OT x2.0 hours': hours(row.appliedOt20 ?? row.ot20),
     'Weighted hours': Number(weightedFor(row).toFixed(2)),
-    Note: [row.note || row.error || row.description || '', row.overtimeHeld ? 'Overtime calculated on this day but counted as basic because Monday-Friday basic total is below 40h.' : ''].filter(Boolean).join(' ')
+    Note: [
+      row.finishCorrection === 'PM equivalent' ? `Finish ${row.sourceFinish || '?'} interpreted as ${row.finish} (PM equivalent).` : '',
+      row.finishNextDay ? 'Finish is on the next day.' : '',
+      row.note || row.error || row.description || '',
+      row.overtimeHeld ? 'Overtime calculated on this day but counted as basic because Monday-Friday basic total is below 40h.' : ''
+    ].filter(Boolean).join(' ')
   }));
 }
 
