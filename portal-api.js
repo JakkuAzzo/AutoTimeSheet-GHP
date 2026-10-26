@@ -124,7 +124,15 @@
 
   function history(kind, options) {
     var value = String(kind || "all").trim() || "all";
-    return request("/api/history?kind=" + encodeURIComponent(value), {
+    var path = "/api/history?kind=" + encodeURIComponent(value);
+    var requestedLimit = options && options.limit;
+    if (requestedLimit !== undefined && requestedLimit !== null && requestedLimit !== "") {
+      var numericLimit = Number(requestedLimit);
+      if (Number.isFinite(numericLimit)) {
+        path += "&limit=" + encodeURIComponent(String(Math.min(500, Math.max(1, Math.floor(numericLimit)))));
+      }
+    }
+    return request(path, {
       method: "GET",
       upstreamScopes: Array.isArray(config.timesheetHistoryScopes) ? config.timesheetHistoryScopes : []
     });

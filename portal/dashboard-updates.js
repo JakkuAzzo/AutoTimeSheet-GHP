@@ -14,14 +14,249 @@
   var notificationStatus = document.getElementById("portal-notification-status");
   var notificationList = document.getElementById("portal-notifications");
   var notificationRetry = document.querySelector('[data-dashboard-retry="notifications"]');
+  var statisticsStatus = document.getElementById("portal-statistics-status");
+  var statisticsMonth = document.getElementById("portal-statistics-pay-month");
+  var statisticsRetry = document.querySelector('[data-dashboard-retry="statistics"]');
   var current = 0;
   var notificationRecords = [];
   var notificationDialog = null;
+  var personalHistoryRecords = null;
+  var statisticsSelectionInitialized = false;
 
   function safe(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character];
     });
+  }
+
+  function profileIdentity() {
+    try {
+      var profile = JSON.parse(window.localStorage.getItem("gmt.portal.profile.v1") || "{}");
+      if (!profile || typeof profile !== "object" || Array.isArray(profile)) return {};
+      return {
+        upn: String(profile.username || profile.upn || profile.email || "").trim().toLowerCase(),
+        oid: String(profile.subject || profile.oid || "").trim().toLowerCase()
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function currentPayMonthKey() {
+    var parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    var values = {};
+    parts.forEach(function (part) { values[part.type] = part.value; });
+    var date = values.year + "-" + values.month + "-" + values.day;
+    return window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
+      ? window.GMTPayPeriods.payMonthKeyForDate(date)
+      : date.slice(0, 7);
+  }
+
+  function statisticsDate(value) {
+    var match = String(value == null ? "" : value).trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!match) return null;
+    var month = window.GMTPayPeriods && typeof window.GMTPayPeriods.payMonthKeyForDate === "function"
+      ? window.GMTPayPeriods.payMonthKeyForDate(match[1])
+      : match[1].slice(0, 7);
+    return month ? { date: match[1], month: month } : null;
+  }
+
+  function recordOwnerMatches(record, identity) {
+    var payload = payloadFor(record);
+    var ownerOid = String(record && (record.owner_oid || record.ownerOid) || payload.ownerOid || payload.owner_oid || "").trim().toLowerCase();
+    var ownerUpn = String(record && (record.owner_upn || record.employee_upn || record.employee_email || record.employeeEmail) || payload.ownerUpn || payload.owner_upn || payload.employeeUpn || payload.employeeEmail || "").trim().toLowerCase();
+    return Boolean((identity.oid && ownerOid && identity.oid === ownerOid) || (identity.upn && ownerUpn && identity.upn === ownerUpn));
+  }
+
+  function recordKind(record) {
+    return String(record && (record.kind || record.action || record.category) || "").trim().toLowerCase().replace(/_/g, "-");
+  }
+
+  function statisticsRows(record) {
+    if (window.GMTCalendarData && typeof window.GMTCalendarData.rowsFor === "function") {
+      var aligned = window.GMTCalendarData.rowsFor(record);
+      if (Array.isArray(aligned) && aligned.length) return aligned;
+    }
+    var payload = payloadFor(record);
+    var rows = payload.rows || payload.dailyRows || payload.daily_rows || record.rows || record.daily_rows || record.dailyRows;
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  function statisticsRowDate(row) {
+    if (!row || typeof row !== "object") return null;
+    return statisticsDate(row.date || row.record_date || row.recordDate || row.workDate || row.Date || "");
+  }
+
+  function rowAbsence(row) {
+    return String(row && (row.absenceReason || row.absence_reason || row.absenceStatus || row.absence_status || row.absence || row.absenceType || row.absence_type) || "").trim();
+  }
+
+  function isHolidayRow(row) {
+    return Boolean(row && (row.holiday === true || row.isHoliday === true || row.is_holiday === true)) || /holiday/i.test(rowAbsence(row));
+  }
+
+  function isAbsentRow(row) {
+    var absence = rowAbsence(row).toLowerCase();
+    return Boolean(absence && !/^(n\/?a|none|no|false|working)$/.test(absence)) || /sick|absent|time off|leave/i.test(absence);
+  }
+
+  function rowShowsWork(row) {
+    if (!row || isHolidayRow(row) || isAbsentRow(row)) return false;
+    var workFields = ["workedHours", "worked_hours", "workedMinutes", "worked_minutes", "basicHours", "basic_hours", "ot15Hours", "ot15_hours", "ot20Hours", "ot20_hours", "totalHours", "total_hours", "hours"];
+    for (var index = 0; index < workFields.length; index += 1) {
+      var raw = row[workFields[index]];
+      if (raw !== undefined && raw !== null && raw !== "" && Number.isFinite(Number(raw)) && Number(raw) > 0) return true;
+    }
+    return Boolean(String(row.start || row.startTime || row.start_time || row.clockIn || row.clock_in || "").trim()
+      && String(row.finish || row.finishTime || row.finish_time || row.clockOut || row.clock_out || "").trim());
+  }
+
+  function recordActivityDate(record, kind) {
+    var payload = payloadFor(record);
+    var fields;
+    if (kind === "tasks") {
+      fields = ["completed_at", "completedAt", "completion_date", "completionDate", "completed_date", "completedDate", "updated_at", "updatedAt", "record_date", "recordDate", "date"];
+    } else if (kind === "estimates") {
+      fields = ["estimate_date", "estimateDate", "date", "dateOfEstimate", "record_date", "recordDate", "created_at", "createdAt"];
+    } else {
+      fields = ["record_date", "recordDate", "raised_at", "raisedAt", "job_card_date", "jobCardDate", "created_at", "createdAt", "date", "planned_date", "plannedDate"];
+    }
+    for (var index = 0; index < fields.length; index += 1) {
+      var date = statisticsDate(record && record[fields[index]]) || statisticsDate(payload[fields[index]]);
+      if (date) return date;
+    }
+    return statisticsDate(record && (record.submitted_at || record.submittedAt)) || statisticsDate(payload.submittedAt || payload.submitted_at);
+  }
+
+  function recordIdentifier(record, kind) {
+    var payload = payloadFor(record);
+    var value = record && (record.source_record_id || record.record_id || record.recordId);
+    if (!value && kind === "estimates") value = record && (record.estimate_number || record.estimateNumber) || payload.number || payload.estimateNumber;
+    if (!value && kind === "job-cards") value = record && (record.job_ref || record.job_reference) || payload.jobReference || payload.ref;
+    if (!value && kind === "tasks") value = record && (record.task_id || record.taskId) || payload.taskId || payload.id;
+    return String(value || "").trim();
+  }
+
+  function taskIsComplete(record) {
+    var payload = payloadFor(record);
+    var state = String(record && record.status || payload.status || "").trim().toLowerCase();
+    return ["complete", "completed", "done"].indexOf(state) !== -1
+      || record && (record.completed === true || record.is_complete === true || record.isComplete === true)
+      || payload.completed === true || payload.isComplete === true || payload.is_complete === true;
+  }
+
+  function addDateMonths(months, date) {
+    if (date && months.indexOf(date.month) === -1) months.push(date.month);
+  }
+
+  function statisticsMonths(records) {
+    var currentMonth = currentPayMonthKey();
+    var months = currentMonth ? [currentMonth] : [];
+    records.forEach(function (record) {
+      var kind = recordKind(record);
+      if (kind === "timesheets") statisticsRows(record).forEach(function (row) { addDateMonths(months, statisticsRowDate(row)); });
+      else if (["estimates", "job-cards", "tasks"].indexOf(kind) !== -1) addDateMonths(months, recordActivityDate(record, kind));
+    });
+    return months.sort(function (left, right) { return right.localeCompare(left); });
+  }
+
+  function monthLabel(month) {
+    var date = new Date(month + "-01T12:00:00Z");
+    return Number.isNaN(date.getTime()) ? month : new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
+  }
+
+  function setStatisticValues(values) {
+    Object.keys(values).forEach(function (key) {
+      var target = document.querySelector('[data-statistics-value="' + key + '"]');
+      if (target) target.textContent = String(values[key]);
+    });
+  }
+
+  function setStatisticsUnavailable(message) {
+    personalHistoryRecords = null;
+    if (statisticsStatus) statisticsStatus.textContent = message;
+    if (statisticsMonth) statisticsMonth.disabled = true;
+    setStatisticValues({ "worked-days": "—", "holiday-days": "—", "estimates-written": "—", "job-cards-raised": "—", "tasks-completed": "—" });
+    if (statisticsRetry) statisticsRetry.hidden = message === "Personal statistics are not connected.";
+  }
+
+  function populateStatisticsMonths(records) {
+    if (!statisticsMonth) return;
+    var selected = statisticsMonth.value || currentPayMonthKey();
+    var months = statisticsMonths(records);
+    statisticsMonth.innerHTML = months.map(function (month) {
+      return '<option value="' + safe(month) + '">' + safe(monthLabel(month)) + '</option>';
+    }).join("");
+    if (months.indexOf(selected) !== -1) statisticsMonth.value = selected;
+    else statisticsMonth.value = currentPayMonthKey();
+    statisticsMonth.disabled = false;
+  }
+
+  function calculateStatistics(records, month) {
+    var workedDates = Object.create(null);
+    var holidayDates = Object.create(null);
+    var estimates = Object.create(null);
+    var jobCards = Object.create(null);
+    var completedTasks = Object.create(null);
+    var hasRecords = false;
+    records.forEach(function (record) {
+      var kind = recordKind(record);
+      if (kind === "timesheets") {
+        statisticsRows(record).forEach(function (row) {
+          var date = statisticsRowDate(row);
+          if (!date || date.month !== month) return;
+          hasRecords = true;
+          if (isHolidayRow(row)) holidayDates[date.date] = true;
+          else if (rowShowsWork(row)) workedDates[date.date] = true;
+        });
+        return;
+      }
+      if (["estimates", "job-cards", "tasks"].indexOf(kind) === -1) return;
+      var date = recordActivityDate(record, kind);
+      if (!date || date.month !== month) return;
+      hasRecords = true;
+      var identifier = recordIdentifier(record, kind);
+      if (!identifier) return;
+      if (kind === "estimates") estimates[identifier] = true;
+      if (kind === "job-cards") jobCards[identifier] = true;
+      if (kind === "tasks" && taskIsComplete(record)) completedTasks[identifier] = true;
+    });
+    Object.keys(holidayDates).forEach(function (date) { delete workedDates[date]; });
+    return {
+      hasRecords: hasRecords,
+      values: {
+        "worked-days": Object.keys(workedDates).length,
+        "holiday-days": Object.keys(holidayDates).length,
+        "estimates-written": Object.keys(estimates).length,
+        "job-cards-raised": Object.keys(jobCards).length,
+        "tasks-completed": Object.keys(completedTasks).length
+      }
+    };
+  }
+
+  function renderStatisticsForMonth() {
+    if (!statisticsStatus || !statisticsMonth || !Array.isArray(personalHistoryRecords)) return;
+    var month = statisticsMonth.value || currentPayMonthKey();
+    var result = calculateStatistics(personalHistoryRecords, month);
+    setStatisticValues(result.values);
+    statisticsStatus.textContent = result.hasRecords ? "Activity totals for " + monthLabel(month) + "." : "No personal records are available for this pay month.";
+  }
+
+  function renderPersonalStatistics(records) {
+    if (!statisticsStatus) return;
+    if (!statisticsSelectionInitialized && statisticsMonth) statisticsMonth.value = currentPayMonthKey();
+    var identity = profileIdentity();
+    if (!identity.upn && !identity.oid) {
+      populateStatisticsMonths([]);
+      statisticsSelectionInitialized = true;
+      setStatisticsUnavailable("Personal statistics are unavailable.");
+      return;
+    }
+    personalHistoryRecords = records.filter(function (record) { return record && recordOwnerMatches(record, identity); });
+    populateStatisticsMonths(personalHistoryRecords);
+    statisticsSelectionInitialized = true;
+    if (statisticsRetry) statisticsRetry.hidden = true;
+    renderStatisticsForMonth();
   }
 
   function payloadFor(record) {
@@ -245,30 +480,43 @@
   }
 
   async function loadNotifications() {
-    if (!notificationList) return;
+    if (!notificationList && !statisticsStatus) return;
     if (notificationRetry) {
       notificationRetry.hidden = true;
       notificationRetry.disabled = true;
     }
     if (notificationStatus) notificationStatus.textContent = "Loading notifications…";
+    if (statisticsStatus) statisticsStatus.textContent = "Loading personal statistics…";
+    if (statisticsMonth) statisticsMonth.disabled = true;
+    if (statisticsRetry) {
+      statisticsRetry.hidden = true;
+      statisticsRetry.disabled = true;
+    }
     if (!window.GMTPortalApi || typeof window.GMTPortalApi.history !== "function" || !window.GMTPortalApi.enabled || !window.GMTPortalApi.enabled()) {
       if (notificationStatus) notificationStatus.textContent = "Notifications are not connected.";
-      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications are not connected</strong><small>Protected notifications are unavailable in this portal.</small></div></div>';
+      if (notificationList) notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications are not connected</strong><small>Protected notifications are unavailable in this portal.</small></div></div>';
+      setStatisticsUnavailable("Personal statistics are not connected.");
       if (notificationRetry) notificationRetry.disabled = false;
       return;
     }
     try {
-      var body = await window.GMTPortalApi.history("all");
+      var body = await window.GMTPortalApi.history("all", { limit: 500 });
       if (!body || typeof body !== "object" || !Array.isArray(body.records)) {
         throw new Error("History response was not valid");
       }
       renderNotifications(body.records);
+      if (window.GMTPayPeriods && window.GMTPayPeriods.ready) {
+        await Promise.resolve(window.GMTPayPeriods.ready).catch(function () {});
+      }
+      renderPersonalStatistics(body.records);
     } catch (_) {
       if (notificationStatus) notificationStatus.textContent = "Notifications could not be loaded.";
-      notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
+      if (notificationList) notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
+      setStatisticsUnavailable("Personal statistics are unavailable.");
       if (notificationRetry) notificationRetry.hidden = false;
     } finally {
       if (notificationRetry) notificationRetry.disabled = false;
+      if (statisticsRetry) statisticsRetry.disabled = false;
     }
   }
 
@@ -276,6 +524,8 @@
   if (next) next.addEventListener("click", function () { show(current + 1); });
   if (taskRetry) taskRetry.addEventListener("click", loadTasks);
   if (notificationRetry) notificationRetry.addEventListener("click", loadNotifications);
+  if (statisticsRetry) statisticsRetry.addEventListener("click", loadNotifications);
+  if (statisticsMonth) statisticsMonth.addEventListener("change", renderStatisticsForMonth);
   dots.forEach(function (dot, index) {
     dot.addEventListener("click", function () { show(index); });
     dot.addEventListener("keydown", function (event) {
@@ -285,6 +535,7 @@
   });
 
   show(0);
+  if (statisticsMonth) populateStatisticsMonths([]);
   if (window.GMTPortalApi && typeof window.GMTPortalApi.access === "function") {
     window.GMTPortalApi.access().then(function (access) {
       var userManagement = document.querySelector("[data-admin-users-link]");

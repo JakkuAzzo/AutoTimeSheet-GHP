@@ -125,6 +125,18 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-updates-task-panel .portal-updates-task-heading,
 .portal-updates-task-panel .portal-updates-task-content { width: auto; flex: initial; min-width: 0; }
 .portal-updates-task-slide { align-items: flex-start; }
+.portal-updates-statistics-slide { display: block; }
+.portal-updates-statistics-panel { width: 100%; min-width: 0; }
+.portal-statistics-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; min-width: 0; }
+.portal-statistics-heading > div { min-width: 0; }
+.portal-statistics-heading label { flex: 0 1 15rem; min-width: min(100%, 12rem); margin: 0; color: #e7f2e5; font-weight: 800; }
+.portal-statistics-heading select { width: 100%; min-width: 0; margin-top: .3rem; color: #123d1d; background: #fff; }
+.portal-statistics-status { min-height: 1.25rem; margin: .8rem 0 .55rem !important; font-size: .88rem; }
+.portal-statistics-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .65rem; min-width: 0; }
+.portal-statistics-card { display: grid; align-content: space-between; gap: .8rem; min-width: 0; min-height: 7.2rem; padding: .85rem; color: #fff; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.35); border-radius: .8rem; }
+.portal-statistics-card span { color: #e7f2e5; font-size: .78rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+.portal-statistics-card strong { color: #fff; font-size: clamp(1.65rem, 4vw, 2.25rem); line-height: 1; }
+.portal-statistics-source-note { margin: .8rem 0 .6rem !important; color: #e7f2e5 !important; font-size: .76rem; }
 .portal-updates-task-heading { flex: 0 1 24rem; min-width: 0; }
 .portal-updates-task-content { flex: 1 1 32rem; min-width: 0; }
 .portal-updates-clock-heading { flex: 0 1 20rem; min-width: 0; }
@@ -1044,6 +1056,7 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 }
 @media (max-width: 850px) {
   .portal-updates-feed-slide { grid-template-columns: minmax(0, 1fr); }
+  .portal-statistics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .portal-two-column,
   .kanban-board,
   .portal-profile-card {
@@ -1053,6 +1066,9 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .xero-invoice-preview { position: static; }
   .xero-invoice-line { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .xero-invoice-line label:first-child, .xero-invoice-line button { grid-column: 1 / -1; }
+}
+@media (max-width: 360px) {
+  .portal-statistics-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 700px) {
   .portal-user-form { grid-template-columns: minmax(0,1fr); }
@@ -1110,6 +1126,8 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-updates-slide { align-items: flex-start; flex: 0 0 auto; flex-direction: column; }
   .portal-updates-slide:not([hidden]) { min-height: 0; }
   .portal-updates-feed-slide { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .portal-statistics-heading { align-items: stretch; flex-direction: column; }
+  .portal-statistics-heading label { flex-basis: auto; width: 100%; }
   /* The task slide is a column on phones. Its desktop flex bases are widths
      in the row layout; retaining them here creates a large empty panel. */
   .portal-updates-task-heading, .portal-updates-task-content { width: 100%; flex: 0 1 auto; }
