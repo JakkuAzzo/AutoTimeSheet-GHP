@@ -123,6 +123,23 @@ try {
   }));
   assert.match(equalTimeResult.result, /Start and finish cannot be the same time/);
   assert.equal(equalTimeResult.row.workedActual, null);
+
+  const pmEquivalentResult = await page.evaluate(() => calculateRows([{
+    date: '2026-10-12', start: '07:00', finish: '05:30', lunchMinutes: 0, absenceStatus: 'NA'
+  }])[0]);
+  assert.equal(pmEquivalentResult.workedActual, 630, '07:00–05:30 should use the plausible 17:30 PM-equivalent finish, not a 22h30 overnight shift');
+  assert.equal(pmEquivalentResult.finish, '17:30');
+  assert.equal(pmEquivalentResult.finishCorrection, 'PM equivalent');
+  const pmEquivalentExport = await page.evaluate(() => allRowsForExport(calculateRows([{
+    date: '2026-10-12', start: '07:00', finish: '05:30', lunchMinutes: 0, absenceStatus: 'NA'
+  }]))[0]);
+  assert.match(pmEquivalentExport.Note, /Finish 05:30 interpreted as 17:30 \(PM equivalent\)/);
+
+  const explicitOvernightResult = await page.evaluate(() => calculateRows([{
+    date: '2026-10-12', start: '07:00', finish: '05:30', finishNextDay: true, lunchMinutes: 0, absenceStatus: 'NA'
+  }])[0]);
+  assert.equal(explicitOvernightResult.workedActual, 1350, 'the explicit next-day option must preserve a genuine 22h30 shift');
+
   await page.evaluate(() => {
     const finish = document.querySelector('.day-card [data-field="finish"]');
     finish.value = '17:00';
@@ -147,6 +164,49 @@ try {
     { date: '2026-10-15', start: '08:00', finish: '17:00' },
     { date: '2026-10-16', start: '08:00', finish: '17:00' }
   ]);
+
+  await page.evaluate(() => {
+    const card = document.querySelector('.day-card');
+    const start = card.querySelector('[data-field="start"]');
+    const finish = card.querySelector('[data-field="finish"]');
+    card.querySelector('[data-field="lunchHad"]').value = '0';
+    start.value = '07:00';
+    finish.value = '05:30';
+    start.dispatchEvent(new Event('input', { bubbles: true }));
+    finish.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  const pmEquivalentPreview = await page.evaluate(() => ({
+    result: document.querySelector('.day-card .day-result')?.textContent.replace(/\s+/g, ' ').trim() || '',
+    row: JSON.parse(document.querySelector('#timesheet-payload').value).rows[0]
+  }));
+  assert.match(pmEquivalentPreview.result, /Finish treated as 17:30 \(PM equivalent\)/);
+  assert.equal(pmEquivalentPreview.row.finish, '17:30');
+  assert.equal(pmEquivalentPreview.row.sourceFinish, '05:30');
+  assert.equal(pmEquivalentPreview.row.workedActual, 630);
+
+  await page.evaluate(() => {
+    const checkbox = document.querySelector('.day-card [data-field="finishNextDay"]');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  const overnightPreview = await page.evaluate(() => JSON.parse(document.querySelector('#timesheet-payload').value).rows[0]);
+  assert.equal(overnightPreview.finishNextDay, true);
+  assert.equal(overnightPreview.workedActual, 1350);
+  await page.evaluate(() => {
+    const checkbox = document.querySelector('.day-card [data-field="finishNextDay"]');
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    const card = document.querySelector('.day-card');
+    const start = card.querySelector('[data-field="start"]');
+    const finish = card.querySelector('[data-field="finish"]');
+    start.value = '08:00';
+    finish.value = '17:00';
+    start.dispatchEvent(new Event('input', { bubbles: true }));
+    finish.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
 
   await page.evaluate(() => {
     const breaks = [...document.querySelectorAll('[data-field="lunchHad"]')];
