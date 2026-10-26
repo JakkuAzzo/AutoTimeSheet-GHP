@@ -8,6 +8,7 @@ import { completeJobCardAttachmentUpload, expireJobCardAttachmentUploadSession, 
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
+const MAX_TIMESHEET_RECEIPT_BYTES = 32_768;
 const MAX_RECORD_ID = 180;
 const MAX_TEXT = 6000;
 const MAX_ATTACHMENT_BYTES = 220_000;
@@ -3301,6 +3302,36 @@ async function readJson(request) {
   }
 }
 
+async function readBoundedJson(request, maximumBytes) {
+  const declaredLength = Number(request.headers.get('content-length') || 0);
+  if (declaredLength > maximumBytes) throw Object.assign(new Error('Request is too large'), { status: 413 });
+  const reader = request.body?.getReader();
+  const chunks = [];
+  let byteLength = 0;
+  if (reader) {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      byteLength += part.value.byteLength;
+      if (byteLength > maximumBytes) {
+        await reader.cancel();
+        throw Object.assign(new Error('Request is too large'), { status: 413 });
+      }
+      chunks.push(part.value);
+    }
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  chunks.forEach((chunk) => { bytes.set(chunk, offset); offset += chunk.byteLength; });
+  try {
+    const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('JSON object expected');
+    return value;
+  } catch (_) {
+    throw Object.assign(new Error('Request body must be valid JSON'), { status: 400 });
+  }
+}
+
 function parseQueuedAttachments(body) {
   const raw = body && Array.isArray(body.attachments) ? body.attachments : [];
   if (raw.length < 2 || raw.length > ATTACHMENT_FIELDS.size) {
@@ -3577,10 +3608,306 @@ async function adminDispatchQueued(env, identity, options = {}) {
   });
 }
 
+const TIMESHEET_RECEIPT_EVENTS = new Set(['flow_started', 'workbook_verified', 'flow_completed', 'flow_failed']);
+const TIMESHEET_RECEIPT_FAILURE_STAGES = new Set([
+  'source_validation', 'workbook_routing', 'workbook_upsert', 'workbook_readback',
+  'history_index', 'calendar_sync', 'other'
+]);
+
+function receiptString(value, label, maximum, pattern) {
+  if (typeof value !== 'string') throw Object.assign(new Error(`Invalid ${label}`), { status: 400 });
+  const result = value.trim();
+  if (!result || result.length > maximum || /[\u0000-\u001f\u007f]/.test(result) || (pattern && !pattern.test(result))) {
+    throw Object.assign(new Error(`Invalid ${label}`), { status: 400 });
+  }
+  return result;
+}
+
+function receiptTimestamp(value) {
+  const source = receiptString(value, 'run start time', 48,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/);
+  const milliseconds = Date.parse(source);
+  if (!Number.isFinite(milliseconds)) throw Object.assign(new Error('Invalid run start time'), { status: 400 });
+  if (milliseconds > Date.now() + 5 * 60 * 1000) throw Object.assign(new Error('Run start time is in the future'), { status: 400 });
+  return new Date(milliseconds).toISOString();
+}
+
+function safeReceiptError(value) {
+  const source = receiptString(value, 'safe error', 1000);
+  return source
+    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+    .replace(/\b(access[_ -]?token|client[_ -]?secret|password)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[email]')
+    .replace(/\s+/g, ' ')
+    .slice(0, 600);
+}
+
+function parseTimesheetReceipt(body) {
+  const allowed = new Set([
+    'recordId', 'flowRunId', 'runStartedAt', 'event', 'stage', 'safeError',
+    'created', 'updated', 'unchanged', 'verifiedRows', 'verifiedRecordIds'
+  ]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    throw Object.assign(new Error('Unsupported receipt fields'), { status: 400 });
+  }
+  const recordId = receiptString(body.recordId, 'record ID', MAX_RECORD_ID, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+  const flowRunId = receiptString(body.flowRunId, 'Power Automate run ID', 240, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+  const runStartedAt = receiptTimestamp(body.runStartedAt);
+  const event = receiptString(body.event, 'receipt event', 40);
+  if (!TIMESHEET_RECEIPT_EVENTS.has(event)) throw Object.assign(new Error('Unsupported receipt event'), { status: 400 });
+
+  let evidence = {};
+  if (event === 'flow_failed') {
+    if (Object.hasOwn(body, 'created') || Object.hasOwn(body, 'updated') || Object.hasOwn(body, 'unchanged') || Object.hasOwn(body, 'verifiedRows') || Object.hasOwn(body, 'verifiedRecordIds')) {
+      throw Object.assign(new Error('Unsupported failure evidence'), { status: 400 });
+    }
+    const stage = receiptString(body.stage, 'failure stage', 40);
+    if (!TIMESHEET_RECEIPT_FAILURE_STAGES.has(stage)) throw Object.assign(new Error('Unsupported failure stage'), { status: 400 });
+    evidence = { stage, safeError: safeReceiptError(body.safeError) };
+  } else if (event === 'workbook_verified') {
+    if (Object.hasOwn(body, 'stage') || Object.hasOwn(body, 'safeError')) throw Object.assign(new Error('Unsupported workbook evidence'), { status: 400 });
+    const counts = {};
+    ['created', 'updated', 'unchanged'].forEach((key) => {
+      if (!Number.isSafeInteger(body[key]) || body[key] < 0 || body[key] > 62) {
+        throw Object.assign(new Error(`Invalid ${key} row count`), { status: 400 });
+      }
+      counts[key] = body[key];
+    });
+    if (!Array.isArray(body.verifiedRows) || body.verifiedRows.length < 1 || body.verifiedRows.length > 62 ||
+        !Array.isArray(body.verifiedRecordIds) || body.verifiedRecordIds.length !== body.verifiedRows.length) {
+      throw Object.assign(new Error('Invalid verified workbook rows'), { status: 400 });
+    }
+    const verifiedRows = body.verifiedRows.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row) || Object.keys(row).some((key) => !['recordId', 'date'].includes(key))) {
+        throw Object.assign(new Error('Invalid verified workbook row'), { status: 400 });
+      }
+      const verifiedRecordId = receiptString(row.recordId, 'verified source row ID', 240, /^[A-Za-z0-9][A-Za-z0-9._:|-]*$/);
+      const date = receiptString(row.date, 'verified row date', 10, /^\d{4}-\d{2}-\d{2}$/);
+      const dateMilliseconds = Date.parse(`${date}T00:00:00Z`);
+      if (!Number.isFinite(dateMilliseconds) || new Date(dateMilliseconds).toISOString().slice(0, 10) !== date) {
+        throw Object.assign(new Error('Invalid verified row date'), { status: 400 });
+      }
+      return { recordId: verifiedRecordId, date };
+    });
+    const ids = body.verifiedRecordIds.map((value) => receiptString(value, 'verified source row ID', 240, /^[A-Za-z0-9][A-Za-z0-9._:|-]*$/));
+    const rowKeys = verifiedRows.map((row) => `${row.recordId}\0${row.date}`);
+    const uniqueKeys = new Set(rowKeys);
+    const uniqueIds = new Set(ids);
+    if (uniqueKeys.size !== verifiedRows.length || uniqueIds.size !== ids.length ||
+        ids.some((id) => !verifiedRows.some((row) => row.recordId === id)) ||
+        verifiedRows.some((row) => !ids.includes(row.recordId)) ||
+        counts.created + counts.updated + counts.unchanged !== verifiedRows.length) {
+      throw Object.assign(new Error('Workbook verification evidence is inconsistent'), { status: 400 });
+    }
+    evidence = { ...counts, verifiedRows };
+  } else if (Object.keys(body).some((key) => ['stage', 'safeError', 'created', 'updated', 'unchanged', 'verifiedRows', 'verifiedRecordIds'].includes(key))) {
+    throw Object.assign(new Error('Unsupported receipt evidence'), { status: 400 });
+  }
+  return { recordId, flowRunId, runStartedAt, event, evidence };
+}
+
+function validReceiptDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(`${value}T00:00:00Z`)) &&
+    new Date(Date.parse(`${value}T00:00:00Z`)).toISOString().slice(0, 10) === value;
+}
+
+async function expectedCorrectionRows(env, recordId) {
+  const row = await env.DB.prepare(`SELECT r.record_id, r.kind, r.action, r.status, a.content_base64
+    FROM records r JOIN dispatch_queue q ON q.record_id = r.record_id
+    JOIN record_attachments a ON a.record_id = r.record_id AND a.field_name = 'attachment_record'
+    WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction'
+      AND r.status <> 'Deleted'`).bind(recordId).first();
+  if (!row || row.status === 'Deleted') throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+  const encoded = String(row.content_base64 || '');
+  if (!encoded || encoded.length > 300_000) throw Object.assign(new Error('Correction source attachment is unavailable'), { status: 409 });
+  let envelope;
+  try {
+    envelope = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decodeBase64(encoded)));
+  } catch (_) {
+    throw Object.assign(new Error('Correction source attachment is invalid'), { status: 409 });
+  }
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope) ||
+      envelope.mode !== 'replace-pay-month' || String(envelope.recordId || '') !== recordId ||
+      !Array.isArray(envelope.rows) || envelope.rows.length > 62) {
+    throw Object.assign(new Error('Correction source rows are invalid'), { status: 409 });
+  }
+  const expectedRows = envelope.rows.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !validReceiptDate(entry.date)) {
+      throw Object.assign(new Error('Correction source rows are invalid'), { status: 409 });
+    }
+    const date = entry.date;
+    const expectedRecordId = `${recordId}|${date}`;
+    const entryRecordId = String(entry.recordId || entry.record_id || expectedRecordId);
+    if (entryRecordId !== expectedRecordId) throw Object.assign(new Error('Correction source row identity is invalid'), { status: 409 });
+    return { recordId: expectedRecordId, date };
+  }).sort((left, right) => left.date.localeCompare(right.date));
+  if (new Set(expectedRows.map((entry) => entry.date)).size !== expectedRows.length) {
+    throw Object.assign(new Error('Correction source dates are not unique'), { status: 409 });
+  }
+  return expectedRows;
+}
+
+async function timesheetDeliveryReceiptEndpoint(request, env, origin = '') {
+  if (!env.DB) throw Object.assign(new Error('Receipt service is unavailable'), { status: 503, publicMessage: 'Receipt service is unavailable' });
+  const configuredKey = String(env.TIMESHEET_DELIVERY_CALLBACK_KEY || '');
+  if (configuredKey.length < 32 || configuredKey.length > 500) {
+    throw Object.assign(new Error('Receipt service is unavailable'), { status: 503, publicMessage: 'Receipt service is unavailable' });
+  }
+  const suppliedKey = request.headers.get('X-GMT-Delivery-Key') || '';
+  if (suppliedKey.length > 500 || !constantTimeEqual(suppliedKey, configuredKey)) {
+    throw Object.assign(new Error('Not authorised'), { status: 401, publicMessage: 'Not authorised' });
+  }
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
+    throw Object.assign(new Error('JSON content type required'), { status: 415 });
+  }
+  const body = parseTimesheetReceipt(await readBoundedJson(request, MAX_TIMESHEET_RECEIPT_BYTES));
+  const target = await env.DB.prepare(`SELECT r.record_id FROM records r
+    JOIN dispatch_queue q ON q.record_id = r.record_id
+    WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction'
+      AND r.status <> 'Deleted'`).bind(body.recordId).first();
+  if (!target) throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+
+  if (body.event === 'workbook_verified' || body.event === 'flow_completed') {
+    const priorEvents = await env.DB.prepare(`SELECT event_type FROM timesheet_delivery_receipts
+      WHERE record_id = ? AND flow_run_id = ? AND event_type IN ('flow_started', 'workbook_verified')`)
+      .bind(body.recordId, body.flowRunId).all();
+    const eventTypes = new Set((priorEvents.results || []).map((row) => row.event_type));
+    if (!eventTypes.has('flow_started') || (body.event === 'flow_completed' && !eventTypes.has('workbook_verified'))) {
+      throw Object.assign(new Error('Receipt events are out of order'), { status: 409 });
+    }
+  }
+
+  if (body.event === 'workbook_verified') {
+    const expectedRows = await expectedCorrectionRows(env, body.recordId);
+    const actualRows = body.evidence.verifiedRows;
+    const expectedKeys = expectedRows.map((entry) => `${entry.recordId}\0${entry.date}`).sort();
+    const actualKeys = actualRows.map((entry) => `${entry.recordId}\0${entry.date}`).sort();
+    if (!expectedRows.length || expectedKeys.length !== actualKeys.length ||
+        expectedKeys.some((key, index) => key !== actualKeys[index]) ||
+        body.evidence.created + body.evidence.updated + body.evidence.unchanged !== expectedRows.length) {
+      throw Object.assign(new Error('Workbook verification does not match the correction source'), { status: 409 });
+    }
+    body.evidence.verifiedRows = expectedRows;
+  }
+
+  const evidenceJson = JSON.stringify(body.evidence);
+  if (evidenceJson.length > 32_768) throw Object.assign(new Error('Receipt evidence is too large'), { status: 413 });
+  const priorRun = await env.DB.prepare(`SELECT run_started_at FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? LIMIT 1`).bind(body.recordId, body.flowRunId).first();
+  if (priorRun && priorRun.run_started_at !== body.runStartedAt) {
+    throw Object.assign(new Error('Receipt run start time conflict'), { status: 409 });
+  }
+  if (body.event === 'flow_failed' || body.event === 'flow_completed') {
+    const opposite = body.event === 'flow_failed' ? 'flow_completed' : 'flow_failed';
+    const terminal = await env.DB.prepare(`SELECT receipt_id FROM timesheet_delivery_receipts
+      WHERE record_id = ? AND flow_run_id = ? AND event_type = ? LIMIT 1`)
+      .bind(body.recordId, body.flowRunId, opposite).first();
+    if (terminal) throw Object.assign(new Error('Receipt terminal event conflict'), { status: 409 });
+  }
+
+  const existing = await env.DB.prepare(`SELECT run_started_at, evidence_json FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? AND event_type = ? LIMIT 1`)
+    .bind(body.recordId, body.flowRunId, body.event).first();
+  if (existing) {
+    if (existing.run_started_at !== body.runStartedAt || existing.evidence_json !== evidenceJson) {
+      throw Object.assign(new Error('Conflicting duplicate receipt'), { status: 409 });
+    }
+    return json({ accepted: true }, 200, origin);
+  }
+
+  const terminalEvent = await env.DB.prepare(`SELECT event_type FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? AND event_type IN ('flow_completed', 'flow_failed') LIMIT 1`)
+    .bind(body.recordId, body.flowRunId).first();
+  if (terminalEvent) throw Object.assign(new Error('Receipt run is already terminal'), { status: 409 });
+
+  const receivedAt = now();
+  try {
+    await env.DB.prepare(`INSERT INTO timesheet_delivery_receipts
+      (record_id, flow_run_id, run_started_at, event_type, received_at, evidence_json)
+      SELECT ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM records r JOIN dispatch_queue q ON q.record_id = r.record_id
+        WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND r.status <> 'Deleted'
+      )
+      ON CONFLICT(record_id, flow_run_id, event_type) DO NOTHING`)
+      .bind(body.recordId, body.flowRunId, body.runStartedAt, body.event, receivedAt, evidenceJson, body.recordId).run();
+  } catch (error) {
+    if (/timesheet receipt (?:run start time|terminal event) conflict/i.test(String(error && error.message || ''))) {
+      throw Object.assign(new Error('Conflicting receipt event'), { status: 409 });
+    }
+    throw error;
+  }
+  const stored = await env.DB.prepare(`SELECT run_started_at, evidence_json FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? AND event_type = ? LIMIT 1`)
+    .bind(body.recordId, body.flowRunId, body.event).first();
+  if (!stored) throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+  if (stored.run_started_at !== body.runStartedAt || stored.evidence_json !== evidenceJson) {
+    throw Object.assign(new Error('Conflicting duplicate receipt'), { status: 409 });
+  }
+  return json({ accepted: true }, 200, origin);
+}
+
 async function adminQueueStatus(env, identity) {
   if (!identity?.isAdmin) throw Object.assign(new Error('Correction queue status is restricted to Accounts'), { status: 403 });
-  const result = await env.DB.prepare('SELECT q.record_id, q.status, q.attempts, q.queued_at, q.last_sent_at AS sent_at, q.updated_at, q.last_error AS error, r.employee_name, r.owner_upn, r.record_date, r.payload_json FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id WHERE r.status <> \'Deleted\' ORDER BY q.updated_at DESC LIMIT 200').all();
+  const result = await env.DB.prepare('SELECT q.record_id, q.status, q.attempts, q.queued_at, q.last_sent_at AS sent_at, q.updated_at, q.last_error AS error, r.employee_name, r.owner_upn, r.record_date, r.payload_json FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id WHERE r.status <> \'Deleted\' ORDER BY q.updated_at DESC, q.record_id ASC LIMIT 200').all();
   const rows = result.results || [];
+  const receiptResult = await env.DB.prepare(`WITH queued_records AS (
+      SELECT q.record_id FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id
+      WHERE r.status <> 'Deleted' ORDER BY q.updated_at DESC, q.record_id ASC LIMIT 200
+    ), run_candidates AS (
+      SELECT receipt.record_id, receipt.flow_run_id, receipt.run_started_at,
+        MAX(receipt.received_at) AS last_received_at
+      FROM timesheet_delivery_receipts receipt
+      JOIN queued_records queued ON queued.record_id = receipt.record_id
+      GROUP BY receipt.record_id, receipt.flow_run_id, receipt.run_started_at
+    ), ranked_runs AS (
+      SELECT record_id, flow_run_id, run_started_at,
+        ROW_NUMBER() OVER (PARTITION BY record_id
+          ORDER BY run_started_at DESC, last_received_at DESC, flow_run_id DESC) AS run_rank
+      FROM run_candidates
+    )
+    SELECT receipt.record_id, receipt.flow_run_id, receipt.run_started_at,
+      receipt.event_type, receipt.received_at, receipt.evidence_json
+    FROM timesheet_delivery_receipts receipt
+    JOIN ranked_runs latest ON latest.record_id = receipt.record_id
+      AND latest.flow_run_id = receipt.flow_run_id
+      AND latest.run_started_at = receipt.run_started_at
+    WHERE latest.run_rank = 1
+    ORDER BY receipt.record_id, receipt.received_at, receipt.receipt_id`).all();
+  const latestRuns = new Map();
+  (receiptResult.results || []).forEach((receipt) => {
+    let run = latestRuns.get(receipt.record_id);
+    if (!run) {
+      run = { flowRunId: text(receipt.flow_run_id, '', 240), runStartedAt: text(receipt.run_started_at, '', 40), events: {} };
+      latestRuns.set(receipt.record_id, run);
+    }
+    let evidence = {};
+    try {
+      evidence = JSON.parse(String(receipt.evidence_json || '{}'));
+    } catch (_) {
+      evidence = {};
+    }
+    const event = text(receipt.event_type, '', 40);
+    const receivedAt = text(receipt.received_at, '', 80);
+    if (event === 'flow_started' || event === 'flow_completed') {
+      run.events[event] = { receivedAt };
+    } else if (event === 'flow_failed') {
+      run.events[event] = {
+        receivedAt,
+        stage: text(evidence.stage, '', 40),
+        safeError: text(evidence.safeError, '', 600)
+      };
+    } else if (event === 'workbook_verified') {
+      run.events[event] = {
+        receivedAt,
+        created: Number(evidence.created || 0),
+        updated: Number(evidence.updated || 0),
+        unchanged: Number(evidence.unchanged || 0),
+        verifiedRowCount: Array.isArray(evidence.verifiedRows) ? evidence.verifiedRows.length : 0
+      };
+    }
+  });
   const counts = { queued: 0, sending: 0, failed: 0, sent: 0, skipped: 0 };
   const records = rows.map((row) => {
     const state = text(row.status, 'unknown', 40).toLowerCase();
@@ -3598,7 +3925,8 @@ async function adminQueueStatus(env, identity) {
       queuedAt: text(row.queued_at, '', 80),
       sentAt: text(row.sent_at, '', 80),
       updatedAt: text(row.updated_at, '', 80),
-      error: text(row.error, '', 1000)
+      error: text(row.error, '', 1000),
+      deliveryReceipt: latestRuns.get(row.record_id) || null
     };
   });
   const endpointConfigured = Boolean(dispatchEndpoint(env));
@@ -4850,6 +5178,9 @@ async function handle(request, env, ctx) {
   }
   const url = new URL(request.url);
   if (url.pathname === '/api/health' && request.method === 'GET') return json({ ok: true, service: 'gmt-portal-api', version: 1 }, 200, origin || '');
+  if (url.pathname === '/api/integrations/timesheet-delivery-receipts' && request.method === 'POST') {
+    return timesheetDeliveryReceiptEndpoint(request, env, origin || '');
+  }
   if (url.pathname === '/api/xero/callback' && request.method === 'GET') {
     if (!env.DB) return xeroRedirectResponse(xeroSettings(env).returnUrl, 'error', 'storage-not-configured');
     return completeXeroConnection(request, env);

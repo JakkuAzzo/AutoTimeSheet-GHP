@@ -103,8 +103,8 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-clock-date-time > label { min-width: 0; }
 .portal-updates {
   display: block;
-  margin: 1.2rem 0;
-  padding: clamp(1.1rem, 3vw, 1.6rem);
+  margin: .75rem 0;
+  padding: clamp(.8rem, 1.6vw, 1.2rem);
   color: #fff;
   background: linear-gradient(120deg, #123d1d, #2d6a3c);
   border: 1px solid #2d6a3c;
@@ -114,9 +114,9 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-updates h2 { margin: .25rem 0 .4rem; color: #fff; font-size: clamp(1.4rem, 3.5vw, 2rem); }
 .portal-updates p:not(.eyebrow) { margin: 0; color: #e7f2e5; line-height: 1.5; }
 .portal-updates .eyebrow { margin: 0; color: #fff3b8; }
-.portal-today-layout { display: grid; grid-template-columns: minmax(14rem, .7fr) minmax(0, 1.3fr); gap: 1rem; align-items: center; }
+.portal-today-layout { display: grid; grid-template-columns: minmax(14rem, .7fr) minmax(0, 1.3fr); gap: .85rem; align-items: center; }
 .portal-updates-clock-heading { min-width: 0; }
-.portal-today-section .clock-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; align-items: end; gap: .3rem .7rem; min-width: 0; max-width: 52rem; margin: 0; padding: .75rem; color: var(--ink); background: #fff; border: 1px solid rgba(255,255,255,.65); }
+.portal-today-section .clock-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; align-items: end; justify-self: stretch; gap: .25rem .6rem; min-width: 0; max-width: none; margin: 0; padding: .6rem; color: var(--ink); background: #fff; border: 1px solid rgba(255,255,255,.65); }
 .portal-today-section .clock-card > * { min-width: 0; }
 .portal-today-section .clock-card label { margin: .1rem 0; }
 .portal-today-section .clock-card-heading,
@@ -738,6 +738,14 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .submissions-delivery-item > div { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
 .submissions-delivery-item p { margin: .3rem 0 0; overflow-wrap: anywhere; }
 .submissions-delivery-item .submissions-delivery-error { color: #7e2617; }
+.submissions-delivery-stages { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin: .7rem 0 0; padding: 0; list-style: none; }
+.submissions-delivery-stage { display: grid; align-content: start; gap: .35rem; min-width: 0; padding: .65rem; border: 1px solid var(--line); border-radius: .55rem; background: #fff; }
+.submissions-delivery-stage > div { display: flex; align-items: flex-start; justify-content: space-between; gap: .35rem; }
+.submissions-delivery-stage > div strong { min-width: 0; overflow-wrap: anywhere; }
+.submissions-delivery-stage small { color: var(--muted); }
+.submissions-delivery-stage > span, .submissions-delivery-stage p { margin: 0; overflow-wrap: anywhere; }
+.submissions-delivery-stage .portal-status { flex: 0 0 auto; }
+.submissions-delivery-stage .submissions-delivery-error { color: #7e2617; }
 .portal-history-filter { display: inline-flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .9rem; font-weight: 800; }
 .portal-history-filter select,
 .portal-history-filter input[type="date"] { min-height: 38px; padding: .35rem .65rem; border: 1px solid var(--line); border-radius: .65rem; background: #fff; color: var(--ink); font: inherit; }
@@ -1085,6 +1093,8 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .submissions-delivery-dialog { width: calc(100vw - 1rem); max-height: 88vh; padding: .8rem; }
   .submissions-delivery-dialog-heading { align-items: center; gap: .5rem; }
   .submissions-delivery-dialog-heading h2 { font-size: 1.2rem; }
+  .submissions-delivery-stages { grid-template-columns: minmax(0, 1fr); }
+  .submissions-delivery-stage > div { align-items: center; }
   .job-card-preview-heading { align-items: flex-start; flex-direction: column; }
   .job-card-preview-toggle { width: 100%; }
   .job-card-preview-toggle button { flex: 1 1 0; }

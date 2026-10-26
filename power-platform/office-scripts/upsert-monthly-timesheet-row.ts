@@ -77,6 +77,9 @@ type UpsertResult = {
   skipped: number;
   recordIds: string[];
   skippedRecordIds: string[];
+  verifiedRecordIds: string[];
+  verifiedRows: { recordId: string; date: string }[];
+  unverifiedRecordIds: string[];
 };
 
 const SHEET_NAME = "Timesheet Events";
@@ -406,6 +409,44 @@ function sameSubmission(a: (string | number | boolean)[], b: (string | number | 
   return a.slice(0, 20).every((value, column) => normalizedCell(value, column) === normalizedCell(b[column], column));
 }
 
+function samePayrollRow(actual: (string | number | boolean)[], expected: (string | number)[]): boolean {
+  // Verify the source identity, day, action, and fields that determine payroll.
+  // Display-only/source metadata such as notes and folder links are not used as
+  // proof that the workbook row was written correctly.
+  const payrollColumns = [0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 19];
+  return payrollColumns.every((column) => normalizedCell(actual[column], column) === normalizedCell(expected[column], column));
+}
+
+function verifyWrittenRows(sheet: ExcelScript.Worksheet, records: MonthlyTimesheetRecord[]): {
+  verifiedRecordIds: string[];
+  verifiedRows: { recordId: string; date: string }[];
+  unverifiedRecordIds: string[];
+} {
+  const used = sheet.getUsedRange(true);
+  const lastRow = used ? used.getRowIndex() + used.getRowCount() : 1;
+  const storedRows = lastRow > 1 ? sheet.getRange("A2:U" + lastRow).getValues() : [];
+  const verifiedRows: { recordId: string; date: string }[] = [];
+  const unverifiedRecordIds: string[] = [];
+  records.forEach((record) => {
+    const expected = recordValues(record);
+    const recordId = text(record.recordId).trim();
+    const date = normalizedCell(expected[4], 4);
+    const match = storedRows.some((row) =>
+      text(row[19]).trim() === recordId &&
+      normalizedCell(row[4], 4) === date &&
+      text(row[5]).trim().toLowerCase() === text(expected[5]).trim().toLowerCase() &&
+      samePayrollRow(row, expected)
+    );
+    if (match) verifiedRows.push({ recordId, date });
+    else unverifiedRecordIds.push(recordId);
+  });
+  return {
+    verifiedRecordIds: verifiedRows.map((row) => row.recordId),
+    verifiedRows,
+    unverifiedRecordIds
+  };
+}
+
 function isLinkedAbsenceSubmissionPair(a: (string | number | boolean)[], b: (string | number | boolean)[]): boolean {
   const recordId = text(a[19]).trim();
   const actionA = text(a[5]).trim().toLowerCase();
@@ -516,7 +557,8 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
       created: 0, updated: 0, unchanged: 0, flagged: 0,
       skipped: skippedRecords.length,
       recordIds: [],
-      skippedRecordIds: skippedRecords.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value))
+      skippedRecordIds: skippedRecords.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value)),
+      verifiedRecordIds: [], verifiedRows: [], unverifiedRecordIds: []
     };
   }
   const fileMatch = /^GMT Timesheet - (.+) - (?:Pay Month )?(\d{4}-\d{2})\.xlsx$/i.exec(workbook.getName());
@@ -597,11 +639,15 @@ function main(workbook: ExcelScript.Workbook, recordJson: string): UpsertResult 
     created++;
   });
 
+  const verification = verifyWrittenRows(sheet, records);
   const flagged = refreshReconciliation(workbook, sheet, rows);
   return {
     created, updated, unchanged, flagged,
     skipped: skippedRecords.length,
     recordIds: records.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value)),
-    skippedRecordIds: skippedRecords.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value))
+    skippedRecordIds: skippedRecords.map((record) => text(record.recordId).trim()).filter((value) => Boolean(value)),
+    verifiedRecordIds: verification.verifiedRecordIds,
+    verifiedRows: verification.verifiedRows,
+    unverifiedRecordIds: verification.unverifiedRecordIds
   };
 }

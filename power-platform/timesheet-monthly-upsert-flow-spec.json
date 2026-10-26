@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GMT dated pay-month intake and correction contract",
-  "version": "2",
+  "version": "3",
   "status": "target-contract-not-live",
   "observedLiveOn": "2026-09-28",
   "ownership": {
@@ -57,11 +57,58 @@
   },
   "writeOrder": [
     "Validate the source attachment and partition by dated pay month",
+    "For each protected pay-month correction, post flow_started for the correction record using the provider run ID and run start timestamp before any workbook write",
     "Run the tested pay-month register v3 Office Script against each exact company workbook",
-    "Check each script result and read back the dated rows and weekly/month totals",
+    "Require Office Script read-back to verify every accepted row by source ID, Date, Action and normalized payroll cells; post workbook_verified only when the verified rows exactly match the correction source",
     "Upsert the protected list/history item using the stable source record ID after the workbook update succeeds",
+    "Post flow_completed for the correction record only after all partitions and index writes succeed",
     "Mark the message processed only after all partitions and index writes succeed"
   ],
+  "deliveryReceipts": {
+    "status": "target-contract-not-live",
+    "endpointPath": "/api/integrations/timesheet-delivery-receipts",
+    "authentication": {
+      "header": "X-GMT-Delivery-Key",
+      "workerSecretBinding": "TIMESHEET_DELIVERY_CALLBACK_KEY",
+      "secretStorage": "Store as a secured Power Automate environment variable or approved secret-store value and as a Cloudflare Worker secret. Never put the value in this repository, a flow definition export, a workbook, or a browser request. Mark HTTP action inputs and outputs secure."
+    },
+    "runIdentity": {
+      "flowRunId": "The Power Automate workflow run name; stable for all callbacks in one run.",
+      "runStartedAt": "The Power Automate run start timestamp as RFC 3339; use the same value for every event in that run.",
+      "correctionRecordId": "The existing protected correction record ID. Do not accept it from an unauthenticated browser or substitute an Outlook message ID."
+    },
+    "idempotencyKey": ["recordId", "flowRunId", "event"],
+    "events": {
+      "flow_started": {
+        "when": "After source validation and pay-month routing, before any workbook write.",
+        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_started" }
+      },
+      "workbook_verified": {
+        "when": "After the Office Script re-reads the workbook and verifies every correction row; before the protected history index is updated.",
+        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "workbook_verified", "created": 0, "updated": 0, "unchanged": 1, "verifiedRecordIds": ["existing-correction-record-id|2026-10-26"], "verifiedRows": [{ "recordId": "existing-correction-record-id|2026-10-26", "date": "2026-10-26" }] }
+      },
+      "flow_completed": {
+        "when": "After workbook verification and all protected history/index actions succeed.",
+        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_completed" }
+      },
+      "flow_failed": {
+        "when": "When processing fails; post from the failure handler with the failed stage and a short, sanitised error. Never include names, email addresses, tokens, or full action outputs in safeError.",
+        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_failed", "stage": "workbook_readback", "safeError": "One or more dated rows did not match after the workbook write." },
+        "allowedStages": ["source_validation", "workbook_routing", "workbook_upsert", "workbook_readback", "history_index", "calendar_sync", "other"]
+      }
+    },
+    "workbookVerification": {
+      "officeScriptOutput": ["verifiedRecordIds", "verifiedRows", "unverifiedRecordIds"],
+      "requiredCondition": "Only post workbook_verified when unverifiedRecordIds is empty, verifiedRows exactly covers correction attachment row IDs and Dates, and created + updated + unchanged equals the verified row count.",
+      "noClientRouting": "The flow derives the employee workbook path from validated source data and approved pay-month rules. The callback body never carries or selects a workbook path, SharePoint item ID, employee, or tenant."
+    },
+    "retryPolicy": {
+      "identity": "Retry a callback with the same recordId, flowRunId, runStartedAt, event, and evidence. Matching retries are idempotent; conflicting evidence is rejected.",
+      "callbackOutage": "Retry only the failed receipt HTTP action with bounded backoff while the existing workbook and history work continues. Do not replay the whole flow or repeat a workbook write because a receipt call failed. If any receipt remains pending at run end, retry pending receipts in event order with the original identity and evidence when service returns; do not repeat the workbook action.",
+      "startOutage": "A flow_started callback outage must not block or duplicate payroll processing. Keep the receipt pending and do not submit later receipt events until flow_started is accepted; retry pending receipts in order, including after the processing run if needed.",
+      "failureOutage": "If the receipt service is unavailable, a failure receipt may also be unavailable. The portal must show the stage as not reported until the original run receipt is accepted."
+    }
+  },
   "corrections": {
     "mode": "replace-pay-month",
     "queueRequirement": "Regenerate each held correction with the controlled GMT Timesheet Record JSON attachment before delivery; the existing XLSX/CSV pair alone is insufficient",
@@ -71,6 +118,7 @@
   "certification": {
     "perSource": "Source message and attachment hash -> new successful trigger/run -> Run script workbook path and created/updated/unchanged counts -> downloaded SharePoint workbook cell comparison -> portal history projection",
     "perEmployee": "One active company workbook, two required tabs, all evidenced dated rows, accurate numeric break and total hours, weekly/month totals, resolved or explicitly provisional source conflicts",
-    "holdUntil": "Do not release the three protected corrections or send reviewer workbooks before the trigger, route, script and one isolated test replay are proven"
+    "holdUntil": "Do not release the three protected corrections or send reviewer workbooks before the trigger, route, script and one isolated test replay are proven",
+    "receiptProof": "A portal Verified state requires an accepted workbook_verified callback whose rows match the protected correction attachment; an email sent status or flow run alone is insufficient."
   }
 }

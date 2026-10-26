@@ -1137,6 +1137,44 @@
   function deliveryRecords() {
     return records.filter(function (record) { return record && !record.is_demo && record.dispatch && record.dispatch.status; });
   }
+  function receiptTime(value) {
+    if (!value) return "";
+    var date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" }).format(date);
+  }
+  function deliveryStage(label, state, timestamp, detail) {
+    var badgeClass = state === "Failed" ? "pending" : (["Saved", "Verified", "Completed"].indexOf(state) >= 0 ? "approved" : "");
+    return '<li class="submissions-delivery-stage"><div><strong>' + safe(label) + '</strong><span class="portal-status ' + badgeClass + '">' + safe(state) + '</span></div>' +
+      (timestamp ? '<small>' + (label === "Portal record saved" ? "Queued " : "Receipt recorded ") + safe(receiptTime(timestamp)) + '</small>' : '') +
+      (detail ? '<p>' + detail + '</p>' : '') + '</li>';
+  }
+  function deliveryStages(record) {
+    var receipt = record && record.deliveryReceipt || null;
+    var events = receipt && receipt.events || {};
+    var started = events.flow_started || null;
+    var verified = events.workbook_verified || null;
+    var completed = events.flow_completed || null;
+    var failed = events.flow_failed || null;
+    var failureStage = failed && String(failed.stage || "") || "";
+    var flowState = failed ? "Failed" : (completed ? "Completed" : (started ? "In progress" : "Not reported"));
+    var flowTimestamp = failed ? failed.receivedAt : (completed ? completed.receivedAt : (started && started.receivedAt));
+    var flowDetail = receipt && receipt.flowRunId
+      ? '<span><strong>Run ID:</strong> ' + safe(receipt.flowRunId) + '</span>' : '';
+    if (failed && failureStage) flowDetail += '<span><strong>Failed at:</strong> ' + safe(failureStage.replace(/[_-]/g, " ")) + '</span>';
+    if (failed && failed.safeError) flowDetail += '<span class="submissions-delivery-error"><strong>Details:</strong> ' + safe(failed.safeError) + '</span>';
+    var workbookFailed = !verified && ["workbook_routing", "workbook_upsert", "workbook_readback"].indexOf(failureStage) >= 0;
+    var workbookState = verified ? "Verified" : (workbookFailed ? "Failed" : "Not reported");
+    var workbookDetail = verified
+      ? '<span>' + safe(verified.created || 0) + ' created · ' + safe(verified.updated || 0) + ' updated · ' + safe(verified.unchanged || 0) + ' unchanged · ' + safe(verified.verifiedRowCount || 0) + ' rows checked</span>'
+      : '';
+    var portalDetail = record.status ? '<span>Queue status: ' + safe(String(record.status).replace(/[_-]/g, " ")) + '</span>' : '';
+    return '<ol class="submissions-delivery-stages">' +
+      deliveryStage("Portal record saved", "Saved", record.queuedAt || "", portalDetail) +
+      deliveryStage("Power Automate", flowState, flowTimestamp || "", flowDetail) +
+      deliveryStage("SharePoint workbook", workbookState, verified && verified.receivedAt || (workbookFailed && failed.receivedAt) || "", workbookDetail) +
+      '</ol>';
+  }
   function updateDeliveryIndicator(freshCounts) {
     if (!deliveryTrigger) return;
     deliveryTrigger.hidden = historyMeta.is_admin !== true;
@@ -1190,7 +1228,7 @@
       var sourceIdDetail = sourceId
         ? '<p><strong>Source record ID:</strong> ' + safe(sourceId) + '</p>'
         : '<p class="portal-history-warning">Source record ID unavailable; this item cannot be reconciled to a source record.</p>';
-      return '<li class="submissions-delivery-item"><div><strong>' + safe(record.employeeName || record.employee_name || "Timesheet correction") + '</strong><span class="portal-status ' + (state === "failed" ? "pending" : state === "sent" ? "approved" : "") + '">' + safe(label) + '</span></div><p>' + safe(record.date || "Date not recorded") + (record.attempts ? ' · ' + safe(record.attempts) + ' attempt' + (Number(record.attempts) === 1 ? "" : "s") : "") + (updated ? ' · ' + safe(updated) : "") + '</p>' + sourceIdDetail + (record.error ? '<p class="submissions-delivery-error"><strong>Details:</strong> ' + safe(record.error) + '</p>' : "") + '</li>';
+      return '<li class="submissions-delivery-item"><div><strong>' + safe(record.employeeName || record.employee_name || "Timesheet correction") + '</strong><span class="portal-status ' + (state === "failed" ? "pending" : state === "sent" ? "approved" : "") + '">' + safe(label) + '</span></div><p>' + safe(record.date || "Date not recorded") + (record.attempts ? ' · ' + safe(record.attempts) + ' attempt' + (Number(record.attempts) === 1 ? "" : "s") : "") + (updated ? ' · ' + safe(updated) : "") + '</p>' + sourceIdDetail + deliveryStages(record) + (record.error ? '<p class="submissions-delivery-error"><strong>Email handoff details:</strong> ' + safe(record.error) + '</p>' : "") + '</li>';
     }).join("");
     var providerCopy = data && data.providerStatus === "not-configured"
       ? "The outbound email route is not configured, so queued corrections have not been handed off."
@@ -1200,7 +1238,7 @@
           ? "The configured outbound route is available. A sent status means only that the email service accepted the message."
           : "The provider route state is unavailable. Refresh the queue status to try again.";
     deliveryDetails.innerHTML = '<p class="small-text submissions-delivery-provider">' + safe(providerCopy) + '</p>' + (items.length
-      ? '<ul class="submissions-delivery-summary">' + (summary || '<li>No queued delivery states were returned.</li>') + '</ul><p class="small-text submissions-delivery-note">“Email accepted” does not confirm that Power Automate ran or that a SharePoint workbook was updated.</p><h3>Recent correction records</h3><ul class="submissions-delivery-list">' + details + '</ul>' + (data && (data.truncated || items.length > 100) ? '<p class="small-text">Showing the latest 100 tracked corrections.</p>' : "")
+      ? '<ul class="submissions-delivery-summary">' + (summary || '<li>No queued delivery states were returned.</li>') + '</ul><p class="small-text submissions-delivery-note">Email acceptance is shown separately from the Power Automate and workbook receipts below.</p><h3>Recent correction records</h3><ul class="submissions-delivery-list">' + details + '</ul>' + (data && (data.truncated || items.length > 100) ? '<p class="small-text">Showing the latest 100 tracked corrections.</p>' : "")
       : '<p class="portal-history-empty">No correction records are currently in the delivery queue.</p><p class="small-text submissions-delivery-note">This status view does not claim that a SharePoint workbook was updated.</p>');
   }
   async function openDeliveryStatus() {
