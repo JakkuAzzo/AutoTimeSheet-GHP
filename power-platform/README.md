@@ -86,6 +86,47 @@ target routing or replay has been deployed. The local
 [`intake-record-routing.mjs`](intake-record-routing.mjs) validator exercises
 legacy and correction attachment shapes against Date-column pay months.
 
+### Timesheet correction delivery receipts
+
+The portal can show end-to-end correction stages only after the Power Automate
+flow posts authenticated receipts to the Cloudflare Worker. The local target
+contract is documented in
+[`timesheet-monthly-upsert-flow-spec.json`](timesheet-monthly-upsert-flow-spec.json);
+it is **not configured in the live flow yet**.
+
+For each existing protected correction, the flow must use the same provider
+run name and RFC 3339 start timestamp for all events. Post `flow_started` after
+source validation and routing, before the workbook write. The Office Script
+returns `verifiedRecordIds`, `verifiedRows` and `unverifiedRecordIds` only after
+re-reading `Timesheet Events` and comparing source ID, date, action, status,
+absence, clock and payroll-hour cells. Post `workbook_verified` only when every
+source row is present and verified, and the created/updated/unchanged counts
+match the verified row count. In the normal path, record that receipt before
+updating the history index. Post `flow_completed` after all required
+downstream actions succeed, or `flow_failed` with one of the contract's
+allowed stages and a sanitised, single-line error.
+
+The callback uses `POST /api/integrations/timesheet-delivery-receipts`, JSON,
+and the `X-GMT-Delivery-Key` header. Configure the same randomly generated
+secret as the Cloudflare Worker secret `TIMESHEET_DELIVERY_CALLBACK_KEY` and a
+secured Power Automate environment variable or approved secret store. Do not
+put secret values in this repository, flow exports, workbook content, browser
+code or ordinary action logs; enable secure inputs and outputs for callback
+actions. The callback accepts only the protected correction record ID and
+receipt evidence: it does not accept a workbook path, employee, SharePoint
+item, or tenant from the caller. The flow remains responsible for resolving
+the workbook from validated source data and the established routing rules.
+
+Callback identity is `(recordId, flowRunId, event)`. Retry a failed callback
+action with the original identity, timestamp and identical body; matching
+retries are idempotent. A callback outage must not stop the existing payroll
+work or trigger a repeat workbook write. Keep processing the workbook and
+history, then retry any pending callbacks in event order with the same evidence
+when service returns. A missing receipt remains “Not reported” in the portal;
+email acceptance alone does not prove a flow run or workbook update. Live flow
+configuration, Worker secret provisioning and a controlled synthetic
+end-to-end run still require an authorised Power Platform operator.
+
 The optional `tools/GmtDataverseBootstrap` project is a controlled, local
 metadata bootstrap for a fresh developer environment. It was **not** used to
 create the current `crbf9_` proof tables. Do not run it against production and

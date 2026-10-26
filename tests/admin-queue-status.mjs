@@ -7,7 +7,7 @@ function mockDb(rows) {
     calls,
     prepare(sql) {
       calls.push(sql);
-      return { all: async () => ({ results: rows }) };
+      return { all: async () => ({ results: /WITH queued_records AS/i.test(sql) ? [] : rows }) };
     }
   };
 }
@@ -28,7 +28,8 @@ assert.equal(pending.records[1].error, 'Workbook route not certified');
 assert.equal(pending.records[2].status, 'sent');
 assert.equal('owner_upn' in pending.records[0], false, 'the read-only status response exposes no mailbox identity');
 assert.equal(JSON.stringify(pending).includes('formsubmit.co'), false, 'provider endpoint details stay private');
-assert.equal(db.calls.length, 1);
+assert.equal(db.calls.length, 2, 'queue status reads dispatch rows and delivery receipts separately');
+assert.match(db.calls[1], /timesheet_delivery_receipts/);
 
 const unconfigured = await adminQueueStatus({ DB: mockDb([]) , PAY_MONTH_REPLAY_READY: 'true' }, { isAdmin: true });
 assert.equal(unconfigured.providerStatus, 'not-configured');
