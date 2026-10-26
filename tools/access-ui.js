@@ -18,6 +18,15 @@
     if (description) description.textContent = value;
   }
 
+  function syncToolGroups() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-tool-group]"), function (group) {
+      var visible = Array.prototype.some.call(group.querySelectorAll("[data-tool-card]"), function (card) {
+        return !card.hidden;
+      });
+      group.hidden = !visible;
+    });
+  }
+
   function setStatus(message, role, canRetry) {
     if (status) {
       status.textContent = message;
@@ -33,6 +42,7 @@
     setCardVisible("job-cards", false);
     setCardVisible("tasks", false);
     setCardVisible("invoices", false);
+    syncToolGroups();
   }
 
   function applyAccess(access) {
@@ -59,6 +69,7 @@
       ? "Review the shared schedule and request time off from a day."
       : "Review your requests and request time off from a day.");
     setStatus("", "status", false);
+    syncToolGroups();
   }
 
   async function checkAccess() {
@@ -85,5 +96,6 @@
   }
 
   if (retry) retry.addEventListener("click", checkAccess);
+  syncToolGroups();
   checkAccess();
 }());

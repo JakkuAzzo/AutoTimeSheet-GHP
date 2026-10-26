@@ -36,4 +36,15 @@ assert.equal(event.row.start, '08:45');
 assert.equal(event.row.finish, '17:00');
 assert.match(event.detail, /7h 45m/);
 
+const unpaidRecords = [
+  { employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk', kind: 'timesheets', action: 'submission', status: 'Submitted', record_date: '2026-10-16', source_record_id: 'timesheet-unpaid-day', payload: { rows: [{ date: '2026-10-16', start: '08:00', finish: '17:00', lunchMinutes: 0, workedMinutes: 540, workedHours: 9, absenceStatus: 'Un-Paid' }] } },
+  { employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk', kind: 'clock', action: 'clock_in', status: 'Submitted', record_date: '2026-10-16', source_record_id: 'clock-in-unpaid-day', payload: { row: { date: '2026-10-16', start: '08:00', absenceStatus: 'NA' } } },
+  { employee_name: 'Michelle Reid', employee_upn: 'micheller.admin@gmt-services.co.uk', kind: 'clock', action: 'clock_out', status: 'Submitted', record_date: '2026-10-16', source_record_id: 'clock-out-unpaid-day', payload: { row: { date: '2026-10-16', finish: '17:00', absenceStatus: 'NA' } } }
+];
+const unpaidRollup = calendar.combineDailyRecords(unpaidRecords, options)[0];
+assert.equal(calendar.rowsFor(unpaidRollup)[0].workedMinutes, 0, 'the calendar rollup must not recalculate hours from clocks on an Un-Paid day');
+const unpaidEvent = calendar.recordsToEvents(unpaidRecords, options)[0];
+assert.match(unpaidEvent.detail, /Un-Paid/);
+assert.doesNotMatch(unpaidEvent.detail, /9h/);
+
 console.log('Clock event daily rollup: PASS');

@@ -26,7 +26,8 @@ function extractSection(source, openingTag) {
   throw new Error(`unclosed section starting with ${openingTag}`);
 }
 
-const dashboardSection = extractSection(pageSource, '<section class="portal-updates"');
+const dashboardMain = pageSource.match(/<main class="app-main portal-dashboard-main"[^>]*>([\s\S]*?)<\/main>/)?.[1];
+assert.ok(dashboardMain, 'dashboard main content should exist');
 const tasks = Array.from({ length: 12 }, (_, index) => ({
   kind: 'tasks',
   source_record_id: `task-${index + 1}`,
@@ -102,7 +103,7 @@ const pages = [];
 async function createDashboardPage(viewport, scenario) {
   const page = await browser.newPage({ viewport });
   pages.push(page);
-  await page.setContent(`<style>${stylesheet}</style><main class="app-main portal-dashboard-main">${dashboardSection}</main>`);
+  await page.setContent(`<style>${stylesheet}</style><main class="app-main portal-dashboard-main">${dashboardMain}</main>`);
   const empty = scenario === 'empty';
   const disconnected = scenario === 'disconnected';
   const missingIdentity = scenario === 'identity-missing';
@@ -148,18 +149,12 @@ async function createDashboardPage(viewport, scenario) {
 
 try {
   const page = await createDashboardPage({ width: 390, height: 844 }, 'populated');
-  assert.equal(await page.locator('[data-updates-slide]').count(), 3, 'dashboard carousel should contain three pages');
-  assert.equal(await page.locator('[data-updates-dot]').count(), 3, 'carousel should have one indicator per page');
-  assert.equal(await page.locator('[data-updates-slide="0"]').getAttribute('aria-label'), 'Page 1 of 3');
-  assert.equal(await page.locator('[data-updates-slide="1"]').getAttribute('aria-label'), 'Page 2 of 3');
-  assert.equal(await page.locator('[data-updates-slide="2"]').getAttribute('aria-label'), 'Page 3 of 3');
-  assert.equal(await page.locator('[role="tablist"]').getAttribute('aria-label'), 'Dashboard pages');
-  assert.equal(await page.locator('[data-updates-dot="0"]').getAttribute('aria-selected'), 'true');
-  assert.equal(await page.locator('[data-updates-dot="0"]').getAttribute('tabindex'), '0');
-  assert.equal(await page.locator('[data-updates-dot="1"]').getAttribute('tabindex'), '-1');
-  assert.equal(await page.locator('[data-updates-dot="2"]').getAttribute('aria-label'), 'My statistics');
-  assert.equal(await page.locator('#portal-updates-slide-1 #portal-notifications').count(), 1, 'Updates should be on page 2');
-  assert.equal(await page.locator('#portal-updates-slide-1 #portal-task-board').count(), 1, 'Task Board should share page 2');
+  assert.equal(await page.locator('[data-updates-slide], [data-updates-carousel], [data-updates-dot], [data-updates-next], [data-updates-prev]').count(), 0, 'dashboard tasks and statistics should be visible without carousel navigation');
+  const dashboardSections = await page.locator('main > section').evaluateAll((items) => items.map((item) => item.getAttribute('aria-label') || item.querySelector('h2')?.textContent?.trim() || ''));
+  assert.deepEqual(dashboardSections.slice(0, 5), ['Today', 'What do you need to do?', 'My work', 'My statistics', 'Shared information']);
+  assert.equal(await page.locator('#portal-task-board').isVisible(), true);
+  assert.equal(await page.locator('#portal-notifications').isVisible(), true);
+  assert.equal(await page.locator('#portal-statistics-title').isVisible(), true);
   assert.equal(await page.locator('#portal-statistics-pay-month').inputValue(), currentPayMonth, 'statistics should default to the current GMT pay month');
   assert.equal(await page.locator('[data-statistics-value="worked-days"]').innerText(), '2', 'distinct worked dates should exclude duplicates and holidays');
   assert.equal(await page.locator('[data-statistics-value="holiday-days"]').innerText(), '1', 'holiday rows should be counted separately');
@@ -169,8 +164,6 @@ try {
   assert.match(await page.locator('#portal-statistics-source-note').innerText(), /records currently available to your account/i);
   const statisticMonths = await page.locator('#portal-statistics-pay-month option').evaluateAll((options) => options.map((option) => option.value));
   assert.ok(statisticMonths.includes(priorPayMonth), 'the selector should offer a prior pay month present in personal history');
-  await page.locator('[data-updates-dot="2"]').click();
-  assert.equal(await page.locator('[data-updates-slide="2"]').getAttribute('hidden'), null, 'statistics should be reachable as the third slide');
   await page.locator('#portal-statistics-pay-month').selectOption(priorPayMonth);
   assert.equal(await page.locator('[data-statistics-value="worked-days"]').innerText(), '1');
   assert.equal(await page.locator('[data-statistics-value="holiday-days"]').innerText(), '0');
@@ -178,18 +171,12 @@ try {
   assert.equal(await page.locator('[data-statistics-value="job-cards-raised"]').innerText(), '0');
   assert.equal(await page.locator('[data-statistics-value="tasks-completed"]').innerText(), '1');
   await page.locator('#portal-statistics-pay-month').selectOption(currentPayMonth);
-  await page.locator('[data-updates-dot="0"]').click();
   assert.match(await page.locator('#portal-notification-status').innerText(), /Showing the 8 most recent of 31 updates\./, 'the eight-notification limit should be visible to users');
 
   await page.locator('input[name="employee_name"]').fill('Retained dashboard entry');
-  await page.locator('[data-updates-next]').click();
-  await page.locator('[data-updates-next]').click();
-  assert.equal(await page.locator('[data-updates-slide="2"]').getAttribute('hidden'), null, 'statistics should be reachable as the third slide');
-  assert.equal(await page.locator('[data-updates-dot="2"]').getAttribute('aria-selected'), 'true');
-  await page.locator('[data-updates-prev]').click();
-  assert.equal(await page.locator('[data-updates-slide="0"]').getAttribute('hidden'), '');
-  assert.equal(await page.locator('[data-updates-slide="1"]').getAttribute('hidden'), null);
-  assert.equal(await page.locator('[data-updates-dot="1"]').getAttribute('aria-selected'), 'true');
+  assert.equal(await page.locator('[data-clock-form]').isVisible(), true, 'clock-in should stay in Today');
+  assert.equal(await page.locator('[data-statistics-value="worked-days"]').innerText(), '2', 'checking another dashboard panel should not hide or reset statistics');
+  assert.equal(await page.locator('input[name="employee_name"]').inputValue(), 'Retained dashboard entry', 'dashboard sections should preserve clock-in form data');
   assert.equal(await page.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'every task should remain available');
   assert.equal(await page.locator('#portal-notifications [data-notification-index]').count(), 8, 'Updates should be capped at eight notifications');
   const firstTask = page.locator('#portal-task-board .portal-task-card').first();
@@ -204,16 +191,8 @@ try {
   await page.locator('[data-notification-index="0"]').click();
   assert.equal(await page.locator('.portal-notification-dialog[open]').count(), 1, 'notification details should still open');
   await page.locator('[data-notification-close]').click();
-  await page.locator('[data-updates-prev]').click();
-  assert.equal(await page.locator('[data-updates-slide="0"]').getAttribute('hidden'), null);
-  assert.equal(await page.locator('input[name="employee_name"]').inputValue(), 'Retained dashboard entry', 'changing carousel pages should preserve clock-in form data');
-  await page.locator('[data-updates-dot="0"]').focus();
-  await page.keyboard.press('ArrowRight');
-  assert.equal(await page.locator('[data-updates-dot="1"]').getAttribute('aria-selected'), 'true', 'ArrowRight should navigate the carousel');
-  assert.equal(await page.locator('[data-updates-dot="1"]').evaluate((element) => element === document.activeElement), true, 'keyboard navigation should move focus with selection');
 
   const responsiveResults = [];
-  await page.locator('[data-updates-dot="2"]').click();
   for (const width of [1440, 1024, 851, 850, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     const metrics = await page.evaluate(() => {
@@ -223,7 +202,11 @@ try {
         width: innerWidth,
         documentWidth: document.documentElement.scrollWidth,
         bodyWidth: document.body.scrollWidth,
-        cardColumns
+        cardColumns,
+        overflowing: [...document.querySelectorAll('body *')].filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.right > innerWidth + 1;
+        }).slice(0, 8).map((element) => ({ tag: element.tagName, className: element.className?.baseVal || element.className, id: element.id, right: Math.round(element.getBoundingClientRect().right) }))
       };
     });
     responsiveResults.push(metrics);

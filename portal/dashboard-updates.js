@@ -1,13 +1,6 @@
 (function () {
   "use strict";
 
-  var carousel = document.querySelector("[data-updates-carousel]");
-  if (!carousel) return;
-
-  var slides = Array.prototype.slice.call(carousel.querySelectorAll("[data-updates-slide]"));
-  var dots = Array.prototype.slice.call(carousel.querySelectorAll("[data-updates-dot]"));
-  var previous = carousel.querySelector("[data-updates-prev]");
-  var next = carousel.querySelector("[data-updates-next]");
   var board = document.getElementById("portal-task-board");
   var status = document.getElementById("portal-task-board-status");
   var taskRetry = document.querySelector('[data-dashboard-retry="tasks"]');
@@ -17,7 +10,6 @@
   var statisticsStatus = document.getElementById("portal-statistics-status");
   var statisticsMonth = document.getElementById("portal-statistics-pay-month");
   var statisticsRetry = document.querySelector('[data-dashboard-retry="statistics"]');
-  var current = 0;
   var notificationRecords = [];
   var notificationDialog = null;
   var personalHistoryRecords = null;
@@ -435,23 +427,6 @@
     board.innerHTML = records.map(renderTask).join("");
   }
 
-  function show(index) {
-    if (!slides.length) return;
-    current = (index + slides.length) % slides.length;
-    slides.forEach(function (slide, slideIndex) {
-      var active = slideIndex === current;
-      slide.hidden = !active;
-      slide.setAttribute("aria-hidden", String(!active));
-      slide.id = "portal-updates-slide-" + slideIndex;
-    });
-    dots.forEach(function (dot, dotIndex) {
-      var active = dotIndex === current;
-      dot.classList.toggle("is-active", active);
-      dot.setAttribute("aria-selected", String(active));
-      dot.tabIndex = active ? 0 : -1;
-    });
-  }
-
   async function loadTasks() {
     if (!board || !status) return;
     if (taskRetry) {
@@ -520,21 +495,10 @@
     }
   }
 
-  if (previous) previous.addEventListener("click", function () { show(current - 1); });
-  if (next) next.addEventListener("click", function () { show(current + 1); });
   if (taskRetry) taskRetry.addEventListener("click", loadTasks);
   if (notificationRetry) notificationRetry.addEventListener("click", loadNotifications);
   if (statisticsRetry) statisticsRetry.addEventListener("click", loadNotifications);
   if (statisticsMonth) statisticsMonth.addEventListener("change", renderStatisticsForMonth);
-  dots.forEach(function (dot, index) {
-    dot.addEventListener("click", function () { show(index); });
-    dot.addEventListener("keydown", function (event) {
-      if (event.key === "ArrowRight") { event.preventDefault(); show(current + 1); dots[current].focus(); }
-      if (event.key === "ArrowLeft") { event.preventDefault(); show(current - 1); dots[current].focus(); }
-    });
-  });
-
-  show(0);
   if (statisticsMonth) populateStatisticsMonths([]);
   if (window.GMTPortalApi && typeof window.GMTPortalApi.access === "function") {
     window.GMTPortalApi.access().then(function (access) {

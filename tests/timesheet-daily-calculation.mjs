@@ -130,8 +130,8 @@ try {
   });
   await page.waitForTimeout(250);
 
-  await page.locator('#week-start').fill('2026-06-26');
-  await page.locator('#week-end').fill('2026-06-30');
+  await page.locator('#week-start').fill('2026-10-12');
+  await page.locator('#week-end').fill('2026-10-16');
   await page.locator('#generate-days-btn').click();
   await page.waitForFunction(() => document.querySelectorAll('.day-card').length === 5, null, { timeout: 5000 });
 
@@ -141,11 +141,11 @@ try {
     finish: card.querySelector('[data-field="finish"]')?.value
   })));
   assert.deepEqual(generatedDefaults, [
-    { date: '2026-06-26', start: '08:00', finish: '17:00' },
-    { date: '2026-06-27', start: '08:00', finish: '17:00' },
-    { date: '2026-06-28', start: '08:00', finish: '17:00' },
-    { date: '2026-06-29', start: '08:00', finish: '17:00' },
-    { date: '2026-06-30', start: '08:00', finish: '17:00' }
+    { date: '2026-10-12', start: '08:00', finish: '17:00' },
+    { date: '2026-10-13', start: '08:00', finish: '17:00' },
+    { date: '2026-10-14', start: '08:00', finish: '17:00' },
+    { date: '2026-10-15', start: '08:00', finish: '17:00' },
+    { date: '2026-10-16', start: '08:00', finish: '17:00' }
   ]);
 
   await page.evaluate(() => {
@@ -160,6 +160,7 @@ try {
     finishes[4].value = '16:00';
     const absences = [...document.querySelectorAll('[data-field="absenceStatus"]')];
     absences[3].value = 'Time Off';
+    absences[4].value = 'Un-Paid';
     breaks.forEach((select) => select.dispatchEvent(new Event('change', { bubbles: true })));
     finishes.forEach((input) => input.dispatchEvent(new Event('input', { bubbles: true })));
     absences.forEach((select) => select.dispatchEvent(new Event('change', { bubbles: true })));
@@ -176,22 +177,41 @@ try {
     })),
     calculatedSummary: document.querySelector('#calculated-summary')?.value || '',
     payload: JSON.parse(document.querySelector('#timesheet-payload').value),
-    exportHeaders: Object.keys(allRowsForExport(JSON.parse(document.querySelector('#timesheet-payload').value).rows)[0] || {})
+    exportHeaders: Object.keys(allRowsForExport(JSON.parse(document.querySelector('#timesheet-payload').value).rows)[0] || {}),
+    exportRows: allRowsForExport(JSON.parse(document.querySelector('#timesheet-payload').value).rows),
+    staleUnpaid: calculateRows([{ date: '2026-10-16', start: '08:00', finish: '17:00', lunchMinutes: 0, absenceStatus: 'Un-Paid', workedMinutes: 540, workedHours: 9, totalMinutes: 540, basicHours: 8, ot15Hours: 1, ot20Hours: 2, weightedHours: 13, appliedBasic: 480, appliedOt15: 60, appliedOt20: 120, appliedTotal: 660 }])[0]
   }));
 
   assert.equal(logs.length, 0, `Unexpected browser logs: ${logs.join('\n')}`);
-  assert.match(result.pills[0], /Friday Worked - 9h 00m Basic - 9h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
-  assert.match(result.pills[1], /Saturday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
-  assert.match(result.pills[2], /Sunday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
-  assert.match(result.pills[3], /Monday Worked - 5h 00m Basic - 5h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
-  assert.match(result.pills[4], /Tuesday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[0], /Monday Worked - 9h 00m Basic - 9h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[1], /Tuesday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[2], /Wednesday Worked - 8h 00m Basic - 8h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[3], /Thursday Worked - 5h 00m Basic - 5h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
+  assert.match(result.pills[4], /Friday Worked - 0h 00m Basic - 0h 00m OT 1\.5 - 0h 00m OT 2\.0 - 0h 00m/);
   assert.equal(result.pills.some((text) => text.includes('Paid -')), false);
 
   assert.deepEqual(valuesFor(result.payload.rows[0]), { workedActual: 540, total: 540, basic: 480, ot15: 60, ot20: 0 });
-  assert.deepEqual(valuesFor(result.payload.rows[1]), { workedActual: 480, total: 480, basic: 0, ot15: 300, ot20: 180 });
-  assert.deepEqual(valuesFor(result.payload.rows[2]), { workedActual: 480, total: 480, basic: 0, ot15: 0, ot20: 480 });
+  assert.deepEqual(valuesFor(result.payload.rows[1]), { workedActual: 480, total: 480, basic: 480, ot15: 0, ot20: 0 });
+  assert.deepEqual(valuesFor(result.payload.rows[2]), { workedActual: 480, total: 480, basic: 480, ot15: 0, ot20: 0 });
   assert.deepEqual(valuesFor(result.payload.rows[3]), { workedActual: 300, total: 300, basic: 300, ot15: 0, ot20: 0 });
-  assert.deepEqual(valuesFor(result.payload.rows[4]), { workedActual: 480, total: 480, basic: 480, ot15: 0, ot20: 0 });
+  assert.deepEqual(valuesFor(result.payload.rows[4]), { workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0 });
+  assert.equal(result.payload.rows[4].date, '2026-10-16', 'the 16th should be available as Un-Paid time off');
+  assert.equal(result.payload.rows[4].absenceStatus, 'Un-Paid');
+  assert.equal(result.payload.rows[4].reportedWorkedMinutes, 480, 'retain the clock-derived value separately for audit');
+  assert.deepEqual({
+    workedMinutes: result.staleUnpaid.workedMinutes,
+    workedHours: result.staleUnpaid.workedHours,
+    totalMinutes: result.staleUnpaid.totalMinutes,
+    basicHours: result.staleUnpaid.basicHours,
+    ot15Hours: result.staleUnpaid.ot15Hours,
+    ot20Hours: result.staleUnpaid.ot20Hours,
+    weightedHours: result.staleUnpaid.weightedHours,
+    appliedBasic: result.staleUnpaid.appliedBasic,
+    appliedOt15: result.staleUnpaid.appliedOt15,
+    appliedOt20: result.staleUnpaid.appliedOt20,
+    appliedTotal: result.staleUnpaid.appliedTotal
+  }, { workedMinutes: 0, workedHours: 0, totalMinutes: 0, basicHours: 0, ot15Hours: 0, ot20Hours: 0, weightedHours: 0, appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, appliedTotal: 0 }, 'Un-Paid must override stale row and payroll values in the entry calculator');
+  assert.equal(result.exportRows.find((row) => row.Date === '2026-10-16')['Worked hours'], 0, 'payroll exports must carry zero on an Un-Paid row');
   assert.deepEqual(result.payload.rows.map((row) => ({
     appliedBasic: row.appliedBasic,
     appliedOt15: row.appliedOt15,
@@ -199,21 +219,21 @@ try {
     overtimeHeld: row.overtimeHeld
   })), [
     { appliedBasic: 540, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
-    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
-    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: true },
+    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false },
+    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false },
     { appliedBasic: 300, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false },
-    { appliedBasic: 480, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false }
+    { appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, overtimeHeld: false }
   ]);
-  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 2280, total: 2280, basic: 2280, ot15: 0, ot20: 0 });
+  assert.deepEqual(valuesFor(result.payload.totals), { workedActual: 1800, total: 1800, basic: 1800, ot15: 0, ot20: 0 });
   assert.deepEqual(result.summary.slice(0, 5), [
-    { label: 'Worked hours', value: '38h 00m' },
-    { label: 'Basic', value: '38h 00m' },
+    { label: 'Worked hours', value: '30h 00m' },
+    { label: 'Basic', value: '30h 00m' },
     { label: 'OT x1.5', value: '0h 00m' },
     { label: 'OT x2.0', value: '0h 00m' },
-    { label: 'Weighted hours', value: '38.00h' }
+    { label: 'Weighted hours', value: '30.00h' }
   ]);
-  assert.equal(result.summary.some((item) => /paid/i.test(item.label)), false);
-  assert.equal(/paid/i.test(result.calculatedSummary), false);
+  assert.ok(result.summary.some((item) => item.label === 'Un-Paid days' && item.value === '1'));
+  assert.match(result.calculatedSummary, /Un-Paid 1/);
   assert.equal(result.exportHeaders.some((header) => /paid/i.test(header)), false);
   assert.deepEqual(result.exportHeaders.filter((header) => /Basic|Worked|OT/.test(header)), [
     'Worked hours',
@@ -222,10 +242,10 @@ try {
     'OT x2.0 hours'
   ]);
 
-  await page.locator('.day-card[data-day-date="2026-06-27"] .remove-day').click();
-  await page.locator('.day-card[data-day-date="2026-06-28"] .remove-day').click();
-  await page.locator('#week-start').fill('2026-06-22');
-  await page.locator('#week-end').fill('2026-06-26');
+  await page.locator('.day-card[data-day-date="2026-10-13"] .remove-day').click();
+  await page.locator('.day-card[data-day-date="2026-10-14"] .remove-day').click();
+  await page.locator('#week-start').fill('2026-10-05');
+  await page.locator('#week-end').fill('2026-10-09');
   await page.locator('#generate-days-btn').click();
   await page.waitForFunction(() => document.querySelectorAll('.day-card').length === 5, null, { timeout: 5000 });
   await page.waitForTimeout(250);

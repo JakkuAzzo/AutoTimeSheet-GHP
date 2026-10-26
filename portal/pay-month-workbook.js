@@ -56,6 +56,7 @@
     var startMinutes = timeMinutes(start);
     var finishMinutes = timeMinutes(finish);
     var absence = asText(field(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"])).trim();
+    if (/^un-paid$/i.test(absence)) return 0;
     // Paid holiday contributes one standard 8-hour day to the pay-month total,
     // while sick/other absences remain zero unless the source has clocks.
     if (startMinutes === null && finishMinutes === null && /^holiday$/i.test(absence)) return 480;
@@ -91,6 +92,7 @@
   }
 
   function provisionalForRow(row) {
+    if (/^un-paid$/i.test(asText(field(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"])).trim())) return false;
     if (breakMinutes(row) !== null || asNumber(field(row, ["workedMinutes", "worked_minutes", "workedHours", "worked_hours", "hours", "totalHours", "Worked hours"])) !== null) return false;
     var start = timeMinutes(field(row, ["start", "startTime", "start_time", "clockIn", "clock_in"]));
     var finish = timeMinutes(field(row, ["finish", "finishTime", "finish_time", "clockOut", "clock_out"]));

@@ -648,6 +648,23 @@
     rows.forEach(function (row) {
       var start = timeMinutes(row.start);
       var finish = timeMinutes(row.finish);
+      var unpaid = /^un-paid$/i.test(String(row.absenceStatus || "").trim());
+      if (unpaid) {
+        // Un-Paid is a zero-pay classification even when older source rows
+        // retain clock intervals or stale hour totals. Keep those source
+        // values available in the reported fields for audit only.
+        if (row.reportedWorkedHours == null) row.reportedWorkedHours = row.workedHours;
+        if (row.reportedWorkedMinutes == null) row.reportedWorkedMinutes = row.workedMinutes;
+        row.workedMinutes = 0;
+        row.workedHours = 0;
+        row.basicHours = 0;
+        row.ot15Hours = 0;
+        row.ot20Hours = 0;
+        row.weightedHours = 0;
+        row.absenceIsNone = false;
+        row.calculationSource = "unpaid absence";
+        row.issues = row.issues.filter(function (issue) { return !/clock|break duration/i.test(issue); });
+      }
       var correctedFinish = start !== null && finish !== null && finish <= start ? pmEquivalentMinutes(row.finish, start) : null;
       if (correctedFinish !== null) {
         row.finish = formatClockMinutes(correctedFinish);
@@ -658,7 +675,11 @@
       // A clock interval is authoritative whenever both ends are present.
       // Keep any submitted total as reportedWorkedHours for audit, but do not
       // let a stale/malformed total drive calendar labels or pay-month totals.
-      if (start !== null && finish !== null && finish > start) {
+      if (unpaid) {
+        row.workedMinutes = 0;
+        row.workedHours = 0;
+        row.calculationSource = "unpaid absence";
+      } else if (start !== null && finish !== null && finish > start) {
         row.workedMinutes = Math.max(0, finish - start - breakMinutes);
         row.workedHours = row.workedMinutes / 60;
         row.calculationSource = 'clock interval';
@@ -676,7 +697,7 @@
       if (row.breakStatus === 'added' && row.lunchMinutes === null) row.issues.push('Break duration missing');
       if (row.absenceIsNone && start !== null && finish !== null && !row.breakStatus && row.lunchMinutes === null) row.issues.push('Break not recorded');
       if (!row.absenceIsNone && start === null && finish === null) row.breakStatus = row.breakStatus || 'not-required';
-      if (start !== null && finish !== null) {
+      if (!unpaid && start !== null && finish !== null) {
         if (finish === start) row.issues.push('Clock in and clock out are the same time');
         else if (finish < start) row.issues.push('Finish is earlier than clock in');
       }

@@ -16,6 +16,7 @@ const MAX_QUEUE_BATCH = 25;
 const MAX_PROFILE_NAME = 240;
 const MAX_PROFILE_EMAIL = 320;
 const ATTACHMENT_FIELDS = new Set(['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
+const SAFE_PAYROLL_ROW_KEYS = new Set(['Absence reason', 'Total hours', 'Total minutes', 'Worked hours', 'Worked minutes', 'Basic hours', 'Basic minutes', 'OT x1.5 hours', 'OT x1.5 minutes', 'OT x2.0 hours', 'OT x2.0 minutes', 'Weighted hours']);
 const JWKS_CACHE = new Map();
 const SHAREPOINT_TOKEN_CACHE = new Map();
 const SHAREPOINT_FOLDER_CACHE = new Set();
@@ -811,8 +812,8 @@ function validateNoFutureWork(kind, action, payload, nowDate = new Date()) {
   for (const row of rows) {
     const date = String(row?.date || '').slice(0, 10);
     const absence = String(row?.absenceStatus || row?.absenceReason || row?.absence || 'NA').trim().toLowerCase();
-    if (date > today && !['sick', 'holiday', 'absent'].includes(absence)) {
-      throw Object.assign(new Error('Future dates can only be marked absent, sick or holiday; worked time cannot be entered early.'), { status: 400 });
+    if (date > today && !['sick', 'holiday', 'absent', 'un-paid'].includes(absence)) {
+      throw Object.assign(new Error('Future dates can only be marked absent, sick, holiday or Un-Paid; worked time cannot be entered early.'), { status: 400 });
     }
   }
 }
@@ -856,7 +857,7 @@ function safePayloadValue(value, depth = 0) {
   if (typeof value === 'object') {
     const result = {};
     Object.keys(value).slice(0, 100).forEach((key) => {
-      if (!/^[A-Za-z][A-Za-z0-9_-]{0,80}$/.test(key)) return;
+      if (!/^[A-Za-z][A-Za-z0-9_-]{0,80}$/.test(key) && !SAFE_PAYROLL_ROW_KEYS.has(key)) return;
       if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
       const safeValue = safePayloadValue(value[key], depth + 1);
       if (safeValue !== undefined) result[key] = safeValue;
@@ -869,7 +870,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['schemaVersion', 'employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'cycleStart', 'cycleEnd', 'payrollFriday', 'recordDate', 'date', 'time', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'row', 'hours', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
+  const keys = ['schemaVersion', 'employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'cycleStart', 'cycleEnd', 'payrollFriday', 'recordDate', 'date', 'time', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'weightedHours', 'note', 'location', 'row', 'hours', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -920,6 +921,92 @@ function validatePortalRequestDeletion(existing) {
   }
 }
 
+function normaliseUnpaidTimesheetPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const rowKeys = ['rows', 'dailyRows', 'daily_rows', 'gmtDailyRows'];
+  const summaryRowsKey = rowKeys.find((key) => Array.isArray(payload[key]));
+  const reported = { worked: 0, basic: 0, ot15: 0, ot20: 0, weighted: 0, count: 0 };
+  const numeric = (row, keys) => {
+    for (const key of keys) {
+      const value = Number(row?.[key]);
+      if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '' && Number.isFinite(value)) return value;
+    }
+    return null;
+  };
+  const zeroRow = (source, collectSummary) => {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
+    const absence = String(source.absenceStatus || source.absence_status || source.absenceReason || source.absence_reason || source.absence || source['Absence reason'] || '').trim();
+    if (!/^un-paid$/i.test(absence)) return source;
+    const row = { ...source };
+    const workedMinutes = numeric(source, ['workedActual', 'workedMinutes', 'worked_minutes', 'totalMinutes', 'total_minutes', 'Total minutes', 'Worked minutes']);
+    const workedHours = numeric(source, ['workedHours', 'worked_hours', 'hours', 'totalHours', 'total_hours', 'Total hours', 'Worked hours']);
+    if (row.reportedWorkedMinutes === undefined && (workedMinutes !== null || workedHours !== null)) row.reportedWorkedMinutes = workedMinutes !== null ? workedMinutes : workedHours * 60;
+    if (row.reportedWorkedHours === undefined && (workedHours !== null || workedMinutes !== null)) row.reportedWorkedHours = workedHours !== null ? workedHours : workedMinutes / 60;
+    const basicMinutes = numeric(source, ['appliedBasic', 'applied_basic', 'basic', 'basicMinutes', 'basic_minutes', 'Basic minutes']);
+    const basicHours = numeric(source, ['basicHours', 'basic_hours', 'Basic hours']);
+    const ot15Minutes = numeric(source, ['appliedOt15', 'applied_ot15', 'ot15', 'ot15Minutes', 'ot15_minutes', 'OT x1.5 minutes']);
+    const ot15Hours = numeric(source, ['ot15Hours', 'ot15_hours', 'overtime15Hours']);
+    const ot20Minutes = numeric(source, ['appliedOt20', 'applied_ot20', 'ot20', 'ot20Minutes', 'ot20_minutes', 'OT x2.0 minutes']);
+    const ot20Hours = numeric(source, ['ot20Hours', 'ot20_hours', 'overtime20Hours']);
+    const rowWeighted = numeric(source, ['weightedHours', 'weighted_hours', 'Weighted hours']);
+    if (collectSummary) {
+      reported.worked += workedMinutes !== null ? workedMinutes : workedHours !== null ? workedHours * 60 : 0;
+      reported.basic += basicMinutes !== null ? basicMinutes : (basicHours || 0) * 60;
+      reported.ot15 += ot15Minutes !== null ? ot15Minutes : (ot15Hours || 0) * 60;
+      reported.ot20 += ot20Minutes !== null ? ot20Minutes : (ot20Hours || 0) * 60;
+      reported.weighted += rowWeighted !== null ? rowWeighted : (basicHours !== null ? basicHours : (basicMinutes || 0) / 60) + 1.5 * (ot15Hours !== null ? ot15Hours : (ot15Minutes || 0) / 60) + 2 * (ot20Hours !== null ? ot20Hours : (ot20Minutes || 0) / 60);
+      reported.count += 1;
+    }
+    if (row.reportedWorkedMinutes === undefined) row.reportedWorkedMinutes = row.reportedWorkedMinutes ?? (workedMinutes !== null ? workedMinutes : workedHours !== null ? workedHours * 60 : null);
+    if (row.reportedWorkedHours === undefined) row.reportedWorkedHours = row.reportedWorkedHours ?? (workedHours !== null ? workedHours : workedMinutes !== null ? workedMinutes / 60 : null);
+    Object.assign(row, {
+      workedMinutes: 0, worked_minutes: 0, workedHours: 0, worked_hours: 0, workedActual: 0,
+      total: 0, totalMinutes: 0, total_minutes: 0, totalHours: 0, total_hours: 0,
+      basic: 0, basicMinutes: 0, basic_minutes: 0, basicHours: 0, basic_hours: 0, appliedBasic: 0, applied_basic: 0,
+      ot15: 0, ot15Minutes: 0, ot15_minutes: 0, ot15Hours: 0, ot15_hours: 0, appliedOt15: 0, applied_ot15: 0,
+      ot20: 0, ot20Minutes: 0, ot20_minutes: 0, ot20Hours: 0, ot20_hours: 0, appliedOt20: 0, applied_ot20: 0,
+      appliedTotal: 0, weighted_hours: 0,
+      weightedHours: 0, calculationSource: 'unpaid absence'
+    });
+    ['worked_minutes', 'worked_hours', 'total_minutes', 'total_hours', 'basic_minutes', 'basic_hours', 'ot15_minutes', 'ot15_hours', 'ot20_minutes', 'ot20_hours', 'weighted_hours', 'applied_basic', 'applied_ot15', 'applied_ot20', 'totalMinutes', 'Worked minutes', 'Worked hours', 'Total minutes', 'Total hours', 'Basic minutes', 'Basic hours', 'OT x1.5 minutes', 'OT x1.5 hours', 'OT x2.0 minutes', 'OT x2.0 hours', 'Weighted hours'].forEach((key) => {
+      if (Object.hasOwn(source, key)) row[key] = 0;
+    });
+    return row;
+  };
+  rowKeys.forEach((key) => { if (Array.isArray(payload[key])) payload[key] = payload[key].map((row) => zeroRow(row, key === summaryRowsKey)); });
+  if (!reported.count) return payload;
+  const subtract = (object, key, amount) => {
+    if (Object.hasOwn(object, key) && Number.isFinite(Number(object[key]))) object[key] = Math.max(0, Number(object[key]) - amount);
+  };
+  const subtractGroup = (object, keys, amount) => keys.forEach((key) => subtract(object, key, amount));
+  if (payload.totals && typeof payload.totals === 'object') {
+    subtractGroup(payload.totals, ['workedActual', 'total', 'workedMinutes', 'worked_minutes', 'totalMinutes', 'total_minutes'], reported.worked);
+    subtractGroup(payload.totals, ['basic', 'basicMinutes', 'basic_minutes', 'appliedBasic', 'applied_basic'], reported.basic);
+    subtractGroup(payload.totals, ['ot15', 'ot15Minutes', 'ot15_minutes', 'appliedOt15', 'applied_ot15'], reported.ot15);
+    subtractGroup(payload.totals, ['ot20', 'ot20Minutes', 'ot20_minutes', 'appliedOt20', 'applied_ot20'], reported.ot20);
+    subtractGroup(payload.totals, ['workedHours', 'worked_hours', 'totalHours', 'total_hours', 'Worked hours', 'Total hours'], reported.worked / 60);
+    subtractGroup(payload.totals, ['basicHours', 'basic_hours', 'Basic hours'], reported.basic / 60);
+    subtractGroup(payload.totals, ['ot15Hours', 'ot15_hours', 'OT x1.5 hours'], reported.ot15 / 60);
+    subtractGroup(payload.totals, ['ot20Hours', 'ot20_hours', 'OT x2.0 hours'], reported.ot20 / 60);
+    subtract(payload.totals, 'weightedHours', reported.weighted);
+    subtract(payload.totals, 'weighted_hours', reported.weighted);
+    payload.totals.absent = Math.max(Number(payload.totals.absent) || 0, reported.count);
+    payload.totals.unpaid = Math.max(Number(payload.totals.unpaid) || 0, reported.count);
+  }
+  if (Object.hasOwn(payload, 'weightedHours') && Number.isFinite(Number(payload.weightedHours))) payload.weightedHours = Math.max(0, Number(payload.weightedHours) - reported.weighted);
+  [['workedHours', 'worked_hours'], ['basicHours', 'basic_hours'], ['ot15Hours', 'ot15_hours'], ['ot20Hours', 'ot20_hours']]
+    .forEach((keys, index) => keys.forEach((key) => subtract(payload, key, [reported.worked, reported.basic, reported.ot15, reported.ot20][index] / 60)));
+  const events = payload.calendarSync && Array.isArray(payload.calendarSync.events) ? payload.calendarSync.events : [];
+  events.forEach((event) => {
+    if (!event || typeof event !== 'object' || !/timesheet/i.test(String(event.type || event.title || ''))) return;
+    subtract(event, 'workedHours', reported.worked / 60);
+    subtract(event, 'basicHours', reported.basic / 60);
+    subtract(event, 'ot15Hours', reported.ot15 / 60);
+    subtract(event, 'ot20Hours', reported.ot20 / 60);
+  });
+  return payload;
+}
+
 function normaliseInput(body, identity, existing = null, env = null, payPeriods = defaultPayPeriods()) {
   const payload = parsePayload(body);
   const kind = canonicalKind(body.kind || body.type || payload.kind || existing?.kind);
@@ -938,6 +1025,7 @@ function normaliseInput(body, identity, existing = null, env = null, payPeriods 
   const syntheticTestName = /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
   const action = text(body.action || body.gmtAction || payload.action || (kind === 'clock' ? 'clock_event' : 'submission'), 'submission', 100);
   validateNoFutureWork(kind, action, payload);
+  if (kind === 'timesheets') normaliseUnpaidTimesheetPayload(payload);
   if (kind === 'timesheets' && action !== 'pay_month_correction') {
     const computedPayMonth = payMonthForPayload(payload, payload.weekStart || body.weekStart || body.startDate || body.start_date, payPeriods);
     if (computedPayMonth) payload.payMonth = computedPayMonth;
@@ -2593,6 +2681,7 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
       : null);
   const lunchHad = booleanUpstreamValue(upstreamObjectValue(row, ['lunchHad', 'lunch_had', 'breakTaken', 'break_taken', 'hadBreak']));
   const absenceStatus = text(upstreamObjectValue(row, ['absenceStatus', 'absence_status', 'absenceReason', 'absence_reason', 'absence', 'Absence reason']), 'NA', 160);
+  const unpaidAbsence = /^un-paid$/i.test(absenceStatus.trim());
   const status = text(upstreamObjectValue(row, ['status', 'Status']), defaults.status || 'Recorded', 120);
   const rowSubmittedAt = text(upstreamObjectValue(row, ['submittedAt', 'submitted_at', 'Submitted At']), defaults.submittedAt || '', 100);
   const sourceRecordId = text(upstreamObjectValue(row, ['recordId', 'record_id', 'sourceRecordId', 'source_record_id']), '', MAX_RECORD_ID);
@@ -2616,7 +2705,10 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
   let calculationSource = 'unavailable';
   const validationIssues = [];
   if (!date) validationIssues.push('Date missing');
-  if (!/^(?:na|n\/a|none|no absence|not applicable)$/i.test(absenceStatus.trim())) {
+  if (unpaidAbsence) {
+    workedMinutes = 0;
+    calculationSource = 'unpaid absence';
+  } else if (!/^(?:na|n\/a|none|no absence|not applicable)$/i.test(absenceStatus.trim())) {
     workedMinutes = reportedWorkedMinutes === null ? 0 : reportedWorkedMinutes;
     calculationSource = reportedWorkedMinutes === null ? 'absence' : 'reported absence total';
   } else if (startMinutes !== null && finishMinutes !== null) {
@@ -2655,10 +2747,10 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     reportedWorkedHours,
     reportedWorkedMinutes,
     calculationSource,
-    basicHours,
-    ot15Hours,
-    ot20Hours,
-    weightedHours: numericUpstreamValue(upstreamObjectValue(row, ['weightedHours', 'weighted_hours'])),
+    basicHours: unpaidAbsence ? 0 : basicHours,
+    ot15Hours: unpaidAbsence ? 0 : ot15Hours,
+    ot20Hours: unpaidAbsence ? 0 : ot20Hours,
+    weightedHours: unpaidAbsence ? 0 : numericUpstreamValue(upstreamObjectValue(row, ['weightedHours', 'weighted_hours'])),
     location: text(upstreamObjectValue(row, ['location', 'site', 'Location / site']), '', 500),
     note,
     submittedAt: rowSubmittedAt,

@@ -117,26 +117,21 @@ try {
   };
   const dashboard = await openRoute('/portal/', { access: employeeAccess });
   const dashboardPage = dashboard.page;
-  const slides = dashboardPage.locator('[data-updates-slide]');
-  assert.equal(await slides.count(), 3, 'the dashboard should keep three carousel pages');
-  assert.match(await slides.nth(0).innerText(), /Daily clock-in/i);
-  assert.equal(await slides.nth(0).locator('[data-clock-form]').count(), 1, 'daily clock-in should remain on the first dashboard page');
-  assert.equal(await slides.nth(0).getAttribute('hidden'), null, 'Daily Clock-In should be the initially selected page');
-  assert.equal(await slides.nth(1).getAttribute('hidden'), '', 'the second dashboard page should stay behind the page control');
-  assert.equal(await slides.nth(2).getAttribute('aria-label'), 'Page 3 of 3', 'personal statistics should be the third accessible carousel slide');
-  assert.equal(await slides.nth(2).getAttribute('hidden'), '', 'personal statistics should stay behind the page control initially');
-  assert.match(await slides.nth(2).innerText(), /My statistics/i);
+  const sections = await dashboardPage.locator('main > section').evaluateAll((items) => items.map((item) => item.getAttribute('aria-label') || item.querySelector('h2')?.textContent?.trim() || ''));
+  assert.deepEqual(sections.slice(0, 5), ['Today', 'What do you need to do?', 'My work', 'My statistics', 'Shared information'], 'dashboard sections should follow the staff task sequence');
+  assert.equal(await dashboardPage.locator('[data-updates-slide], [data-updates-next], [data-updates-prev], [data-updates-dot]').count(), 0, 'dashboard tasks and statistics should not require carousel navigation');
+  assert.equal(await dashboardPage.locator('[data-clock-form]').count(), 1, 'daily clock-in should remain on the dashboard');
+  assert.equal(await dashboardPage.locator('#portal-task-board').isVisible(), true, 'the task board should be visible without navigation');
+  assert.equal(await dashboardPage.locator('#portal-notifications').isVisible(), true, 'notifications should be visible without navigation');
+  assert.equal(await dashboardPage.locator('#portal-statistics-title').isVisible(), true, 'personal statistics should be visible without navigation');
   await dashboardPage.locator('#portal-statistics-pay-month').waitFor({ state: 'attached' });
   assert.match(await dashboardPage.locator('#portal-statistics-pay-month').inputValue(), /^\d{4}-\d{2}$/);
   assert.ok(dashboard.historyRequests().some((request) => request.kind === 'all' && request.limit === '500'), 'the dashboard should request the supported 500-record history bound');
   await dashboardPage.evaluate(() => window.GMTPortalApi.history('all', { limit: 999 }));
   assert.equal(dashboard.historyRequests().at(-1).limit, '500', 'the history API wrapper should cap requested history at 500 records');
-  await dashboardPage.locator('[data-updates-dot="2"]').click();
-  assert.equal(await slides.nth(2).getAttribute('hidden'), null, 'staff should be able to select personal statistics');
-  await dashboardPage.locator('[data-updates-dot="0"]').click();
   assert.equal(await dashboardPage.locator('[data-admin-users-link]').isVisible(), false, 'User management should remain hidden from a standard employee');
-  const secondPagePanels = await slides.nth(1).locator('.portal-updates-feed-panel h2').allTextContents();
-  assert.deepEqual(secondPagePanels, ['Updates and notifications', 'Task Board'], 'Updates and Task Board should retain their intended panel order');
+  const workPanels = await dashboardPage.locator('.portal-work-section h2').allTextContents();
+  assert.deepEqual(workPanels, ['My work', 'Task Board', 'Updates and notifications'], 'My work should put the task board before notifications');
   assert.equal(await dashboardPage.locator('a[href="submissions.html"]').count(), 1, 'Submitted documents should use its local HTML route');
   assert.equal(await dashboardPage.locator('a[href="timesheets.html"]').count(), 1, 'the calendar should use its local HTML route');
   await assertInternalLinksResolve(dashboardPage);
@@ -217,7 +212,6 @@ try {
     access: employeeAccess,
     historyRecords: [syntheticNotification]
   });
-  await notificationPage.page.locator('[data-updates-next]').click();
   await notificationPage.page.locator('[data-notification-index="0"]').click();
   const submittedDocumentLink = notificationPage.page.locator('.portal-notification-dialog a[href*="/portal/submissions"]');
   const submittedDocumentHref = await submittedDocumentLink.getAttribute('href');
@@ -225,13 +219,11 @@ try {
   assert.equal((await notificationPage.page.request.get(`${origin}${submittedDocumentHref}`)).status(), 200, 'the notification destination should resolve locally');
 
   const dashboardError = await openRoute('/portal/', { access: employeeAccess, historyFailure: true });
-  await dashboardError.page.locator('[data-updates-next]').click();
   await dashboardError.page.waitForFunction(() => !document.querySelector('#portal-task-board-status').textContent.startsWith('Loading'));
   assert.equal(await dashboardError.page.locator('#portal-task-board-status').innerText(), 'Synthetic history outage');
   assert.equal(await dashboardError.page.locator('#portal-notification-status').innerText(), 'Notifications could not be loaded.');
 
   const dashboardRetry = await openRoute('/portal/', { access: employeeAccess, historyFailureCount: 2 });
-  await dashboardRetry.page.locator('[data-updates-next]').click();
   await dashboardRetry.page.waitForFunction(() => !document.querySelector('#portal-task-board-status').textContent.startsWith('Loading')
     && !document.querySelector('#portal-notification-status').textContent.startsWith('Loading'));
   assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry task history' }).isVisible(), true, 'the Task Board error should offer a retry');
@@ -243,6 +235,11 @@ try {
   assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry task history' }).isVisible(), false, 'a recovered Task Board should clear its retry');
   assert.equal(dashboardRetry.historyKinds().filter((kind) => kind === 'tasks').length, 2, 'retry should reload task history independently');
   assert.equal(dashboardRetry.historyKinds().filter((kind) => kind === 'all').length, 3, 'notification retry should share its own history request; calendar loading remains separate');
+
+  const groupedTools = readFileSync(resolve(repoRoot, 'tools/index.html'), 'utf8');
+  assert.match(groupedTools, /aria-labelledby="tools-time-title"[\s\S]*?data-tool-card="calendar"[\s\S]*?data-tool-card="timesheets"[\s\S]*?data-tool-card="submissions"/, 'Time and attendance should group calendar, weekly timesheets and submission history');
+  assert.match(groupedTools, /aria-labelledby="tools-workshop-title"[\s\S]*?data-tool-card="job-cards"[\s\S]*?data-tool-card="tasks"/, 'Workshop work should group job cards and tasks');
+  assert.match(groupedTools, /aria-labelledby="tools-accounts-title"[\s\S]*?data-tool-card="estimates"[\s\S]*?data-tool-card="invoices"/, 'Accounts should group estimates and Xero invoices');
 
   console.log('Dashboard and Tools route navigation, role access and loading/error states: PASS');
 } finally {
