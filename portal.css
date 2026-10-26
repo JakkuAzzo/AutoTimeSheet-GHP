@@ -367,6 +367,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .enquiry-reply-form textarea { min-height: 6rem; width: 100%; }
 .portal-profile-card.account-settings-page { margin-top: 1.5rem; }
 .clock-location-control { display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; align-items: end; }
+.clock-location-control[hidden] { display: none; }
 .clock-location-control button { width: auto; white-space: nowrap; }
 .clock-location-status { min-height: 1.3em; margin: 0; }
 .portal-overview-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .85rem; margin: 1rem 0; }

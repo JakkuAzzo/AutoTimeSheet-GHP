@@ -131,6 +131,8 @@ try {
       date: card?.elements.clock_date.value || '',
       time: card?.elements.clock_time.value || '',
       locationMaxLength: card?.elements.clock_location.maxLength || 0,
+      locationControlHidden: card?.querySelector('.clock-location-control')?.hidden ?? false,
+      locationDisabled: card?.elements.clock_location.disabled ?? false,
       noteMaxLength: card?.elements.clock_note.maxLength || 0,
       title: document.querySelector('[data-clock-title]')?.textContent || '',
       submit: document.querySelector('[data-clock-submit]')?.textContent || ''
@@ -205,7 +207,6 @@ try {
     { action: 'full_day', label: 'Full Day', time: '', subjectKind: 'DAY', start: '08:00', finish: '17:00', lunchStart: '12:00', lunchEnd: '13:00', status: 'Recorded', worked: 8, note: 'Workshop repair call-out.' }
   ];
   await card.locator('[name="employee_name"]').fill('TEST Clock QA');
-  await card.locator('[name="clock_location"]').fill('Workshop');
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -260,6 +261,8 @@ try {
   assert.match(beforeSubmit.date, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(beforeSubmit.time, /^\d{2}:\d{2}$/);
   assert.equal(beforeSubmit.locationMaxLength, 240);
+  assert.equal(beforeSubmit.locationControlHidden, true, 'in-office mode hides the separate site field');
+  assert.equal(beforeSubmit.locationDisabled, true, 'in-office mode disables the separate site field');
   assert.equal(beforeSubmit.noteMaxLength, 1000);
   assert.equal(beforeSubmit.title, 'Clock In');
   assert.equal(beforeSubmit.submit, 'Submit clock in');
@@ -290,8 +293,8 @@ try {
     assert.equal(fields.get('gmt_workbook_key'), 'timesheet-test-clock-example-test-2026-09');
     assert.equal(fields.get('gmt_filing_mode'), 'monthly-upsert');
     assert.equal(fields.get('gmt_absence_reason'), entry.absence || '');
-    assert.equal(fields.get('gmt_location'), 'Workshop');
-    assert.equal(fields.get('location'), 'Workshop');
+    assert.equal(fields.get('gmt_location'), '', 'in-office clock records do not carry an unused site label');
+    assert.equal(fields.get('location'), '', 'in-office clock records do not carry an unused site label');
     assert.deepEqual(form.files.map((entry) => entry.name), ['attachment_record', 'attachment', 'attachment_csv']);
     assert.equal(fileList.length, 3, 'each quick record should attach record JSON, XLSX and CSV');
     const recordFile = fileList.find((file) => file.name.endsWith('.json'));
@@ -317,11 +320,11 @@ try {
     assert.equal(parsedClockCsv.created, 1, 'clock CSV from the browser producer must parse through the Office Script');
     assert.equal(parsedClockCsvBook.rows[1][0], 'TEST Clock QA');
     assert.equal(parsedClockCsvBook.rows[1][5], entry.action, 'clock CSV preserves the event action');
-    assert.equal(parsedClockCsvBook.rows[1][16], 'Workshop', 'clock CSV preserves the work location');
+    assert.equal(parsedClockCsvBook.rows[1][16], '', 'in-office clock records use the work-setting selection without a duplicate site field');
     assert.equal(parsedClockCsvBook.rows[1][19], fields.get('gmt_record_id'),
       'clock CSV carries the same original source ID as the clock record attachment');
     if (entry.absence) assert.equal(workbook.firstAllRow['Absence reason'], entry.absence);
-    assert.equal(workbook.firstAllRow['Location / site'], 'Workshop');
+    assert.equal(workbook.firstAllRow['Location / site'], '');
     if (entry.action === 'full_day') {
       assert.equal(workbook.firstAllRow['Lunch start'], entry.lunchStart);
       assert.equal(workbook.firstAllRow['Lunch end'], entry.lunchEnd);
