@@ -201,6 +201,8 @@ function buildFixtures(root) {
   const legacyPm = createWordFile(root, 'legacy-pm-finish.docx', { employee: 'Fixture Legacy PM', rows: [row('Monday 1st', '7.30', '6.00', '0', '8', '2.5', '0')] });
   const simonShortName = createWordFile(root, 'simon-short-name.docx', { employee: 'Simon', rows: cleanWeekRows });
   const simonFullName = createWordFile(root, 'simon-full-name.docx', { employee: 'Simon Thornton', rows: cleanWeekRows });
+  const nathanCleanName = createWordFile(root, 'nathan-clean-name.docx', { employee: 'Nathan Brown-Bennett', rows: cleanWeekRows });
+  const nathanPunctuatedName = createWordFile(root, 'nathan-punctuated-name.docx', { employee: '; Nathan Brown-Bennett', rows: cleanWeekRows });
   const ainsley = createWordFile(root, 'AINSLEY TIMESHEET GMT WEEK 1st June 2026 (2).docx', { employee: 'Ainsley Williams', rows: ainsleyWeekRows });
   const cleanAppXlsxRows = [
     { label: 'Day 1', date: '2026-06-01', weekday: 'Monday', start: '08:00', finish: '17:00', breakLabel: '1 hour', worked: 8, basic: 8 },
@@ -229,6 +231,7 @@ function buildFixtures(root) {
   addCase({ name: 'unsupported-file-included', zip: createZip(root, 'unsupported-file-included.zip', [cleanDocx, unsupportedDoc]), expected: expected({ parsedRows: 5, actual: 40, basic: 40, parseErrors: 1, employees: ['fixture alpha'] }) });
   addCase({ name: 'duplicate-week-file-scenario', zip: createZip(root, 'duplicate-week-file-scenario.zip', [employeeOne, employeeOne]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 1, actual: 80, basic: 80, employees: ['fixture person one'] }) });
   addCase({ name: 'confirmed-simon-name-alias', zip: createZip(root, 'confirmed-simon-name-alias.zip', [simonShortName, simonFullName]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 1, actual: 80, basic: 80, employees: ['simon thornton'] }) });
+  addCase({ name: 'employee-leading-punctuation-alias', zip: createZip(root, 'employee-leading-punctuation-alias.zip', [nathanCleanName, nathanPunctuatedName]), expected: expected({ sourceCount: 2, parsedRows: 10, combinedLines: 1, actual: 80, basic: 80, employees: ['nathan brown-bennett'] }) });
 
   if (process.env.AUDIT_ZIP_PATH && existsSync(process.env.AUDIT_ZIP_PATH)) {
     addCase({
@@ -376,6 +379,16 @@ async function runCase(page, port, item) {
     assert.deepEqual([...new Set(scopedAudit.audit.rows.map((sourceRow) => sourceRow.employee))], ['Simon Thornton']);
     assert.deepEqual(scopedAudit.audit.files.map((sourceFile) => sourceFile.file).filter((name) => name.endsWith('.docx')).sort(), ['simon-full-name.docx', 'simon-short-name.docx']);
     assert.equal(scopedAudit.metadata.selected_employee, 'Simon Thornton');
+  }
+
+  if (item.name === 'employee-leading-punctuation-alias') {
+    const employeeOptions = await page.locator('#employeeFilter option').allTextContents();
+    assert.deepEqual(employeeOptions, ['All employees', 'Nathan Brown-Bennett']);
+    await page.locator('#employeeFilter').selectOption({ label: 'Nathan Brown-Bennett' });
+    const scopedAudit = JSON.parse(await page.locator('#rawPreview').textContent());
+    assert.deepEqual([...new Set(scopedAudit.audit.rows.map((sourceRow) => sourceRow.employee))], ['Nathan Brown-Bennett']);
+    assert.deepEqual(scopedAudit.audit.files.map((sourceFile) => sourceFile.file).filter((name) => name.endsWith('.docx')).sort(), ['nathan-clean-name.docx', 'nathan-punctuated-name.docx']);
+    assert.equal(scopedAudit.metadata.selected_employee, 'Nathan Brown-Bennett');
   }
 
   return result;
