@@ -149,6 +149,43 @@
     return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 ? hour * 60 + minute : null;
   }
 
+  function pmEquivalentMinutes(value, startMinutes) {
+    var match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    var hour = Number(match[1]);
+    var minute = Number(match[2]);
+    var parsed = minutes(value);
+    if (hour < 1 || hour > 11 || minute > 59 || parsed === null || parsed >= startMinutes) return null;
+    var candidate = parsed + 12 * 60;
+    return candidate > startMinutes && candidate < 24 * 60 ? candidate : null;
+  }
+
+  function formatClockMinutes(value) {
+    var hour = Math.floor(value / 60);
+    var minute = value % 60;
+    return (hour < 10 ? "0" : "") + hour + ":" + (minute < 10 ? "0" : "") + minute;
+  }
+
+  function editorTimeWarning(startValue, finishValue) {
+    var start = minutes(startValue);
+    var finish = minutes(finishValue);
+    if (start === null || finish === null || finish > start) return "";
+    if (finish === start) return "Clock in and clock out are the same time. Correct the source times before saving.";
+    var pmFinish = pmEquivalentMinutes(finishValue, start);
+    var suggestion = pmFinish === null ? "" : " If the source means " + finishValue + " PM, enter " + formatClockMinutes(pmFinish) + ".";
+    return "Finish time is earlier than start time. The editor will not add an overnight shift automatically." + suggestion + " Correct the source times before saving.";
+  }
+
+  function refreshEditorWarnings(form) {
+    form.querySelectorAll("[data-time-warning]").forEach(function (warning) {
+      var index = warning.getAttribute("data-time-warning");
+      var absence = form.elements["absence-" + index].value;
+      var message = absence === "Holiday" || absence === "Sick" || /^un-paid$/i.test(absence) ? "" : editorTimeWarning(form.elements["start-" + index].value, form.elements["finish-" + index].value);
+      warning.hidden = !message;
+      warning.querySelector("td").textContent = message;
+    });
+  }
+
   function calculateRows(rows) {
     var totals = { workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, holiday: 0, sick: 0, timeOff: 0, unpaid: 0, errors: [] };
     var result = rows.map(function (row, index) {
@@ -164,8 +201,10 @@
         if (start === null || finish === null) {
           copy.error = "Start and finish are required unless this is Sick, Holiday or Un-Paid.";
           copy.workedActual = 0; copy.basic = 0; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 0; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 0; totals.errors.push(copy.label + ": " + copy.error);
+        } else if (finish <= start) {
+          copy.error = editorTimeWarning(copy.start, copy.finish);
+          copy.workedActual = 0; copy.basic = 0; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 0; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 0; totals.errors.push(copy.label + ": " + copy.error);
         } else {
-          if (finish < start) finish += 1440;
           var worked = Math.max(0, finish - start - (Number(copy.lunchMinutes) || 0));
           copy.workedActual = worked; copy.basic = worked; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = worked; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = worked;
           if (copy.absenceStatus === "Time Off") totals.timeOff += 1;
@@ -194,9 +233,13 @@
       '<label>Week starting<input name="weekStart" type="date" value="' + safe(weekStart) + '" required></label>' +
       '<label>Week ending<input name="weekEnd" type="date" value="' + safe(weekEnd) + '" required></label></div>' +
       '<div class="table-scroll"><table class="timesheet-editor-grid"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break (min)</th><th>Absence</th><th>Notes</th></tr></thead><tbody>' +
-      rows.map(function (row, index) { return '<tr><td><input name="date-' + index + '" type="date" value="' + safe(row.date || "") + '"></td><td><input name="start-' + index + '" type="time" value="' + safe(row.start || "") + '"></td><td><input name="finish-' + index + '" type="time" value="' + safe(row.finish || "") + '"></td><td><input name="break-' + index + '" type="number" min="0" max="1440" step="5" value="' + safe(row.lunchMinutes || 0) + '"></td><td><select name="absence-' + index + '"><option value="NA"' + (row.absenceStatus === "NA" || !row.absenceStatus ? " selected" : "") + '>None</option><option value="Holiday"' + (row.absenceStatus === "Holiday" ? " selected" : "") + '>Holiday</option><option value="Sick"' + (row.absenceStatus === "Sick" ? " selected" : "") + '>Sick</option><option value="Time Off"' + (row.absenceStatus === "Time Off" ? " selected" : "") + '>Time Off</option><option value="Un-Paid"' + (/^un-paid$/i.test(String(row.absenceStatus || "")) ? " selected" : "") + '>Un-Paid</option></select></td><td><input name="note-' + index + '" value="' + safe(row.description || row.note || "") + '"></td></tr>'; }).join("") +
+      rows.map(function (row, index) { return '<tr><td><input name="date-' + index + '" type="date" value="' + safe(row.date || "") + '"></td><td><input name="start-' + index + '" type="time" value="' + safe(row.start || "") + '"></td><td><input name="finish-' + index + '" type="time" value="' + safe(row.finish || "") + '"></td><td><input name="break-' + index + '" type="number" min="0" max="1440" step="5" value="' + safe(row.lunchMinutes || 0) + '"></td><td><select name="absence-' + index + '"><option value="NA"' + (row.absenceStatus === "NA" || !row.absenceStatus ? " selected" : "") + '>None</option><option value="Holiday"' + (row.absenceStatus === "Holiday" ? " selected" : "") + '>Holiday</option><option value="Sick"' + (row.absenceStatus === "Sick" ? " selected" : "") + '>Sick</option><option value="Time Off"' + (row.absenceStatus === "Time Off" ? " selected" : "") + '>Time Off</option><option value="Un-Paid"' + (/^un-paid$/i.test(String(row.absenceStatus || "")) ? " selected" : "") + '>Un-Paid</option></select></td><td><input name="note-' + index + '" value="' + safe(row.description || row.note || "") + '"></td></tr><tr class="timesheet-editor-warning" data-time-warning="' + index + '" hidden><td colspan="6" class="portal-history-warning"></td></tr>'; }).join("") +
       '</tbody></table></div><div id="timesheet-editor-message" class="banner hidden" role="status"></div><div class="action-bar"><button type="submit" id="timesheet-editor-submit">Save and queue correction</button></div></form></section>';
-    document.getElementById("timesheet-editor-form").addEventListener("submit", function (event) { submitEditor(event, record, payload, rows); });
+    var form = document.getElementById("timesheet-editor-form");
+    form.addEventListener("input", function () { refreshEditorWarnings(form); });
+    form.addEventListener("change", function () { refreshEditorWarnings(form); });
+    form.addEventListener("submit", function (event) { submitEditor(event, record, payload, rows); });
+    refreshEditorWarnings(form);
   }
 
   function fileToBase64(file) {
