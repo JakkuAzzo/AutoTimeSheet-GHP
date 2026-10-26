@@ -58,6 +58,7 @@ async function openRoute(path, options = {}) {
   pages.push(page);
   let accessCalls = 0;
   const historyKinds = [];
+  const historyRequests = [];
   let historyFailuresRemaining = options.historyFailureCount || 0;
   let releaseAccess;
   const accessGate = options.holdAccess ? new Promise((resolveAccess) => { releaseAccess = resolveAccess; }) : null;
@@ -72,7 +73,9 @@ async function openRoute(path, options = {}) {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(options.access || {}) });
   });
   await page.route(`${apiOrigin}/api/history**`, async (route) => {
-    historyKinds.push(new URL(route.request().url()).searchParams.get('kind') || 'all');
+    const url = new URL(route.request().url());
+    historyKinds.push(url.searchParams.get('kind') || 'all');
+    historyRequests.push({ kind: url.searchParams.get('kind') || 'all', limit: url.searchParams.get('limit') });
     if (options.historyFailure || historyFailuresRemaining > 0) {
       if (historyFailuresRemaining > 0) historyFailuresRemaining -= 1;
       await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Synthetic history outage' }) });
@@ -91,7 +94,7 @@ async function openRoute(path, options = {}) {
     const main = document.querySelector('main');
     return main && !main.hidden;
   });
-  return { page, accessCalls: () => accessCalls, historyKinds: () => historyKinds.slice(), releaseAccess: () => releaseAccess && releaseAccess() };
+  return { page, accessCalls: () => accessCalls, historyKinds: () => historyKinds.slice(), historyRequests: () => historyRequests.slice(), releaseAccess: () => releaseAccess && releaseAccess() };
 }
 
 async function assertInternalLinksResolve(page) {
@@ -115,11 +118,22 @@ try {
   const dashboard = await openRoute('/portal/', { access: employeeAccess });
   const dashboardPage = dashboard.page;
   const slides = dashboardPage.locator('[data-updates-slide]');
-  assert.equal(await slides.count(), 2, 'the dashboard should keep two carousel pages');
+  assert.equal(await slides.count(), 3, 'the dashboard should keep three carousel pages');
   assert.match(await slides.nth(0).innerText(), /Daily clock-in/i);
   assert.equal(await slides.nth(0).locator('[data-clock-form]').count(), 1, 'daily clock-in should remain on the first dashboard page');
   assert.equal(await slides.nth(0).getAttribute('hidden'), null, 'Daily Clock-In should be the initially selected page');
   assert.equal(await slides.nth(1).getAttribute('hidden'), '', 'the second dashboard page should stay behind the page control');
+  assert.equal(await slides.nth(2).getAttribute('aria-label'), 'Page 3 of 3', 'personal statistics should be the third accessible carousel slide');
+  assert.equal(await slides.nth(2).getAttribute('hidden'), '', 'personal statistics should stay behind the page control initially');
+  assert.match(await slides.nth(2).innerText(), /My statistics/i);
+  await dashboardPage.locator('#portal-statistics-pay-month').waitFor({ state: 'attached' });
+  assert.match(await dashboardPage.locator('#portal-statistics-pay-month').inputValue(), /^\d{4}-\d{2}$/);
+  assert.ok(dashboard.historyRequests().some((request) => request.kind === 'all' && request.limit === '500'), 'the dashboard should request the supported 500-record history bound');
+  await dashboardPage.evaluate(() => window.GMTPortalApi.history('all', { limit: 999 }));
+  assert.equal(dashboard.historyRequests().at(-1).limit, '500', 'the history API wrapper should cap requested history at 500 records');
+  await dashboardPage.locator('[data-updates-dot="2"]').click();
+  assert.equal(await slides.nth(2).getAttribute('hidden'), null, 'staff should be able to select personal statistics');
+  await dashboardPage.locator('[data-updates-dot="0"]').click();
   assert.equal(await dashboardPage.locator('[data-admin-users-link]').isVisible(), false, 'User management should remain hidden from a standard employee');
   const secondPagePanels = await slides.nth(1).locator('.portal-updates-feed-panel h2').allTextContents();
   assert.deepEqual(secondPagePanels, ['Updates and notifications', 'Task Board'], 'Updates and Task Board should retain their intended panel order');

@@ -18,7 +18,7 @@
   .app-main[hidden] { display: none; }
 </style>
 <link rel="stylesheet" href="../styles.css?v=portal-responsive-layout-20261016-v4">
-<link rel="stylesheet" href="../portal.css?v=clock-location-single-field-20261026">
+<link rel="stylesheet" href="../portal.css?v=personal-statistics-20261026">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="../viewport-effects.js?v=viewport-shell-20261016-v1"></script>
@@ -45,7 +45,7 @@
 <main class="app-main portal-dashboard-main" hidden>
   <section class="portal-updates" data-scroll-reveal aria-labelledby="portal-updates-title">
     <div class="portal-updates-carousel" data-updates-carousel aria-roledescription="carousel" aria-label="Dashboard pages">
-      <div id="portal-updates-slide-0" class="portal-updates-slide portal-updates-clock-slide" data-updates-slide="0" role="group" aria-roledescription="slide" aria-label="Page 1 of 2">
+      <div id="portal-updates-slide-0" class="portal-updates-slide portal-updates-clock-slide" data-updates-slide="0" role="group" aria-roledescription="slide" aria-label="Page 1 of 3">
         <div class="portal-updates-clock-heading"><p class="eyebrow">Daily clock-in</p><h2 id="portal-updates-title">Record your day</h2><p>Submit clock events, breaks, absence or a full day from the dashboard.</p><a class="portal-updates-task-link" href="../timesheets/">Open weekly timesheets →</a></div>
         <form class="portal-feature-card clock-card" data-clock-form data-default-action="clock_in">
           <div class="clock-card-heading"><span data-clock-title>Clock In</span><small data-clock-description>Record an arrival time and send it to accounts.</small></div>
@@ -62,7 +62,7 @@
           <button type="submit" data-clock-submit>Submit clock in</button><p class="small-text clock-status" aria-live="polite"></p>
         </form>
       </div>
-      <div id="portal-updates-slide-1" class="portal-updates-slide portal-updates-feed-slide" data-updates-slide="1" role="group" aria-roledescription="slide" aria-label="Page 2 of 2" hidden>
+      <div id="portal-updates-slide-1" class="portal-updates-slide portal-updates-feed-slide" data-updates-slide="1" role="group" aria-roledescription="slide" aria-label="Page 2 of 3" hidden>
         <section class="portal-updates-feed-panel" aria-labelledby="portal-updates-feed-title">
           <p class="eyebrow">GMT updates</p>
           <h2 id="portal-updates-feed-title">Updates and notifications</h2>
@@ -87,11 +87,30 @@
           </div>
         </section>
       </div>
+      <div id="portal-updates-slide-2" class="portal-updates-slide portal-updates-statistics-slide" data-updates-slide="2" role="group" aria-roledescription="slide" aria-label="Page 3 of 3" hidden>
+        <section class="portal-updates-statistics-panel" aria-labelledby="portal-statistics-title">
+          <div class="portal-statistics-heading">
+            <div><p class="eyebrow">Your activity</p><h2 id="portal-statistics-title">My statistics</h2><p>Review your recorded activity for a GMT pay month.</p></div>
+            <label for="portal-statistics-pay-month">Pay month<select id="portal-statistics-pay-month" name="statistics_pay_month" aria-describedby="portal-statistics-source-note"><option value="">Loading pay months…</option></select></label>
+          </div>
+          <p id="portal-statistics-status" class="portal-statistics-status" role="status" aria-live="polite">Loading personal statistics…</p>
+          <div class="portal-statistics-grid" aria-label="Personal activity totals">
+            <article class="portal-statistics-card"><span>Worked days</span><strong data-statistics-value="worked-days">—</strong></article>
+            <article class="portal-statistics-card"><span>Holiday days recorded</span><strong data-statistics-value="holiday-days">—</strong></article>
+            <article class="portal-statistics-card"><span>Estimates written</span><strong data-statistics-value="estimates-written">—</strong></article>
+            <article class="portal-statistics-card"><span>Job cards raised</span><strong data-statistics-value="job-cards-raised">—</strong></article>
+            <article class="portal-statistics-card"><span>Tasks completed</span><strong data-statistics-value="tasks-completed">—</strong></article>
+          </div>
+          <p id="portal-statistics-source-note" class="portal-statistics-source-note">Based on records currently available to your account.</p>
+          <button type="button" class="secondary" data-dashboard-retry="statistics" hidden>Retry personal statistics</button>
+        </section>
+      </div>
       <div class="portal-updates-controls" aria-label="Dashboard page navigation">
         <button type="button" class="portal-carousel-button" data-updates-prev aria-label="Show previous dashboard page">←</button>
         <div class="portal-carousel-indicators" role="tablist" aria-label="Dashboard pages">
           <button type="button" class="portal-carousel-indicator is-active" data-updates-dot="0" role="tab" aria-selected="true" aria-controls="portal-updates-slide-0" aria-label="Daily clock-in">1</button>
           <button type="button" class="portal-carousel-indicator" data-updates-dot="1" role="tab" aria-selected="false" aria-controls="portal-updates-slide-1" aria-label="GMT updates and Task Board">2</button>
+          <button type="button" class="portal-carousel-indicator" data-updates-dot="2" role="tab" aria-selected="false" aria-controls="portal-updates-slide-2" aria-label="My statistics">3</button>
         </div>
         <button type="button" class="portal-carousel-button" data-updates-next aria-label="Show next dashboard page">→</button>
       </div>
@@ -150,7 +169,7 @@
     </section>
   </section>
 </main>
-<script defer src="../portal-api.js?v=pay-month-start-20261016"></script>
+<script defer src="../portal-api.js?v=personal-statistics-limit-20261026"></script>
 <script defer src="../lazy-xlsx.js"></script>
 <script defer src="../timesheet-clock-transport.js?v=gmt-clock-native-transport-20260922"></script>
 <script defer src="../pay-periods.js?v=weekly-timesheet-cycle-labels-20261017"></script>
@@ -159,6 +178,6 @@
 <script defer src="calendar-data.js?v=source-date-20260927"></script>
 <script defer src="calendar-actions.js?v=calendar-request-quick-edit-weekly-timesheet-cycle-labels-20261023"></script>
 <script defer src="calendar-preview.js?v=published-calendar-retry-20261017"></script>
-<script defer src="dashboard-updates.js?v=dashboard-route-retry-20261017-v1"></script>
+<script defer src="dashboard-updates.js?v=personal-statistics-20261026"></script>
 </body>
 </html>
