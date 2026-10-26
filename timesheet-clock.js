@@ -219,6 +219,7 @@
     const fullDay = card.querySelector('[data-full-day-fields]');
     const offsiteHelp = card.querySelector('[data-clock-offsite-help]');
     const locationRequirement = card.querySelector('[data-clock-location-requirement]');
+    const locationControl = card.querySelector('.clock-location-control');
     const dateTime = card.querySelector('.portal-clock-date-time');
 
     if (title) title.textContent = inOffsiteMode ? `Off-site ${text.title.toLowerCase()}` : text.title;
@@ -230,12 +231,14 @@
     if (absenceField) absenceField.hidden = !isAbsent;
     if (fullDay) fullDay.hidden = !isFullDay;
     if (offsiteHelp) offsiteHelp.hidden = !inOffsiteMode;
-    if (locationRequirement) locationRequirement.textContent = inOffsiteMode ? 'required' : 'optional';
+    if (locationControl) locationControl.hidden = !inOffsiteMode;
+    if (locationRequirement) locationRequirement.textContent = 'required';
     if (dateTime) dateTime.hidden = inOffsiteMode;
 
     card.elements.clock_time.disabled = inOffsiteMode || isAbsent || isFullDay;
     card.elements.clock_time.required = !inOffsiteMode && !isAbsent && !isFullDay;
     card.elements.clock_date.disabled = inOffsiteMode;
+    card.elements.clock_location.disabled = !inOffsiteMode;
     card.elements.clock_location.required = inOffsiteMode;
     setDisabled(card.elements.absence_reason, !isAbsent);
     ['day_start', 'day_lunch_start', 'day_lunch_end', 'day_finish'].forEach((name) => {
@@ -661,6 +664,7 @@
   function buildPayload(card) {
     const profile = portalProfile();
     const action = card.elements.clock_action.value;
+    const locationMode = String(card.elements.clock_location_mode?.value || 'in_office');
     return {
       employeeName: card.elements.employee_name.value.trim(),
       employeeEmail: String(card.elements.employee_email?.value || profile.username || profile.notificationEmail || '').trim(),
@@ -669,9 +673,9 @@
       actionLabel: actionLabel(action),
       date: card.elements.clock_date.value || localDate(),
       time: EVENT_ACTIONS.includes(action) ? (card.elements.clock_time.value || localTime()) : '',
-      locationMode: String(card.elements.clock_location_mode?.value || 'in_office'),
+      locationMode,
       absenceReason: action === 'absent' ? (card.elements.absence_reason.value || '') : '',
-      location: String(card.elements.clock_location?.value || '').trim(),
+      location: locationMode === 'off_site' ? String(card.elements.clock_location?.value || '').trim() : '',
       note: card.elements.clock_note.value.trim(),
       dayStart: card.elements.day_start.value || '',
       lunchStart: card.elements.day_lunch_start.value || '',
