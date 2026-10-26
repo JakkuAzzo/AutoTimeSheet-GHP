@@ -46,7 +46,7 @@
     var date = String(row && row.date || '').slice(0, 10);
     if (!validDate(date) || date <= todayInLondon(now)) return false;
     var absence = String(row.absenceStatus || row.absence || 'NA').trim().toLowerCase();
-    return absence !== 'sick' && absence !== 'holiday' && absence !== 'absent';
+    return absence !== 'sick' && absence !== 'holiday' && absence !== 'absent' && absence !== 'un-paid';
   }
 
   function weekDates(start, includeWeekend) {

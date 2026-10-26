@@ -82,6 +82,9 @@ try {
   await added.locator('[data-sheet-field="start"]').fill('08:00');
   await added.locator('[data-sheet-field="finish"]').fill('17:00');
   await added.locator('[data-sheet-field="break"]').fill('120');
+  const unpaidRow = rows.nth(2);
+  await unpaidRow.locator('[data-sheet-field="absence"]').selectOption('Un-Paid');
+  assert.equal(await unpaidRow.locator('.pay-month-row-hours').textContent(), '0h', 'the protected editor preview must zero an unpaid day even when clock times are present');
   await page.getByRole('button', { name: /Save changes/i }).click();
   await page.waitForFunction(() => Boolean(window.__savedCorrection));
   const correction = await page.evaluate(() => window.__savedCorrection);
@@ -89,7 +92,14 @@ try {
   assert.equal(correction.action, 'pay_month_correction');
   assert.equal(correction.payload.payMonth, '2026-09');
   assert.deepEqual(correction.payload.deletedDays, ['2026-09-01']);
-  assert.deepEqual(correction.payload.rows.map((row) => row.date).sort(), ['2026-08-31', '2026-09-02']);
+  assert.deepEqual(correction.payload.rows.map((row) => row.date).sort(), ['2026-08-31', '2026-09-02', '2026-09-03']);
+  const correctedUnpaid = correction.payload.rows.find((row) => row.date === '2026-09-03');
+  assert.equal(correctedUnpaid.absenceStatus, 'Un-Paid');
+  assert.equal(correctedUnpaid.workedMinutes, 0, 'the protected correction record must persist zero worked minutes');
+  assert.equal(correctedUnpaid.workedHours, 0, 'the protected correction record must persist zero worked hours');
+  assert.equal(correctedUnpaid.basicHours, 0);
+  assert.equal(correctedUnpaid.ot15Hours, 0);
+  assert.equal(correctedUnpaid.ot20Hours, 0);
   await page.waitForFunction(() => Boolean(window.__queuedCorrection && window.__receipt));
   const queued = await page.evaluate(() => window.__queuedCorrection);
   assert.equal(queued.recordId, correction.recordId);
@@ -106,6 +116,8 @@ try {
   assert.deepEqual(filing.rows.map((row) => row.date), ['2026-08-31', '2026-09-02', '2026-09-03']);
   assert.deepEqual(filing.deletedDays, ['2026-09-01']);
   assert.equal(filing.rows.find((row) => row.date === '2026-09-02').breakMinutes, 120);
+  assert.equal(filing.rows.find((row) => row.date === '2026-09-03').totalMinutes, 0, 'the correction export must carry zero for the unpaid day');
+  assert.equal(filing.rows.find((row) => row.date === '2026-09-03').workedHours, 0);
   const receipt = await page.evaluate(() => window.__receipt);
   assert.equal(receipt.gmt_employee_email, 'matthew@gmt-services.co.uk');
   assert.match(receipt._cc, /matthew@gmt-services.co.uk/);

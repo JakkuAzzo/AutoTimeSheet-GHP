@@ -172,14 +172,14 @@ function isWeekendDate(value) {
 function futureWorkDate(row) {
   return typeof timesheetRowPolicy.futureWorkDate === 'function'
     ? timesheetRowPolicy.futureWorkDate(row)
-    : Boolean(row?.date && row.date > isoDate(new Date()) && !['Sick', 'Holiday'].includes(row.absenceStatus));
+    : Boolean(row?.date && row.date > isoDate(new Date()) && !['Sick', 'Holiday', 'Un-Paid'].includes(row.absenceStatus));
 }
 
 function updateDayDateLimit(card) {
   const dateInput = card.querySelector('[data-field="date"]');
   const absence = card.querySelector('[data-field="absenceStatus"]')?.value || 'NA';
   if (!dateInput) return;
-  if (absence === 'Sick' || absence === 'Holiday') dateInput.removeAttribute('max');
+  if (absence === 'Sick' || absence === 'Holiday' || absence === 'Un-Paid') dateInput.removeAttribute('max');
   else dateInput.max = typeof timesheetRowPolicy.todayInLondon === 'function'
     ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
   card.classList.toggle('is-weekend', isWeekendDate(dateInput.value));
@@ -247,7 +247,7 @@ function escapeHtml(value) {
 }
 
 function isFullDayAbsence(row) {
-  return row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday';
+  return row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday' || row.absenceStatus === 'Un-Paid';
 }
 
 function breakLabel(minutes) {
@@ -471,6 +471,7 @@ function addDay(data = {}) {
             <option value="Sick" ${absenceStatus === 'Sick' ? 'selected' : ''}>Sick</option>
             <option value="Holiday" ${absenceStatus === 'Holiday' ? 'selected' : ''}>Holiday</option>
             <option value="Time Off" ${absenceStatus === 'Time Off' ? 'selected' : ''}>Time Off</option>
+            <option value="Un-Paid" ${absenceStatus === 'Un-Paid' ? 'selected' : ''}>Un-Paid</option>
           </select>
         </label>
       </div>
@@ -593,7 +594,19 @@ function calculateRows(rows) {
   return rows.map((row) => {
     const day = dayName(row.date);
     if (futureWorkDate(row)) {
-      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: `${row.date} is in the future. Only Sick or Holiday can be entered ahead of time.` };
+      return { ...row, dayName: day, workedActual: null, total: null, basic: 0, ot15: 0, ot20: 0, absent: false, error: `${row.date} is in the future. Only Sick, Holiday or Un-Paid can be entered ahead of time.` };
+    }
+    if (row.absenceStatus === 'Un-Paid') {
+      const numeric = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+      const sourceHours = numeric(row.reportedWorkedHours) ? Number(row.reportedWorkedHours)
+        : numeric(row.workedHours) ? Number(row.workedHours) : null;
+      const clockMinutes = rawShiftMinutes(row);
+      const sourceMinutes = numeric(row.reportedWorkedMinutes) ? Number(row.reportedWorkedMinutes)
+        : numeric(row.workedMinutes) ? Number(row.workedMinutes)
+          : clockMinutes === null ? (sourceHours === null ? null : sourceHours * 60)
+            : Math.max(0, clockMinutes - normaliseBreakMinutes(row.lunchMinutes));
+      const reportedWorkedHours = sourceHours === null && sourceMinutes !== null ? sourceMinutes / 60 : sourceHours;
+      return { ...row, dayName: day, reportedWorkedMinutes: sourceMinutes, reportedWorkedHours, workedMinutes: 0, workedHours: 0, totalMinutes: 0, workedActual: 0, total: 0, basic: 0, basicHours: 0, ot15: 0, ot15Hours: 0, ot20: 0, ot20Hours: 0, weightedHours: 0, appliedBasic: 0, appliedOt15: 0, appliedOt20: 0, appliedTotal: 0, absent: true, note: 'Un-Paid time off records zero payable hours.' };
     }
     if (row.absenceStatus === 'Holiday') {
       return { ...row, dayName: day, workedActual: 0, total: HOLIDAY_PAID_MINUTES, basic: HOLIDAY_PAID_MINUTES, ot15: 0, ot20: 0, absent: true, note: 'Holiday counts as 8h basic.' };
@@ -655,14 +668,15 @@ function totalsFor(rows) {
     if (row.absenceStatus === 'Holiday') acc.holiday += 1;
     if (row.absenceStatus === 'Sick') acc.sick += 1;
     if (row.absenceStatus === 'Time Off') acc.timeOff += 1;
+    if (row.absenceStatus === 'Un-Paid') acc.unpaid += 1;
     if (row.error) acc.errors.push(`${row.label}: ${row.error}`);
     return acc;
-  }, { workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: 0, holiday: 0, sick: 0, timeOff: 0, errors: [] });
+  }, { workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, absent: 0, holiday: 0, sick: 0, timeOff: 0, unpaid: 0, errors: [] });
 }
 
 function statusFor(row) {
   if (row.error) return 'Check';
-  if (row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday') return 'Absent';
+  if (row.absenceStatus === 'Sick' || row.absenceStatus === 'Holiday' || row.absenceStatus === 'Un-Paid') return 'Absent';
   return 'Recorded';
 }
 
@@ -671,6 +685,7 @@ function categoryFor(row) {
   if (row.absenceStatus === 'Holiday') return 'Holiday';
   if (row.absenceStatus === 'Sick') return 'Sick';
   if (row.absenceStatus === 'Time Off') return 'Time Off';
+  if (row.absenceStatus === 'Un-Paid') return 'Un-Paid';
   if (row.dayName === 'Sunday') return 'Sunday OT x2.0';
   if (row.dayName === 'Saturday') return 'Saturday OT';
   if ((row.ot15 || 0) > 0) return 'Weekday OT x1.5';
@@ -729,10 +744,11 @@ function recalculate() {
     <div><strong>Holiday days</strong><span>${totals.holiday}</span></div>
     <div><strong>Sick days</strong><span>${totals.sick}</span></div>
     <div><strong>Time Off days</strong><span>${totals.timeOff}</span></div>
+    <div><strong>Un-Paid days</strong><span>${totals.unpaid}</span></div>
   `;
   const payload = { employeeName: employeeName.value.trim(), employeeEmail: employeeEmail.value.trim(), weekStart: weekStart.value, weekEnd: weekEnd.value, absenceRanges, totals: { ...totals, weightedHours: weighted }, rows: calculated };
   payloadInput.value = JSON.stringify(payload);
-  calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff}`;
+  calculatedSummaryInput.value = `Worked ${fmtMinutes(totals.workedActual)} | Basic ${fmtMinutes(totals.basic)} | OT x1.5 ${fmtMinutes(totals.ot15)} | OT x2.0 ${fmtMinutes(totals.ot20)} | Weighted ${weighted.toFixed(2)}h | Holiday ${totals.holiday} | Sick ${totals.sick} | Time Off ${totals.timeOff} | Un-Paid ${totals.unpaid}`;
   return { calculated, totals, weighted };
 }
 
@@ -964,7 +980,7 @@ function addDaysToIsoDate(value, days) {
 
 function groupedAbsenceCalendarEvents(rows, employee) {
   const absences = rows
-    .filter((row) => row.date && ['Sick', 'Holiday', 'Time Off'].includes(row.absenceStatus))
+    .filter((row) => row.date && ['Sick', 'Holiday', 'Time Off', 'Un-Paid'].includes(row.absenceStatus))
     .sort((left, right) => left.date.localeCompare(right.date));
   const groups = [];
   absences.forEach((row) => {

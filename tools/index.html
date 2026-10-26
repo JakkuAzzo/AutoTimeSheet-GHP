@@ -22,12 +22,28 @@
 <main class="app-main" hidden>
 <p class="small-text" data-tools-access-status role="status" aria-live="polite">Checking which tools are available…</p>
 <button type="button" class="secondary" data-tools-access-retry hidden>Retry access check</button>
-<section class="portal-card-grid" data-scroll-reveal aria-label="Available tools">
-<a class="portal-feature-card portal-estimate-card" href="estimates.html" data-tool-card="estimates" hidden aria-hidden="true"><span>Estimates</span><small>Create a branded estimate, preview it, and send it through the protected client workflow.</small></a>
+<section class="portal-tool-group" data-tool-group aria-labelledby="tools-time-title" data-scroll-reveal>
+<h2 id="tools-time-title">Time and attendance</h2>
+<div class="portal-card-grid">
+<a class="portal-feature-card" href="../portal/#portal-calendar-title" data-tool-card="calendar"><span>Calendar</span><small data-tool-description="calendar">Review your calendar requests and request time off from a day.</small></a>
+<a class="portal-feature-card" href="../timesheets/" data-tool-card="timesheets"><span>Weekly timesheets</span><small>Enter weekly hours, absence and notes.</small></a>
+<a class="portal-feature-card" href="../portal/submissions.html" data-tool-card="submissions"><span>Submitted documents</span><small>Review timesheets, job cards, estimates, tasks and other submissions available to your account.</small></a>
+<a class="portal-feature-card" href="../portal/offsite-clock.html" data-tool-card="offsite"><span>Off-site shifts</span><small>Record off-site hours and review Duty Manager approvals.</small></a>
+</div>
+</section>
+<section class="portal-tool-group" data-tool-group aria-labelledby="tools-workshop-title" data-scroll-reveal>
+<h2 id="tools-workshop-title">Workshop work</h2>
+<div class="portal-card-grid">
 <a class="portal-feature-card portal-action-gold" href="../jobs/" data-tool-card="job-cards" data-hide-for-hr hidden aria-hidden="true"><span>Job Cards</span><small data-tool-description="job-cards">Create EC or MTA cards, preview their layout, and review submitted job history.</small></a>
 <a class="portal-feature-card" href="../tasks/" data-tool-card="tasks" data-hide-for-hr hidden aria-hidden="true"><span>Tasks</span><small data-tool-description="tasks">Submit task requests and manage your assigned work.</small></a>
-<a class="portal-feature-card" href="../portal/#portal-calendar-title" data-tool-card="calendar"><span>Calendar</span><small data-tool-description="calendar">Review your calendar requests and request time off from a day.</small></a>
-<a class="portal-feature-card portal-action-gold" id="xero-invoices-card" href="invoices.html" data-tool-card="invoices" hidden aria-hidden="true"><span>Invoices</span><small>Review and manage invoices in the connected Xero organisation.</small></a>
+</div>
+</section>
+<section class="portal-tool-group" data-tool-group aria-labelledby="tools-accounts-title" data-scroll-reveal>
+<h2 id="tools-accounts-title">Accounts</h2>
+<div class="portal-card-grid">
+<a class="portal-feature-card portal-estimate-card" href="estimates.html" data-tool-card="estimates" hidden aria-hidden="true"><span>Estimates</span><small>Create a branded estimate, preview it, and send it through the protected client workflow.</small></a>
+<a class="portal-feature-card portal-action-gold" id="xero-invoices-card" href="invoices.html" data-tool-card="invoices" hidden aria-hidden="true"><span>Invoices</span><small>Review invoices in the connected Xero organisation.</small></a>
+</div>
 </section>
 </main>
 <script defer src="../portal-api.js?v=portal-api-xero-invoices-20260915"></script>

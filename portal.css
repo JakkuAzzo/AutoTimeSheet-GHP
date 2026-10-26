@@ -61,6 +61,9 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 1rem;
 }
+.portal-tool-group { min-width: 0; margin: 1rem 0 1.4rem; }
+.portal-tool-group[hidden] { display: none; }
+.portal-tool-group > h2 { margin: 0 0 .65rem; color: var(--green); font-size: clamp(1.1rem, 2vw, 1.4rem); }
 .portal-header { position: relative; overflow: hidden; justify-content: space-between; padding: 1rem clamp(1rem, 3vw, 2rem); text-align: left; }
 .portal-header::after { position: absolute; right: 4%; bottom: -2.5rem; width: 9rem; height: 9rem; border: 1px solid rgba(213,182,74,.35); border-radius: 50%; content: ""; }
 .portal-header .brand-block { justify-content: flex-start; width: auto; }
@@ -99,10 +102,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-user-manager [data-users-status].error { color: #8b2525; font-weight: 800; }
 .portal-clock-date-time > label { min-width: 0; }
 .portal-updates {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
+  display: block;
   margin: 1.2rem 0;
   padding: clamp(1.1rem, 3vw, 1.6rem);
   color: #fff;
@@ -114,69 +114,73 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-updates h2 { margin: .25rem 0 .4rem; color: #fff; font-size: clamp(1.4rem, 3.5vw, 2rem); }
 .portal-updates p:not(.eyebrow) { margin: 0; color: #e7f2e5; line-height: 1.5; }
 .portal-updates .eyebrow { margin: 0; color: #fff3b8; }
-.portal-updates-carousel { display: grid; align-content: start; width: 100%; min-width: 0; height: auto; min-height: 0; }
-.portal-updates-slide { display: flex; justify-content: space-between; gap: 1rem; align-items: center; min-width: 0; height: auto; min-height: 0; }
-.portal-updates-slide[hidden] { display: none; }
-.portal-updates-slide:not([hidden]) { min-height: 25rem; }
-.portal-updates-feed-slide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; align-items: start; }
-.portal-updates-feed-panel { min-width: 0; }
-.portal-updates-feed-slide .portal-notifications { max-width: none; }
-.portal-updates-task-panel { display: grid; align-content: start; gap: .8rem; }
-.portal-updates-task-panel .portal-updates-task-heading,
-.portal-updates-task-panel .portal-updates-task-content { width: auto; flex: initial; min-width: 0; }
-.portal-updates-task-slide { align-items: flex-start; }
-.portal-updates-statistics-slide { display: block; }
-.portal-updates-statistics-panel { width: 100%; min-width: 0; }
+.portal-today-layout { display: grid; grid-template-columns: minmax(14rem, .7fr) minmax(0, 1.3fr); gap: 1rem; align-items: center; }
+.portal-updates-clock-heading { min-width: 0; }
+.portal-today-section .clock-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; align-items: end; gap: .3rem .7rem; min-width: 0; max-width: 52rem; margin: 0; padding: .75rem; color: var(--ink); background: #fff; border: 1px solid rgba(255,255,255,.65); }
+.portal-today-section .clock-card > * { min-width: 0; }
+.portal-today-section .clock-card label { margin: .1rem 0; }
+.portal-today-section .clock-card-heading,
+.portal-today-section .clock-actions,
+.portal-today-section .portal-clock-date-time,
+.portal-today-section .clock-location-control,
+.portal-today-section .clock-location-status,
+.portal-today-section .clock-card > [data-absence-field],
+.portal-today-section .clock-full-day,
+.portal-today-section .clock-note-details,
+.portal-today-section .clock-card > [data-clock-submit],
+.portal-today-section .clock-card > .clock-status,
+.portal-today-section .clock-location-mode,
+.portal-today-section .clock-offsite-help { grid-column: 1 / -1; }
+.portal-today-section .clock-card [data-clock-identity] { align-self: center; margin: 0; font-size: .78rem; }
+.portal-today-section .clock-location-control button { width: auto; margin-top: 0; }
+.portal-clock-date-time { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .65rem; }
+.portal-today-section .clock-actions { gap: .3rem; }
+.portal-today-section .clock-actions button { min-height: 36px; padding: .35rem .5rem; }
+.portal-today-section .clock-card > button[type="submit"] { min-height: 42px; margin-top: .4rem; }
+.clock-offsite-help { margin: .25rem 0; padding: .55rem .7rem; color: #123d1d; background: #edf5ed; border-radius: .55rem; }
+.portal-work-section {
+  margin: 1.2rem 0;
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+  color: #fff;
+  background: linear-gradient(120deg, #123d1d, #2d6a3c);
+  border: 1px solid #2d6a3c;
+  border-radius: 1.1rem;
+  box-shadow: 0 16px 34px rgba(18, 61, 29, .16);
+}
+.portal-work-section > .portal-section-heading { margin-bottom: .8rem; }
+.portal-work-section .portal-section-heading h2,
+.portal-work-card h2 { color: #fff; }
+.portal-work-section .portal-section-heading .eyebrow,
+.portal-work-card .eyebrow { color: #fff3b8; }
+.portal-work-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: .85rem; align-items: start; }
+.portal-work-card { min-width: 0; padding: .9rem; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.32); border-radius: .9rem; }
+.portal-work-card h2 { margin: .2rem 0 .4rem; font-size: 1.2rem; }
+.portal-work-card p:not(.eyebrow) { color: #e7f2e5; }
+.portal-updates-task-heading, .portal-updates-task-content { min-width: 0; }
+.portal-statistics-section {
+  margin: 1.2rem 0;
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 1.1rem;
+  box-shadow: 0 10px 28px rgba(18, 61, 29, .08);
+}
+.portal-statistics-panel { width: 100%; min-width: 0; }
 .portal-statistics-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; min-width: 0; }
 .portal-statistics-heading > div { min-width: 0; }
-.portal-statistics-heading label { flex: 0 1 15rem; min-width: min(100%, 12rem); margin: 0; color: #e7f2e5; font-weight: 800; }
+.portal-statistics-heading h2 { margin: .2rem 0 .35rem; color: var(--green); }
+.portal-statistics-heading .eyebrow { margin: 0; color: var(--green-2); }
+.portal-statistics-heading label { flex: 0 1 15rem; min-width: min(100%, 12rem); margin: 0; color: var(--green); font-weight: 800; }
 .portal-statistics-heading select { width: 100%; min-width: 0; margin-top: .3rem; color: #123d1d; background: #fff; }
 .portal-statistics-status { min-height: 1.25rem; margin: .8rem 0 .55rem !important; font-size: .88rem; }
 .portal-statistics-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .65rem; min-width: 0; }
-.portal-statistics-card { display: grid; align-content: space-between; gap: .8rem; min-width: 0; min-height: 7.2rem; padding: .85rem; color: #fff; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.35); border-radius: .8rem; }
-.portal-statistics-card span { color: #e7f2e5; font-size: .78rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
-.portal-statistics-card strong { color: #fff; font-size: clamp(1.65rem, 4vw, 2.25rem); line-height: 1; }
-.portal-statistics-source-note { margin: .8rem 0 .6rem !important; color: #e7f2e5 !important; font-size: .76rem; }
-.portal-updates-task-heading { flex: 0 1 24rem; min-width: 0; }
-.portal-updates-task-content { flex: 1 1 32rem; min-width: 0; }
-.portal-updates-clock-heading { flex: 0 1 20rem; min-width: 0; }
-.portal-updates-clock-slide .clock-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; align-items: end; gap: .3rem .7rem; flex: 1 1 34rem; min-width: 0; max-width: 52rem; margin: 0; padding: .75rem; color: var(--ink); background: #fff; border: 1px solid rgba(255,255,255,.65); }
-.portal-updates-clock-slide .clock-card > * { min-width: 0; }
-.portal-updates-clock-slide .clock-card label { margin: .1rem 0; }
-.portal-updates-clock-slide .clock-card-heading,
-.portal-updates-clock-slide .clock-actions,
-.portal-updates-clock-slide .portal-clock-date-time,
-.portal-updates-clock-slide .clock-location-control,
-.portal-updates-clock-slide .clock-location-status,
-.portal-updates-clock-slide .clock-card > [data-absence-field],
-.portal-updates-clock-slide .clock-full-day,
-.portal-updates-clock-slide .clock-note-details,
-.portal-updates-clock-slide .clock-card > [data-clock-submit],
-.portal-updates-clock-slide .clock-card > .clock-status { grid-column: 1 / -1; }
-.portal-updates-clock-slide .clock-card [data-clock-identity] { align-self: center; margin: 0; font-size: .78rem; }
-.portal-updates-clock-slide .clock-location-control button { width: auto; margin-top: 0; }
-.portal-updates-clock-slide .clock-location-mode,
-.portal-updates-clock-slide .clock-offsite-help { grid-column: 1 / -1; }
-.clock-offsite-help { margin: .25rem 0; padding: .55rem .7rem; color: #123d1d; background: #edf5ed; border-radius: .55rem; }
-.portal-clock-date-time { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .65rem; }
-.portal-updates-clock-slide .clock-actions { gap: .3rem; }
-.portal-updates-clock-slide .clock-actions button { min-height: 36px; padding: .35rem .5rem; }
-.portal-updates-clock-slide .clock-card > button[type="submit"] { min-height: 42px; margin-top: .4rem; }
-.portal-updates-task-status { margin: .1rem 0 .65rem !important; font-size: .9rem; }
-.portal-notification-status { margin: .55rem 0 !important; color: #e7f2e5 !important; font-size: .82rem; }
+.portal-statistics-card { display: grid; align-content: space-between; gap: .8rem; min-width: 0; min-height: 7.2rem; padding: .85rem; color: var(--green); background: #f3f7ef; border: 1px solid var(--line); border-radius: .8rem; }
+.portal-statistics-card span { color: var(--muted); font-size: .78rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+.portal-statistics-card strong { color: var(--green); font-size: clamp(1.65rem, 4vw, 2.25rem); line-height: 1; }
+.portal-statistics-source-note { margin: .8rem 0 .6rem !important; color: var(--muted) !important; font-size: .76rem; }
 .portal-task-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .65rem; min-width: 0; }
-.portal-task-board-empty { margin: 0; padding: .75rem; color: #e7f2e5 !important; background: rgba(255,255,255,.1); border: 1px dashed rgba(255,255,255,.4); border-radius: .7rem; }
-.portal-task-card { min-width: 0; padding: .75rem; color: #fff; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.35); border-radius: .75rem; }
-.portal-task-card h3 { min-width: 0; margin: 0; color: #fff; font-size: 1rem; overflow-wrap: anywhere; }
-.portal-task-card-heading { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; }
-.portal-task-status { flex: 0 0 auto; padding: .18rem .4rem; color: #123d1d; background: #fff3b8; border-radius: 999px; font-size: .67rem; font-weight: 900; text-transform: capitalize; }
-.portal-task-card-reference { margin: .3rem 0 .55rem !important; color: #d9ecd5 !important; font-size: .78rem; overflow-wrap: anywhere; }
-.portal-task-card-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin: 0; }
-.portal-task-card-meta div { min-width: 0; }
-.portal-task-card-meta dt { color: #d9ecd5; font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
-.portal-task-card-meta dd { margin: .12rem 0 0; color: #fff; font-size: .82rem; overflow-wrap: anywhere; }
-.portal-task-progress { margin-top: .65rem; }
-.portal-task-progress-label { display: flex; justify-content: space-between; gap: .5rem; color: #fff; font-size: .75rem; }
+.portal-notification-status { margin: .55rem 0 !important; color: #e7f2e5 !important; font-size: .82rem; }
 .portal-task-progress-label span { color: #d9ecd5; text-align: right; }
 .portal-task-progress-track { height: .4rem; margin-top: .25rem; overflow: hidden; background: rgba(255,255,255,.25); border-radius: 999px; }
 .portal-task-progress-bar { display: block; height: 100%; min-width: 0; background: #d5b64a; border-radius: inherit; transition: width .2s ease; }
@@ -215,9 +219,9 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-notification-empty > span { display: grid; place-items: center; width: 2rem; height: 2rem; color: #123d1d; background: #fff; border-radius: 50%; font-weight: 900; }
 .portal-notification-empty strong, .portal-notification-empty small { display: block; color: #fff; }
 .portal-notification-empty small { margin-top: .15rem; color: #e7f2e5; }
-.portal-dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin: 1rem 0; }
+.portal-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: .85rem; margin: 1rem 0; min-width: 0; }
 .app-main.portal-dashboard-main { max-width: 1520px; }
-.portal-calendar-preview { grid-column: 1 / -1; padding: 1rem 1.1rem; background: rgba(255, 255, 255, .82); border: 1px solid var(--line); border-radius: 1rem; }
+.portal-calendar-preview { grid-column: 1; width: auto; max-width: 100%; min-width: 0; padding: 1rem 1.1rem; background: rgba(255, 255, 255, .82); border: 1px solid var(--line); border-radius: 1rem; }
 .portal-calendar-preview-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
 .portal-calendar-preview h2 { margin: .25rem 0 0; color: var(--green); }
 .portal-calendar-toolbar { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; align-items: center; gap: .65rem; margin-top: .65rem; }
@@ -1050,12 +1054,11 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
 @media (min-width: 1101px) {
   .app-main.estimate-main { max-width: 1520px; }
   .portal-history-card .timesheet-history-layout { grid-template-columns: minmax(430px, .85fr) minmax(0, 1.65fr); }
-  .portal-calendar-preview { width: 100%; }
   .portal-calendar-grid { gap: .35rem; }
   .portal-calendar-day { min-height: 6rem; }
 }
 @media (max-width: 850px) {
-  .portal-updates-feed-slide { grid-template-columns: minmax(0, 1fr); }
+  .portal-today-layout, .portal-work-grid { grid-template-columns: minmax(0, 1fr); }
   .portal-statistics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .portal-two-column,
   .kanban-board,
@@ -1122,21 +1125,15 @@ button.timesheet-calendar-label:hover, button.timesheet-calendar-label:focus-vis
   .portal-welcome-mark { flex-basis: 68px; width: 68px; height: 68px; border-width: 6px; font-size: .85rem; }
   .portal-section-heading { align-items: flex-start; flex-direction: column; }
   .portal-action-grid, .portal-overview-grid { grid-template-columns: 1fr; }
-  .portal-updates { align-items: flex-start; flex-direction: column; }
-  .portal-updates-slide { align-items: flex-start; flex: 0 0 auto; flex-direction: column; }
-  .portal-updates-slide:not([hidden]) { min-height: 0; }
-  .portal-updates-feed-slide { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .portal-updates { align-items: flex-start; }
+  .portal-today-layout, .portal-work-grid { grid-template-columns: minmax(0, 1fr); }
   .portal-statistics-heading { align-items: stretch; flex-direction: column; }
   .portal-statistics-heading label { flex-basis: auto; width: 100%; }
-  /* The task slide is a column on phones. Its desktop flex bases are widths
-     in the row layout; retaining them here creates a large empty panel. */
-  .portal-updates-task-heading, .portal-updates-task-content { width: 100%; flex: 0 1 auto; }
-  .portal-updates-clock-heading, .portal-updates-clock-slide .clock-card { width: 100%; max-width: none; flex: 0 1 auto; }
-  .portal-updates-clock-slide .clock-card { grid-template-columns: minmax(0, 1fr); padding: .75rem; }
-  .portal-updates-clock-slide .clock-card > * { grid-column: 1 / -1; }
+  .portal-updates-task-heading, .portal-updates-task-content, .portal-updates-clock-heading, .portal-today-section .clock-card { width: 100%; max-width: none; }
+  .portal-today-section .clock-card { grid-template-columns: minmax(0, 1fr); padding: .75rem; }
+  .portal-today-section .clock-card > * { grid-column: 1 / -1; }
   .portal-clock-date-time { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
   .portal-task-board { grid-template-columns: 1fr; }
-  .portal-updates-controls { justify-content: space-between; width: 100%; }
   .portal-history-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: .55rem; width: 100%; }
   .portal-history-toolbar .small-text { width: 100%; min-width: 0; }
   .portal-history-filter { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; width: 100%; min-width: 0; }
@@ -1355,8 +1352,8 @@ html { scroll-behavior: smooth; scroll-padding-block-start: .75rem; }
 body { min-width: 0; overflow-x: hidden; overflow-x: clip; }
 .app-main { width: 100%; min-width: 0; }
 .app-main > *, .portal-header > *, .brand-block > *, .portal-two-column > *,
-.estimate-layout > *, .portal-dashboard-grid > *, .portal-card-grid > *,
-.portal-action-grid > *, .portal-updates > *, .calendar-board > * { min-width: 0; }
+.estimate-layout > *, .portal-dashboard-grid > *, .portal-card-grid > *, .portal-tool-group > *,
+.portal-action-grid > *, .portal-updates > *, .portal-work-grid > *, .portal-today-layout > *, .calendar-board > * { min-width: 0; }
 .portal-header { align-items: center; }
 .portal-header .brand-block { flex: 1 1 30rem; }
 .portal-header .brand-block > div { min-width: 0; overflow-wrap: anywhere; }
@@ -1421,7 +1418,6 @@ body { min-width: 0; overflow-x: hidden; overflow-x: clip; }
   .portal-header { padding-block: .45rem; }
   .portal-header .brand-block .site-logo { width: min(11rem, 25vw); height: 3.25rem; }
   .portal-header h1 { font-size: 1.3rem; }
-  .portal-updates-slide:not([hidden]) { min-height: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1501,10 +1497,6 @@ html[data-portal-viewport-shell="true"] .portal-dashboard-main {
 
 html[data-portal-viewport-shell="true"] .portal-updates {
   align-items: stretch;
-}
-
-html[data-portal-viewport-shell="true"] .portal-updates-slide:not([hidden]) {
-  min-height: 0;
 }
 
 html[data-portal-viewport-shell="true"] .portal-updates,

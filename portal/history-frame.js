@@ -150,17 +150,19 @@
   }
 
   function calculateRows(rows) {
-    var totals = { workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, holiday: 0, sick: 0, timeOff: 0, errors: [] };
+    var totals = { workedActual: 0, total: 0, basic: 0, ot15: 0, ot20: 0, holiday: 0, sick: 0, timeOff: 0, unpaid: 0, errors: [] };
     var result = rows.map(function (row, index) {
       var copy = Object.assign({}, row, { label: row.label || "Day " + (index + 1), dayName: dayName(row.date) });
       if (copy.absenceStatus === "Holiday") {
         copy.workedActual = 480; copy.basic = 480; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 480; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 480; totals.holiday += 1;
       } else if (copy.absenceStatus === "Sick") {
         copy.workedActual = 0; copy.basic = 0; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 0; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 0; totals.sick += 1;
+      } else if (/^un-paid$/i.test(String(copy.absenceStatus || ""))) {
+        copy.workedMinutes = 0; copy.workedHours = 0; copy.workedActual = 0; copy.total = 0; copy.basic = 0; copy.basicHours = 0; copy.ot15 = 0; copy.ot15Hours = 0; copy.ot20 = 0; copy.ot20Hours = 0; copy.appliedBasic = 0; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 0; copy.weightedHours = 0; copy.absent = true; copy.note = copy.note || "Un-Paid time off records zero payable hours."; totals.unpaid += 1;
       } else {
         var start = minutes(copy.start); var finish = minutes(copy.finish);
         if (start === null || finish === null) {
-          copy.error = "Start and finish are required unless this is Sick or Holiday.";
+          copy.error = "Start and finish are required unless this is Sick, Holiday or Un-Paid.";
           copy.workedActual = 0; copy.basic = 0; copy.ot15 = 0; copy.ot20 = 0; copy.appliedBasic = 0; copy.appliedOt15 = 0; copy.appliedOt20 = 0; copy.appliedTotal = 0; totals.errors.push(copy.label + ": " + copy.error);
         } else {
           if (finish < start) finish += 1440;
@@ -192,7 +194,7 @@
       '<label>Week starting<input name="weekStart" type="date" value="' + safe(weekStart) + '" required></label>' +
       '<label>Week ending<input name="weekEnd" type="date" value="' + safe(weekEnd) + '" required></label></div>' +
       '<div class="table-scroll"><table class="timesheet-editor-grid"><thead><tr><th>Date</th><th>Start</th><th>Finish</th><th>Break (min)</th><th>Absence</th><th>Notes</th></tr></thead><tbody>' +
-      rows.map(function (row, index) { return '<tr><td><input name="date-' + index + '" type="date" value="' + safe(row.date || "") + '"></td><td><input name="start-' + index + '" type="time" value="' + safe(row.start || "") + '"></td><td><input name="finish-' + index + '" type="time" value="' + safe(row.finish || "") + '"></td><td><input name="break-' + index + '" type="number" min="0" max="1440" step="5" value="' + safe(row.lunchMinutes || 0) + '"></td><td><select name="absence-' + index + '"><option value="NA"' + (row.absenceStatus === "NA" || !row.absenceStatus ? " selected" : "") + '>None</option><option value="Holiday"' + (row.absenceStatus === "Holiday" ? " selected" : "") + '>Holiday</option><option value="Sick"' + (row.absenceStatus === "Sick" ? " selected" : "") + '>Sick</option><option value="Time Off"' + (row.absenceStatus === "Time Off" ? " selected" : "") + '>Time Off</option></select></td><td><input name="note-' + index + '" value="' + safe(row.description || row.note || "") + '"></td></tr>'; }).join("") +
+      rows.map(function (row, index) { return '<tr><td><input name="date-' + index + '" type="date" value="' + safe(row.date || "") + '"></td><td><input name="start-' + index + '" type="time" value="' + safe(row.start || "") + '"></td><td><input name="finish-' + index + '" type="time" value="' + safe(row.finish || "") + '"></td><td><input name="break-' + index + '" type="number" min="0" max="1440" step="5" value="' + safe(row.lunchMinutes || 0) + '"></td><td><select name="absence-' + index + '"><option value="NA"' + (row.absenceStatus === "NA" || !row.absenceStatus ? " selected" : "") + '>None</option><option value="Holiday"' + (row.absenceStatus === "Holiday" ? " selected" : "") + '>Holiday</option><option value="Sick"' + (row.absenceStatus === "Sick" ? " selected" : "") + '>Sick</option><option value="Time Off"' + (row.absenceStatus === "Time Off" ? " selected" : "") + '>Time Off</option><option value="Un-Paid"' + (/^un-paid$/i.test(String(row.absenceStatus || "")) ? " selected" : "") + '>Un-Paid</option></select></td><td><input name="note-' + index + '" value="' + safe(row.description || row.note || "") + '"></td></tr>'; }).join("") +
       '</tbody></table></div><div id="timesheet-editor-message" class="banner hidden" role="status"></div><div class="action-bar"><button type="submit" id="timesheet-editor-submit">Save and queue correction</button></div></form></section>';
     document.getElementById("timesheet-editor-form").addEventListener("submit", function (event) { submitEditor(event, record, payload, rows); });
   }

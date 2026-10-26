@@ -204,18 +204,19 @@
     if (!date) return null;
     var start = text(objectValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in", "dayStart", "day_start", "Start"]));
     var finish = text(objectValue(row, ["finish", "finishTime", "finish_time", "clockOut", "clock_out", "dayFinish", "day_finish", "Finish"]));
-    var worked = number(objectValue(row, ["workedMinutes", "worked_minutes"]));
-    if (worked === null) {
+    var absence = text(objectValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence", "Absence reason"]));
+    var unpaid = /^un-paid$/i.test(absence.trim());
+    var worked = unpaid ? 0 : number(objectValue(row, ["workedMinutes", "worked_minutes"]));
+    if (!unpaid && worked === null) {
       var hours = number(objectValue(row, ["workedHours", "worked_hours", "hours", "totalHours", "Worked hours"]));
       if (hours !== null) worked = hours * 60;
     }
-    if (worked === null) {
+    if (!unpaid && worked === null) {
       var basic = number(objectValue(row, ["basicHours", "basic_hours", "Basic hours"]));
       var ot15 = number(objectValue(row, ["ot15Hours", "ot15_hours", "overtime15Hours"]));
       var ot20 = number(objectValue(row, ["ot20Hours", "ot20_hours", "overtime20Hours"]));
       if (basic !== null || ot15 !== null || ot20 !== null) worked = ((basic || 0) + (ot15 || 0) + (ot20 || 0)) * 60;
     }
-    var absence = text(objectValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence", "Absence reason"]));
     var lunchStart = text(objectValue(row, ["lunchStart", "lunch_start", "breakStart", "break_start", "Lunch start"]));
     var lunchEnd = text(objectValue(row, ["lunchEnd", "lunch_end", "breakEnd", "break_end", "Lunch end"]));
     var breakValue = objectValue(row, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "Break"]);
@@ -244,7 +245,7 @@
       }
       if (!breakStatus && breakTotal === null) issues.push("Break not recorded");
     }
-    if (start && finish && timeMinutes(start) !== null && timeMinutes(finish) !== null && timeMinutes(finish) >= timeMinutes(start)) {
+    if (!unpaid && start && finish && timeMinutes(start) !== null && timeMinutes(finish) !== null && timeMinutes(finish) >= timeMinutes(start)) {
       if (breakTotal !== null) worked = Math.max(0, timeMinutes(finish) - timeMinutes(start) - breakTotal);
       else if (worked === null) worked = timeMinutes(finish) - timeMinutes(start);
     }
@@ -411,7 +412,7 @@
         if (lunchEnd !== "" && lunchEnd != null) group.row.lunchEnd = text(lunchEnd);
 
         var absence = objectValue(sourceRow, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence", "Absence reason"]);
-        if (absence !== "" && absence != null) group.row.absenceStatus = absence;
+        if (absence !== "" && absence != null && (recordKind === "timesheets" || !group.row.absenceStatus || /^un-paid$/i.test(String(absence).trim()))) group.row.absenceStatus = absence;
         var note = objectValue(sourceRow, ["note", "notes", "description", "Note"]);
         if (note !== "" && note != null) group.row.note = note;
         var rawBreak = objectValue(sourceRow, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "Break"]);
@@ -423,7 +424,8 @@
           var hours = number(objectValue(sourceRow, ["workedHours", "worked_hours", "hours", "totalHours", "Worked hours"]));
           if (hours !== null) directWorked = hours * 60;
         }
-        if (directWorked !== "" && directWorked != null && Number.isFinite(Number(directWorked))) group.row.workedMinutes = Number(directWorked);
+        if (/^un-paid$/i.test(String(group.row.absenceStatus || "").trim())) group.row.workedMinutes = 0;
+        else if (directWorked !== "" && directWorked != null && Number.isFinite(Number(directWorked))) group.row.workedMinutes = Number(directWorked);
         if (recordKind === "clock" && action === "lunch_end" && group.row.lunchStart && group.row.lunchEnd && timeMinutes(group.row.lunchStart) !== null && timeMinutes(group.row.lunchEnd) !== null) {
           group.row.lunchMinutes = Math.max(0, timeMinutes(group.row.lunchEnd) - timeMinutes(group.row.lunchStart));
         }
@@ -431,7 +433,8 @@
     });
     return Object.keys(groups).map(function (keyValue) {
       var group = groups[keyValue];
-      if (group.row.start && group.row.finish && timeMinutes(group.row.start) !== null && timeMinutes(group.row.finish) !== null && timeMinutes(group.row.finish) >= timeMinutes(group.row.start) && group.row.lunchMinutes !== undefined) {
+      if (/^un-paid$/i.test(String(group.row.absenceStatus || "").trim())) group.row.workedMinutes = 0;
+      else if (group.row.start && group.row.finish && timeMinutes(group.row.start) !== null && timeMinutes(group.row.finish) !== null && timeMinutes(group.row.finish) >= timeMinutes(group.row.start) && group.row.lunchMinutes !== undefined) {
         group.row.workedMinutes = Math.max(0, timeMinutes(group.row.finish) - timeMinutes(group.row.start) - group.row.lunchMinutes);
       }
       var latest = group.latest || {};

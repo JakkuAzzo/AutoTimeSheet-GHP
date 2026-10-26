@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normaliseUpstreamRecord, projectRow } from '../cloudflare-worker/src/index.js';
+import { normaliseInput, normaliseUpstreamRecord, projectRow } from '../cloudflare-worker/src/index.js';
 
 const directory = { STAFF_DIRECTORY_JSON: JSON.stringify([{ name: 'Matthew', upn: 'matthew@gmt-services.co.uk' }]) };
 const attachment = [
@@ -23,6 +23,73 @@ assert.equal(record.payload.rows[0].breakStatus, 'not-taken');
 assert.equal(record.payload.rows[1].lunchMinutes, 30);
 assert.equal(record.payload.rows[1].breakStatus, 'added');
 assert.equal(record.issue, '');
+
+const unpaidUpstream = normaliseUpstreamRecord({
+  Id: 23,
+  Title: 'FW: [GMT][TIMESHEET][SUBMISSION] Matthew | Week 2026-10-19',
+  EmployeeName: 'Matthew',
+  Issue: JSON.stringify([{ date: '2026-10-19', startTime: '08:00', finishTime: '17:00', lunchMinutes: 0, workedHours: 9, workedMinutes: 540, basicHours: 8, ot15Hours: 1, ot20Hours: 0, weightedHours: 9.5, absenceStatus: 'Un-Paid' }]),
+  Modified: '2026-10-20T07:00:00Z'
+}, { isAdmin: true, name: 'Accounts', upn: 'acc.gmtelect@outlook.com' }, directory);
+const unpaidRow = unpaidUpstream.payload.rows[0];
+assert.equal(unpaidRow.absenceStatus, 'Un-Paid');
+assert.equal(unpaidRow.workedMinutes, 0, 'upstream clocks and reported hours must not override Un-Paid');
+assert.equal(unpaidRow.workedHours, 0);
+assert.equal(unpaidRow.basicHours, 0);
+assert.equal(unpaidRow.ot15Hours, 0);
+assert.equal(unpaidRow.ot20Hours, 0);
+assert.equal(unpaidRow.weightedHours, 0);
+assert.equal(unpaidRow.reportedWorkedMinutes, 540, 'the original reported figure remains available for audit');
+
+const protectedUnpaidInput = normaliseInput({
+  kind: 'timesheets',
+  action: 'submission',
+  recordId: 'unpaid-entry-server-normalisation',
+  payload: {
+    rows: [{ date: '2026-10-19', start: '08:00', finish: '17:00', absenceStatus: 'Un-Paid', workedMinutes: 540, workedHours: 9, basicHours: 8, ot15Hours: 1, ot20Hours: 0, weightedHours: 9.5 }],
+    totals: { workedActual: 540, total: 540, workedMinutes: 540, totalMinutes: 540, workedHours: 9, totalHours: 9, basic: 480, basicMinutes: 480, basicHours: 8, ot15: 60, ot15Minutes: 60, ot15Hours: 1, ot20: 0, weightedHours: 9.5, absent: 1, unpaid: 1 },
+    weightedHours: 9.5,
+    calendarSync: { events: [{ type: 'timesheet', workedHours: 9, basicHours: 8, ot15Hours: 1, ot20Hours: 0 }] }
+  }
+}, { oid: 'employee-object-id', upn: 'matthew@gmt-services.co.uk', name: 'Matthew' }, null, directory);
+const protectedUnpaidPayload = JSON.parse(protectedUnpaidInput.payloadJson);
+assert.equal(protectedUnpaidPayload.rows[0].workedMinutes, 0, 'the Worker must enforce the zero-hour rule before storing a timesheet');
+assert.equal(protectedUnpaidPayload.rows[0].weightedHours, 0);
+assert.equal(protectedUnpaidPayload.rows[0].reportedWorkedMinutes, 540, 'normalization preserves source hours for audit');
+assert.equal(protectedUnpaidPayload.totals.workedActual, 0, 'cached submission totals must exclude unpaid hours');
+assert.equal(protectedUnpaidPayload.totals.workedMinutes, 0);
+assert.equal(protectedUnpaidPayload.totals.workedHours, 0);
+assert.equal(protectedUnpaidPayload.totals.totalMinutes, 0);
+assert.equal(protectedUnpaidPayload.totals.totalHours, 0);
+assert.equal(protectedUnpaidPayload.totals.basicMinutes, 0);
+assert.equal(protectedUnpaidPayload.totals.basicHours, 0);
+assert.equal(protectedUnpaidPayload.totals.ot15Minutes, 0);
+assert.equal(protectedUnpaidPayload.totals.ot15Hours, 0);
+assert.equal(protectedUnpaidPayload.weightedHours, 0);
+assert.equal(protectedUnpaidPayload.totals.unpaid, 1, 'server normalization must not double-count client unpaid totals');
+assert.equal(protectedUnpaidPayload.totals.absent, 1, 'server normalization must not double-count client absence totals');
+assert.deepEqual(protectedUnpaidPayload.calendarSync.events[0], {
+  type: 'timesheet', workedHours: 0, basicHours: 0, ot15Hours: 0, ot20Hours: 0
+}, 'calendar sync summaries must also exclude Un-Paid hours');
+
+const csvShapedUnpaidInput = normaliseInput({
+  kind: 'timesheets', action: 'pay_month_correction', recordId: 'unpaid-csv-shaped-row', employeeName: 'Matthew', employeeEmail: 'matthew@gmt-services.co.uk', editMode: true,
+  payload: { rows: [{ date: '2026-10-16', Start: '08:00', Finish: '17:00', 'Absence reason': 'Un-Paid', 'Total hours': 9, 'Worked hours': 9, worked_minutes: 540, totalMinutes: 540, 'Basic hours': 8, basic_minutes: 480, applied_basic: 480, 'OT x1.5 hours': 1, ot15_minutes: 60, applied_ot15: 60, 'OT x2.0 hours': 0, 'Weighted hours': 9.5 }] }
+}, { oid: 'accounts-object-id', upn: 'acc.gmtelect@outlook.com', isAdmin: true, name: 'Accounts' }, null, directory);
+const csvShapedUnpaid = JSON.parse(csvShapedUnpaidInput.payloadJson).rows[0];
+assert.equal(csvShapedUnpaid['Absence reason'], 'Un-Paid');
+assert.equal(csvShapedUnpaid['Total hours'], 0, 'CSV-shaped correction aliases must be normalized too');
+assert.equal(csvShapedUnpaid['Worked hours'], 0);
+assert.equal(csvShapedUnpaid.worked_minutes, 0);
+assert.equal(csvShapedUnpaid.totalMinutes, 0);
+assert.equal(csvShapedUnpaid['Basic hours'], 0);
+assert.equal(csvShapedUnpaid.basic_minutes, 0);
+assert.equal(csvShapedUnpaid.applied_basic, 0);
+assert.equal(csvShapedUnpaid['OT x1.5 hours'], 0);
+assert.equal(csvShapedUnpaid.ot15_minutes, 0);
+assert.equal(csvShapedUnpaid.applied_ot15, 0);
+assert.equal(csvShapedUnpaid['OT x2.0 hours'], 0);
+assert.equal(csvShapedUnpaid['Weighted hours'], 0);
 
 const mismatchedWindow = normaliseUpstreamRecord({
   Id: 18,

@@ -43,10 +43,9 @@
   </nav>
 </header>
 <main class="app-main portal-dashboard-main" hidden>
-  <section class="portal-updates" data-scroll-reveal aria-labelledby="portal-updates-title">
-    <div class="portal-updates-carousel" data-updates-carousel aria-roledescription="carousel" aria-label="Dashboard pages">
-      <div id="portal-updates-slide-0" class="portal-updates-slide portal-updates-clock-slide" data-updates-slide="0" role="group" aria-roledescription="slide" aria-label="Page 1 of 3">
-        <div class="portal-updates-clock-heading"><p class="eyebrow">Daily clock-in</p><h2 id="portal-updates-title">Record your day</h2><p>Submit clock events, breaks, absence or a full day from the dashboard.</p><a class="portal-updates-task-link" href="../timesheets/">Open weekly timesheets →</a></div>
+  <section class="portal-updates portal-today-section" data-scroll-reveal aria-label="Today" aria-labelledby="portal-updates-title">
+    <div class="portal-today-layout">
+<div class="portal-updates-clock-heading"><p class="eyebrow">Daily clock-in</p><h2 id="portal-updates-title">Record your day</h2><p>Submit clock events, breaks, absence or a full day from the dashboard.</p><a class="portal-updates-task-link" href="../timesheets/">Open weekly timesheets →</a></div>
         <form class="portal-feature-card clock-card" data-clock-form data-default-action="clock_in">
           <div class="clock-card-heading"><span data-clock-title>Clock In</span><small data-clock-description>Record an arrival time and send it to accounts.</small></div>
           <label>Full name<input name="employee_name" autocomplete="name" required placeholder="Your name"></label>
@@ -56,64 +55,11 @@
           <fieldset class="clock-actions" aria-label="What are you recording?"><legend>Record</legend><button type="button" data-clock-action="clock_in" aria-pressed="true">Clock in</button><button type="button" data-clock-action="lunch_start" aria-pressed="false">Lunch start</button><button type="button" data-clock-action="lunch_end" aria-pressed="false">Lunch end</button><button type="button" data-clock-action="clock_out" aria-pressed="false">Clock out</button><button type="button" data-clock-action="absent" aria-pressed="false">Absent</button><button type="button" class="clock-full-day-button" data-clock-action="full_day" aria-pressed="false" aria-label="Fill out a whole day" title="Fill out a whole day">+</button></fieldset>
           <div class="portal-clock-date-time"><label>Date<input name="clock_date" type="date" required></label><label data-clock-time-field>Time<input name="clock_time" type="time" required></label></div>
           <div class="clock-location-control" hidden><label>Off-site location <span class="small-text" data-clock-location-requirement>required</span><input name="clock_location" type="text" autocomplete="off" maxlength="240" placeholder="Road, client or business name"></label></div>
-          <label data-absence-field hidden>Absence reason<select name="absence_reason" disabled><option value="Sick">Sick</option><option value="Holiday">Holiday</option><option value="Time Off">Time Off</option><option value="Other">Other</option></select></label>
+          <label data-absence-field hidden>Absence reason<select name="absence_reason" disabled><option value="Sick">Sick</option><option value="Holiday">Holiday</option><option value="Time Off">Time Off</option><option value="Un-Paid">Un-Paid</option><option value="Other">Other</option></select></label>
           <section class="clock-full-day" data-full-day-fields hidden aria-label="Full day details"><p>Whole day details</p><div class="clock-full-day-grid"><label>Start<input name="day_start" type="time" disabled></label><label>Lunch start<input name="day_lunch_start" type="time" disabled></label><label>Lunch end<input name="day_lunch_end" type="time" disabled></label><label>Finish<input name="day_finish" type="time" disabled></label></div></section>
           <details class="clock-note-details"><summary>Add a note (optional)</summary><label>Note<textarea name="clock_note" rows="2" maxlength="1000" placeholder="Add a note for accounts, if needed."></textarea></label></details>
           <button type="submit" data-clock-submit>Submit clock in</button><p class="small-text clock-status" aria-live="polite"></p>
         </form>
-      </div>
-      <div id="portal-updates-slide-1" class="portal-updates-slide portal-updates-feed-slide" data-updates-slide="1" role="group" aria-roledescription="slide" aria-label="Page 2 of 3" hidden>
-        <section class="portal-updates-feed-panel" aria-labelledby="portal-updates-feed-title">
-          <p class="eyebrow">GMT updates</p>
-          <h2 id="portal-updates-feed-title">Updates and notifications</h2>
-          <p>Important operational notices and approved shared information will appear here.</p>
-          <p id="portal-notification-status" class="portal-notification-status" role="status" aria-live="polite">Loading notifications…</p>
-          <div id="portal-notifications" class="portal-notifications" aria-label="Recent notifications">
-            <div class="portal-notification-empty"><span aria-hidden="true">✓</span><div><strong>Loading notifications…</strong><small>Checking recent protected submissions.</small></div></div>
-          </div>
-          <button type="button" class="secondary" data-dashboard-retry="notifications" hidden>Retry notifications</button>
-        </section>
-        <section class="portal-updates-feed-panel portal-updates-task-panel" aria-labelledby="portal-task-board-title">
-          <div class="portal-updates-task-heading">
-            <p class="eyebrow">GMT work board</p>
-            <h2 id="portal-task-board-title">Task Board</h2>
-            <p>Submitted tasks, ownership and progress in one view.</p>
-          </div>
-          <div class="portal-updates-task-content">
-            <p id="portal-task-board-status" class="portal-updates-task-status" role="status" aria-live="polite">Loading submitted tasks…</p>
-            <div id="portal-task-board" class="portal-task-board" aria-live="polite"></div>
-            <button type="button" class="secondary" data-dashboard-retry="tasks" hidden>Retry task history</button>
-            <a class="portal-updates-task-link" href="../tasks/">Open task tools <span aria-hidden="true">→</span></a>
-          </div>
-        </section>
-      </div>
-      <div id="portal-updates-slide-2" class="portal-updates-slide portal-updates-statistics-slide" data-updates-slide="2" role="group" aria-roledescription="slide" aria-label="Page 3 of 3" hidden>
-        <section class="portal-updates-statistics-panel" aria-labelledby="portal-statistics-title">
-          <div class="portal-statistics-heading">
-            <div><p class="eyebrow">Your activity</p><h2 id="portal-statistics-title">My statistics</h2><p>Review your recorded activity for a GMT pay month.</p></div>
-            <label for="portal-statistics-pay-month">Pay month<select id="portal-statistics-pay-month" name="statistics_pay_month" aria-describedby="portal-statistics-source-note"><option value="">Loading pay months…</option></select></label>
-          </div>
-          <p id="portal-statistics-status" class="portal-statistics-status" role="status" aria-live="polite">Loading personal statistics…</p>
-          <div class="portal-statistics-grid" aria-label="Personal activity totals">
-            <article class="portal-statistics-card"><span>Worked days</span><strong data-statistics-value="worked-days">—</strong></article>
-            <article class="portal-statistics-card"><span>Holiday days recorded</span><strong data-statistics-value="holiday-days">—</strong></article>
-            <article class="portal-statistics-card"><span>Estimates written</span><strong data-statistics-value="estimates-written">—</strong></article>
-            <article class="portal-statistics-card"><span>Job cards raised</span><strong data-statistics-value="job-cards-raised">—</strong></article>
-            <article class="portal-statistics-card"><span>Tasks completed</span><strong data-statistics-value="tasks-completed">—</strong></article>
-          </div>
-          <p id="portal-statistics-source-note" class="portal-statistics-source-note">Based on records currently available to your account.</p>
-          <button type="button" class="secondary" data-dashboard-retry="statistics" hidden>Retry personal statistics</button>
-        </section>
-      </div>
-      <div class="portal-updates-controls" aria-label="Dashboard page navigation">
-        <button type="button" class="portal-carousel-button" data-updates-prev aria-label="Show previous dashboard page">←</button>
-        <div class="portal-carousel-indicators" role="tablist" aria-label="Dashboard pages">
-          <button type="button" class="portal-carousel-indicator is-active" data-updates-dot="0" role="tab" aria-selected="true" aria-controls="portal-updates-slide-0" aria-label="Daily clock-in">1</button>
-          <button type="button" class="portal-carousel-indicator" data-updates-dot="1" role="tab" aria-selected="false" aria-controls="portal-updates-slide-1" aria-label="GMT updates and Task Board">2</button>
-          <button type="button" class="portal-carousel-indicator" data-updates-dot="2" role="tab" aria-selected="false" aria-controls="portal-updates-slide-2" aria-label="My statistics">3</button>
-        </div>
-        <button type="button" class="portal-carousel-button" data-updates-next aria-label="Show next dashboard page">→</button>
-      </div>
     </div>
   </section>
 
@@ -153,6 +99,56 @@
       </a>
       <a class="portal-action-card" href="users.html" data-admin-users-link hidden aria-hidden="true"><span class="portal-action-icon" aria-hidden="true">⚿</span><span><strong>User management</strong><small>Review and change staff portal roles</small></span><span class="portal-arrow" aria-hidden="true">→</span></a>
     </div>
+  </section>
+
+  <section class="portal-work-section" data-scroll-reveal aria-label="My work" aria-labelledby="portal-work-title">
+    <div class="portal-section-heading">
+      <div><p class="eyebrow">My work</p><h2 id="portal-work-title">My work</h2></div>
+    </div>
+    <div class="portal-work-grid">
+<section class="portal-work-card portal-work-task-card" aria-labelledby="portal-task-board-title">
+          <div class="portal-updates-task-heading">
+            <p class="eyebrow">GMT work board</p>
+            <h2 id="portal-task-board-title">Task Board</h2>
+            <p>Submitted tasks, ownership and progress in one view.</p>
+          </div>
+          <div class="portal-updates-task-content">
+            <p id="portal-task-board-status" class="portal-updates-task-status" role="status" aria-live="polite">Loading submitted tasks…</p>
+            <div id="portal-task-board" class="portal-task-board" aria-live="polite"></div>
+            <button type="button" class="secondary" data-dashboard-retry="tasks" hidden>Retry task history</button>
+            <a class="portal-updates-task-link" href="../tasks/">Open task tools <span aria-hidden="true">→</span></a>
+          </div>
+        </section>
+<section class="portal-work-card portal-work-notifications" aria-labelledby="portal-updates-feed-title">
+          <p class="eyebrow">GMT updates</p>
+          <h2 id="portal-updates-feed-title">Updates and notifications</h2>
+          <p>Important operational notices and approved shared information will appear here.</p>
+          <p id="portal-notification-status" class="portal-notification-status" role="status" aria-live="polite">Loading notifications…</p>
+          <div id="portal-notifications" class="portal-notifications" aria-label="Recent notifications">
+            <div class="portal-notification-empty"><span aria-hidden="true">✓</span><div><strong>Loading notifications…</strong><small>Checking recent protected submissions.</small></div></div>
+          </div>
+          <button type="button" class="secondary" data-dashboard-retry="notifications" hidden>Retry notifications</button>
+        </section>
+    </div>
+  </section>
+
+  <section class="portal-statistics-section" data-scroll-reveal aria-label="My statistics" aria-labelledby="portal-statistics-title">
+<section class="portal-statistics-panel" aria-labelledby="portal-statistics-title">
+          <div class="portal-statistics-heading">
+            <div><p class="eyebrow">Your activity</p><h2 id="portal-statistics-title">My statistics</h2><p>Review your recorded activity for a GMT pay month.</p></div>
+            <label for="portal-statistics-pay-month">Pay month<select id="portal-statistics-pay-month" name="statistics_pay_month" aria-describedby="portal-statistics-source-note"><option value="">Loading pay months…</option></select></label>
+          </div>
+          <p id="portal-statistics-status" class="portal-statistics-status" role="status" aria-live="polite">Loading personal statistics…</p>
+          <div class="portal-statistics-grid" aria-label="Personal activity totals">
+            <article class="portal-statistics-card"><span>Worked days</span><strong data-statistics-value="worked-days">—</strong></article>
+            <article class="portal-statistics-card"><span>Holiday days recorded</span><strong data-statistics-value="holiday-days">—</strong></article>
+            <article class="portal-statistics-card"><span>Estimates written</span><strong data-statistics-value="estimates-written">—</strong></article>
+            <article class="portal-statistics-card"><span>Job cards raised</span><strong data-statistics-value="job-cards-raised">—</strong></article>
+            <article class="portal-statistics-card"><span>Tasks completed</span><strong data-statistics-value="tasks-completed">—</strong></article>
+          </div>
+          <p id="portal-statistics-source-note" class="portal-statistics-source-note">Based on records currently available to your account.</p>
+          <button type="button" class="secondary" data-dashboard-retry="statistics" hidden>Retry personal statistics</button>
+        </section>
   </section>
 
   <section class="portal-dashboard-grid" data-scroll-reveal aria-label="Shared information">

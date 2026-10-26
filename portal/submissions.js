@@ -246,6 +246,7 @@
     var number = Number(value); return Number.isFinite(number) ? Math.max(0, number) : null;
   }
   function rowTotalMinutes(row) {
+    if (/^un-paid$/i.test(String(rowValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"], "NA")).trim())) return 0;
     var api = payMonthWorkbookApi();
     if (api && typeof api.workedMinutesForRow === "function") return api.workedMinutesForRow(row);
     var start = timeMinutes(rowValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in"], ""));
@@ -271,7 +272,8 @@
   function rowWorkedMinutes(row) { var total = rowTotalMinutes(row); return total === null ? 0 : total; }
   function displayHours(minutes) { var value = Math.max(0, Math.round(Number(minutes) || 0)); var hours = Math.floor(value / 60); var rest = value % 60; return hours + "h" + (rest ? " " + rest + "m" : ""); }
   function rowMetrics(row) {
-    var date = rowDate(row); var dateObj = date ? new Date(date + "T00:00:00Z") : null; var day = dateObj ? dateObj.getUTCDay() : 1; var absence = String(rowValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"], "NA")); var worked = rowWorkedMinutes(row); var result = { workedActual: worked, basic: 0, ot15: 0, ot20: 0, holiday: 0, sick: 0, timeOff: 0, absent: 0 };
+    var date = rowDate(row); var dateObj = date ? new Date(date + "T00:00:00Z") : null; var day = dateObj ? dateObj.getUTCDay() : 1; var absence = String(rowValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"], "NA")); var worked = rowWorkedMinutes(row); var result = { workedActual: worked, basic: 0, ot15: 0, ot20: 0, holiday: 0, sick: 0, timeOff: 0, unpaid: 0, absent: 0 };
+    if (/^un-paid$/i.test(absence)) { result.workedActual = 0; result.unpaid = 1; result.absent = 1; return result; }
     if (/^holiday$/i.test(absence)) { result.workedActual = 480; result.basic = 480; result.holiday = 1; result.absent = 1; return result; }
     if (/^sick$/i.test(absence)) { result.sick = 1; result.absent = 1; return result; }
     if (/^time off$/i.test(absence)) { result.timeOff = 1; result.absent = 1; }
@@ -581,7 +583,7 @@
       + '<td data-label="Start"><input data-sheet-field="start" type="time" value="' + safe(start) + '"' + disabled + '></td>'
       + '<td data-label="Finish"><input data-sheet-field="finish" type="time" value="' + safe(finish) + '"' + disabled + '></td>'
       + '<td data-label="Break"><input data-sheet-field="break" type="number" min="0" max="1440" step="1" inputmode="numeric" aria-label="Break minutes" placeholder="—" value="' + (breakValue === null ? '' : safe(breakValue)) + '"' + disabled + '></td>'
-      + '<td data-label="Absence"><select data-sheet-field="absence"' + disabled + '><option value="NA"' + (absence === 'NA' ? ' selected' : '') + '>NA</option><option value="Sick"' + (absence === 'Sick' ? ' selected' : '') + '>Sick</option><option value="Holiday"' + (absence === 'Holiday' ? ' selected' : '') + '>Holiday</option><option value="Time Off"' + (absence === 'Time Off' ? ' selected' : '') + '>Time Off</option></select></td>'
+      + '<td data-label="Absence"><select data-sheet-field="absence"' + disabled + '><option value="NA"' + (absence === 'NA' ? ' selected' : '') + '>NA</option><option value="Sick"' + (absence === 'Sick' ? ' selected' : '') + '>Sick</option><option value="Holiday"' + (absence === 'Holiday' ? ' selected' : '') + '>Holiday</option><option value="Time Off"' + (absence === 'Time Off' ? ' selected' : '') + '>Time Off</option><option value="Un-Paid"' + (/^un-paid$/i.test(absence) ? ' selected' : '') + '>Un-Paid</option></select></td>'
       + '<td data-label="Total hours"><span class="pay-month-row-hours">' + safe(totalLabel) + '</span></td>'
       + '<td data-label="Notes"><input data-sheet-field="note" type="text" value="' + safe(note) + '" placeholder="Optional note"' + disabled + '></td>'
       + '<td data-label="Actions">' + (editable ? '<button type="button" class="secondary pay-month-remove-day" data-remove-day>Remove day</button>' : '') + '</td></tr>';
@@ -640,8 +642,9 @@
           var pause = rowInputValue(entry, "break");
           var unchanged = start === String(rowValue(original, ["start", "startTime", "start_time", "clockIn", "clock_in"], ""))
             && finish === String(rowValue(original, ["finish", "finishTime", "finish_time", "clockOut", "clock_out"], ""))
-            && (pause === "" ? null : Number(pause)) === breakMinutes(original);
-          var live = unchanged ? original : { start: start, finish: finish, lunchMinutes: pause === "" ? null : Number(pause) };
+            && (pause === "" ? null : Number(pause)) === breakMinutes(original)
+            && rowInputValue(entry, "absence") === String(rowValue(original, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence"], "NA") || "NA");
+          var live = unchanged ? original : { start: start, finish: finish, lunchMinutes: pause === "" ? null : Number(pause), absenceStatus: rowInputValue(entry, "absence") };
           rowOverrides[rowIndex] = live;
           var minutes = rowTotalMinutes(live);
           var api = payMonthWorkbookApi();
@@ -661,7 +664,8 @@
           var live = {
             start: rowInputValue(entry, "start"),
             finish: rowInputValue(entry, "finish"),
-            lunchMinutes: rowInputValue(entry, "break") === "" ? null : Number(rowInputValue(entry, "break"))
+            lunchMinutes: rowInputValue(entry, "break") === "" ? null : Number(rowInputValue(entry, "break")),
+            absenceStatus: rowInputValue(entry, "absence")
           };
           var minutes = rowTotalMinutes(live);
           if (minutes !== null) total += minutes;
@@ -798,8 +802,21 @@
     next.absenceStatus = values.absence;
     next.description = values.note;
     var metrics = rowMetrics(next);
-    next.workedMinutes = values.breakMinutes === null ? next.workedMinutes : metrics.workedActual;
-    next.workedHours = values.breakMinutes === null ? next.workedHours : Number((metrics.workedActual / 60).toFixed(2));
+    if (/^un-paid$/i.test(values.absence)) {
+      if (next.reportedWorkedMinutes === undefined && next.workedMinutes !== undefined) next.reportedWorkedMinutes = next.workedMinutes;
+      if (next.reportedWorkedHours === undefined && next.workedHours !== undefined) next.reportedWorkedHours = next.workedHours;
+      next.workedMinutes = 0;
+      next.workedHours = 0;
+      next.workedActual = 0;
+      next.total = 0;
+      next.appliedTotal = 0;
+      next.appliedBasic = 0;
+      next.appliedOt15 = 0;
+      next.appliedOt20 = 0;
+    } else {
+      next.workedMinutes = values.breakMinutes === null ? next.workedMinutes : metrics.workedActual;
+      next.workedHours = values.breakMinutes === null ? next.workedHours : Number((metrics.workedActual / 60).toFixed(2));
+    }
     next.basicHours = Number((metrics.basic / 60).toFixed(2));
     next.ot15Hours = Number((metrics.ot15 / 60).toFixed(2));
     next.ot20Hours = Number((metrics.ot20 / 60).toFixed(2));
@@ -979,12 +996,12 @@
         if (values.breakMinutes !== null && (!Number.isInteger(values.breakMinutes) || values.breakMinutes < 0 || values.breakMinutes > 1440)) throw new Error("Break must be a whole number of minutes between 0 and 1440.");
         var startMinutes = timeMinutes(values.start);
         var finishMinutes = timeMinutes(values.finish);
-        if (values.breakMinutes !== null && startMinutes !== null && finishMinutes !== null && finishMinutes >= startMinutes && values.breakMinutes > finishMinutes - startMinutes) throw new Error("Break cannot exceed the time between Start and Finish.");
+        if (!/^un-paid$/i.test(values.absence) && values.breakMinutes !== null && startMinutes !== null && finishMinutes !== null && finishMinutes >= startMinutes && values.breakMinutes > finishMinutes - startMinutes) throw new Error("Break cannot exceed the time between Start and Finish.");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date) || !window.GMTPayPeriods || window.GMTPayPeriods.payMonthKeyForDate(values.date) !== sheet.payMonth) throw new Error("Every date must belong to this pay month.");
         var todayParts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
         var todayPart = function (type) { return todayParts.find(function (part) { return part.type === type; }).value; };
         var today = todayPart('year') + '-' + todayPart('month') + '-' + todayPart('day');
-        if (values.date > today && ['Sick', 'Holiday', 'Absent'].indexOf(values.absence) === -1) throw new Error("Future dates can only be marked absent, sick or holiday; worked time cannot be entered early.");
+        if (values.date > today && ['Sick', 'Holiday', 'Absent', 'Un-Paid'].indexOf(values.absence) === -1) throw new Error("Future dates can only be marked absent, sick, holiday or Un-Paid; worked time cannot be entered early.");
         if (seen[values.date]) throw new Error("Each pay-month row must have a unique date.");
         seen[values.date] = true;
         var changed = isNew || oldDate !== values.date
