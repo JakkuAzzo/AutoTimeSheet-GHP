@@ -14,6 +14,7 @@ The audit page lets an accounts/admin user upload a GMT timesheet archive and ge
 - row categories for worked rows, bank holidays, ignored empty weekends, month markers, total rows, and footer rows
 - downloadable combined audit workbook and JSON
 - employee-name filtering across totals, issues, source details, and filtered exports
+- the confirmed `Simon` name variant is grouped under `Simon Thornton`; source documents remain unchanged
 - optional submit flow that emails accounts the calculated workbook and warning CSV through FormSubmit
 
 ## GMT rules implemented
