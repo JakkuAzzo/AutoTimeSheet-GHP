@@ -687,7 +687,11 @@
 
   function clockRecordId(payload) {
     const recordIdentity = payload.employeeEmail || payload.employeeName;
-    return `clock-${safeKeyPart(recordIdentity)}-${payload.date}-${payload.action}-${payload.time || payload.dayStart || 'absence'}`;
+    // A clock action is one logical event per employee, date and action. Keep
+    // the source ID independent of its edited time so a retry/correction
+    // updates the same workbook/calendar source row instead of creating a
+    // second event for every minute changed.
+    return `clock-${safeKeyPart(recordIdentity)}-${payload.date}-${payload.action}`;
   }
 
   function protectedClockRecord(payload, files, status = 'Pending delivery', issue = '') {
@@ -769,7 +773,24 @@
         [{ date: payload.date, start: files.row.Start, finish: files.row.Finish, absenceStatus: files.row['Absence reason'] }]
       );
       emailForm = createEmailForm(payload, files, coverage);
-      await submitMultipartForm(emailForm, endpoint);
+      const deliveryResult = await submitMultipartForm(emailForm, endpoint);
+      if (deliveryResult && deliveryResult.uncertain) {
+        const confirmationIssue = deliveryResult.message || 'The portal did not receive a delivery confirmation. Check with Accounts before trying again.';
+        if (protectedRecord && protectedRecordSaved) {
+          try {
+            await window.GMTPortalApi.updateRecord(protectedRecord.recordId, {
+              ...protectedRecord,
+              status: 'Pending delivery',
+              issue: confirmationIssue,
+              updatedAt: new Date().toISOString()
+            });
+          } catch (portalError) {
+            portalSyncIssue = portalError && portalError.message ? portalError.message : 'Portal history could not be updated.';
+          }
+        }
+        showStatus(card, 'warning', `${payload.actionLabel} is awaiting confirmation. ${confirmationIssue}${portalSyncIssue ? ` ${portalSyncIssue}` : ''}`);
+        return;
+      }
       if (protectedRecord && protectedRecordSaved) {
         try {
           await window.GMTPortalApi.updateRecord(protectedRecord.recordId, { ...protectedRecord, status: 'Submitted', issue: '', updatedAt: new Date().toISOString() });

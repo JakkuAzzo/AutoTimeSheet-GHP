@@ -174,6 +174,7 @@ try {
   }));
   assert.equal(failedAttempt.hiddenForms, 0, 'failed hidden forms must be removed so a retry starts cleanly');
 
+  await futureCard.locator('[name="clock_time"]').fill('15:01');
   await futureCard.locator('[data-clock-submit]').click();
   await page.waitForFunction(() => window.__submittedForms.length === 2);
   await page.waitForFunction(() => /Clock In saved/.test(document.querySelector('.clock-status')?.textContent || ''));
@@ -182,7 +183,8 @@ try {
     hiddenForms: document.querySelectorAll('form[hidden]').length,
     status: document.querySelector('.clock-status')?.textContent || ''
   }));
-  assert.equal(retryAttempt.fields.gmt_record_id, failedAttempt.fields.gmt_record_id, 'retry must reuse the event ID for idempotent filing');
+  assert.equal(retryAttempt.fields.gmt_record_id, failedAttempt.fields.gmt_record_id, 'retry at a different minute reuses the source ID for idempotent filing');
+  assert.equal(retryAttempt.fields.gmt_clock_time, '15:01', 'a retry can correct the event time without changing its source ID');
   assert.equal(retryAttempt.hiddenForms, 0);
   assert.match(retryAttempt.status, /Clock In saved/);
 
@@ -228,6 +230,39 @@ try {
     await card.locator('button[type="submit"]').click();
     await page.waitForFunction((count) => window.__submittedForms.length === count, index + 4, { timeout: 15000 });
   }
+
+  await page.evaluate(() => {
+    window.__uncertainClock = { nativeSubmissions: 0, saved: [], updates: [] };
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__uncertainClock.saved.push(record); return { record }; },
+      updateRecord: async (recordId, record) => { window.__uncertainClock.updates.push({ recordId, record }); return { record }; }
+    };
+    window.GMTClockTransport.shouldUseNativeFallback = () => true;
+    const submitNativeForm = window.GMTClockTransport.submitNativeForm.bind(window.GMTClockTransport);
+    window.GMTClockTransport.submitNativeForm = (form, frame, options) => submitNativeForm(form, frame, { ...options, timeoutMs: 10 });
+    HTMLFormElement.prototype.submit = function () { window.__uncertainClock.nativeSubmissions += 1; };
+  });
+  await card.locator('[data-clock-action="clock_out"]').click();
+  await card.locator('[name="clock_date"]').fill('2026-10-16');
+  await card.locator('[name="clock_time"]').fill('15:00');
+  await card.locator('[data-clock-submit]').click();
+  await page.waitForFunction(() => /awaiting confirmation/i.test(document.querySelector('.clock-status')?.textContent || ''));
+  const uncertainClock = await page.evaluate(() => ({
+    nativeSubmissions: window.__uncertainClock.nativeSubmissions,
+    saved: window.__uncertainClock.saved,
+    updates: window.__uncertainClock.updates,
+    status: document.querySelector('.clock-status')?.textContent || '',
+    time: document.querySelector('[name="clock_time"]')?.value || ''
+  }));
+  assert.equal(uncertainClock.nativeSubmissions, 1, 'the native multipart clock submission is attempted once');
+  assert.equal(uncertainClock.saved.length, 1, 'the protected history row is saved before delivery');
+  assert.equal(uncertainClock.updates.length, 1, 'an unconfirmed native response is written back to protected history');
+  assert.equal(uncertainClock.updates[0].record.status, 'Pending delivery', 'a missing redirect does not create a false definite failure');
+  assert.match(uncertainClock.updates[0].record.issue, /did not receive.*confirmation/i);
+  assert.match(uncertainClock.status, /check with Accounts before trying again/i);
+  assert.doesNotMatch(uncertainClock.status, /saved|failed/i);
+  assert.equal(uncertainClock.time, '15:00', 'the form preserves the clock time while delivery is unconfirmed');
 
   const allResults = await page.evaluate(async () => Promise.all(window.__submittedForms.map(async (form) => {
     const files = await Promise.all(form.files.map(async (entry) => ({
@@ -394,7 +429,7 @@ try {
   assert.equal(offsiteRouting.emailCount, beforeOffsiteEmailCount, 'off-site events never use the direct-to-Accounts email path');
   assert.match(offsiteRouting.status, /awaiting Duty Manager approval/i);
 
-    console.log(JSON.stringify({ browser: browserName, responsiveContext, futureTimeAttempt, retryStatus: retryAttempt.status, beforeSubmit, layout, offsiteRouting: { actions: offsiteRouting.events.map((event) => event.action), emailCount: offsiteRouting.emailCount }, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
+    console.log(JSON.stringify({ browser: browserName, responsiveContext, futureTimeAttempt, retryStatus: retryAttempt.status, uncertainClock: { status: uncertainClock.status, deliveryStatus: uncertainClock.updates[0].record.status }, beforeSubmit, layout, offsiteRouting: { actions: offsiteRouting.events.map((event) => event.action), emailCount: offsiteRouting.emailCount }, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
     await browser.close();
     browser = null;
   }

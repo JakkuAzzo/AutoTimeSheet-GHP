@@ -48,6 +48,7 @@
     "test:offsite-clock:lifecycle": "node tests/offsite-clock-lifecycle.mjs",
     "test:offsite-clock:ui": "node tests/offsite-clock-ui.mjs",
     "test:timesheets:clock-payload-contract": "node tests/timesheet-clock-payload-contract.mjs",
+    "test:timesheets:clock-transport": "node tests/timesheet-clock-transport.mjs",
     "test:timesheets:email-routing": "node tests/timesheet-email-routing.mjs",
     "prepare:job-cards": "node tools/prepare-job-card-import.mjs",
     "test:timesheets:responsive-entry": "node tests/timesheet-entry-responsive.mjs",
