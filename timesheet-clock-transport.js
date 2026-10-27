@@ -65,7 +65,13 @@
     return new Promise((resolve, reject) => {
       let settled = false;
       let loadCount = 0;
-      const timeout = setTimeout(() => finish(new Error('Timesheet delivery timed out. Please try again or contact Accounts.')), timeoutMs);
+      const uncertainResult = {
+        success: false,
+        uncertain: true,
+        transport: 'native-form',
+        message: 'The portal did not receive a delivery confirmation. Check with Accounts before trying again.'
+      };
+      const timeout = setTimeout(() => finish(null, uncertainResult), timeoutMs);
       const cleanup = () => {
         clearTimeout(timeout);
         frame.removeEventListener('load', onLoad);
@@ -74,11 +80,11 @@
         form.target = previousTarget;
         if (addedNext && addedNext.parentNode) addedNext.parentNode.removeChild(addedNext);
       };
-      const finish = (error) => {
+      const finish = (error, result) => {
         if (settled) return;
         settled = true;
         cleanup();
-        if (error) reject(error); else resolve({ success: true, transport: 'native-form' });
+        if (error) reject(error); else resolve(result || { success: true, transport: 'native-form' });
       };
       const inspectResponse = () => {
         loadCount += 1;
@@ -98,7 +104,7 @@
         }
       };
       const onLoad = () => setTimeout(inspectResponse, 0);
-      const onError = () => finish(new Error('Timesheet delivery failed. Please try again or contact Accounts.'));
+      const onError = () => finish(null, uncertainResult);
       frame.addEventListener('load', onLoad);
       frame.addEventListener('error', onError);
       try {
