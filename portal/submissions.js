@@ -216,7 +216,12 @@
       ? historyMeta.editable_pay_months
       : window.GMTPayPeriods && typeof window.GMTPayPeriods.editablePayMonthKeys === "function"
         ? window.GMTPayPeriods.editablePayMonthKeys(new Date().toISOString().slice(0, 10)) : [];
-    return months.indexOf(sheet.payMonth) !== -1 && (historyMeta.is_admin === true || sheet.records.some(function (record) { return record.can_edit === true || record.source === "microsoft-365"; }));
+    // The Worker owner-filters clock rows for identities without all-timesheet
+    // access, so a clock-only sheet can safely use the protected month editor.
+    var canCorrectOwnClockSheet = historyMeta && historyMeta.is_admin !== true
+      && historyMeta.can_view_all_timesheets !== true
+      && sheet.records.some(function (record) { return actionKey(record) === "clock"; });
+    return months.indexOf(sheet.payMonth) !== -1 && (historyMeta.is_admin === true || canCorrectOwnClockSheet || sheet.records.some(function (record) { return record.can_edit === true || record.source === "microsoft-365"; }));
   }
   function sourcePriority(record) {
     if (String(record && record.action || "") === "pay_month_correction") return 3;
