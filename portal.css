@@ -725,6 +725,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .pay-month-bulk-download { display: grid; gap: .45rem; margin-top: .75rem; }
 .pay-month-bulk-download button { width: 100%; min-height: 44px; }
 .pay-month-bulk-download .small-text { margin: 0; overflow-wrap: anywhere; }
+.pay-month-bulk-download-actions { display: grid; gap: .45rem; }
 .submissions-delivery-dialog { width: min(720px, calc(100vw - 2rem)); max-width: 720px; max-height: min(82vh, 860px); padding: 1.15rem; overflow: auto; border: 1px solid var(--line); border-radius: 1rem; color: var(--ink); background: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.25); }
 .submissions-delivery-dialog::backdrop { background: rgba(20, 34, 25, .55); }
 .submissions-delivery-dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: .8rem; border-bottom: 1px solid var(--line); }

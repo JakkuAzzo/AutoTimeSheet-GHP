@@ -17,8 +17,8 @@
   var deliveryTrigger = document.getElementById("submissions-delivery-trigger");
   var deliveryDialog = document.getElementById("submissions-delivery-dialog");
   var deliveryDetails = document.getElementById("submissions-delivery-details");
-  var downloadAllButton = document.getElementById("download-all-sheets");
-  var downloadAllStatus = document.getElementById("download-all-sheets-status");
+  var downloadGroupButtons = Array.prototype.slice.call(document.querySelectorAll("[data-download-sheet-group]"));
+  var downloadGroupStatus = document.getElementById("download-team-sheets-status");
   var records = [];
   var realRecordCount = 0;
   var historyMeta = {};
@@ -764,15 +764,46 @@
       if (button) button.disabled = false;
     }
   }
-  async function downloadAllPayMonthSheets(button) {
-    var sheets = filteredSheets();
-    if (!sheets.length) return;
+  var sheetDownloadGroups = {
+    engineer: { label: "Engineer", archiveName: "Engineer.zip" },
+    accounts: { label: "Accounts", archiveName: "Accounts.zip" },
+    contractor: { label: "Contractor", archiveName: "Contractor.zip" }
+  };
+  function downloadGroupForSheet(sheet) {
+    var upn = String(sheet && sheet.employeeUpn || "").trim().toLowerCase();
+    var name = String(sheet && sheet.employeeName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (upn === "faith.b@gmt-services.co.uk" || upn === "amanda.bb@gmtelectservsltd.onmicrosoft.com"
+      || upn === "accounts@gmt-services.co.uk" || upn === "acc.gmtelect@outlook.com"
+      || upn === "acc.gmtelect@gmt-services.co.uk" || /^(faith|amanda)$/.test(name)) return "";
+    if (upn === "micheller.admin@gmt-services.co.uk" || upn === "lidiaa.admin@gmt-services.co.uk"
+      || /\b(michelle|lidia)\b/.test(name)) return "accounts";
+    if (/\bdjamel\b/.test(name) || /^djamel(?:[._-]|@)/.test(upn)) return "contractor";
+    if (!upn && (!name || name === "gmt staff" || name === "unknown employee")) return "";
+    // Engineering is the default for the workshop roster (including new
+    // engineer identities), while Accounts and contractor identities are
+    // assigned explicitly above.
+    return "engineer";
+  }
+  function renderDownloadGroupButtons(sheets) {
+    downloadGroupButtons.forEach(function (button) {
+      var group = button.getAttribute("data-download-sheet-group");
+      button.hidden = currentTab !== "timesheets" || !sheets.some(function (sheet) { return downloadGroupForSheet(sheet) === group; });
+    });
+    if (downloadGroupStatus) downloadGroupStatus.textContent = "";
+  }
+  async function downloadPayMonthGroup(groupKey, button) {
+    var group = sheetDownloadGroups[groupKey];
+    var sheets = filteredSheets().filter(function (sheet) { return downloadGroupForSheet(sheet) === groupKey; });
+    if (!group || !sheets.length) {
+      if (downloadGroupStatus) downloadGroupStatus.textContent = "No authorised " + (group ? group.label : "") + " sheets match the current filters.";
+      return;
+    }
     if (!window.GMTZipStore || typeof window.GMTZipStore.createZip !== "function") {
-      if (downloadAllStatus) downloadAllStatus.textContent = "ZIP downloads are unavailable. Refresh and try again.";
+      if (downloadGroupStatus) downloadGroupStatus.textContent = "ZIP downloads are unavailable. Refresh and try again.";
       return;
     }
     button.disabled = true;
-    if (downloadAllStatus) downloadAllStatus.textContent = "Preparing " + sheets.length + " authorised workbook" + (sheets.length === 1 ? "" : "s") + "…";
+    if (downloadGroupStatus) downloadGroupStatus.textContent = "Preparing " + sheets.length + " authorised " + group.label + " workbook" + (sheets.length === 1 ? "" : "s") + "…";
     try {
       var excel = typeof window.ensureXlsxLoaded === "function" ? await window.ensureXlsxLoaded() : window.XLSX;
       var files = [];
@@ -781,11 +812,10 @@
         files.push({ name: prepared.fileName, data: prepared.array });
       }
       var zip = window.GMTZipStore.createZip(files);
-      var archiveName = "GMT Timesheets - " + (payMonthFilter && payMonthFilter.value ? payMonthFilter.value : "All Pay Months") + ".zip";
-      saveDownload(zip, archiveName, "application/zip");
-      if (downloadAllStatus) downloadAllStatus.textContent = sheets.length + " authorised workbook" + (sheets.length === 1 ? "" : "s") + " downloaded in one ZIP.";
+      saveDownload(zip, group.archiveName, "application/zip");
+      if (downloadGroupStatus) downloadGroupStatus.textContent = group.archiveName + " downloaded with " + sheets.length + " authorised pay-month workbook" + (sheets.length === 1 ? "" : "s") + ".";
     } catch (error) {
-      if (downloadAllStatus) downloadAllStatus.textContent = error && error.message ? error.message : "The workbook ZIP could not be downloaded.";
+      if (downloadGroupStatus) downloadGroupStatus.textContent = error && error.message ? error.message : "The workbook ZIP could not be downloaded.";
     } finally {
       button.disabled = false;
     }
@@ -1093,8 +1123,7 @@
   }
   function renderPayMonthList() {
     var sheets = filteredSheets();
-    if (downloadAllButton) downloadAllButton.hidden = currentTab !== "timesheets" || sheets.length === 0;
-    if (downloadAllStatus && currentTab !== "timesheets") downloadAllStatus.textContent = "";
+    renderDownloadGroupButtons(sheets);
     if (listTitle) listTitle.textContent = currentTab === "timesheets" ? "Available sheets" : (currentTab === "all" ? "All authorised records" : typeLabel({ kind: currentTab }));
     if (listKicker) listKicker.textContent = currentTab === "timesheets" ? "Pay month list" : "Record list";
     if (!list) return;
@@ -1351,7 +1380,9 @@
       else deliveryDialog.removeAttribute("open");
     });
   });
-  if (downloadAllButton) downloadAllButton.addEventListener("click", function () { downloadAllPayMonthSheets(downloadAllButton); });
+  downloadGroupButtons.forEach(function (button) {
+    button.addEventListener("click", function () { downloadPayMonthGroup(button.getAttribute("data-download-sheet-group"), button); });
+  });
   document.addEventListener("gmt:history-record-deleted", function () {
     selected = -1;
     setTimeout(load, 0);

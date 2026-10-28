@@ -16,7 +16,7 @@ const browser = await chromium.launch({ headless: true, ...(existsSync(chromePat
 
 try {
   const page = await browser.newPage({ acceptDownloads: true });
-  await page.setContent('<main><p id="submissions-status"></p><button id="submissions-refresh"></button><button id="submissions-delivery-trigger" hidden>Correction delivery status</button><dialog id="submissions-delivery-dialog"><button type="button" data-delivery-close>Close</button><div id="submissions-delivery-details"></div></dialog><select id="submissions-pay-month"><option value=""></option></select><div id="submissions-employee-filter"><select id="submissions-employee"><option value=""></option></select></div><div id="pay-month-list-title"></div><div id="pay-month-list-count"></div><p data-pay-month-list-kicker></p><div id="submissions-list"></div><button id="download-all-sheets" hidden>Download All Sheets</button><span id="download-all-sheets-status"></span><article id="submissions-preview"></article></main>');
+  await page.setContent('<main><p id="submissions-status"></p><button id="submissions-refresh"></button><button id="submissions-delivery-trigger" hidden>Correction delivery status</button><dialog id="submissions-delivery-dialog"><button type="button" data-delivery-close>Close</button><div id="submissions-delivery-details"></div></dialog><select id="submissions-pay-month"><option value=""></option></select><div id="submissions-employee-filter"><select id="submissions-employee"><option value=""></option></select></div><div id="pay-month-list-title"></div><div id="pay-month-list-count"></div><p data-pay-month-list-kicker></p><div id="submissions-list"></div><button data-download-sheet-group="engineer" hidden>Download Engineer.zip</button><button data-download-sheet-group="accounts" hidden>Download Accounts.zip</button><button data-download-sheet-group="contractor" hidden>Download Contractor.zip</button><span id="download-team-sheets-status"></span><article id="submissions-preview"></article></main>');
   await page.addStyleTag({ path: resolve(root, 'portal.css') });
   await page.evaluate(() => {
     window.testAdmin = false;
@@ -30,7 +30,8 @@ try {
         return { records: [
           { record_id: 'waiting', kind: 'timesheets', employee_name: 'Michelle', employee_upn: 'michelle@gmt-services.co.uk', record_date: '2026-09-07', payload: { rows: [{ date: '2026-09-07', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'queued', attempts: 0, queued_at: '2026-09-28T10:00:00Z', error: '' } },
           { record_id: 'failed', kind: 'timesheets', employee_name: 'Simon', employee_upn: 'simon@gmt-services.co.uk', record_date: '2026-09-08', payload: { rows: [{ date: '2026-09-08', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'failed', attempts: 2, queued_at: '2026-09-28T09:00:00Z', error: 'Workbook route not certified' } },
-          { record_id: 'sent', kind: 'timesheets', employee_name: 'Ainsley', employee_upn: 'ainsley@gmt-services.co.uk', record_date: '2026-09-09', payload: { rows: [{ date: '2026-09-09', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'sent', attempts: 1, sent_at: '2026-09-28T08:00:00Z', error: '' } }
+          { record_id: 'sent', kind: 'timesheets', employee_name: 'Ainsley', employee_upn: 'ainsley@gmt-services.co.uk', record_date: '2026-09-09', payload: { rows: [{ date: '2026-09-09', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'sent', attempts: 1, sent_at: '2026-09-28T08:00:00Z', error: '' } },
+          { record_id: 'contractor', kind: 'timesheets', employee_name: 'Djamel', employee_upn: 'djamel@gmt-contractors.example', record_date: '2026-09-10', payload: { rows: [{ date: '2026-09-10', start: '08:00', finish: '17:00', breakMinutes: 0 }] }, dispatch: { status: 'sent', attempts: 1, sent_at: '2026-09-28T07:00:00Z', error: '' } }
         ], meta: { is_admin: window.testAdmin, editable_pay_months: window.GMTPayPeriods.editablePayMonthKeys((function () { var parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); var part = function (type) { return parts.find(function (entry) { return entry.type === type; }).value; }; return part('year') + '-' + part('month') + '-' + part('day'); })()) } };
       },
       correctionQueueStatus: async () => {
@@ -70,7 +71,7 @@ try {
   });
   await page.addScriptTag({ path: resolve(root, 'portal/submissions.js') });
   await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
-  await page.waitForFunction(() => document.querySelector('#submissions-status').textContent.includes('3 authorised records loaded'));
+  await page.waitForFunction(() => document.querySelector('#submissions-status').textContent.includes('4 authorised records loaded'));
   assert.equal(await page.locator('#submissions-delivery-trigger').isVisible(), false, 'staff cannot see Accounts queue status');
   await page.evaluate(() => { window.testAdmin = true; });
   await page.locator('#submissions-refresh').click();
@@ -97,29 +98,29 @@ try {
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /gmt-correction-simon-20260908/, 'Accounts can reconcile each queue state to its exact source record ID');
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /Source record ID unavailable; this item cannot be reconciled/, 'a queue item without an authoritative ID is clearly held from reconciliation');
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /Workbook route not certified/);
-  assert.match(await page.locator('#submissions-delivery-details').innerText(), /does not confirm.*SharePoint/i);
+  assert.match(await page.locator('#submissions-delivery-details').innerText(), /Email acceptance is shown separately from the Power Automate and workbook receipts below/i);
   assert.equal(await page.evaluate(() => window.dispatchCalls), 0, 'opening status never retries or sends corrections');
   assert.equal(await page.evaluate(() => window.statusCalls), 1, 'opening the status dialog makes one read-only status request');
   await page.locator('[data-delivery-close]').click();
   assert.equal(await page.locator('#submissions-delivery-dialog').isVisible(), false);
-  const downloadPromise = page.waitForEvent('download');
-  await page.locator('#download-all-sheets').click();
-  const download = await downloadPromise;
-  assert.equal(download.suggestedFilename(), 'GMT Timesheets - 2026-09.zip');
-  const folder = mkdtempSync(join(tmpdir(), 'gmt-all-sheets-ui-'));
-  try {
-    const archivePath = join(folder, download.suggestedFilename());
-    await download.saveAs(archivePath);
-    const listing = execFileSync('unzip', ['-Z1', archivePath], { encoding: 'utf8' }).trim().split('\n');
-    assert.equal(listing.length, 3, 'one workbook is included for each authorised employee sheet in the selected pay month');
-    assert.ok(listing.some(name => name.includes('Michelle')));
-    assert.ok(listing.some(name => name.includes('Simon')));
-    assert.ok(listing.some(name => name.includes('Ainsley')));
-  } finally {
-    rmSync(folder, { recursive: true, force: true });
+  for (const [group, expectedNames] of [['engineer', ['Simon', 'Ainsley']], ['accounts', ['Michelle']], ['contractor', ['Djamel']]]) {
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('[data-download-sheet-group="' + group + '"]').click();
+    const download = await downloadPromise;
+    assert.equal(download.suggestedFilename(), group[0].toUpperCase() + group.slice(1) + '.zip');
+    const folder = mkdtempSync(join(tmpdir(), 'gmt-' + group + '-sheets-ui-'));
+    try {
+      const archivePath = join(folder, download.suggestedFilename());
+      await download.saveAs(archivePath);
+      const listing = execFileSync('unzip', ['-Z1', archivePath], { encoding: 'utf8' }).trim().split('\n');
+      assert.equal(listing.length, expectedNames.length, 'the ZIP contains only authorised sheets for its team');
+      for (const name of expectedNames) assert.ok(listing.some(fileName => fileName.includes(name)));
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   }
 } finally {
   await browser.close();
 }
 
-console.log('PASS: correction status is Accounts-only and read-only, pay-month labels are clear, and all visible employee sheets download together.');
+console.log('PASS: correction status is Accounts-only and read-only, pay-month labels are clear, and authorised sheets download in separate team ZIPs.');
