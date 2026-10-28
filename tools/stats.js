@@ -36,7 +36,10 @@
     if(!complete) note+=' Some history could not be loaded; totals are incomplete.';
     text(document.getElementById('stats-note'),note);
     var items=result.items[topic], container=document.getElementById('stats-items');container.replaceChildren();
-    if(window.GMTHolidayCalendar) window.GMTHolidayCalendar.update(topic==='holiday-days',result.items['holiday-days'],{period:period.value,month:month.value,year:year.value,employee:employee.value});
+    if(window.GMTHolidayCalendar) {
+      var holidayRoster=topic==='holiday-days' ? window.GMTStatistics.calculate(records,{identity:identity,admin:admin,employee:'',period:'all'}).items['holiday-days'] : result.items['holiday-days'];
+      window.GMTHolidayCalendar.update(topic==='holiday-days',result.items['holiday-days'],{period:period.value,month:month.value,year:year.value,employee:employee.value},holidayRoster);
+    }
     var options={period:period.value,month:month.value,year:year.value};
     if (options.period==='month' && window.GMTPayPeriods && typeof window.GMTPayPeriods.periodForMonth==='function') { var p=window.GMTPayPeriods.periodForMonth(options.month); if(p){options.start=p.start;options.end=p.cycleEnd||p.end;} }
     var chartData=window.GMTStatsCharts.series(items,options,topic);

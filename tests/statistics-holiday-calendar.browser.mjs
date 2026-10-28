@@ -16,13 +16,32 @@ try {
   window.GMT_PORTAL_AUTH_READY=Promise.resolve(); window.GMTPayPeriods={payMonthKeyForDate:d=>d.slice(0,7),ready:Promise.resolve()};
   window.GMTPortalApi={enabled:()=>true,access:async()=>({isAdmin:true}),history:async()=>({meta:{upstream:'ok',history_pagination:{has_more:false}},records:[
    {kind:'timesheets',record_id:'a',employee_upn:'a@example.com',employee_name:'Alice',payload:{rows:[{date:'2026-10-30',absenceReason:'Holiday'},{date:'2026-10-31',absenceReason:'Holiday'},{date:'2026-11-01',absenceReason:'Holiday'},{date:'2026-11-03',absenceReason:'Holiday'}]}},
-   {kind:'timesheets',record_id:'b',employee_upn:'b@example.com',employee_name:'Bob',payload:{rows:[{date:'2026-11-02',absenceReason:'Holiday'}]}}
+   {kind:'timesheets',record_id:'b',employee_upn:'b@example.com',employee_name:'Bob',payload:{rows:[{date:'2026-11-01',absenceReason:'Holiday'},{date:'2026-11-02',absenceReason:'Holiday'}]}}
   ]})};
  });
  for(const path of ['portal/calendar-data.js','portal/pay-month-workbook.js','portal/statistics-data.js','tools/stats-locations.js','tools/stats-map.js','tools/stats-charts.js','tools/stats-holiday-calendar.js','tools/stats.js']) if(existsSync(path)) await page.addScriptTag({content:readFileSync(path,'utf8')});
  await page.waitForFunction(()=>document.getElementById('stats-status').textContent==='Statistics loaded.');
  assert.equal(await page.locator('#stats-holiday-calendar').isVisible(),true,'Holiday calendar should be visible');
+ assert.equal(await page.locator('#holiday-legend .holiday-legend-entry').count(),2,'legend lists each employee');
+ const alice=page.locator('#holiday-legend .holiday-legend-entry').filter({hasText:'Alice'}), bob=page.locator('#holiday-legend .holiday-legend-entry').filter({hasText:'Bob'});
+ const aliceColor=await alice.locator('.holiday-colour').evaluate(el=>getComputedStyle(el).backgroundColor);
+ const bobColor=await bob.locator('.holiday-colour').evaluate(el=>getComputedStyle(el).backgroundColor);
+ assert.notEqual(aliceColor,bobColor,'employees have distinct colours');
+ const overlapping=page.locator('[data-holiday-date="2026-11-01"]');
+ assert.equal(await overlapping.locator('.holiday-marker').count(),2,'overlap has markers for both employees');
+ const markerColors=await overlapping.locator('.holiday-marker').evaluateAll(els=>els.map(el=>getComputedStyle(el).backgroundColor));
+ assert.ok(markerColors.includes(aliceColor)&&markerColors.includes(bobColor),'markers match the legend');
+ await overlapping.hover();
+ assert.equal(await page.locator('#holiday-tooltip').isVisible(),true);
+ assert.match(await page.locator('#holiday-tooltip').textContent(),/Alice.*30 October 2026.*1 November 2026/);
+ assert.match(await page.locator('#holiday-tooltip').textContent(),/Bob.*1 November 2026.*2 November 2026/);
+ await page.mouse.move(0,0); assert.equal(await page.locator('#holiday-tooltip').isHidden(),true);
+ await overlapping.focus(); assert.equal(await page.locator('#holiday-tooltip').isVisible(),true);
+ await page.keyboard.press('Escape'); assert.equal(await page.locator('#holiday-tooltip').isHidden(),true);
+ await overlapping.dispatchEvent('pointerdown',{pointerType:'touch'}); assert.equal(await page.locator('#holiday-tooltip').isVisible(),true);
  await page.selectOption('#stats-employee','a@example.com');
+ assert.equal(await page.locator('#holiday-legend .holiday-legend-entry').count(),1,'legend follows employee filter');
+ assert.equal(await page.locator('#holiday-legend .holiday-colour').evaluate(el=>getComputedStyle(el).backgroundColor),aliceColor,'employee colour stays stable after filtering');
  assert.match(await page.locator('#holiday-month-title').textContent(),/November 2026/);
  assert.equal(await page.locator('[data-holiday-date="2026-11-01"]').getAttribute('data-holiday-position'),'end','cross-month range ends on 1 November');
  assert.equal(await page.locator('[data-holiday-date="2026-11-02"]').getAttribute('data-holiday-position'),null,'another employee does not fill a gap');
@@ -34,6 +53,24 @@ try {
  assert.match(await page.locator('#holiday-month-title').textContent(),/October 2026/);
  assert.equal(await page.locator('[data-holiday-date="2026-10-30"]').getAttribute('data-holiday-position'),'start');
  assert.equal(await page.locator('[data-holiday-date="2026-10-31"]').getAttribute('data-holiday-position'),'middle');
+ await page.locator('[data-holiday-view="year"]').click();
+ assert.equal(await page.locator('[data-holiday-view="year"]').getAttribute('aria-pressed'),'true');
+ assert.equal(await page.locator('.holiday-year-month').count(),12,'year view shows twelve months');
+ if(process.env.HOLIDAY_YEAR_SCREENSHOT) await page.locator('#stats-holiday-calendar').screenshot({path:process.env.HOLIDAY_YEAR_SCREENSHOT});
+ assert.match(await page.locator('#holiday-month-title').textContent(),/2026/);
+ await page.locator('[data-holiday-date="2026-11-01"]').hover();
+ assert.match(await page.locator('#holiday-tooltip').textContent(),/Alice.*30 October 2026.*1 November 2026/,'year view retains hover periods');
+ await page.locator('#holiday-next').click();
+ assert.match(await page.locator('#holiday-month-title').textContent(),/2027/,'year navigation moves one year');
+ assert.equal(await page.locator('[data-holiday-position]').count(),0,'year without matching records is empty');
+ await page.locator('[data-holiday-view="month"]').click();
+ assert.equal(await page.locator('.holiday-year-month').count(),0,'month view is restored');
+ await page.selectOption('#stats-period','month'); await page.fill('#stats-month','2026-11'); await page.locator('#stats-month').dispatchEvent('change');
+ await page.locator('[data-holiday-view="year"]').click();
+ assert.equal(await page.locator('#stats-period').inputValue(),'year','year view switches to yearly data');
+ assert.equal(await page.locator('[data-holiday-date="2026-10-30"]').getAttribute('data-holiday-position'),'start','year view includes earlier months outside previous pay month');
+ await page.locator('#holiday-next').click(); assert.equal(await page.locator('#stats-year').inputValue(),'2027','year navigation updates the data filter');
+
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'no mobile overflow');
  if(process.env.HOLIDAY_SCREENSHOT) await page.locator('#stats-holiday-calendar').screenshot({path:process.env.HOLIDAY_SCREENSHOT});
  await page.locator('[data-topic="worked-days"]').click(); assert.equal(await page.locator('#stats-holiday-calendar').isHidden(),true);
