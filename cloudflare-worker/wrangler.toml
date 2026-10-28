@@ -24,6 +24,9 @@ SHAREPOINT_DRIVE_ID = "b!MzeiHCqOw0utuY3X_MAEfQtjhDKdWuhApGsUODJTaQkE_LCubVqORJn
 ENTRA_AUDIENCES = "01b5a6c6-f6c1-47cb-aebe-67f07f415e4b,https://service.flow.microsoft.com/"
 ALLOWED_ORIGINS = "https://gmt-services.co.uk,https://www.gmt-services.co.uk,https://gmt-timesheets.pages.dev"
 ADDITIONAL_ADMIN_UPNS = "accounts@gmt-services.co.uk,faith.b@gmt-services.co.uk"
+# My Submissions managers can view and edit all submissions without gaining
+# unrelated account, Xero, or user-administration privileges.
+SUBMISSIONS_ADMIN_UPNS = "acc.gmtelect@outlook.com,accounts@gmt-services.co.uk,amanda.bb@gmtelectservsltd.onmicrosoft.com,faith.b@gmt-services.co.uk"
 HR_ADMIN_UPNS = "micheller.admin@gmt-services.co.uk,lidiaa.admin@gmt-services.co.uk"
 XERO_ADMIN_UPNS = "micheller.admin@gmt-services.co.uk,lidiaa.admin@gmt-services.co.uk"
 # Off-site approvals are limited to the managers approved for this workflow.
@@ -32,6 +35,9 @@ HISTORY_UPSTREAM_URL = "https://default8b182d6b6f344ca284ad50ca712b54.88.environ
 # Protected history uses this approved portal roster to distinguish
 # a missing submission from an employee who has never submitted a record.
 STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"name":"Matthew","upn":"matthew@gmt-services.co.uk"},{"name":"Ainsley","upn":"ainsley@gmt-services.co.uk"},{"name":"Simon","upn":"simon@gmt-services.co.uk"},{"name":"Faith","upn":"faith.b@gmt-services.co.uk"},{"name":"Michelle Reid","upn":"micheller.admin@gmt-services.co.uk","workdays":[2,3]},{"name":"Lidia Alemayoh","upn":"lidiaa.admin@gmt-services.co.uk","workdays":[1,4,5]},{"name":"Nathan Brown-Bennett","upn":"nathanbrown-bennett@gmt-services.co.uk","workdays":[1,2,3,4,5]}]'
+# Keep these accounts out of timesheet completion expectations while retaining
+# their staff-directory identity for authorised history and manager access.
+TIMESHEET_ROSTER_EXCLUDED_UPNS = "faith.b@gmt-services.co.uk,amanda.bb@gmtelectservsltd.onmicrosoft.com"
 # Keep verified former aliases separate from the attendance roster when needed.
 HISTORICAL_EMPLOYEE_ALIASES_JSON = '[]'
 DISPATCH_ENABLED = "true"
