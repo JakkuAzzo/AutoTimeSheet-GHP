@@ -20,7 +20,7 @@ assert.match(html, /data-submission-tab="estimates"/);
 assert.match(html, /data-submission-tab="invoices"/);
 assert.doesNotMatch(html, /submissions-admin-timesheet-summary/, 'the removed completion dashboard must not return');
 assert.match(scripts, /data-pay-month-download/, 'selected pay-month sheets can be downloaded');
-assert.match(html, /data-download-all-sheets/, 'the pay-month list has a bulk-download control');
+assert.match(html, /data-download-sheet-group="engineer"/, 'the pay-month list has a team ZIP download control');
 assert.match(scripts, /GMTZipStore/, 'bulk downloads are packaged as a ZIP');
 assert.match(scripts, /Current - /, 'current pay month labels are readable');
 assert.match(scripts, /submissions-day/, 'day filter changes the visible records and sheet preview');
