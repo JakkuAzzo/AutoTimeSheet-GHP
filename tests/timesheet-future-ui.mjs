@@ -19,8 +19,18 @@ const server = createServer((request, response) => {
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 const browser = await chromium.launch({ headless: true, executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
 try {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36' });
+  await page.clock.setFixedTime(new Date('2026-10-28T12:00:00Z'));
   await page.goto(`http://127.0.0.1:${server.address().port}/timesheets/create.html`, { waitUntil: 'load' });
+  const defaults = await page.evaluate(() => {
+    const today = window.GMTTimesheetRows.todayInLondon();
+    const todayCard = [...document.querySelectorAll('.day-card')].find((card) => card.querySelector('[data-field="date"]').value === today);
+    return { today, expanded: todayCard && !todayCard.classList.contains('is-collapsed'), hasToday: !!todayCard, absenceStart: document.getElementById('absence-start').value, absenceEnd: document.getElementById('absence-end').value };
+  });
+  assert.equal(defaults.hasToday, true, 'today exists on a fresh weekday form');
+  assert.equal(defaults.expanded, true, 'today is expanded on a fresh weekly form');
+  assert.equal(defaults.absenceStart, defaults.today);
+  assert.equal(defaults.absenceEnd, defaults.today);
   const result = await page.evaluate(() => {
     const today = window.GMTTimesheetRows.todayInLondon();
     const tomorrow = window.GMTTimesheetRows.addDays(today, 1);

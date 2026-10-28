@@ -366,7 +366,8 @@ function initialiseWeekDates() {
     updatePeriodSummary();
     return;
   }
-  const today = new Date();
+  const todayKey = typeof timesheetRowPolicy.todayInLondon === 'function' ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
+  const today = dateObj(todayKey) || new Date();
   const mondayOffset = (today.getDay() + 6) % 7;
   const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   monday.setDate(monday.getDate() - mondayOffset);
@@ -375,6 +376,12 @@ function initialiseWeekDates() {
   if (!weekStart.value) weekStart.value = isoDate(monday);
   if (!weekEnd.value) weekEnd.value = isoDate(sunday);
   updatePeriodSummary();
+}
+
+function initialiseAbsenceDates() {
+  const defaultDate = requestedDay || (typeof timesheetRowPolicy.todayInLondon === 'function' ? timesheetRowPolicy.todayInLondon() : isoDate(new Date()));
+  if (!absenceStart.value) absenceStart.value = defaultDate;
+  if (!absenceEnd.value) absenceEnd.value = defaultDate;
 }
 
 function applyRequestedDayPeriod() {
@@ -829,9 +836,12 @@ function generateDaysFromRange(preserveRows = false) {
       return dates;
     })();
   const today = typeof timesheetRowPolicy.todayInLondon === 'function' ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
-  const rows = generatedDates.filter((date) => date <= today || ['Sick', 'Holiday'].includes(absenceForDate(date)) || existing.has(date)).map((date, index) => {
+  const visibleDates = generatedDates.filter((date) => date <= today || ['Sick', 'Holiday'].includes(absenceForDate(date)) || existing.has(date));
+  const preferredDate = visibleDates.includes(requestedDay) ? requestedDay : (visibleDates.includes(today) ? today : visibleDates[0]);
+  const rows = visibleDates.map((date) => {
     const reason = absenceForDate(date);
-    return { ...(existing.get(date) || {}), date, absenceStatus: reason, collapsed: index > 0 };
+    const previous = existing.get(date);
+    return { ...(previous || {}), date, absenceStatus: reason, collapsed: previous ? previous.collapsed : date !== preferredDate };
   });
   renderRows(rows);
   updatePeriodSummary();
@@ -1894,6 +1904,7 @@ async function startTimesheetPage() {
   // Safari can visually restore native date controls while their DOM values are blank.
   // A concrete current-week default keeps the form state and visible controls aligned.
   initialiseWeekDates();
+  initialiseAbsenceDates();
   const loadedSubmittedDraft = loadSubmittedDraft();
   const loadedSavedDraft = !loadedSubmittedDraft && !requestedDay && loadSavedDraft();
   if (!loadedSubmittedDraft && !loadedSavedDraft) {
