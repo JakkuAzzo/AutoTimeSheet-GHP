@@ -106,6 +106,7 @@
     var employees = [];
     var historyLoaded = false;
     var historyFailed = false;
+    var historyIncomplete = false;
     try {
       var response = await fetch("../data/calendar/events.json?v=" + Date.now(), { cache: "no-store" });
       if (!response || !response.ok) throw new Error("Calendar feed request failed");
@@ -121,11 +122,13 @@
     var api = window.GMTPortalApi;
     if (api && typeof api.enabled === "function" && api.enabled() && typeof api.history === "function") {
       try {
-        var history = await api.history("all");
+        if (typeof helper.loadHistory !== "function") throw new Error("Calendar history loader unavailable");
+        var history = await helper.loadHistory(api);
         authorised = history && Array.isArray(history.records) ? history.records : [];
         employees = history && history.meta && history.meta.completion && Array.isArray(history.meta.completion.employees)
           ? history.meta.completion.employees : [];
         historyLoaded = true;
+        historyIncomplete = !!(history.meta && history.meta.calendar_history_incomplete);
       } catch (_) {
         historyFailed = true;
       }
@@ -143,6 +146,7 @@
       if (publishedFailed && historyFailed) status.textContent = "Calendar sources unavailable. Published events and portal history could not be loaded.";
       else if (publishedFailed) status.textContent = "Published calendar unavailable. Showing " + countLabel + ".";
       else if (historyFailed) status.textContent = "Portal history unavailable. Showing " + published.length + " published event" + (published.length === 1 ? "" : "s") + ".";
+      else if (historyIncomplete) status.textContent = "Some Microsoft 365 history is unavailable. Showing " + countLabel + " from available sources.";
       else if (!count && publishedLoaded && historyLoaded) status.textContent = "No published events or authorised dated portal records are available yet.";
       else if (publishedLoaded && historyLoaded) status.textContent = "Shared calendar: " + countLabel + ".";
       else if (publishedLoaded) status.textContent = published.length
@@ -151,7 +155,7 @@
       else status.textContent = "No shared calendar source is available in this session.";
     }
     if (retry) {
-      retry.textContent = publishedFailed || historyFailed ? "Retry calendar load" : "Reload calendar";
+      retry.textContent = publishedFailed || historyFailed || historyIncomplete ? "Retry calendar load" : "Reload calendar";
       retry.disabled = false;
     }
     render();

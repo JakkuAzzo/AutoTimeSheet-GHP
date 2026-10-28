@@ -267,7 +267,8 @@
       issue: issues.join("; "),
       record: record,
       row: row,
-      scheduled: scheduled
+      scheduled: scheduled,
+      hasRecordedWork: !!(start || finish || (worked !== null && worked > 0))
     };
   }
   function dateFallback(record, options) {
@@ -304,7 +305,7 @@
   function timesheetQuality(record) {
     var rows = rowsFor(record);
     if (!rows.length) return { valid: false, validRows: 0, rowCount: 0 };
-    var events = rows.map(function (row, index) { return rowEvent(record, row, index, {}); }).filter(Boolean).filter(function (event) { return event.scheduled !== false; });
+    var events = rows.map(function (row, index) { return rowEvent(record, row, index, {}); }).filter(Boolean).filter(function (event) { return event.scheduled !== false || event.hasRecordedWork; });
     if (!events.length) return { valid: false, validRows: 0, rowCount: 0 };
     var validRows = events.filter(function (event) {
       if (event.issue && /same time|earlier than clock|clock in missing|clock out missing/i.test(event.issue)) return false;
@@ -580,11 +581,10 @@
         var rows = rowsFor(record);
         var rowEvents = rows.map(function (row, index) { return rowEvent(record, row, index, options); }).filter(Boolean);
         if (rowEvents.length) {
-          // A roster schedule is authoritative for the shared calendar. Keep
-          // the source record available in history, but do not label a day as
-          // worked when it falls outside the employee's configured workdays.
-          // Michelle, for example, is rostered on Tuesday and Wednesday only.
-          events = events.concat(rowEvents.filter(function (event) { return event.scheduled !== false; }));
+          // A roster describes normal days, not a ban on extra shifts. Show
+          // recorded work outside it for review, while excluding empty roster
+          // and absence placeholders on unscheduled days.
+          events = events.concat(rowEvents.filter(function (event) { return event.scheduled !== false || event.hasRecordedWork; }));
         } else if (!rows.length) {
           // A sparse header has no day to place on the calendar. Showing its
           // anchor would imply that a submission was made on that date.
@@ -649,5 +649,29 @@
       return [];
     }
   }
-  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, combineDailyRecords: combineDailyRecords, authoritativeTimesheetRecords: authoritativeTimesheetRecords, localEvents: localEvents, mergeEvents: mergeEvents };
+  async function loadHistory(api) {
+    var offset = 0;
+    var records = [];
+    var seen = new Set();
+    var meta = {};
+    while (true) {
+      var page = await api.history("all", { limit: 1000, offset: offset });
+      if (!page || !Array.isArray(page.records)) throw new Error("Invalid calendar history response");
+      page.records.forEach(function (record) {
+        // The upstream history is repeated on each local page. Only suppress
+        // identical records so that distinct corrections remain available.
+        var fingerprint = JSON.stringify(record);
+        if (!seen.has(fingerprint)) { seen.add(fingerprint); records.push(record); }
+      });
+      if (offset === 0) meta = Object.assign({}, page.meta || {});
+      if (page.meta && page.meta.upstream && page.meta.upstream !== "ok") meta.calendar_history_incomplete = true;
+      var pagination = page.meta && page.meta.history_pagination;
+      if (!pagination || !pagination.has_more) break;
+      var next = Number(pagination.next_offset);
+      if (!Number.isInteger(next) || next <= offset || next > 1000000) throw new Error("Invalid calendar history pagination");
+      offset = next;
+    }
+    return { records: records, meta: meta };
+  }
+  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, combineDailyRecords: combineDailyRecords, authoritativeTimesheetRecords: authoritativeTimesheetRecords, localEvents: localEvents, mergeEvents: mergeEvents, loadHistory: loadHistory };
 }());
