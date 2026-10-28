@@ -174,5 +174,5 @@
   if (filterGroup) filterGroup.addEventListener("change", render);
   if (retry) retry.addEventListener("click", load);
   render();
-  load();
+  window.GMT_PORTAL_CALENDAR_READY = load();
 }());
