@@ -2882,7 +2882,7 @@ async function readSharePointHistory(env, identity) {
       }
       visited.add(url);
       historyStage = 'request';
-      const response = await fetch(url, { redirect: 'error', headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
+      const response = await fetch(url, { redirect: 'manual', headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
       if (!response.ok) throw Object.assign(new Error(`SharePoint history is unavailable (HTTP ${response.status})`), { status: 503, publicMessage: `SharePoint history is unavailable (HTTP ${response.status})` });
       historyStage = 'response';
       const body = await response.json();
@@ -5234,7 +5234,9 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       const known = ['Shared archive content access is not configured', 'Shared archive content authentication failed', 'SharePoint history is not configured', 'SharePoint history pagination is incomplete', 'Invalid SharePoint history continuation', 'Invalid SharePoint history response'];
       const safeStage = ['authentication', 'continuation', 'request', 'response', 'mapping'].includes(error?.historyStage) ? error.historyStage : 'unknown';
       const safeName = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'URIError'].includes(error?.name) ? error.name : 'Error';
-      const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : `History source processing failed at ${safeStage} (${safeName})`);
+      const errorText = String(error?.message || '');
+      const safeReason = /redirect/i.test(errorText) ? ', redirect' : (/fetch|network|dns|connect|socket/i.test(errorText) ? ', network' : '');
+      const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : `History source processing failed at ${safeStage} (${safeName}${safeReason})`);
       throw Object.assign(new Error(detail), { status: 503, publicMessage: detail });
     }
     upstreamSourceRowCount = result.records.length;
