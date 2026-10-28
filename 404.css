@@ -1,0 +1,18 @@
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; min-height: 100svh; display: grid; align-items: center; padding: clamp(1.25rem, 5vw, 4rem); color: #fff; font-family: Arial, sans-serif; background: #123921; border-bottom: .4rem solid #c8a83a; }
+body::before, body::after { content: ""; position: fixed; inset: 0; z-index: -1; }
+body::before { background: linear-gradient(90deg, rgba(7, 37, 21, .93) 0%, rgba(9, 47, 25, .84) 48%, rgba(8, 35, 21, .52) 100%), url('/assets/website/hero/hero-workshop-Photo-3.jpg') center / cover no-repeat; }
+body::after { inset: 0 0 0 65%; background: linear-gradient(90deg, #123921 0%, transparent 65%), url('/assets/website/workshop/workshop-signage.jpg') center / cover no-repeat; opacity: .22; }
+main { width: min(100%, 46rem); }
+.logo { display: inline-flex; align-items: center; width: 13rem; height: 6.75rem; padding: .65rem 1rem; background: white; border-radius: .7rem; }
+.logo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.kicker { margin: 2.5rem 0 .8rem; color: #e5d78f; font-size: .8rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+h1 { margin: 0; font-size: clamp(2.8rem, 7vw, 5rem); letter-spacing: -.045em; line-height: 1.04; }
+p { max-width: 34rem; margin: 1.25rem 0 0; color: #edf4ee; font-size: clamp(1rem, 2vw, 1.15rem); line-height: 1.65; }
+nav { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 2rem; }
+nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 3.1rem; padding: .85rem 1.2rem; border: 1px solid rgba(255,255,255,.72); border-radius: .45rem; color: #fff; font-weight: 700; text-decoration: none; }
+nav a:first-child { background: #e3cf79; border-color: #e3cf79; color: #173b24; }
+nav a:hover { filter: brightness(1.1); }
+a:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+[hidden] { display: none !important; }
+@media (max-width: 600px) { body { align-items: end; padding-bottom: 3rem; } body::before { background-position: 60% center; } body::after { display: none; } .logo { width: 11rem; height: 5.75rem; } .kicker { margin-top: 2rem; } nav a { width: 100%; } }

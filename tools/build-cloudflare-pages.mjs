@@ -75,6 +75,8 @@ const rootTransform = (contents) => contents
 // already available at /portal/ from the directory copied above; replacing
 // the root with portal/index.html would make every public visitor hit Entra.
 copy('index.html', 'index.html');
+copy('404.html');
+copy('404.css');
 copyText('portal/account.html', 'account.html', rootTransform);
 copyText('portal/history-frame.html', 'history-frame.html', rootTransform);
 

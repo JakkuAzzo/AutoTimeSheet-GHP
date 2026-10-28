@@ -540,12 +540,21 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:not(.is-visible):n
   min-height: 100dvh;
   margin: 0;
   padding: clamp(1.5rem, 5vw, 3rem);
-  color: #123d1d;
-  background: #f3f7ef;
+  color: #fff;
+  background: linear-gradient(90deg, rgba(7, 37, 21, .94), rgba(9, 47, 25, .80)), url('assets/website/hero/hero-workshop-Photo-3.jpg') center / cover no-repeat, #123921;
   border: 0;
   border-radius: 0;
   box-shadow: none;
   text-align: center;
+  border-bottom: .4rem solid #c8a83a;
+}
+.portal-auth-startup::before {
+  content: "";
+  width: 13rem;
+  height: 6.75rem;
+  margin-bottom: 1rem;
+  border-radius: .7rem;
+  background: #fff url('image.png') center / contain no-repeat;
 }
 .portal-auth-startup strong {
   max-width: 32rem;
@@ -553,7 +562,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:not(.is-visible):n
 }
 .portal-auth-startup small {
   max-width: 34rem;
-  color: #425248;
+  color: #edf4ee;
   line-height: 1.55;
 }
 .portal-auth-spinner {
@@ -569,12 +578,14 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:not(.is-visible):n
   height: .55rem;
   accent-color: #123d1d;
 }
+.portal-auth-startup .portal-auth-spinner { border-color: rgba(255,255,255,.35); border-top-color: #e3cf79; }
+.portal-auth-startup .portal-auth-progress { accent-color: #e3cf79; }
 .portal-auth-startup button {
   margin-top: .35rem;
   padding: .75rem 1rem;
-  color: #fff;
-  background: #123d1d;
-  border: 1px solid #123d1d;
+  color: #173b24;
+  background: #e3cf79;
+  border: 1px solid #e3cf79;
   border-radius: 999px;
   font: inherit;
   font-weight: 800;
