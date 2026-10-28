@@ -3495,7 +3495,7 @@ function dispatchForm(record, attachments, payPeriods = defaultPayPeriods()) {
   set('_subject', `[GMT][TIMESHEET][CORRECTION] ${employeeName} | Week ${weekStart || 'unspecified'}`);
   set('_template', 'box');
   set('_captcha', 'false');
-  set('_url', 'https://gmt-services.co.uk/portal/timesheets');
+  set('_url', 'https://gmt-services.co.uk/portal/submissions');
   set('_replyto', employeeEmail);
   set('email', employeeEmail);
   set('employee_name', employeeName);
@@ -5082,7 +5082,14 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   const requestedKind = url.searchParams.get('kind') || 'all';
   const kind = requestedKind === 'all' ? '' : canonicalKind(requestedKind);
   if (kind && !ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 500);
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 1000);
+  const offset = Math.min(Math.max(Number(url.searchParams.get('offset') || 0), 0), 1000000);
+  const payMonth = String(url.searchParams.get('payMonth') || '').trim();
+  if (payMonth && !/^\d{4}-(0[1-9]|1[0-2])$/.test(payMonth)) throw Object.assign(new Error('Pay month must use YYYY-MM format'), { status: 400 });
+  const monthPeriod = payMonth && payPeriods && typeof payPeriods.periodForMonth === 'function'
+    ? payPeriods.periodForMonth(payMonth)
+    : null;
+  if (payMonth && !monthPeriod) throw Object.assign(new Error('Pay month is not available'), { status: 400 });
   const projection = `SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
       q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
       q.last_error AS dispatch_last_error
@@ -5134,9 +5141,22 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       : jobCardAdminAcrossKinds
         ? [identity.oid, identity.upn, limit]
         : (kind ? (viewAll ? [kind, limit] : [identity.oid, identity.upn, kind, limit]) : [identity.oid, identity.upn, limit]);
-  const result = await env.DB.prepare(sql).bind(...bindings).all();
+  let pagedSql = sql.replace(/ORDER BY r\.updated_at DESC LIMIT \?/g, 'ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?');
+  const queryBindings = bindings.slice(0, -1);
+  if (monthPeriod) {
+    const cycleStart = String(monthPeriod.start || '');
+    const cycleEnd = String(monthPeriod.cycleEnd || monthPeriod.end || '');
+    const orderIndex = pagedSql.indexOf(' ORDER BY');
+    if (orderIndex < 0 || !cycleStart || !cycleEnd) throw Object.assign(new Error('Pay-month history range is unavailable'), { status: 400 });
+    pagedSql = pagedSql.slice(0, orderIndex) + ' AND ((r.record_date >= ? AND r.record_date <= ?) OR (r.start_date <= ? AND r.end_date >= ?))' + pagedSql.slice(orderIndex);
+    queryBindings.push(cycleStart, cycleEnd, cycleEnd, cycleStart);
+  }
+  queryBindings.push(limit + 1, offset);
+  const result = await env.DB.prepare(pagedSql).bind(...queryBindings).all();
   const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
-  const projectedLocalRecords = (result.results || []).map((row) => projectRow(row, true, env, payPeriods));
+  const pageRows = result.results || [];
+  const hasMoreLocalRecords = pageRows.length > limit;
+  const projectedLocalRecords = pageRows.slice(0, limit).map((row) => projectRow(row, true, env, payPeriods));
   const syntheticRecordCount = projectedLocalRecords.filter((row) => row.synthetic).length;
   let records = includeSynthetic ? projectedLocalRecords : projectedLocalRecords.filter((row) => !row.synthetic);
   const localRecordCount = records.length;
@@ -5195,6 +5215,24 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   } else if (upstreamUrl && !upstreamEnabledForKind) {
     upstream = 'not-requested-for-category';
   }
+  if (monthPeriod) {
+    const start = String(monthPeriod.start || '');
+    const end = String(monthPeriod.cycleEnd || monthPeriod.end || '');
+    const intersectsMonth = (record) => {
+      const payload = record && record.payload && typeof record.payload === 'object' ? record.payload : {};
+      const rows = payload.rows || payload.dailyRows || payload.daily_rows || record.rows || record.daily_rows || record.dailyRows;
+      if (Array.isArray(rows) && rows.some((row) => {
+        const date = String(row && (row.date || row.record_date || row.recordDate || row.workDate || row.Date) || '').slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= start && date <= end;
+      })) return true;
+      const recordDate = String(record && (record.record_date || record.recordDate || record.event_date || record.completed_at || record.completedAt || record.created_at || record.submitted_at || record.updated_at) || payload.recordDate || payload.record_date || payload.date || payload.completedAt || payload.completed_at || payload.createdAt || payload.submittedAt || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(recordDate) && recordDate >= start && recordDate <= end) return true;
+      const rangeStart = String(record && (record.start_date || record.startDate) || payload.startDate || payload.start_date || '').slice(0, 10);
+      const rangeEnd = String(record && (record.end_date || record.endDate) || payload.endDate || payload.end_date || '').slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(rangeStart) && /^\d{4}-\d{2}-\d{2}$/.test(rangeEnd) && rangeStart <= end && rangeEnd >= start;
+    };
+    records = records.filter(intersectsMonth);
+  }
   const canViewAllTimesheets = identity.isTimesheetViewer === true || identity.isSubmissionAdmin === true;
   records = records.map((record) => ({
     ...record,
@@ -5218,6 +5256,13 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       upstream_employee_matched_record_count: upstreamEmployeeMatchedRecordCount,
       synthetic_record_count: syntheticRecordCount,
       synthetic_included: includeSynthetic,
+      history_pagination: {
+        limit,
+        offset,
+        has_more: hasMoreLocalRecords,
+        next_offset: hasMoreLocalRecords ? offset + limit : null,
+        pay_month: payMonth || null
+      },
       role: identity.isAdmin ? 'accounts-admin' : (identity.isSubmissionAdmin ? 'submissions-manager' : (identity.isHrAdmin ? 'accounts-hr' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee')))),
       is_admin: identity.isAdmin,
       is_hr_admin: identity.isHrAdmin,

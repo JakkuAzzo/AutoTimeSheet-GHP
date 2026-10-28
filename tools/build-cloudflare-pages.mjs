@@ -28,6 +28,10 @@ function copyText(relativePath, destination, transform) {
 // Keep the original portal routes available for existing bookmarks and also
 // publish a flat Pages root so the Cloudflare project works at its root URL.
 copy('portal');
+// The combined Submitted documents workspace replaces the old stand-alone
+// portal timesheet editor. Keep source files for compatibility tests, but do
+// not publish the obsolete page or its flat duplicate.
+fs.rmSync(path.join(output, 'portal', 'timesheets.html'), { force: true });
 for (const directory of ['timesheets', 'jobs', 'tasks', 'tools', 'training', 'audit', 'services', 'process', 'reviews']) copy(directory);
 fs.rmSync(path.join(output, 'tools', 'build-cloudflare-pages.mjs'), { force: true });
 
@@ -72,9 +76,6 @@ const rootTransform = (contents) => contents
 // the root with portal/index.html would make every public visitor hit Entra.
 copy('index.html', 'index.html');
 copyText('portal/account.html', 'account.html', rootTransform);
-copyText('portal/timesheets.html', 'timesheets.html', (contents) => rootTransform(contents)
-  .replace('src="./history-frame.html', 'src="history-frame.html')
-  .replace('href="./timesheets/"', 'href="timesheets/"'));
 copyText('portal/history-frame.html', 'history-frame.html', rootTransform);
 
 // These scripts are loaded by the flat history page and need the same root
@@ -113,5 +114,5 @@ copyText('config.js', 'config.js', (contents) => {
 // The checked-in rules are authoritative; duplicating them here caused live
 // headers to drift from the source and broke third-party form receipts.
 copy('_headers');
-fs.writeFileSync(path.join(output, '_redirects'), '/calendar /portal/submissions 301\n/calendar/* /portal/submissions 301\n');
+fs.writeFileSync(path.join(output, '_redirects'), '/portal/timesheets /portal/submissions 301\n/portal/timesheets/ /portal/submissions 301\n/portal/timesheets.html /portal/submissions 301\n/timesheets.html /portal/submissions 301\n/calendar /portal/submissions 301\n/calendar/* /portal/submissions 301\n');
 console.log(JSON.stringify({ output, workerUrl: workerUrl || null, files: fs.readdirSync(output).length }));

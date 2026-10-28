@@ -9,11 +9,18 @@
   var notificationRetry = document.querySelector('[data-dashboard-retry="notifications"]');
   var statisticsStatus = document.getElementById("portal-statistics-status");
   var statisticsMonth = document.getElementById("portal-statistics-pay-month");
+  var statisticsEmployee = document.getElementById("portal-statistics-employee");
+  var statisticsEmployeeLabel = document.getElementById("portal-statistics-employee-label");
+  var statisticsAdmin = false;
   var statisticsRetry = document.querySelector('[data-dashboard-retry="statistics"]');
   var notificationRecords = [];
   var notificationDialog = null;
   var personalHistoryRecords = null;
   var statisticsSelectionInitialized = false;
+  var statisticsMonthCache = Object.create(null);
+  var statisticsMonthLoads = Object.create(null);
+  var statisticsEmployees = Object.create(null);
+  var statisticsLoadSequence = 0;
 
   function safe(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
@@ -56,8 +63,13 @@
   function recordOwnerMatches(record, identity) {
     var payload = payloadFor(record);
     var ownerOid = String(record && (record.owner_oid || record.ownerOid) || payload.ownerOid || payload.owner_oid || "").trim().toLowerCase();
-    var ownerUpn = String(record && (record.owner_upn || record.employee_upn || record.employee_email || record.employeeEmail) || payload.ownerUpn || payload.owner_upn || payload.employeeUpn || payload.employeeEmail || "").trim().toLowerCase();
+    var ownerUpn = String(record && (record.employee_upn || record.employee_email || record.employeeEmail || record.owner_upn) || payload.employeeUpn || payload.employeeEmail || payload.ownerUpn || payload.owner_upn || "").trim().toLowerCase();
     return Boolean((identity.oid && ownerOid && identity.oid === ownerOid) || (identity.upn && ownerUpn && identity.upn === ownerUpn));
+  }
+
+  function employeeKey(record) {
+    var payload = payloadFor(record);
+    return String(record.employee_upn || record.employee_email || record.employeeEmail || payload.employeeUpn || payload.employeeEmail || record.owner_upn || payload.ownerUpn || payload.owner_upn || "").trim().toLowerCase();
   }
 
   function recordKind(record) {
@@ -142,14 +154,20 @@
   }
 
   function statisticsMonths(records) {
-    var currentMonth = currentPayMonthKey();
-    var months = currentMonth ? [currentMonth] : [];
-    records.forEach(function (record) {
+    var currentMonth = currentPayMonthKey() || new Date().toISOString().slice(0, 7);
+    var current = new Date(currentMonth + "-01T12:00:00Z");
+    var months = [];
+    for (var offset = 0; offset < 120; offset += 1) {
+      var date = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() - offset, 1));
+      var candidate = date.getUTCFullYear() + "-" + String(date.getUTCMonth() + 1).padStart(2, "0");
+      if (!window.GMTPayPeriods || typeof window.GMTPayPeriods.periodForMonth !== "function" || window.GMTPayPeriods.periodForMonth(candidate)) months.push(candidate);
+    }
+    (records || []).forEach(function (record) {
       var kind = recordKind(record);
       if (kind === "timesheets") statisticsRows(record).forEach(function (row) { addDateMonths(months, statisticsRowDate(row)); });
       else if (["estimates", "job-cards", "tasks"].indexOf(kind) !== -1) addDateMonths(months, recordActivityDate(record, kind));
     });
-    return months.sort(function (left, right) { return right.localeCompare(left); });
+    return Array.from(new Set(months)).sort(function (left, right) { return right.localeCompare(left); });
   }
 
   function monthLabel(month) {
@@ -198,8 +216,9 @@
           var date = statisticsRowDate(row);
           if (!date || date.month !== month) return;
           hasRecords = true;
-          if (isHolidayRow(row)) holidayDates[date.date] = true;
-          else if (rowShowsWork(row)) workedDates[date.date] = true;
+          var dayKey = (statisticsAdmin ? (employeeKey(record) || record.owner_oid || recordIdentifier(record, kind) || 'unknown') + '|' : '') + date.date;
+          if (isHolidayRow(row)) holidayDates[dayKey] = true;
+          else if (rowShowsWork(row)) workedDates[dayKey] = true;
         });
         return;
       }
@@ -227,11 +246,23 @@
   }
 
   function renderStatisticsForMonth() {
-    if (!statisticsStatus || !statisticsMonth || !Array.isArray(personalHistoryRecords)) return;
+    if (!statisticsStatus || !statisticsMonth) return;
     var month = statisticsMonth.value || currentPayMonthKey();
-    var result = calculateStatistics(personalHistoryRecords, month);
+    if (!Object.prototype.hasOwnProperty.call(statisticsMonthCache, month)) {
+      personalHistoryRecords = null;
+      setStatisticValues({ "worked-days": "—", "holiday-days": "—", "estimates-written": "—", "job-cards-raised": "—", "tasks-completed": "—" });
+      statisticsStatus.textContent = "Loading all available records for " + monthLabel(month) + "…";
+      loadStatisticsMonth(month);
+      return;
+    }
+    var records = statisticsMonthCache[month];
+    personalHistoryRecords = records;
+    if (statisticsAdmin && statisticsEmployee && statisticsEmployee.value) records = records.filter(function (record) { return employeeKey(record) === statisticsEmployee.value; });
+    var result = calculateStatistics(records, month);
     setStatisticValues(result.values);
-    statisticsStatus.textContent = result.hasRecords ? "Activity totals for " + monthLabel(month) + "." : "No personal records are available for this pay month.";
+    statisticsStatus.textContent = result.hasRecords
+      ? "Activity totals for " + monthLabel(month) + " · " + statisticsMonthCache[month].length + " records loaded."
+      : (statisticsAdmin ? "No records are available for this pay month." : "No personal records are available for this pay month.");
   }
 
   function renderPersonalStatistics(records) {
@@ -244,11 +275,83 @@
       setStatisticsUnavailable("Personal statistics are unavailable.");
       return;
     }
-    personalHistoryRecords = records.filter(function (record) { return record && recordOwnerMatches(record, identity); });
+    personalHistoryRecords = (Array.isArray(records) ? records : []).filter(function (record) { return record && (statisticsAdmin || recordOwnerMatches(record, identity)); });
+    if (statisticsEmployee && statisticsEmployeeLabel && statisticsAdmin) {
+      var selected = statisticsEmployee.value;
+      personalHistoryRecords.forEach(function (record) {
+        var key = employeeKey(record);
+        if (key) statisticsEmployees[key] = String(record.employee_name || payloadFor(record).employeeName || key);
+      });
+      statisticsEmployee.innerHTML = '<option value="">All employees</option>' + Object.keys(statisticsEmployees).sort().map(function (key) { return '<option value="' + safe(key) + '">' + safe(statisticsEmployees[key]) + '</option>'; }).join('');
+      statisticsEmployee.value = statisticsEmployees[selected] ? selected : '';
+      statisticsEmployeeLabel.hidden = false;
+      document.getElementById('portal-statistics-title').textContent = 'Team statistics';
+      document.getElementById('portal-statistics-description').textContent = 'Review recorded team activity for a GMT pay month.';
+    }
     populateStatisticsMonths(personalHistoryRecords);
     statisticsSelectionInitialized = true;
     if (statisticsRetry) statisticsRetry.hidden = true;
     renderStatisticsForMonth();
+  }
+
+  function historyRecordKey(record) {
+    var value = record && (record.source_record_id || record.record_id || record.recordId || record.id);
+    if (value) return String(value);
+    try { return JSON.stringify(record); } catch (_) { return String(record); }
+  }
+
+  function uniqueHistoryRecords(records) {
+    var seen = Object.create(null);
+    return records.filter(function (record) {
+      var key = historyRecordKey(record);
+      if (!key || seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+  }
+
+  async function loadStatisticsMonth(month, forceRefresh) {
+    if (!month || !window.GMTPortalApi || typeof window.GMTPortalApi.history !== "function") return;
+    if (forceRefresh) {
+      delete statisticsMonthCache[month];
+      delete statisticsMonthLoads[month];
+    }
+    if (Object.prototype.hasOwnProperty.call(statisticsMonthCache, month)) { renderStatisticsForMonth(); return; }
+    if (statisticsMonthLoads[month]) return statisticsMonthLoads[month];
+    var sequence = ++statisticsLoadSequence;
+    var load = (async function () {
+      var collected = [];
+      var offset = 0;
+      var limit = 1000;
+      var keepLoading = true;
+      while (keepLoading) {
+        var body = await window.GMTPortalApi.history("all", { limit: limit, offset: offset, payMonth: month });
+        if (!body || !Array.isArray(body.records)) throw new Error("History response was not valid");
+        collected = collected.concat(body.records);
+        var pagination = body.meta && body.meta.history_pagination;
+        if (pagination && pagination.has_more === true && Number.isFinite(Number(pagination.next_offset))) {
+          offset = Number(pagination.next_offset);
+          keepLoading = true;
+        } else {
+          keepLoading = false;
+          if (!pagination && body.records.length === limit) { offset += limit; keepLoading = true; }
+        }
+      }
+      statisticsMonthCache[month] = uniqueHistoryRecords(collected);
+      renderPersonalStatistics(statisticsMonthCache[month]);
+      if (statisticsMonth.value === month && statisticsLoadSequence === sequence) renderStatisticsForMonth();
+    }());
+    statisticsMonthLoads[month] = load;
+    try { await load; }
+    catch (error) {
+      delete statisticsMonthLoads[month];
+      if (statisticsMonth.value === month) {
+        statisticsStatus.textContent = error && error.message ? error.message : "Records for this pay month could not be loaded.";
+        if (statisticsRetry) statisticsRetry.hidden = false;
+      }
+    } finally {
+      if (statisticsMonthLoads[month] === load) delete statisticsMonthLoads[month];
+    }
   }
 
   function payloadFor(record) {
@@ -475,15 +578,15 @@
       return;
     }
     try {
+      var access = typeof window.GMTPortalApi.access === 'function' ? await window.GMTPortalApi.access().catch(function () { return null; }) : null;
+      statisticsAdmin = Boolean(access && (access.isAdmin || access.canManageSubmissions));
       var body = await window.GMTPortalApi.history("all", { limit: 500 });
-      if (!body || typeof body !== "object" || !Array.isArray(body.records)) {
-        throw new Error("History response was not valid");
-      }
+      if (!body || typeof body !== "object" || !Array.isArray(body.records)) throw new Error("History response was not valid");
       renderNotifications(body.records);
       if (window.GMTPayPeriods && window.GMTPayPeriods.ready) {
         await Promise.resolve(window.GMTPayPeriods.ready).catch(function () {});
       }
-      renderPersonalStatistics(body.records);
+      renderPersonalStatistics([]);
     } catch (_) {
       if (notificationStatus) notificationStatus.textContent = "Notifications could not be loaded.";
       if (notificationList) notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
@@ -497,8 +600,12 @@
 
   if (taskRetry) taskRetry.addEventListener("click", loadTasks);
   if (notificationRetry) notificationRetry.addEventListener("click", loadNotifications);
-  if (statisticsRetry) statisticsRetry.addEventListener("click", loadNotifications);
+  if (statisticsRetry) statisticsRetry.addEventListener("click", function () {
+    if (statisticsMonth) loadStatisticsMonth(statisticsMonth.value || currentPayMonthKey(), true);
+    else loadNotifications();
+  });
   if (statisticsMonth) statisticsMonth.addEventListener("change", renderStatisticsForMonth);
+  if (statisticsEmployee) statisticsEmployee.addEventListener("change", renderStatisticsForMonth);
   if (statisticsMonth) populateStatisticsMonths([]);
   if (window.GMTPortalApi && typeof window.GMTPortalApi.access === "function") {
     window.GMTPortalApi.access().then(function (access) {
