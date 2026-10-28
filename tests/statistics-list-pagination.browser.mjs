@@ -10,6 +10,7 @@ try {
  const html=readFileSync('tools/stats.html','utf8');
  await page.route('https://stats.test/**', route => route.fulfill({status:200,contentType:'text/html',body:html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'')}));
  await page.goto('https://stats.test/tools/stats?topic=worked-days');
+ for (const path of ['styles.css','portal.css','tools/stats.css']) await page.addStyleTag({content:readFileSync(path,'utf8')});
  await page.evaluate(()=>{
   document.querySelector('main').hidden=false;
   Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:()=>JSON.stringify({username:'a@example.com'})}});
@@ -17,7 +18,7 @@ try {
   window.GMTPayPeriods={payMonthKeyForDate:(d)=>d.slice(0,7),ready:Promise.resolve()};
   window.GMTPortalApi={enabled:()=>true,access:async()=>({}),history:async()=>({meta:{upstream:'ok',history_pagination:{has_more:false}},records:[{kind:'timesheets',record_id:'a',employee_upn:'a@example.com',employee_name:'A',payload:{rows:[{date:'2026-10-01',start:'09:00',finish:'17:00',lunchMinutes:30}]}},...Array.from({length:101},(_,i)=>({kind:'tasks',record_id:'task-'+i,employee_upn:'a@example.com',status:'Complete',completed_at:'2026-10-02'}))]})};
  });
- for (const path of ['portal/calendar-data.js','portal/pay-month-workbook.js','portal/statistics-data.js','tools/stats.js']) await page.addScriptTag({content:readFileSync(path,'utf8')});
+ for (const path of ['portal/calendar-data.js','portal/pay-month-workbook.js','portal/statistics-data.js','tools/stats-locations.js','tools/stats-map.js','tools/stats-charts.js','tools/stats.js']) await page.addScriptTag({content:readFileSync(path,'utf8')});
  await page.waitForFunction(()=>document.getElementById('stats-status').textContent==='Statistics loaded.');
  await page.selectOption('#stats-period','all');
  assert.equal(await page.locator('#stats-total').textContent(),'1');
@@ -27,6 +28,7 @@ try {
  await page.locator('[data-topic="tasks-completed"]').click();
  assert.equal(await page.locator('#stats-total').textContent(),'101');
  assert.equal(await page.locator('.stats-row').count(),50,'long lists initially show 50 entries');
+ if (!await page.locator('#stats-activity-details').getAttribute('open')) await page.locator('#stats-activity-details summary').click();
  await page.locator('#stats-more').click();
  assert.equal(await page.locator('.stats-row').count(),100);
  await page.locator('#stats-more').click();

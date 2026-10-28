@@ -67,5 +67,5 @@
     var missingDaily=allowed.filter(function(r){return String(r.kind||'').toLowerCase()==='timesheets' && window.GMTCalendarData && window.GMTCalendarData.rowsFor(r).length===0;}).length;
     return {values:values,items:items,unknownHours:unknown,provisionalHours:provisional,missingDaily:missingDaily,recordCount:allowed.length};
   }
-  window.GMTStatistics={calculate:calculate,formatMinutes:formatMinutes,employee:employee};
+  window.GMTStatistics={calculate:calculate,formatMinutes:formatMinutes,employee:employee,belongs:belongs,inPeriod:inPeriod};
 }());
