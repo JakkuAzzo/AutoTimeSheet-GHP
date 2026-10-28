@@ -2891,13 +2891,25 @@ async function readSharePointHistory(env, identity) {
       for (const item of body.value) {
         const fields = item?.fields;
         if (!fields || typeof fields !== 'object' || Array.isArray(fields)) continue;
-        const owner = text(fields.Employee_x0020_Email || fields.EmployeeEmail || fields.employee_email, '', 320).toLowerCase();
+        let owner = text(fields.Employee_x0020_Email || fields.EmployeeEmail || fields.employee_email, '', 320).toLowerCase();
         if (!mayViewAll) {
+          const name = text(fields.EmployeeName || fields.employee_name, '', 240).toLowerCase();
+          if (!owner && name) {
+            // Older records can lack an email. Resolve only an exact name
+            // with one known mailbox; ambiguous names fail closed.
+            const matches = [...staffDirectory(env), ...historicalEmployeeAliases(env)]
+              .filter((entry) => entry.name.toLowerCase() === name && entry.upn)
+              .map((entry) => entry.upn);
+            const unique = [...new Set(matches)];
+            if (unique.length === 1) owner = unique[0];
+          }
           if (!owner || owner !== text(identity?.upn, '', 320).toLowerCase()) continue;
           const source = upstreamPayloadAndRows(fields);
           const embedded = source.payload && typeof source.payload === 'object' && !Array.isArray(source.payload) ? source.payload : {};
           const ownerValues = [embedded.employeeEmail, embedded.employee_email, ...(source.rows || []).flatMap((row) => [row?.employeeEmail, row?.employee_email])].filter(Boolean);
           if (ownerValues.some((value) => text(value, '', 320).toLowerCase() !== owner)) continue;
+          const nameValues = [embedded.employeeName, embedded.employee_name, ...(source.rows || []).flatMap((row) => [row?.employeeName, row?.employee_name])].filter(Boolean);
+          if (name && nameValues.some((value) => text(value, '', 240).toLowerCase() !== name)) continue;
         }
         const mapped = normaliseUpstreamRecord(fields, identity, env);
         if (!mapped || mapped.synthetic || !canReadHistoryRecord(identity, mapped)) continue;
@@ -5226,33 +5238,40 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   let upstreamEmployeeMatchedRecordCount = 0;
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
   const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
-  if (sourceProbe && upstreamEnabledForKind) {
+  const useSecureHistory = text(env.HISTORY_SOURCE, '', 40).toLowerCase() === 'sharepoint';
+  if ((sourceProbe || useSecureHistory) && upstreamEnabledForKind) {
     let result;
     try {
       result = await readSharePointHistory(env, identity);
     } catch (error) {
-      const known = ['Shared archive content access is not configured', 'Shared archive content authentication failed', 'SharePoint history is not configured', 'SharePoint history pagination is incomplete', 'Invalid SharePoint history continuation', 'Invalid SharePoint history response'];
-      const safeStage = ['authentication', 'continuation', 'request', 'response', 'mapping'].includes(error?.historyStage) ? error.historyStage : 'unknown';
-      const safeName = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'URIError'].includes(error?.name) ? error.name : 'Error';
-      const errorText = String(error?.message || '');
-      const safeReason = /redirect/i.test(errorText) ? ', redirect' : (/fetch|network|dns|connect|socket/i.test(errorText) ? ', network' : '');
-      const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : `History source processing failed at ${safeStage} (${safeName}${safeReason})`);
-      throw Object.assign(new Error(detail), { status: 503, publicMessage: detail });
+      if (!sourceProbe) {
+        upstream = 'sharepoint-unavailable';
+      } else {
+        const known = ['Shared archive content access is not configured', 'Shared archive content authentication failed', 'SharePoint history is not configured', 'SharePoint history pagination is incomplete', 'Invalid SharePoint history continuation', 'Invalid SharePoint history response'];
+        const safeStage = ['authentication', 'continuation', 'request', 'response', 'mapping'].includes(error?.historyStage) ? error.historyStage : 'unknown';
+        const safeName = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'URIError'].includes(error?.name) ? error.name : 'Error';
+        const errorText = String(error?.message || '');
+        const safeReason = /redirect/i.test(errorText) ? ', redirect' : (/fetch|network|dns|connect|socket/i.test(errorText) ? ', network' : '');
+        const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : `History source processing failed at ${safeStage} (${safeName}${safeReason})`);
+        throw Object.assign(new Error(detail), { status: 503, publicMessage: detail });
+      }
     }
-    upstreamSourceRowCount = result.records.length;
-    upstreamNormalisedRecordCount = result.records.length;
-    upstreamEmployeeMatchedRecordCount = result.records.length;
-    const upstreamRecords = result.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
-    upstreamRecordCount = upstreamRecords.length;
-    const merged = deduplicateProviderRecords([...records, ...upstreamRecords]);
-    const fingerprints = new Set();
-    records = removeStaleAbsenceRows(merged.filter((row) => {
-      const fingerprint = historyRecordFingerprint(row);
-      if (!fingerprint || fingerprints.has(fingerprint)) return false;
-      fingerprints.add(fingerprint);
-      return true;
-    }));
-    upstream = 'ok';
+    if (result) {
+      upstreamSourceRowCount = result.records.length;
+      upstreamNormalisedRecordCount = result.records.length;
+      upstreamEmployeeMatchedRecordCount = result.records.length;
+      const upstreamRecords = result.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+      upstreamRecordCount = upstreamRecords.length;
+      const merged = deduplicateProviderRecords([...records, ...upstreamRecords]);
+      const fingerprints = new Set();
+      records = removeStaleAbsenceRows(merged.filter((row) => {
+        const fingerprint = historyRecordFingerprint(row);
+        if (!fingerprint || fingerprints.has(fingerprint)) return false;
+        fingerprints.add(fingerprint);
+        return true;
+      }));
+      upstream = 'ok';
+    }
   } else if (upstreamUrl && upstreamEnabledForKind) {
     const upstreamAuth = await verifiedUpstreamToken(request, env, identity);
     if (!upstreamAuth.token) {
