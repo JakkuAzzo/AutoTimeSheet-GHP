@@ -31,6 +31,16 @@ try {
   assert.equal(defaults.expanded, true, 'today is expanded on a fresh weekly form');
   assert.equal(defaults.absenceStart, defaults.today);
   assert.equal(defaults.absenceEnd, defaults.today);
+  const firstDate = page.locator('.day-card [data-field="date"]').first();
+  await firstDate.evaluate((input) => { input.value = ''; });
+  await firstDate.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  assert.equal(await firstDate.inputValue(), defaults.today, 'opening a blank date starts the picker at today');
+  await firstDate.evaluate((input) => { input.value = '2026-08-05'; });
+  await firstDate.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  assert.equal(await firstDate.inputValue(), '2026-08-05', 'opening a populated date never rewrites it');
+  await firstDate.evaluate((input) => { input.value = ''; });
+  await firstDate.dispatchEvent('focusin');
+  assert.equal(await firstDate.inputValue(), defaults.today, 'keyboard focus also seeds an empty date');
   const result = await page.evaluate(() => {
     const today = window.GMTTimesheetRows.todayInLondon();
     const tomorrow = window.GMTTimesheetRows.addDays(today, 1);
@@ -52,6 +62,10 @@ try {
   const laterDates = await later.evaluate(() => ({ today: window.GMTTimesheetRows.todayInLondon(), dates: [...document.querySelectorAll('[data-field="date"]')].map((input) => input.value) }));
   assert.equal(laterDates.today, '2027-01-12');
   assert.ok(laterDates.dates.includes('2027-01-12'), 'fresh daily inputs follow the current date instead of a fixed month');
+  const laterDate = later.locator('.day-card [data-field="date"]').first();
+  await laterDate.evaluate((input) => { input.value = ''; });
+  await laterDate.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  assert.equal(await laterDate.inputValue(), '2027-01-12', 'a blank picker continues to follow the current date in a later year');
   await later.close();
   const draftPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await draftPage.clock.setFixedTime(new Date('2026-10-28T12:00:00Z'));

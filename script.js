@@ -1843,6 +1843,19 @@ form.addEventListener('change', (event) => {
   scheduleRecalculate();
 });
 
+function defaultEmptyDailyDate(event) {
+  const input = event.target;
+  if (!input || !input.matches('[data-field="date"]') || input.value) return;
+  input.value = typeof timesheetRowPolicy.todayInLondon === 'function' ? timesheetRowPolicy.todayInLondon() : isoDate(new Date());
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// Seed before the browser opens its native picker. Focus also covers keyboard
+// access and browsers that do not emit pointer events for the date control.
+daysContainer.addEventListener('pointerdown', defaultEmptyDailyDate);
+daysContainer.addEventListener('focusin', defaultEmptyDailyDate);
+
 daysContainer.addEventListener('click', (event) => {
   const collapseButton = event.target.closest('.collapse-day');
   if (collapseButton) {
