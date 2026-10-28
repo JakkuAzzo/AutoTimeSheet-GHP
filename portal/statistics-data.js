@@ -36,7 +36,7 @@
     events.forEach(function (event) {
       if (!event || !event.row || ['timesheets','clock'].indexOf(event.type)===-1 || !inPeriod(event.date,options)) return;
       var row=event.row, absence=String(row.absenceStatus||row.absence_status||row.absenceReason||row.absence_reason||row.absence||'').trim();
-      var item={date:event.date, title:event.title, detail:event.detail, issue:event.issue||'', recordId:event.recordId};
+      var item={date:event.date, title:event.title, detail:event.detail, issue:event.issue||'', recordId:event.recordId, employeeKey:employee(event.record)||String(event.title||'').trim().toLowerCase()};
       if (/holiday/i.test(absence) || row.holiday===true || row.isHoliday===true || row.is_holiday===true) { items['holiday-days'].push(item); return; }
       if (absence && !/^(n\/?a|none|no|false|working|no absence|not applicable)$/i.test(absence)) return;
       if (!event.hasRecordedWork) return;
