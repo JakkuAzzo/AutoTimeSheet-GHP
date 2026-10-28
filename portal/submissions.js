@@ -212,16 +212,14 @@
     return upn || name;
   }
   function canEditSheet(sheet) {
-    var months = historyMeta && Array.isArray(historyMeta.editable_pay_months) && historyMeta.editable_pay_months.length
-      ? historyMeta.editable_pay_months
-      : window.GMTPayPeriods && typeof window.GMTPayPeriods.editablePayMonthKeys === "function"
-        ? window.GMTPayPeriods.editablePayMonthKeys(new Date().toISOString().slice(0, 10)) : [];
-    // The Worker owner-filters clock rows for identities without all-timesheet
-    // access, so a clock-only sheet can safely use the protected month editor.
-    var canCorrectOwnClockSheet = historyMeta && historyMeta.is_admin !== true
-      && historyMeta.can_view_all_timesheets !== true
-      && sheet.records.some(function (record) { return actionKey(record) === "clock"; });
-    return months.indexOf(sheet.payMonth) !== -1 && (historyMeta.is_admin === true || canCorrectOwnClockSheet || sheet.records.some(function (record) { return record.can_edit === true || record.source === "microsoft-365"; }));
+    if (!sheet) return false;
+    if (historyMeta && historyMeta.is_submission_admin === true) return true;
+    var canEditAcrossEmployees = historyMeta && historyMeta.is_admin === true && historyMeta.can_view_all_timesheets === true;
+    var months = canEditAcrossEmployees
+      ? (Array.isArray(historyMeta.editable_pay_months) ? historyMeta.editable_pay_months : [])
+      : (historyMeta && Array.isArray(historyMeta.self_editable_pay_months) ? historyMeta.self_editable_pay_months : [currentPayMonth()]);
+    return months.indexOf(sheet.payMonth) !== -1
+      && (canEditAcrossEmployees || sheet.records.some(function (record) { return record.can_edit === true; }));
   }
   function sourcePriority(record) {
     if (String(record && record.action || "") === "pay_month_correction") return 3;
@@ -346,7 +344,8 @@
     payMonthSheets = Object.keys(groups).map(function (key) { var divider = key.lastIndexOf("|"); return combinedSheet(groups[key], key.slice(divider + 1), key.slice(0, divider)); }).filter(Boolean);
     var selectedMonth = payMonthFilter && payMonthFilter.value || "";
     var editableMonths = historyMeta && Array.isArray(historyMeta.editable_pay_months) ? historyMeta.editable_pay_months : [];
-    if (historyMeta.is_admin === true && editableMonths.indexOf(selectedMonth) !== -1) {
+    if ((historyMeta.is_admin === true && editableMonths.indexOf(selectedMonth) !== -1)
+      || (historyMeta.is_submission_admin === true && selectedMonth === currentPayMonth())) {
       var roster = historyMeta.completion && Array.isArray(historyMeta.completion.employees) ? historyMeta.completion.employees : [];
       roster.forEach(function (employee) {
         var upn = String(employee.employee_upn || employee.upn || "").trim();
@@ -1292,7 +1291,7 @@
       realRecordCount = realRecords.length;
       records = realRecords;
       historyMeta = body && body.meta && typeof body.meta === "object" ? body.meta : {};
-      if (historyMeta.is_hr_admin && !historyMeta.is_admin) {
+      if (historyMeta.is_hr_admin && !historyMeta.is_admin && !historyMeta.is_submission_admin) {
         tabButtons.forEach(function (button) {
           var tab = button.getAttribute("data-submission-tab");
           button.hidden = tab !== "timesheets" && tab !== "calendar";
