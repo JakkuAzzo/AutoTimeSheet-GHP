@@ -2858,6 +2858,53 @@ function directoryEntryFor(directory, name, upn) {
   }) || null;
 }
 
+// Read the list with the portal's own service identity. Never forward a
+// browser's Flow token or trust a continuation URL outside this exact list.
+async function readSharePointHistory(env, identity) {
+  const site = text(env.SHAREPOINT_SITE_ID, '', 500);
+  const list = text(env.SHAREPOINT_TIMESHEET_LIST_ID, '', 120);
+  if (!site || !/^[a-z0-9-]+$/i.test(list)) throw new Error('SharePoint history is not configured');
+  const expectedPath = `/v1.0/sites/${encodeURIComponent(site)}/lists/${encodeURIComponent(list)}/items`;
+  const token = await sharePointGraphToken(env);
+  let url = `https://graph.microsoft.com${expectedPath}?$expand=fields&$top=100`;
+  const visited = new Set();
+  const records = [];
+  const mayViewAll = identity?.isSubmissionAdmin === true || identity?.isTimesheetViewer === true;
+  for (let page = 0; url; page += 1) {
+    if (page >= 100 || visited.has(url)) throw new Error('SharePoint history pagination is incomplete');
+    let parsed;
+    try { parsed = new URL(url); } catch (_) { throw new Error('Invalid SharePoint history continuation'); }
+    if (parsed.protocol !== 'https:' || parsed.host !== 'graph.microsoft.com' || parsed.username || parsed.password || parsed.hash || decodeURIComponent(parsed.pathname) !== decodeURIComponent(expectedPath)) {
+      throw new Error('Invalid SharePoint history continuation');
+    }
+    visited.add(url);
+    const response = await fetch(url, { redirect: 'error', headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
+    if (!response.ok) throw Object.assign(new Error(`SharePoint history is unavailable (HTTP ${response.status})`), { status: 503, publicMessage: `SharePoint history is unavailable (HTTP ${response.status})` });
+    const body = await response.json();
+    if (!body || !Array.isArray(body.value)) throw new Error('Invalid SharePoint history response');
+    for (const item of body.value) {
+      const fields = item?.fields;
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) continue;
+      const owner = text(fields.Employee_x0020_Email || fields.EmployeeEmail || fields.employee_email, '', 320).toLowerCase();
+      if (!mayViewAll) {
+        if (!owner || owner !== text(identity?.upn, '', 320).toLowerCase()) continue;
+        const source = upstreamPayloadAndRows(fields);
+        const embedded = source.payload && typeof source.payload === 'object' && !Array.isArray(source.payload) ? source.payload : {};
+        const ownerValues = [embedded.employeeEmail, embedded.employee_email, ...(source.rows || []).flatMap((row) => [row?.employeeEmail, row?.employee_email])].filter(Boolean);
+        if (ownerValues.some((value) => text(value, '', 320).toLowerCase() !== owner)) continue;
+      }
+      const mapped = normaliseUpstreamRecord(fields, identity, env);
+      if (!mapped || mapped.synthetic || !canReadHistoryRecord(identity, mapped)) continue;
+      if (!mayViewAll && mapped.payload) mapped.payload = { rows: mapped.payload.rows || [] };
+      records.push(mapped);
+    }
+    const next = body['@odata.nextLink'];
+    if (next !== undefined && next !== null && typeof next !== 'string') throw new Error('Invalid SharePoint history continuation');
+    url = next || '';
+  }
+  return { records, pages: visited.size };
+}
+
 function normaliseUpstreamRecord(row, identity, env) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
   // SharePoint Get items sometimes wraps the actual columns in `fields` (and
@@ -5079,6 +5126,8 @@ async function syncXeroJobCard(request, env, identity, origin, recordId) {
 
 async function listRecords(request, env, identity, payPeriods = defaultPayPeriods()) {
   const url = new URL(request.url);
+  const sourceProbe = url.searchParams.get('source') === 'sharepoint-check';
+  if (sourceProbe && identity.isSubmissionAdmin !== true) throw Object.assign(new Error('History source diagnostics require submission admin access'), { status: 403 });
   const requestedKind = url.searchParams.get('kind') || 'all';
   const kind = requestedKind === 'all' ? '' : canonicalKind(requestedKind);
   if (kind && !ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
@@ -5167,7 +5216,23 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   let upstreamEmployeeMatchedRecordCount = 0;
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
   const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
-  if (upstreamUrl && upstreamEnabledForKind) {
+  if (sourceProbe && upstreamEnabledForKind) {
+    const result = await readSharePointHistory(env, identity);
+    upstreamSourceRowCount = result.records.length;
+    upstreamNormalisedRecordCount = result.records.length;
+    upstreamEmployeeMatchedRecordCount = result.records.length;
+    const upstreamRecords = result.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+    upstreamRecordCount = upstreamRecords.length;
+    const merged = deduplicateProviderRecords([...records, ...upstreamRecords]);
+    const fingerprints = new Set();
+    records = removeStaleAbsenceRows(merged.filter((row) => {
+      const fingerprint = historyRecordFingerprint(row);
+      if (!fingerprint || fingerprints.has(fingerprint)) return false;
+      fingerprints.add(fingerprint);
+      return true;
+    }));
+    upstream = 'ok';
+  } else if (upstreamUrl && upstreamEnabledForKind) {
     const upstreamAuth = await verifiedUpstreamToken(request, env, identity);
     if (!upstreamAuth.token) {
       upstream = upstreamAuth.status;
@@ -5554,6 +5619,7 @@ export {
   staffDirectory,
   historyTitleDetails,
   normaliseUpstreamRecord,
+  readSharePointHistory,
   historyRecordFingerprint,
   listRecords,
   projectRow,

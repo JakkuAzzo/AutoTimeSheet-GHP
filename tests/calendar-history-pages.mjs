@@ -30,3 +30,6 @@ const incomplete = await load({ history: async () => ({ records: [{ source_recor
 assert.equal(incomplete.meta.calendar_history_incomplete, true, 'failed upstream must be surfaced as incomplete');
 const complete = await load({ history: async () => ({ records: [], meta: { upstream: 'ok', history_pagination: { has_more: false } } }) });
 assert.notEqual(complete.meta.calendar_history_incomplete, true);
+let probeOptions;
+await load({ history: async (_kind, options) => { probeOptions = options; return { records: [], meta: {} }; } }, { source: 'sharepoint-check' });
+assert.equal(probeOptions.source, 'sharepoint-check', 'the restricted diagnostic source reaches each page request');
