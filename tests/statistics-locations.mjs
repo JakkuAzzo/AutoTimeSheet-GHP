@@ -9,6 +9,7 @@ const records=[
  {kind:'clock',record_id:'c',employee_upn:'b@example.com',record_date:'2026-10-02',status:'Approved',payload:{source:'approved-offsite-shift',date:'2026-10-02',location:'Other site'}},
  {kind:'clock',record_id:'office',employee_upn:'a@example.com',record_date:'2026-10-03',action:'clock_in',payload:{locationMode:'in_office',date:'2026-10-03',action:'clock_in'}},
  {kind:'clock',record_id:'absence',employee_upn:'a@example.com',record_date:'2026-10-04',action:'absent',payload:{locationMode:'in_office',date:'2026-10-04',action:'absent'}},
+ {kind:'timesheets',record_id:'leave-with-site',employee_upn:'a@example.com',payload:{rows:[{date:'2026-10-05',start:'09:00',absenceReason:'Holiday',location:'Not a visit'}]}},
  {kind:'job-cards',record_id:'job',employee_upn:'a@example.com',record_date:'2026-10-03',site:'Not proof of attendance'},
  {kind:'clock',record_id:'rejected',employee_upn:'a@example.com',record_date:'2026-10-04',status:'Rejected',payload:{source:'approved-offsite-shift',location:'Rejected site'}}
 ];

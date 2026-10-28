@@ -10,11 +10,16 @@
       if(['clock','timesheets'].indexOf(kind)<0||/rejected|deleted|cancelled/.test(status))return;
       var evidence=[];
       var mode=String(p.locationMode||p.location_mode||'').toLowerCase(), source=String(p.source||'').toLowerCase();
-      if(kind==='clock' && (source==='approved-offsite-shift'||mode==='off_site') && (p.location||p.site)) evidence.push({date:day(p.date||r.record_date||r.start_date),site:p.location||p.site});
       var action=String(p.action||r.action||'').toLowerCase();
+      if(kind==='clock' && action!=='absent' && (source==='approved-offsite-shift'||mode==='off_site') && (p.location||p.site)) evidence.push({date:day(p.date||r.record_date||r.start_date),site:p.location||p.site});
       if(kind==='clock' && mode==='in_office' && ['clock_in','clock_out','full_day'].indexOf(action)!==-1) evidence.push({date:day(p.date||r.record_date||r.start_date),site:'GMT workshop, 93–95 Gloucester Road, Croydon CR0 2DN'});
       var rows=Array.isArray(p.rows)?p.rows:[];
-      rows.forEach(function(row){if(!row||!(row.location||row.site)||!(row.start||row.clockIn||row.workedMinutes||row.workedHours))return;evidence.push({date:day(row.date||row.workDate),site:row.location||row.site});});
+      rows.forEach(function(row){
+        if(!row||!(row.location||row.site)||!(row.start||row.clockIn||row.workedMinutes||row.workedHours))return;
+        var absence=String(row.absenceStatus||row.absence_status||row.absenceReason||row.absence_reason||row.absence||'').trim();
+        if(row.holiday===true||row.isHoliday===true||row.is_holiday===true||(absence&&!/^(n\/?a|none|no|false|working|no absence|not applicable)$/i.test(absence)))return;
+        evidence.push({date:day(row.date||row.workDate),site:row.location||row.site});
+      });
       var who=window.GMTStatistics.employee(r)||String(r.owner_oid||r.employee_name||'').trim().toLowerCase();
       evidence.forEach(function(entry){
         var site=String(entry.site||'').trim().replace(/\s+/g,' ');if(!who||!site||site.length>500||!entry.date||!window.GMTStatistics.inPeriod(entry.date,options))return;
