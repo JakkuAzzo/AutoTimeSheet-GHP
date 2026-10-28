@@ -18,6 +18,7 @@
   var personalHistoryRecords = null;
   var statisticsSelectionInitialized = false;
   var statisticsMonthCache = Object.create(null);
+  var statisticsMonthIncomplete = Object.create(null);
   var statisticsMonthLoads = Object.create(null);
   var statisticsEmployees = Object.create(null);
   var statisticsLoadSequence = 0;
@@ -186,7 +187,7 @@
     personalHistoryRecords = null;
     if (statisticsStatus) statisticsStatus.textContent = message;
     if (statisticsMonth) statisticsMonth.disabled = true;
-    setStatisticValues({ "worked-days": "—", "holiday-days": "—", "estimates-written": "—", "job-cards-raised": "—", "tasks-completed": "—" });
+    setStatisticValues({ "worked-days": "—", "worked-hours": "—", "holiday-days": "—", "estimates-written": "—", "job-cards-raised": "—", "tasks-completed": "—" });
     if (statisticsRetry) statisticsRetry.hidden = message === "Personal statistics are not connected.";
   }
 
@@ -203,6 +204,12 @@
   }
 
   function calculateStatistics(records, month) {
+    if (window.GMTStatistics && window.GMTCalendarData && window.GMTPayMonthWorkbook) {
+      var detailed = window.GMTStatistics.calculate(records, { admin: true, period: "month", month: month });
+      var values = Object.assign({}, detailed.values);
+      values["worked-hours"] = window.GMTStatistics.formatMinutes(values["worked-hours"]);
+      return { hasRecords: detailed.recordCount > 0, values: values, provisionalHours: detailed.provisionalHours, missingDaily: detailed.missingDaily };
+    }
     var workedDates = Object.create(null);
     var holidayDates = Object.create(null);
     var estimates = Object.create(null);
@@ -250,7 +257,7 @@
     var month = statisticsMonth.value || currentPayMonthKey();
     if (!Object.prototype.hasOwnProperty.call(statisticsMonthCache, month)) {
       personalHistoryRecords = null;
-      setStatisticValues({ "worked-days": "—", "holiday-days": "—", "estimates-written": "—", "job-cards-raised": "—", "tasks-completed": "—" });
+      setStatisticValues({ "worked-days": "—", "worked-hours": "—", "holiday-days": "—", "estimates-written": "—", "job-cards-raised": "—", "tasks-completed": "—" });
       statisticsStatus.textContent = "Loading all available records for " + monthLabel(month) + "…";
       return loadStatisticsMonth(month);
     }
@@ -259,9 +266,16 @@
     if (statisticsAdmin && statisticsEmployee && statisticsEmployee.value) records = records.filter(function (record) { return employeeKey(record) === statisticsEmployee.value; });
     var result = calculateStatistics(records, month);
     setStatisticValues(result.values);
-    statisticsStatus.textContent = result.hasRecords
-      ? "Activity totals for " + monthLabel(month) + " · " + statisticsMonthCache[month].length + " records loaded."
-      : (statisticsAdmin ? "No records are available for this pay month." : "No personal records are available for this pay month.");
+    document.querySelectorAll('[data-statistics-link]').forEach(function (link) {
+      var query = new URLSearchParams({ topic: link.getAttribute('data-statistics-link'), period: 'month', month: month });
+      if (statisticsAdmin && statisticsEmployee && statisticsEmployee.value) query.set('employee', statisticsEmployee.value);
+      link.href = '../tools/stats?' + query.toString();
+    });
+    statisticsStatus.textContent = statisticsMonthIncomplete[month]
+      ? "Some history is unavailable; these totals may be incomplete."
+      : (result.hasRecords ? "Activity totals for " + monthLabel(month) + " · " + statisticsMonthCache[month].length + " records loaded."
+      : (statisticsAdmin ? "No records are available for this pay month." : "No personal records are available for this pay month."));
+    if (result.provisionalHours || result.missingDaily) statisticsStatus.textContent += " Some hours are provisional or daily detail is missing.";
   }
 
   function renderPersonalStatistics(records) {
@@ -323,10 +337,12 @@
       var offset = 0;
       var limit = 1000;
       var keepLoading = true;
+      var incomplete = false;
       while (keepLoading) {
         var body = await window.GMTPortalApi.history("all", { limit: limit, offset: offset, payMonth: month });
         if (!body || !Array.isArray(body.records)) throw new Error("History response was not valid");
         collected = collected.concat(body.records);
+        if (body.meta && body.meta.upstream && body.meta.upstream !== "ok") incomplete = true;
         var pagination = body.meta && body.meta.history_pagination;
         if (pagination && pagination.has_more === true && Number.isFinite(Number(pagination.next_offset))) {
           offset = Number(pagination.next_offset);
@@ -336,6 +352,7 @@
           if (!pagination && body.records.length === limit) { offset += limit; keepLoading = true; }
         }
       }
+      statisticsMonthIncomplete[month] = incomplete;
       statisticsMonthCache[month] = uniqueHistoryRecords(collected);
       renderPersonalStatistics(statisticsMonthCache[month]);
       if (statisticsMonth.value === month && statisticsLoadSequence === sequence) renderStatisticsForMonth();

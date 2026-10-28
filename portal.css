@@ -174,7 +174,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 .portal-statistics-heading label { flex: 0 1 15rem; min-width: min(100%, 12rem); margin: 0; color: var(--green); font-weight: 800; }
 .portal-statistics-heading select { width: 100%; min-width: 0; margin-top: .3rem; color: #123d1d; background: #fff; }
 .portal-statistics-status { min-height: 1.25rem; margin: .8rem 0 .55rem !important; font-size: .88rem; }
-.portal-statistics-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .65rem; min-width: 0; }
+.portal-statistics-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .65rem; min-width: 0; }
 .portal-statistics-card { display: grid; align-content: space-between; gap: .8rem; min-width: 0; min-height: 7.2rem; padding: .85rem; color: var(--green); background: #f3f7ef; border: 1px solid var(--line); border-radius: .8rem; }
 .portal-statistics-card span { color: var(--muted); font-size: .78rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
 .portal-statistics-card strong { color: var(--green); font-size: clamp(1.65rem, 4vw, 2.25rem); line-height: 1; }
@@ -1606,3 +1606,7 @@ html[data-portal-viewport-shell="true"] .portal-dashboard-grid {
   accent-color: #123d1d;
 }
 .pay-month-save-progress + [data-pay-month-save-status] { flex-basis: 100%; }
+
+.portal-statistics-card { text-decoration: none; transition: border-color .15s, transform .15s; }
+.portal-statistics-card:hover { border-color: #367349; transform: translateY(-2px); }
+.portal-statistics-card:focus-visible { outline: 3px solid #bf9b24; outline-offset: 3px; }
