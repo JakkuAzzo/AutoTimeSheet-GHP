@@ -2865,44 +2865,54 @@ async function readSharePointHistory(env, identity) {
   const list = text(env.SHAREPOINT_TIMESHEET_LIST_ID, '', 120);
   if (!site || !/^[a-z0-9-]+$/i.test(list)) throw new Error('SharePoint history is not configured');
   const expectedPath = `/v1.0/sites/${encodeURIComponent(site)}/lists/${encodeURIComponent(list)}/items`;
-  const token = await sharePointGraphToken(env);
-  let url = `https://graph.microsoft.com${expectedPath}?$expand=fields&$top=100`;
-  const visited = new Set();
-  const records = [];
-  const mayViewAll = identity?.isSubmissionAdmin === true || identity?.isTimesheetViewer === true;
-  for (let page = 0; url; page += 1) {
-    if (page >= 100 || visited.has(url)) throw new Error('SharePoint history pagination is incomplete');
-    let parsed;
-    try { parsed = new URL(url); } catch (_) { throw new Error('Invalid SharePoint history continuation'); }
-    if (parsed.protocol !== 'https:' || parsed.host !== 'graph.microsoft.com' || parsed.username || parsed.password || parsed.hash || decodeURIComponent(parsed.pathname) !== decodeURIComponent(expectedPath)) {
-      throw new Error('Invalid SharePoint history continuation');
-    }
-    visited.add(url);
-    const response = await fetch(url, { redirect: 'error', headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
-    if (!response.ok) throw Object.assign(new Error(`SharePoint history is unavailable (HTTP ${response.status})`), { status: 503, publicMessage: `SharePoint history is unavailable (HTTP ${response.status})` });
-    const body = await response.json();
-    if (!body || !Array.isArray(body.value)) throw new Error('Invalid SharePoint history response');
-    for (const item of body.value) {
-      const fields = item?.fields;
-      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) continue;
-      const owner = text(fields.Employee_x0020_Email || fields.EmployeeEmail || fields.employee_email, '', 320).toLowerCase();
-      if (!mayViewAll) {
-        if (!owner || owner !== text(identity?.upn, '', 320).toLowerCase()) continue;
-        const source = upstreamPayloadAndRows(fields);
-        const embedded = source.payload && typeof source.payload === 'object' && !Array.isArray(source.payload) ? source.payload : {};
-        const ownerValues = [embedded.employeeEmail, embedded.employee_email, ...(source.rows || []).flatMap((row) => [row?.employeeEmail, row?.employee_email])].filter(Boolean);
-        if (ownerValues.some((value) => text(value, '', 320).toLowerCase() !== owner)) continue;
+  let historyStage = 'authentication';
+  try {
+    const token = await sharePointGraphToken(env);
+    let url = `https://graph.microsoft.com${expectedPath}?$expand=fields&$top=100`;
+    const visited = new Set();
+    const records = [];
+    const mayViewAll = identity?.isSubmissionAdmin === true || identity?.isTimesheetViewer === true;
+    for (let page = 0; url; page += 1) {
+      historyStage = 'continuation';
+      if (page >= 100 || visited.has(url)) throw new Error('SharePoint history pagination is incomplete');
+      let parsed;
+      try { parsed = new URL(url); } catch (_) { throw new Error('Invalid SharePoint history continuation'); }
+      if (parsed.protocol !== 'https:' || parsed.host !== 'graph.microsoft.com' || parsed.username || parsed.password || parsed.hash || decodeURIComponent(parsed.pathname) !== decodeURIComponent(expectedPath)) {
+        throw new Error('Invalid SharePoint history continuation');
       }
-      const mapped = normaliseUpstreamRecord(fields, identity, env);
-      if (!mapped || mapped.synthetic || !canReadHistoryRecord(identity, mapped)) continue;
-      if (!mayViewAll && mapped.payload) mapped.payload = { rows: mapped.payload.rows || [] };
-      records.push(mapped);
+      visited.add(url);
+      historyStage = 'request';
+      const response = await fetch(url, { redirect: 'error', headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
+      if (!response.ok) throw Object.assign(new Error(`SharePoint history is unavailable (HTTP ${response.status})`), { status: 503, publicMessage: `SharePoint history is unavailable (HTTP ${response.status})` });
+      historyStage = 'response';
+      const body = await response.json();
+      if (!body || !Array.isArray(body.value)) throw new Error('Invalid SharePoint history response');
+      historyStage = 'mapping';
+      for (const item of body.value) {
+        const fields = item?.fields;
+        if (!fields || typeof fields !== 'object' || Array.isArray(fields)) continue;
+        const owner = text(fields.Employee_x0020_Email || fields.EmployeeEmail || fields.employee_email, '', 320).toLowerCase();
+        if (!mayViewAll) {
+          if (!owner || owner !== text(identity?.upn, '', 320).toLowerCase()) continue;
+          const source = upstreamPayloadAndRows(fields);
+          const embedded = source.payload && typeof source.payload === 'object' && !Array.isArray(source.payload) ? source.payload : {};
+          const ownerValues = [embedded.employeeEmail, embedded.employee_email, ...(source.rows || []).flatMap((row) => [row?.employeeEmail, row?.employee_email])].filter(Boolean);
+          if (ownerValues.some((value) => text(value, '', 320).toLowerCase() !== owner)) continue;
+        }
+        const mapped = normaliseUpstreamRecord(fields, identity, env);
+        if (!mapped || mapped.synthetic || !canReadHistoryRecord(identity, mapped)) continue;
+        if (!mayViewAll && mapped.payload) mapped.payload = { rows: mapped.payload.rows || [] };
+        records.push(mapped);
+      }
+      const next = body['@odata.nextLink'];
+      if (next !== undefined && next !== null && typeof next !== 'string') throw new Error('Invalid SharePoint history continuation');
+      url = next || '';
     }
-    const next = body['@odata.nextLink'];
-    if (next !== undefined && next !== null && typeof next !== 'string') throw new Error('Invalid SharePoint history continuation');
-    url = next || '';
+    return { records, pages: visited.size };
+  } catch (error) {
+    if (error && typeof error === 'object') error.historyStage = historyStage;
+    throw error;
   }
-  return { records, pages: visited.size };
 }
 
 function normaliseUpstreamRecord(row, identity, env) {
@@ -5222,7 +5232,9 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       result = await readSharePointHistory(env, identity);
     } catch (error) {
       const known = ['Shared archive content access is not configured', 'Shared archive content authentication failed', 'SharePoint history is not configured', 'SharePoint history pagination is incomplete', 'Invalid SharePoint history continuation', 'Invalid SharePoint history response'];
-      const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : 'History source processing failed');
+      const safeStage = ['authentication', 'continuation', 'request', 'response', 'mapping'].includes(error?.historyStage) ? error.historyStage : 'unknown';
+      const safeName = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'URIError'].includes(error?.name) ? error.name : 'Error';
+      const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : `History source processing failed at ${safeStage} (${safeName})`);
       throw Object.assign(new Error(detail), { status: 503, publicMessage: detail });
     }
     upstreamSourceRowCount = result.records.length;

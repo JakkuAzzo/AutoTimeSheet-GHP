@@ -7,3 +7,7 @@ try {
  await assert.rejects(()=>listRecords(new Request('https://example.test/api/history?source=sharepoint-check'),env,{upn:'admin@example.test',isSubmissionAdmin:true}),err=>err.status===503 && /authentication failed/i.test(err.publicMessage||''));
  console.log('History probe diagnostic errors: PASS');
 } finally {globalThis.fetch=old}
+try {
+ globalThis.fetch=async(url)=>String(url).includes('login.microsoftonline.com') ? Response.json({access_token:'fake',expires_in:3600}) : Promise.reject(new TypeError('private detail must not leak'));
+ await assert.rejects(()=>listRecords(new Request('https://example.test/api/history?source=sharepoint-check'),{...env,ENTRA_TENANT_ID:'error-tenant-two'},{upn:'admin@example.test',isSubmissionAdmin:true}),err=>/request.*TypeError/i.test(err.publicMessage||'') && !/private detail/.test(err.publicMessage||''));
+} finally {globalThis.fetch=old}
