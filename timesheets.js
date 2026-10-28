@@ -113,7 +113,7 @@
       historyLink.hidden = true;
       if (isAdmin && String(meta && meta.upstream || "") === "flow-permission-not-configured") {
         historyLink.hidden = false;
-        historyLink.innerHTML = '<a class="portal-text-link" href="timesheets.html?connect-history=1">Connect Microsoft 365 history access <span aria-hidden="true">→</span></a>';
+        historyLink.innerHTML = '<a class="portal-text-link" href="/portal/submissions?tab=timesheets">Connect Microsoft 365 history access <span aria-hidden="true">→</span></a>';
       }
     }
     // The protected history iframe can deliver its records before the

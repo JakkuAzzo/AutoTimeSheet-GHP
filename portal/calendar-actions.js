@@ -488,7 +488,7 @@
       deleteEntryStatus.hidden = true;
       deleteEntryStatus.textContent = "";
     }
-    eventsLink.href = href("/portal/timesheets", { day: day, month: day.slice(0, 7) });
+    eventsLink.href = href("/portal/submissions", { tab: "calendar", day: day, month: day.slice(0, 7) });
     taskLink.href = href("/tasks/", { date: day });
     timeOffLink.href = href("/portal/submissions", { request: "time-off", date: day });
     if (payMonthStartButton) payMonthStartButton.hidden = !(helper && helper.settingsLoaded && helper.canManagePayMonthStarts === true);

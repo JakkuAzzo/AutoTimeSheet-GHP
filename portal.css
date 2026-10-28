@@ -218,6 +218,17 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:focus-within {
 }
 .portal-notification-empty > span { display: grid; place-items: center; width: 2rem; height: 2rem; color: #123d1d; background: #fff; border-radius: 50%; font-weight: 900; }
 .portal-notification-empty strong, .portal-notification-empty small { display: block; color: #fff; }
+
+/* Show every slide if the carousel script is unavailable. */
+.portal-dashboard-carousel > section[hidden],
+.dashboard-slide-controls[hidden] { display: none !important; }
+.dashboard-slide-controls { display: flex; justify-content: center; align-items: center; gap: .75rem; margin: .5rem 0 0; color: #123d1d; font-weight: 800; }
+.dashboard-slide-controls button { min-width: 2.5rem; min-height: 2.5rem; padding: .35rem .65rem; border: 1px solid #123d1d; border-radius: 50%; color: #fff; background: #123d1d; }
+.portal-dashboard-carousel > section { margin: 0; }
+.portal-dashboard-carousel { min-width: 0; }
+.portal-today-section .clock-card { box-sizing: border-box; width: 100%; }
+/* A missed intersection callback must never leave portal content invisible. */
+html[data-viewport-effects-ready="true"] [data-scroll-reveal]:not(.is-visible):not(:focus-within) { opacity: 1; transform: none; }
 .portal-notification-empty small { margin-top: .15rem; color: #e7f2e5; }
 .portal-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: .85rem; margin: 1rem 0; min-width: 0; }
 .app-main.portal-dashboard-main { max-width: 1520px; }
@@ -1520,3 +1531,21 @@ html[data-portal-viewport-shell="true"] .portal-dashboard-grid {
   html[data-portal-viewport-shell="true"] main:not([hidden]) { scroll-behavior: auto; }
   html[data-portal-viewport-shell="true"] .portal-dashboard-main { scroll-snap-type: none !important; }
 }
+
+.pay-month-save-progress {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: .65rem;
+  min-width: 14rem;
+  color: #123d1d;
+  font-size: .9rem;
+  font-weight: 700;
+}
+.pay-month-save-progress[hidden] { display: none; }
+.pay-month-save-progress progress {
+  width: min(14rem, 45vw);
+  height: .8rem;
+  accent-color: #123d1d;
+}
+.pay-month-save-progress + [data-pay-month-save-status] { flex-basis: 100%; }
