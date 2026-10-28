@@ -27,3 +27,11 @@ try {
  assert.ok(requests.every(r=>r.method==='GET'||r.url.startsWith('https://login.microsoftonline.com/')), 'source data must only be read');
  console.log('Protected SharePoint history: PASS');
 } finally { globalThis.fetch = oldFetch; }
+{
+ const old=globalThis.fetch; let graphInit;
+ try {
+  globalThis.fetch=async(url,init)=>{if(String(url).includes('login.microsoftonline.com'))return Response.json({access_token:'fake',expires_in:3600}); graphInit=init; return new Response('',{status:302,headers:{Location:'https://attacker.invalid'}})};
+  await assert.rejects(()=>worker.readSharePointHistory({...env,ENTRA_TENANT_ID:'redirect-tenant'}, {isSubmissionAdmin:true}),/HTTP 302/);
+  assert.equal(graphInit.redirect,'manual','redirects must be inspected without following or forwarding tokens');
+ } finally {globalThis.fetch=old}
+}
