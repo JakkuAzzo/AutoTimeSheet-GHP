@@ -268,7 +268,7 @@
       record: record,
       row: row,
       scheduled: scheduled,
-      hasRecordedWork: !!(start || finish || (worked !== null && worked > 0))
+      hasRecordedWork: (!absence || /^(na|none|no absence|not applicable|n\/a)$/i.test(absence)) && !!(start || finish || (worked !== null && worked > 0))
     };
   }
   function dateFallback(record, options) {
