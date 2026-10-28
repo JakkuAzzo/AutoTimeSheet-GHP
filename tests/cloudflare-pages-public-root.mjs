@@ -18,6 +18,16 @@ try {
   const publicRoot = fs.readFileSync(path.join(output, 'index.html'), 'utf8');
   const portalRoot = fs.readFileSync(path.join(output, 'portal', 'index.html'), 'utf8');
   const offsiteClockPage = fs.readFileSync(path.join(output, 'portal', 'offsite-clock.html'), 'utf8');
+  const notFoundPage = fs.readFileSync(path.join(output, '404.html'), 'utf8');
+
+  assert.match(notFoundPage, /Page not found/i);
+  assert.match(notFoundPage, /href="\/"/);
+  assert.doesNotMatch(notFoundPage, /href="\/portal\/"/);
+  assert.match(notFoundPage, /name="robots" content="noindex"/);
+  const staffNotFoundPage = fs.readFileSync(path.join(output, 'portal', '404.html'), 'utf8');
+  assert.match(staffNotFoundPage, /href="\/"/);
+  assert.match(staffNotFoundPage, /href="\/portal\/"[^>]*hidden/);
+  assert.match(staffNotFoundPage, /404-auth\.js/);
 
   assert.match(publicRoot, /<title>GMT Electrical Services \| Motor, Pump, Fan &amp; Gearbox Repairs Croydon<\/title>/);
   assert.match(publicRoot, /public-site\.css/);
