@@ -58,3 +58,21 @@
 .stats-chart-tooltip strong { color:#f1d775; }
 .stats-chart-hit { fill:transparent; cursor:crosshair; outline:none; }
 .stats-chart-hit:hover,.stats-chart-hit:focus-visible { fill:#174923; fill-opacity:.08; stroke:#174923; stroke-opacity:.65; stroke-width:1; }
+.holiday-calendar { padding:1.4rem; margin:1rem 0; }
+.holiday-calendar[hidden] { display:none; }
+.holiday-calendar h2 { margin:.15rem 0; }
+.holiday-calendar p { color:#526357; }
+.holiday-month-nav { display:flex; align-items:center; justify-content:space-between; max-width:38rem; margin:1.2rem auto .7rem; }
+.holiday-month-nav h3 { margin:0; text-align:center; }
+.holiday-month-nav button { background:#edf4ea; color:#174923; min-width:2.6rem; padding:.25rem .7rem; font-size:1.5rem; }
+.holiday-weekdays,.holiday-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); max-width:38rem; margin:auto; text-align:center; }
+.holiday-weekdays { color:#526357; font-size:.85rem; font-weight:700; padding:.5rem 0; }
+.holiday-day { min-width:0; min-height:3.3rem; padding:.5rem 0; border:0; border-radius:0; background:transparent; color:#263d2b; }
+.holiday-day:disabled { background:transparent; color:#5d6d60; opacity:1; cursor:default; }
+.holiday-day[data-holiday-position] { background:#dfece0; color:#123d1d; font-weight:800; }
+.holiday-day[data-holiday-position="start"],.holiday-day[data-holiday-position="end"],.holiday-day[data-holiday-position="single"] { background:#18502a; color:#fff; }
+.holiday-day[data-holiday-position="start"] { border-radius:.55rem 0 0 .55rem; }
+.holiday-day[data-holiday-position="end"] { border-radius:0 .55rem .55rem 0; }
+.holiday-day[data-holiday-position="single"] { border-radius:.55rem; }
+.holiday-day:focus-visible,.holiday-month-nav button:focus-visible { outline:3px solid #c8a936; outline-offset:2px; }
+.holiday-detail { max-width:38rem; margin:1rem auto 0; font-size:.88rem; }
