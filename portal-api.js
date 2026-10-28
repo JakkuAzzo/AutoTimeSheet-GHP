@@ -133,6 +133,7 @@
       }
     }
     var optionsValue = options || {};
+    if (optionsValue.source === "sharepoint-check") path += "&source=sharepoint-check";
     if (optionsValue.offset !== undefined && optionsValue.offset !== null && optionsValue.offset !== "") {
       var numericOffset = Number(optionsValue.offset);
       if (Number.isFinite(numericOffset)) path += "&offset=" + encodeURIComponent(String(Math.min(1000000, Math.max(0, Math.floor(numericOffset)))));
@@ -141,7 +142,7 @@
     if (/^\d{4}-(0[1-9]|1[0-2])$/.test(payMonth)) path += "&payMonth=" + encodeURIComponent(payMonth);
     return request(path, {
       method: "GET",
-      upstreamScopes: Array.isArray(config.timesheetHistoryScopes) ? config.timesheetHistoryScopes : []
+      upstreamScopes: optionsValue.source === "sharepoint-check" ? [] : (Array.isArray(config.timesheetHistoryScopes) ? config.timesheetHistoryScopes : [])
     });
   }
 

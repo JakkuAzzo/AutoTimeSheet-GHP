@@ -649,13 +649,13 @@
       return [];
     }
   }
-  async function loadHistory(api) {
+  async function loadHistory(api, options) {
     var offset = 0;
     var records = [];
     var seen = new Set();
     var meta = {};
     while (true) {
-      var page = await api.history("all", { limit: 1000, offset: offset });
+      var page = await api.history("all", { limit: 1000, offset: offset, source: options && options.source });
       if (!page || !Array.isArray(page.records)) throw new Error("Invalid calendar history response");
       page.records.forEach(function (record) {
         // The upstream history is repeated on each local page. Only suppress
