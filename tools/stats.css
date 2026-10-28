@@ -18,3 +18,6 @@
 .stats-row small { color:#54695a; margin-top:.2rem; }
 .stats-row time { white-space:nowrap; color:#54695a; }
 @media(max-width:600px) { .stats-result { align-items:flex-start; flex-direction:column; } .stats-row { flex-direction:column; gap:.25rem; } }
+
+.stats-page .eyebrow { color:#365f3e; }
+.stats-details #stats-more { margin-top:1rem; }

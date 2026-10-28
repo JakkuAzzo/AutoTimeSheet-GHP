@@ -3,7 +3,7 @@
   var names={'worked-days':'Worked days','worked-hours':'Worked hours','holiday-days':'Holiday days recorded','estimates-written':'Estimates written','job-cards-raised':'Job cards raised','tasks-completed':'Tasks completed'};
   var params=new URLSearchParams(location.search), topic=names[params.get('topic')]?params.get('topic'):'worked-days';
   var period=document.getElementById('stats-period'), month=document.getElementById('stats-month'), year=document.getElementById('stats-year'), employee=document.getElementById('stats-employee'), status=document.getElementById('stats-status'), retry=document.getElementById('stats-retry');
-  var records=[], identity={}, admin=false, complete=true, loaded=false;
+  var records=[], identity={}, admin=false, complete=true, loaded=false, visibleItems=50;
   var current=new Date(); var today=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(current);
   function text(node,value) { node.textContent=String(value); }
   function selectedMonth() { return window.GMTPayPeriods && window.GMTPayPeriods.payMonthKeyForDate ? window.GMTPayPeriods.payMonthKeyForDate(today) : today.slice(0,7); }
@@ -15,7 +15,8 @@
     history.replaceState(null,'','?'+q.toString());
     document.querySelectorAll('[data-topic]').forEach(function(link){var x=new URLSearchParams(q);x.set('topic',link.dataset.topic);link.href='?'+x.toString();link.removeAttribute('aria-current');if(link.dataset.topic===topic)link.setAttribute('aria-current','page');});
   }
-  function render() {
+  function render(preserveCount) {
+    if (preserveCount !== true) visibleItems=50;
     document.getElementById('stats-month-label').hidden=period.value!=='month';
     document.getElementById('stats-year-label').hidden=period.value!=='year';
     syncUrl();
@@ -31,7 +32,8 @@
     text(document.getElementById('stats-note'),note);
     var items=result.items[topic], container=document.getElementById('stats-items');container.replaceChildren();
     text(document.getElementById('stats-limit-note'),items.length ? items.length+' recorded '+(items.length===1?'entry':'entries')+'.' : 'No matching recorded activity for this selection.');
-    items.forEach(function(item){var row=document.createElement('div');row.className='stats-row';var body=document.createElement('div'), title=document.createElement('strong'), detail=document.createElement('small'),date=document.createElement('time');title.textContent=item.title || names[topic];detail.textContent=item.detail || '';date.dateTime=item.date;date.textContent=item.date;body.append(title,detail);row.append(body,date);container.append(row);});
+    var more=document.getElementById('stats-more');more.hidden=items.length<=visibleItems;
+    items.slice(0,visibleItems).forEach(function(item){var row=document.createElement('div');row.className='stats-row';var body=document.createElement('div'), title=document.createElement('strong'), detail=document.createElement('small'),date=document.createElement('time');title.textContent=item.title || names[topic];detail.textContent=item.detail || '';date.dateTime=item.date;date.textContent=item.date;body.append(title,detail);row.append(body,date);container.append(row);});
     text(status,complete?'Statistics loaded.':'Some history is unavailable. Totals may be incomplete.');
   }
   async function load(){
@@ -54,5 +56,6 @@
   year.value=/^\d{4}$/.test(params.get('year')||'')?params.get('year'):today.slice(0,4);
   [period,month,year,employee].forEach(function(el){el.addEventListener('change',render);});
   document.querySelectorAll('[data-topic]').forEach(function(link){link.addEventListener('click',function(event){event.preventDefault();topic=link.dataset.topic;render();});});
+  document.getElementById('stats-more').addEventListener('click',function(){visibleItems+=50;render(true);});
   retry.addEventListener('click',load);syncUrl();load();
 }());
