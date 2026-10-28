@@ -5217,7 +5217,14 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
   const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
   if (sourceProbe && upstreamEnabledForKind) {
-    const result = await readSharePointHistory(env, identity);
+    let result;
+    try {
+      result = await readSharePointHistory(env, identity);
+    } catch (error) {
+      const known = ['Shared archive content access is not configured', 'Shared archive content authentication failed', 'SharePoint history is not configured', 'SharePoint history pagination is incomplete', 'Invalid SharePoint history continuation', 'Invalid SharePoint history response'];
+      const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : 'History source processing failed');
+      throw Object.assign(new Error(detail), { status: 503, publicMessage: detail });
+    }
     upstreamSourceRowCount = result.records.length;
     upstreamNormalisedRecordCount = result.records.length;
     upstreamEmployeeMatchedRecordCount = result.records.length;
