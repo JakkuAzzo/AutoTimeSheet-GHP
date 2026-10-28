@@ -6,10 +6,12 @@ const { chromium } = require('playwright');
 const executablePath='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const browser=await chromium.launch({headless:true,...(existsSync(executablePath)?{executablePath}:{})});
 const page=await browser.newPage({viewport:{width:390,height:844}});
+page.setDefaultTimeout(3000);
 try {
  const html=readFileSync('tools/stats.html','utf8');
  await page.route('https://stats.test/**', route => route.fulfill({status:200,contentType:'text/html',body:html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'')}));
  await page.goto('https://stats.test/tools/stats?topic=worked-days');
+ for (const path of ['styles.css','portal.css','tools/stats.css']) await page.addStyleTag({content:readFileSync(path,'utf8')});
  await page.evaluate(()=>{
   document.querySelector('main').hidden=false;
   Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:()=>JSON.stringify({username:'a@example.com'})}});
@@ -17,8 +19,13 @@ try {
   window.GMTPayPeriods={payMonthKeyForDate:(d)=>d.slice(0,7),ready:Promise.resolve()};
   window.GMTPortalApi={enabled:()=>true,access:async()=>({}),history:async()=>({meta:{upstream:'ok',history_pagination:{has_more:false}},records:[{kind:'timesheets',record_id:'a',employee_upn:'a@example.com',employee_name:'A',payload:{rows:[{date:'2026-10-01',start:'09:00',finish:'17:00',lunchMinutes:30}]}},{kind:'tasks',record_id:'b',employee_upn:'a@example.com',status:'Complete',completed_at:'2026-10-02'}]})};
  });
- for (const path of ['portal/calendar-data.js','portal/pay-month-workbook.js','portal/statistics-data.js','tools/stats.js']) await page.addScriptTag({content:readFileSync(path,'utf8')});
+ for (const path of ['portal/calendar-data.js','portal/pay-month-workbook.js','portal/statistics-data.js','tools/stats-locations.js','tools/stats-map.js','tools/stats-charts.js','tools/stats.js']) await page.addScriptTag({content:readFileSync(path,'utf8')});
  await page.waitForFunction(()=>document.getElementById('stats-status').textContent==='Statistics loaded.');
+ assert.equal(await page.locator('#stats-activity-details').getAttribute('open'),null,'activity starts collapsed');
+ assert.equal(await page.locator('#stats-chart').isVisible(),true);
+ await page.locator('[data-chart-type="line"]').click();
+ assert.equal(await page.locator('[data-chart-type="line"]').getAttribute('aria-pressed'),'true');
+ assert.equal(await page.locator('#stats-chart polyline').count(),1);
  await page.selectOption('#stats-period','all');
  assert.equal(await page.locator('#stats-total').textContent(),'1');
  await page.locator('[data-topic="worked-hours"]').click();
