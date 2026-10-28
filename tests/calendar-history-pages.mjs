@@ -22,7 +22,7 @@ console.log('Calendar history pagination: PASS');
 const calendar = context.window.GMTCalendarData;
 const offSchedule = calendar.recordsToEvents([{ kind: 'timesheets', source_record_id: 'extra', employee_name: 'Test Person', employee_upn: 'test@example.invalid', payload: { rows: [
   { date: '2026-10-29', start: '09:00', finish: '17:00', lunchMinutes: 30 },
-  { date: '2026-10-30', absenceStatus: 'Un-Paid' }
+  { date: '2026-10-30', absenceStatus: 'Un-Paid', start: '09:00', finish: '17:00' }
 ] } }], { employees: [{ name: 'Test Person', upn: 'test@example.invalid', workdays: [1, 2] }] });
 assert.ok(offSchedule.some(event => event.date === '2026-10-29'), 'actual work remains visible outside the normal roster');
 assert.ok(!offSchedule.some(event => event.date === '2026-10-30'), 'an unscheduled absence placeholder is not invented as a work day');
