@@ -42,6 +42,8 @@ for (const file of [
   'public-site.css', 'public-site-mapfix-20260928.js', 'viewport-effects.js'
 ]) copy(file);
 copy('sitemap.xml');
+// Public IndexNow ownership verification file.
+copy('e7d606f354bb4e84a5319087cc42e829.txt');
 copy('robots.txt');
 copy('portal/profile.js', 'profile.js');
 copy('assets');
