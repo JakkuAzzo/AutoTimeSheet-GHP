@@ -41,7 +41,7 @@
     var chartData=window.GMTStatsCharts.series(items,options,topic);
     text(document.getElementById('stats-chart-heading'),(topic==='locations'?'Recorded site workdays':names[topic])+' over time');
     text(document.getElementById('stats-chart-caption'),options.period==='month'?'Daily totals across the selected pay month.':options.period==='year'?'Monthly totals across the selected calendar year.':'Yearly totals across the available history.');
-    window.GMTStatsCharts.draw(document.getElementById('stats-chart'),document.getElementById('stats-chart-table-body'),chartData,topic,chartType,names[topic]);
+    window.GMTStatsCharts.draw(document.getElementById('stats-chart'),document.getElementById('stats-chart-table-body'),chartData,topic,chartType,topic==='locations'?'Recorded site workdays':names[topic]);
     text(document.getElementById('stats-limit-note'),items.length ? items.length+' recorded '+(items.length===1?'entry':'entries')+'.' : 'No matching recorded activity for this selection.');
     var more=document.getElementById('stats-more');more.hidden=items.length<=visibleItems;
     items.slice(0,visibleItems).forEach(function(item){var row=document.createElement('div');row.className='stats-row';var body=document.createElement('div'), title=document.createElement('strong'), detail=document.createElement('small'),date=document.createElement('time');title.textContent=item.title || names[topic];detail.textContent=item.detail || '';date.dateTime=item.date;date.textContent=item.date;body.append(title,detail);row.append(body,date);container.append(row);});

@@ -40,7 +40,9 @@
   }
   function display(value,metric) { return metric==='worked-hours' && window.GMTStatistics ? window.GMTStatistics.formatMinutes(value) : String(value); }
   function draw(svg, tbody, values, metric, mode, title) {
-    var ns='http://www.w3.org/2000/svg';svg.replaceChildren();tbody.replaceChildren();
+    var ns='http://www.w3.org/2000/svg', tooltip=document.getElementById('stats-chart-tooltip');svg.replaceChildren();tbody.replaceChildren();
+    if(tooltip) tooltip.hidden=true;
+    svg.setAttribute('role','group');
     var width=Math.max(680,values.length*30+90),height=250,left=52,right=20,top=22,bottom=45,plotWidth=width-left-right,plotHeight=height-top-bottom;
     svg.setAttribute('viewBox','0 0 '+width+' '+height);svg.style.minWidth=width+'px';
     svg.setAttribute('aria-label',title+' '+(mode==='line'?'line graph':'bar chart')+'. '+(values.length?'Chart data is also available in the table below.':'No recorded data for this period.'));
@@ -51,12 +53,39 @@
     var points=[],spacing=values.length?plotWidth/values.length:plotWidth;
     values.forEach(function(item,i){
       var x=left+(i+.5)*spacing,y=top+plotHeight-(item.value/max)*plotHeight;
-      if(mode==='bar'){var bar=shape('rect',{x:x-Math.min(spacing*.32,15),y:y,width:Math.max(1,Math.min(spacing*.64,30)),height:Math.max(0,top+plotHeight-y),rx:3,'class':'stats-chart-bar'});var tip=shape('title',{},bar);tip.textContent=item.label+': '+display(item.value,metric);}
+      if(mode==='bar')shape('rect',{x:x-Math.min(spacing*.32,15),y:y,width:Math.max(1,Math.min(spacing*.64,30)),height:Math.max(0,top+plotHeight-y),rx:3,'class':'stats-chart-bar'});
       else points.push(x+','+y);
       if(i===0 || i===values.length-1 || i%Math.max(1,Math.ceil(values.length/9))===0)label(x,height-18,item.label,'stats-chart-axis stats-chart-x');
       var row=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.scope='row';a.textContent=item.label;b.textContent=display(item.value,metric);row.append(a,b);tbody.append(row);
     });
-    if(mode==='line'&&points.length){shape('polyline',{points:points.join(' '),'class':'stats-chart-line'});values.forEach(function(item,i){var x=left+(i+.5)*spacing,y=top+plotHeight-(item.value/max)*plotHeight;var dot=shape('circle',{cx:x,cy:y,r:4,'class':'stats-chart-point'});var tip=shape('title',{},dot);tip.textContent=item.label+': '+display(item.value,metric);});}
+    if(mode==='line'&&points.length){shape('polyline',{points:points.join(' '),'class':'stats-chart-line'});values.forEach(function(item,i){var x=left+(i+.5)*spacing,y=top+plotHeight-(item.value/max)*plotHeight;shape('circle',{cx:x,cy:y,r:4,'class':'stats-chart-point'});});}
+    function periodLabel(item){
+      if(/^\d{4}-\d{2}-\d{2}$/.test(item.key))return new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(item.key+'T12:00:00Z'));
+      if(/^\d{4}-\d{2}$/.test(item.key))return new Intl.DateTimeFormat('en-GB',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(item.key+'-01T12:00:00Z'));
+      return item.label;
+    }
+    function show(item,x,y){
+      if(!tooltip)return;
+      tooltip.querySelector('[data-tooltip-period]').textContent=periodLabel(item);
+      tooltip.querySelector('[data-tooltip-value]').textContent=title+': '+display(item.value,metric);
+      tooltip.hidden=false;
+      var bounds=tooltip.getBoundingClientRect(), margin=8;
+      var left=Math.max(margin,Math.min(window.innerWidth-bounds.width-margin,x+14));
+      var top=y-bounds.height-14;
+      if(top<margin)top=Math.min(window.innerHeight-bounds.height-margin,y+18);
+      tooltip.style.left=left+'px';tooltip.style.top=Math.max(margin,top)+'px';
+    }
+    values.forEach(function(item,i){
+      var hit=shape('rect',{x:left+i*spacing,y:top,width:spacing,height:plotHeight,'class':'stats-chart-hit',tabindex:0,role:'img','aria-label':periodLabel(item)+', '+title+': '+display(item.value,metric),'aria-describedby':'stats-chart-tooltip'});
+      hit.addEventListener('pointerenter',function(e){if(e.pointerType!=='touch')show(item,e.clientX,e.clientY);});
+      hit.addEventListener('pointermove',function(e){if(e.pointerType!=='touch')show(item,e.clientX,e.clientY);});
+      hit.addEventListener('pointerleave',function(e){if(tooltip&&e.pointerType!=='touch')tooltip.hidden=true;});
+      hit.addEventListener('pointerdown',function(e){if(e.pointerType==='touch')show(item,e.clientX,e.clientY);});
+      hit.addEventListener('focus',function(){var box=hit.getBoundingClientRect();show(item,box.left+box.width/2,box.top+box.height/2);});
+      hit.addEventListener('blur',function(){if(tooltip)tooltip.hidden=true;});
+      hit.addEventListener('keydown',function(e){if(e.key==='Escape'&&tooltip)tooltip.hidden=true;});
+    });
+    if(tooltip&&!tooltip.dataset.dismissBound){document.addEventListener('pointerdown',function(e){if(!svg.contains(e.target))tooltip.hidden=true;});tooltip.dataset.dismissBound='true';}
     if(!values.length)label(width/2,height/2,'No recorded data for this period','stats-chart-empty');
   }
   window.GMTStatsCharts={series:series,draw:draw};
