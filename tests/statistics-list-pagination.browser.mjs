@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+const executablePath='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browser=await chromium.launch({headless:true,...(existsSync(executablePath)?{executablePath}:{})});
+const page=await browser.newPage({viewport:{width:390,height:844}});
+try {
+ const html=readFileSync('tools/stats.html','utf8');
+ await page.route('https://stats.test/**', route => route.fulfill({status:200,contentType:'text/html',body:html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'')}));
+ await page.goto('https://stats.test/tools/stats?topic=worked-days');
+ await page.evaluate(()=>{
+  document.querySelector('main').hidden=false;
+  Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:()=>JSON.stringify({username:'a@example.com'})}});
+  window.GMT_PORTAL_AUTH_READY=Promise.resolve();
+  window.GMTPayPeriods={payMonthKeyForDate:(d)=>d.slice(0,7),ready:Promise.resolve()};
+  window.GMTPortalApi={enabled:()=>true,access:async()=>({}),history:async()=>({meta:{upstream:'ok',history_pagination:{has_more:false}},records:[{kind:'timesheets',record_id:'a',employee_upn:'a@example.com',employee_name:'A',payload:{rows:[{date:'2026-10-01',start:'09:00',finish:'17:00',lunchMinutes:30}]}},...Array.from({length:101},(_,i)=>({kind:'tasks',record_id:'task-'+i,employee_upn:'a@example.com',status:'Complete',completed_at:'2026-10-02'}))]})};
+ });
+ for (const path of ['portal/calendar-data.js','portal/pay-month-workbook.js','portal/statistics-data.js','tools/stats.js']) await page.addScriptTag({content:readFileSync(path,'utf8')});
+ await page.waitForFunction(()=>document.getElementById('stats-status').textContent==='Statistics loaded.');
+ await page.selectOption('#stats-period','all');
+ assert.equal(await page.locator('#stats-total').textContent(),'1');
+ await page.locator('[data-topic="worked-hours"]').click();
+ assert.equal(await page.locator('#stats-total').textContent(),'7h 30m');
+ assert.equal(await page.locator('#stats-heading').textContent(),'Worked hours');
+ await page.locator('[data-topic="tasks-completed"]').click();
+ assert.equal(await page.locator('#stats-total').textContent(),'101');
+ assert.equal(await page.locator('.stats-row').count(),50,'long lists initially show 50 entries');
+ await page.locator('#stats-more').click();
+ assert.equal(await page.locator('.stats-row').count(),100);
+ await page.locator('#stats-more').click();
+ assert.equal(await page.locator('.stats-row').count(),101);
+ assert.equal(await page.locator('#stats-more').isHidden(),true);
+ await page.selectOption('#stats-period','year'); await page.fill('#stats-year','2025'); await page.locator('#stats-year').dispatchEvent('change');
+ assert.equal(await page.locator('#stats-total').textContent(),'0');
+ assert.equal(await page.locator('[data-topic="tasks-completed"]').getAttribute('aria-current'),'page');
+ const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1); assert.equal(overflow,false,'mobile has no horizontal overflow');
+ const dash=readFileSync('portal/index.html','utf8');
+ for(const key of ['worked-days','worked-hours','holiday-days','estimates-written','job-cards-raised','tasks-completed']) assert.match(dash,new RegExp(`data-statistics-link="${key}"`));
+ console.log('Statistics list pagination: PASS');
+} finally { await browser.close(); }
