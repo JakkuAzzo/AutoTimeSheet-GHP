@@ -91,7 +91,7 @@ copy('portal/auth.js', 'auth.js');
 for (const file of [
   'timesheets/index.html', 'timesheets/create.html', 'jobs/index.html',
   'tasks/index.html', 'tools/index.html',
-  'tools/estimates.html', 'tools/invoices.html', 'training/index.html'
+  'tools/estimates.html', 'tools/invoices.html', 'tools/stats.html', 'training/index.html'
 ]) {
   const target = path.join(output, file);
   let contents = fs.readFileSync(target, 'utf8');

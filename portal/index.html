@@ -18,7 +18,7 @@
   .app-main[hidden] { display: none; }
 </style>
 <link rel="stylesheet" href="../styles.css?v=portal-responsive-layout-20261016-v4">
-<link rel="stylesheet" href="../portal.css?v=dashboard-auth-startup-gate-20261028-v1">
+<link rel="stylesheet" href="../portal.css?v=statistics-20261028-v1">
 <script src="../config.js?v=portal-api-live-20260915"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="../viewport-effects.js?v=visible-reveals-20261028"></script>
@@ -104,11 +104,12 @@
           </div>
           <p id="portal-statistics-status" class="portal-statistics-status" role="status" aria-live="polite">Loading personal statistics…</p>
           <div class="portal-statistics-grid" aria-label="Personal activity totals">
-            <article class="portal-statistics-card"><span>Worked days</span><strong data-statistics-value="worked-days">—</strong></article>
-            <article class="portal-statistics-card"><span>Holiday days recorded</span><strong data-statistics-value="holiday-days">—</strong></article>
-            <article class="portal-statistics-card"><span>Estimates written</span><strong data-statistics-value="estimates-written">—</strong></article>
-            <article class="portal-statistics-card"><span>Job cards raised</span><strong data-statistics-value="job-cards-raised">—</strong></article>
-            <article class="portal-statistics-card"><span>Tasks completed</span><strong data-statistics-value="tasks-completed">—</strong></article>
+            <a class="portal-statistics-card" data-statistics-link="worked-days" href="../tools/stats?topic=worked-days"><span>Worked days</span><strong data-statistics-value="worked-days">—</strong></a>
+            <a class="portal-statistics-card" data-statistics-link="worked-hours" href="../tools/stats?topic=worked-hours"><span>Worked hours</span><strong data-statistics-value="worked-hours">—</strong></a>
+            <a class="portal-statistics-card" data-statistics-link="holiday-days" href="../tools/stats?topic=holiday-days"><span>Holiday days recorded</span><strong data-statistics-value="holiday-days">—</strong></a>
+            <a class="portal-statistics-card" data-statistics-link="estimates-written" href="../tools/stats?topic=estimates-written"><span>Estimates written</span><strong data-statistics-value="estimates-written">—</strong></a>
+            <a class="portal-statistics-card" data-statistics-link="job-cards-raised" href="../tools/stats?topic=job-cards-raised"><span>Job cards raised</span><strong data-statistics-value="job-cards-raised">—</strong></a>
+            <a class="portal-statistics-card" data-statistics-link="tasks-completed" href="../tools/stats?topic=tasks-completed"><span>Tasks completed</span><strong data-statistics-value="tasks-completed">—</strong></a>
           </div>
           <p id="portal-statistics-source-note" class="portal-statistics-source-note">Loads all records for the selected pay month. Previously viewed months are cached while you browse.</p>
           <button type="button" class="secondary" data-dashboard-retry="statistics" hidden>Retry statistics</button>
@@ -184,6 +185,8 @@
 <script defer src="calendar-actions.js?v=calendar-submissions-route-20261028"></script>
 <script defer src="calendar-preview.js?v=secure-history-probe-20261028"></script>
 <script defer src="dashboard-carousel.js?v=dashboard-carousel-20261028"></script>
-<script defer src="dashboard-updates.js?v=dashboard-auth-startup-gate-20261028-v1"></script>
+<script defer src="pay-month-workbook.js?v=statistics-20261028"></script>
+<script defer src="statistics-data.js?v=statistics-20261028"></script>
+<script defer src="dashboard-updates.js?v=statistics-20261028-v1"></script>
 </body>
 </html>
