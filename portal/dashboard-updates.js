@@ -246,14 +246,13 @@
   }
 
   function renderStatisticsForMonth() {
-    if (!statisticsStatus || !statisticsMonth) return;
+    if (!statisticsStatus || !statisticsMonth) return Promise.resolve();
     var month = statisticsMonth.value || currentPayMonthKey();
     if (!Object.prototype.hasOwnProperty.call(statisticsMonthCache, month)) {
       personalHistoryRecords = null;
       setStatisticValues({ "worked-days": "—", "holiday-days": "—", "estimates-written": "—", "job-cards-raised": "—", "tasks-completed": "—" });
       statisticsStatus.textContent = "Loading all available records for " + monthLabel(month) + "…";
-      loadStatisticsMonth(month);
-      return;
+      return loadStatisticsMonth(month);
     }
     var records = statisticsMonthCache[month];
     personalHistoryRecords = records;
@@ -291,7 +290,7 @@
     populateStatisticsMonths(personalHistoryRecords);
     statisticsSelectionInitialized = true;
     if (statisticsRetry) statisticsRetry.hidden = true;
-    renderStatisticsForMonth();
+    return renderStatisticsForMonth();
   }
 
   function historyRecordKey(record) {
@@ -586,7 +585,7 @@
       if (window.GMTPayPeriods && window.GMTPayPeriods.ready) {
         await Promise.resolve(window.GMTPayPeriods.ready).catch(function () {});
       }
-      renderPersonalStatistics([]);
+      await renderPersonalStatistics([]);
     } catch (_) {
       if (notificationStatus) notificationStatus.textContent = "Notifications could not be loaded.";
       if (notificationList) notificationList.innerHTML = '<div class="portal-notification-empty"><span aria-hidden="true">!</span><div><strong>Notifications unavailable</strong><small>The Task Board status is shown separately.</small></div></div>';
@@ -616,6 +615,5 @@
       }
     }).catch(function () {});
   }
-  loadTasks();
-  loadNotifications();
+  window.GMT_PORTAL_DASHBOARD_READY = Promise.allSettled([loadTasks(), loadNotifications()]);
 }());

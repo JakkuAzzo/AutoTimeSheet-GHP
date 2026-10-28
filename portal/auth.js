@@ -48,20 +48,75 @@
   var profileKey = "gmt.portal.profile.v1";
   var status = document.createElement("p");
   status.className = "portal-auth-status";
+  if (document.documentElement.classList.contains("portal-dashboard-document")) {
+    status.classList.add("portal-auth-startup");
+    status.setAttribute("aria-live", "polite");
+  }
   status.setAttribute("role", "status");
-  status.innerHTML = "Signing in to the GMT Staff Portal...<br><small>On first sign-in, Microsoft may ask you to register Authenticator or a passkey. Keep your GMT account and this browser open until setup is complete.</small>";
+  status.innerHTML = '<span class="portal-auth-spinner" aria-hidden="true"></span><strong data-auth-status-message>Signing in to the GMT Staff Portal…</strong><progress class="portal-auth-progress" aria-label="Loading the GMT Staff Portal"></progress><small data-auth-status-detail>On first sign-in, Microsoft may ask you to register Authenticator or a passkey. Keep your GMT account and this browser open until setup is complete.</small>';
   document.body.appendChild(status);
 
+  var revealPromise = null;
   function revealApplication() {
-    document.documentElement.dataset.gmtAuthenticated = "true";
-    if (appMain) {
-      // Safari can retain the initial hidden layout after an Entra redirect.
-      appMain.hidden = false;
-      appMain.removeAttribute("hidden");
-      appMain.style.removeProperty("display");
-      initViewportEffects(appMain);
-    }
-    if (status.isConnected) status.remove();
+    if (revealPromise) return revealPromise;
+    revealPromise = (async function () {
+      var isDashboard = document.documentElement.classList.contains("portal-dashboard-document");
+      var message = status.querySelector("[data-auth-status-message]");
+      var detail = status.querySelector("[data-auth-status-detail]");
+      if (isDashboard) {
+        if (message) message.textContent = "Loading your GMT dashboard…";
+        if (detail) detail.textContent = "Checking your saved profile, calendar and dashboard records before opening the workspace.";
+        // The dashboard's remaining scripts are deferred. Wait until all of
+        // them have run before reading their readiness promises, otherwise a
+        // fast cached SSO session can expose the shell before they register.
+        var dashboardReady = (async function () {
+          if (document.readyState !== "complete") {
+            await new Promise(function (resolve) {
+              window.addEventListener("load", resolve, { once: true });
+            });
+          }
+          var startupPromises = [];
+          if (window.GMT_PORTAL_PROFILE_READY) startupPromises.push(window.GMT_PORTAL_PROFILE_READY);
+          if (window.GMT_PORTAL_CALENDAR_READY) startupPromises.push(window.GMT_PORTAL_CALENDAR_READY);
+          if (window.GMT_PORTAL_DASHBOARD_READY) startupPromises.push(window.GMT_PORTAL_DASHBOARD_READY);
+          await Promise.allSettled(startupPromises);
+        }());
+        var startupTimer;
+        var startupResult = await Promise.race([
+          dashboardReady.then(function () { return "ready"; }),
+          new Promise(function (resolve) { startupTimer = window.setTimeout(function () { resolve("slow"); }, 30000); })
+        ]);
+        window.clearTimeout(startupTimer);
+        if (startupResult === "slow") {
+          if (message) message.textContent = "Your GMT dashboard is taking longer than expected to load.";
+          if (detail) detail.textContent = "Your workspace is still protected while the profile, calendar and records finish loading. Reload to try again.";
+          var retry = status.querySelector("[data-auth-startup-retry]");
+          if (!retry) {
+            retry = document.createElement("button");
+            retry.type = "button";
+            retry.setAttribute("data-auth-startup-retry", "");
+            retry.textContent = "Reload dashboard";
+            retry.addEventListener("click", function () { window.location.reload(); });
+            status.appendChild(retry);
+          }
+          revealPromise = null;
+          return;
+        }
+      }
+      document.documentElement.dataset.gmtAuthenticated = "true";
+      if (appMain) {
+        // Safari can retain the initial hidden layout after an Entra redirect.
+        appMain.hidden = false;
+        appMain.removeAttribute("hidden");
+        appMain.style.removeProperty("display");
+        initViewportEffects(appMain);
+      }
+      if (status.isConnected) status.remove();
+    }()).catch(function (error) {
+      revealPromise = null;
+      showFailure(error && error.message ? error.message : "The GMT dashboard could not be opened.");
+    });
+    return revealPromise;
   }
 
   window.addEventListener("pageshow", function () {

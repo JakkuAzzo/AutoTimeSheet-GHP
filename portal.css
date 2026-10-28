@@ -527,6 +527,63 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal]:not(.is-visible):n
 .portal-auth-status button {
   margin-top: .85rem;
 }
+.portal-auth-startup {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: .85rem;
+  width: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  padding: clamp(1.5rem, 5vw, 3rem);
+  color: #123d1d;
+  background: #f3f7ef;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  text-align: center;
+}
+.portal-auth-startup strong {
+  max-width: 32rem;
+  font-size: clamp(1.15rem, 3vw, 1.6rem);
+}
+.portal-auth-startup small {
+  max-width: 34rem;
+  color: #425248;
+  line-height: 1.55;
+}
+.portal-auth-spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 3px solid #cfe0ca;
+  border-top-color: #123d1d;
+  border-radius: 50%;
+  animation: portal-auth-spin .8s linear infinite;
+}
+.portal-auth-progress {
+  width: min(18rem, 80vw);
+  height: .55rem;
+  accent-color: #123d1d;
+}
+.portal-auth-startup button {
+  margin-top: .35rem;
+  padding: .75rem 1rem;
+  color: #fff;
+  background: #123d1d;
+  border: 1px solid #123d1d;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+@keyframes portal-auth-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .portal-auth-spinner { animation: none; }
+}
 .clock-card {
   cursor: default;
   align-content: start;
