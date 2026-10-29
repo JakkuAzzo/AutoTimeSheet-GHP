@@ -24,9 +24,12 @@ details, Outlook conversation ID/link, and an append-only message projection.
    added by `migrations/0009_estimate_archive.sql` and has not been applied to
    production by this change.
 3. Deploy the Worker from this directory.
-4. Set `HISTORY_UPSTREAM_URL` to the existing protected timesheet history
-   trigger only when that flow is still the approved source. Leave it blank
-   while the flow is unavailable.
+4. Set `HISTORY_SOURCE` to `sharepoint` and configure
+   `SHAREPOINT_TIMESHEET_LIST_ID` for the protected timesheet list. The Worker
+   reads the full list using its configured Microsoft Graph application and
+   enforces the signed-in user's history permissions before returning records.
+   If that source is unavailable, local records remain visible with an
+   incomplete-history status; the Worker does not fall back to the legacy flow.
 5. Set `ADMIN_UPNS`, `ADMIN_OIDS`, or `ADMIN_GROUP_IDS` to the approved GMT
    administrator identities in Cloudflare variables. Do not hard-code them in
    the client bundle. The Worker deployment workflow uses `--keep-vars`, so
@@ -68,13 +71,13 @@ The Pages `config.js` should point `portalApiEndpoint` and
 `portalHistoryEndpoint` at the deployed Worker origin. The portal can use the
 OIDC scopes `openid profile email`; the Worker validates the signed SPA ID token
 against the SPA audience so portal CRUD does not depend on Power Automate
-permissions. The history request optionally acquires the delegated Power
-Automate Flow Service token and sends it in a separate Worker-only header; the
-Worker verifies that token belongs to the same Entra identity before calling
-`HISTORY_UPSTREAM_URL`. When that permission is unavailable, the response
-retains the D1 records and reports `flow-permission-not-configured` in
-`meta.upstream` rather than presenting the D1 test record as the complete
-Microsoft 365 history.
+permissions. Some clients may still send an optional delegated Power Automate
+token for legacy configurations. Production ignores it and uses the
+Worker-controlled SharePoint source; staff access is filtered by the verified
+portal identity.
+If the source cannot be read, the response retains the D1 records and reports
+`sharepoint-unavailable` in `meta.upstream` rather than presenting D1 records as
+complete Microsoft 365 history.
 
 `STAFF_DIRECTORY_JSON` is an optional Worker variable containing the approved
 employee roster. Accounts uses it to show current pay-month submissions,
@@ -138,7 +141,7 @@ confirmed status plus SharePoint item ID. A task calendar flow creates one
 event for an approved dated task and updates it by the stored Outlook Event ID.
 Completed and cancelled task events are retained.
 
-Migration `migrations/0017_task_workflows.sql` stores a protected D1 mirror,
+Migration `migrations/0019_task_workflows.sql` stores a protected D1 mirror,
 action outbox, and append-only activity log. Failed and abandoned queued
 operations can be retried with the same action ID; a successful retry does not
 duplicate the List row or activity entry. D1 is not the task approval authority.

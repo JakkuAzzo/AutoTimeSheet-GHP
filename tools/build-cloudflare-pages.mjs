@@ -28,6 +28,10 @@ function copyText(relativePath, destination, transform) {
 // Keep the original portal routes available for existing bookmarks and also
 // publish a flat Pages root so the Cloudflare project works at its root URL.
 copy('portal');
+// The combined Submitted documents workspace replaces the old stand-alone
+// portal timesheet editor. Keep source files for compatibility tests, but do
+// not publish the obsolete page or its flat duplicate.
+fs.rmSync(path.join(output, 'portal', 'timesheets.html'), { force: true });
 for (const directory of ['timesheets', 'jobs', 'tasks', 'tools', 'training', 'audit', 'services', 'process', 'reviews']) copy(directory);
 fs.rmSync(path.join(output, 'tools', 'build-cloudflare-pages.mjs'), { force: true });
 
@@ -42,6 +46,8 @@ for (const file of [
   'public-site.css', 'public-site-mapfix-20260928.js', 'viewport-effects.js'
 ]) copy(file);
 copy('sitemap.xml');
+// Public IndexNow ownership verification file.
+copy('e7d606f354bb4e84a5319087cc42e829.txt');
 copy('robots.txt');
 copy('portal/profile.js', 'profile.js');
 copy('assets');
@@ -69,10 +75,9 @@ const rootTransform = (contents) => contents
 // already available at /portal/ from the directory copied above; replacing
 // the root with portal/index.html would make every public visitor hit Entra.
 copy('index.html', 'index.html');
+copy('404.html');
+copy('404.css');
 copyText('portal/account.html', 'account.html', rootTransform);
-copyText('portal/timesheets.html', 'timesheets.html', (contents) => rootTransform(contents)
-  .replace('src="./history-frame.html', 'src="history-frame.html')
-  .replace('href="./timesheets/"', 'href="timesheets/"'));
 copyText('portal/history-frame.html', 'history-frame.html', rootTransform);
 
 // These scripts are loaded by the flat history page and need the same root
@@ -88,7 +93,7 @@ copy('portal/auth.js', 'auth.js');
 for (const file of [
   'timesheets/index.html', 'timesheets/create.html', 'jobs/index.html',
   'tasks/index.html', 'tools/index.html',
-  'tools/estimates.html', 'tools/invoices.html', 'training/index.html'
+  'tools/estimates.html', 'tools/invoices.html', 'tools/stats.html', 'training/index.html'
 ]) {
   const target = path.join(output, file);
   let contents = fs.readFileSync(target, 'utf8');
@@ -111,5 +116,5 @@ copyText('config.js', 'config.js', (contents) => {
 // The checked-in rules are authoritative; duplicating them here caused live
 // headers to drift from the source and broke third-party form receipts.
 copy('_headers');
-fs.writeFileSync(path.join(output, '_redirects'), '/calendar /portal/submissions 301\n/calendar/* /portal/submissions 301\n');
+fs.writeFileSync(path.join(output, '_redirects'), '/portal/timesheets /portal/submissions 301\n/portal/timesheets/ /portal/submissions 301\n/portal/timesheets.html /portal/submissions 301\n/timesheets.html /portal/submissions 301\n/calendar /portal/submissions 301\n/calendar/* /portal/submissions 301\n');
 console.log(JSON.stringify({ output, workerUrl: workerUrl || null, files: fs.readdirSync(output).length }));

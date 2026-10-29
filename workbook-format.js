@@ -38,6 +38,7 @@ function workbookCategory(row) {
   if (row.absenceStatus === 'Holiday') return 'Holiday';
   if (row.absenceStatus === 'Sick') return 'Sick';
   if (row.absenceStatus === 'Time Off') return 'Time Off';
+  if (row.absenceStatus === 'Un-Paid') return 'Un-Paid';
   if (row.dayName === 'Sunday') return 'Sunday OT x2.0';
   if (row.dayName === 'Saturday') return 'Saturday OT';
   if ((row.ot15 || 0) > 0) return 'Weekday OT x1.5';
@@ -46,7 +47,7 @@ function workbookCategory(row) {
 
 function workbookStatus(row) {
   if (row.error) return 'Check';
-  if (row.absenceStatus === 'Sick') return 'Recorded';
+  if (row.absenceStatus === 'Sick' || row.absenceStatus === 'Un-Paid') return 'Recorded';
   return 'OK';
 }
 

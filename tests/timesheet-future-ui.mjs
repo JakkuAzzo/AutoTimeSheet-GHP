@@ -19,8 +19,28 @@ const server = createServer((request, response) => {
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 const browser = await chromium.launch({ headless: true, executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
 try {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36' });
+  await page.clock.setFixedTime(new Date('2026-10-28T12:00:00Z'));
   await page.goto(`http://127.0.0.1:${server.address().port}/timesheets/create.html`, { waitUntil: 'load' });
+  const defaults = await page.evaluate(() => {
+    const today = window.GMTTimesheetRows.todayInLondon();
+    const todayCard = [...document.querySelectorAll('.day-card')].find((card) => card.querySelector('[data-field="date"]').value === today);
+    return { today, expanded: todayCard && !todayCard.classList.contains('is-collapsed'), hasToday: !!todayCard, absenceStart: document.getElementById('absence-start').value, absenceEnd: document.getElementById('absence-end').value };
+  });
+  assert.equal(defaults.hasToday, true, 'today exists on a fresh weekday form');
+  assert.equal(defaults.expanded, true, 'today is expanded on a fresh weekly form');
+  assert.equal(defaults.absenceStart, defaults.today);
+  assert.equal(defaults.absenceEnd, defaults.today);
+  const firstDate = page.locator('.day-card [data-field="date"]').first();
+  await firstDate.evaluate((input) => { input.value = ''; });
+  await firstDate.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  assert.equal(await firstDate.inputValue(), defaults.today, 'opening a blank date starts the picker at today');
+  await firstDate.evaluate((input) => { input.value = '2026-08-05'; });
+  await firstDate.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  assert.equal(await firstDate.inputValue(), '2026-08-05', 'opening a populated date never rewrites it');
+  await firstDate.evaluate((input) => { input.value = ''; });
+  await firstDate.dispatchEvent('focusin');
+  assert.equal(await firstDate.inputValue(), defaults.today, 'keyboard focus also seeds an empty date');
   const result = await page.evaluate(() => {
     const today = window.GMTTimesheetRows.todayInLondon();
     const tomorrow = window.GMTTimesheetRows.addDays(today, 1);
@@ -36,6 +56,23 @@ try {
   assert.equal(result.weekendClass, true);
   assert.match(result.weekendSummary, /Weekend/);
   assert.equal(result.dateMax, result.today);
+  const later = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/122.0.0.0 Mobile Safari/537.36' });
+  await later.clock.setFixedTime(new Date('2027-01-12T12:00:00Z'));
+  await later.goto(`http://127.0.0.1:${server.address().port}/timesheets/create.html`, { waitUntil: 'load' });
+  const laterDates = await later.evaluate(() => ({ today: window.GMTTimesheetRows.todayInLondon(), dates: [...document.querySelectorAll('[data-field="date"]')].map((input) => input.value) }));
+  assert.equal(laterDates.today, '2027-01-12');
+  assert.ok(laterDates.dates.includes('2027-01-12'), 'fresh daily inputs follow the current date instead of a fixed month');
+  const laterDate = later.locator('.day-card [data-field="date"]').first();
+  await laterDate.evaluate((input) => { input.value = ''; });
+  await laterDate.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  assert.equal(await laterDate.inputValue(), '2027-01-12', 'a blank picker continues to follow the current date in a later year');
+  await later.close();
+  const draftPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await draftPage.clock.setFixedTime(new Date('2026-10-28T12:00:00Z'));
+  await draftPage.addInitScript(() => localStorage.setItem('gmt_guest_timesheet_manual_draft_v1', JSON.stringify({ weekStart: '2026-08-03', weekEnd: '2026-08-09', rows: [{ date: '2026-08-03', start: '08:00', finish: '17:00', lunchMinutes: 30, absenceStatus: 'NA' }] })));
+  await draftPage.goto(`http://127.0.0.1:${server.address().port}/timesheets/create.html`, { waitUntil: 'load' });
+  assert.equal(await draftPage.locator('[data-field="date"]').first().inputValue(), '2026-08-03', 'an explicitly saved historical draft must not be rewritten');
+  await draftPage.close();
   console.log('Weekly form blocks future work and highlights weekend days.');
 } finally {
   await browser.close();

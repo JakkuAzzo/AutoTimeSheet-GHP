@@ -169,10 +169,11 @@
       // Use the same all-records interpretation as the dashboard and
       // Submitted documents calendar. This includes dated timesheet rows,
       // calendar requests and other authorised operational records.
-      const body = await window.GMTPortalApi.history('all');
+      const helper = window.GMTCalendarData;
+      if (!helper || typeof helper.loadHistory !== 'function') throw new Error('Calendar history loader unavailable');
+      const body = await helper.loadHistory(window.GMTPortalApi);
       const records = body && Array.isArray(body.records) ? body.records : [];
       const meta = body && body.meta && typeof body.meta === 'object' ? body.meta : {};
-      const helper = window.GMTCalendarData;
       const derived = helper && typeof helper.recordsToEvents === 'function'
         ? helper.recordsToEvents(records, { employees: meta.completion && meta.completion.employees || [] })
         : records.filter((record) => record && (record.event_date || record.record_date)).map((record) => ({
@@ -193,9 +194,11 @@
         const baseStatus = status.textContent.replace(' No published events yet.', '');
         status.textContent = baseStatus + ' Protected entries: ' + derived.length + '.';
       }
+      if (status && meta.calendar_history_incomplete) status.textContent = 'Some Microsoft 365 history is unavailable. Showing entries from available sources only.';
       renderMonth();
     } catch (_) {
-      // The static published feed remains usable if protected history is unavailable.
+      const status = $('#calendar-sync-status');
+      if (status) status.textContent = 'Portal history could not be loaded completely. Showing available calendar events only.';
     }
   }
 

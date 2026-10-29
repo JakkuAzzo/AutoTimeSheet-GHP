@@ -131,6 +131,8 @@ try {
       date: card?.elements.clock_date.value || '',
       time: card?.elements.clock_time.value || '',
       locationMaxLength: card?.elements.clock_location.maxLength || 0,
+      locationControlHidden: card?.querySelector('.clock-location-control')?.hidden ?? false,
+      locationDisabled: card?.elements.clock_location.disabled ?? false,
       noteMaxLength: card?.elements.clock_note.maxLength || 0,
       title: document.querySelector('[data-clock-title]')?.textContent || '',
       submit: document.querySelector('[data-clock-submit]')?.textContent || ''
@@ -172,6 +174,7 @@ try {
   }));
   assert.equal(failedAttempt.hiddenForms, 0, 'failed hidden forms must be removed so a retry starts cleanly');
 
+  await futureCard.locator('[name="clock_time"]').fill('15:01');
   await futureCard.locator('[data-clock-submit]').click();
   await page.waitForFunction(() => window.__submittedForms.length === 2);
   await page.waitForFunction(() => /Clock In saved/.test(document.querySelector('.clock-status')?.textContent || ''));
@@ -180,7 +183,8 @@ try {
     hiddenForms: document.querySelectorAll('form[hidden]').length,
     status: document.querySelector('.clock-status')?.textContent || ''
   }));
-  assert.equal(retryAttempt.fields.gmt_record_id, failedAttempt.fields.gmt_record_id, 'retry must reuse the event ID for idempotent filing');
+  assert.equal(retryAttempt.fields.gmt_record_id, failedAttempt.fields.gmt_record_id, 'retry at a different minute reuses the source ID for idempotent filing');
+  assert.equal(retryAttempt.fields.gmt_clock_time, '15:01', 'a retry can correct the event time without changing its source ID');
   assert.equal(retryAttempt.hiddenForms, 0);
   assert.match(retryAttempt.status, /Clock In saved/);
 
@@ -205,7 +209,6 @@ try {
     { action: 'full_day', label: 'Full Day', time: '', subjectKind: 'DAY', start: '08:00', finish: '17:00', lunchStart: '12:00', lunchEnd: '13:00', status: 'Recorded', worked: 8, note: 'Workshop repair call-out.' }
   ];
   await card.locator('[name="employee_name"]').fill('TEST Clock QA');
-  await card.locator('[name="clock_location"]').fill('Workshop');
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -227,6 +230,39 @@ try {
     await card.locator('button[type="submit"]').click();
     await page.waitForFunction((count) => window.__submittedForms.length === count, index + 4, { timeout: 15000 });
   }
+
+  await page.evaluate(() => {
+    window.__uncertainClock = { nativeSubmissions: 0, saved: [], updates: [] };
+    window.GMTPortalApi = {
+      enabled: () => true,
+      saveRecord: async (record) => { window.__uncertainClock.saved.push(record); return { record }; },
+      updateRecord: async (recordId, record) => { window.__uncertainClock.updates.push({ recordId, record }); return { record }; }
+    };
+    window.GMTClockTransport.shouldUseNativeFallback = () => true;
+    const submitNativeForm = window.GMTClockTransport.submitNativeForm.bind(window.GMTClockTransport);
+    window.GMTClockTransport.submitNativeForm = (form, frame, options) => submitNativeForm(form, frame, { ...options, timeoutMs: 10 });
+    HTMLFormElement.prototype.submit = function () { window.__uncertainClock.nativeSubmissions += 1; };
+  });
+  await card.locator('[data-clock-action="clock_out"]').click();
+  await card.locator('[name="clock_date"]').fill('2026-10-16');
+  await card.locator('[name="clock_time"]').fill('15:00');
+  await card.locator('[data-clock-submit]').click();
+  await page.waitForFunction(() => /awaiting confirmation/i.test(document.querySelector('.clock-status')?.textContent || ''));
+  const uncertainClock = await page.evaluate(() => ({
+    nativeSubmissions: window.__uncertainClock.nativeSubmissions,
+    saved: window.__uncertainClock.saved,
+    updates: window.__uncertainClock.updates,
+    status: document.querySelector('.clock-status')?.textContent || '',
+    time: document.querySelector('[name="clock_time"]')?.value || ''
+  }));
+  assert.equal(uncertainClock.nativeSubmissions, 1, 'the native multipart clock submission is attempted once');
+  assert.equal(uncertainClock.saved.length, 1, 'the protected history row is saved before delivery');
+  assert.equal(uncertainClock.updates.length, 1, 'an unconfirmed native response is written back to protected history');
+  assert.equal(uncertainClock.updates[0].record.status, 'Pending delivery', 'a missing redirect does not create a false definite failure');
+  assert.match(uncertainClock.updates[0].record.issue, /did not receive.*confirmation/i);
+  assert.match(uncertainClock.status, /check with Accounts before trying again/i);
+  assert.doesNotMatch(uncertainClock.status, /saved|failed/i);
+  assert.equal(uncertainClock.time, '15:00', 'the form preserves the clock time while delivery is unconfirmed');
 
   const allResults = await page.evaluate(async () => Promise.all(window.__submittedForms.map(async (form) => {
     const files = await Promise.all(form.files.map(async (entry) => ({
@@ -260,6 +296,8 @@ try {
   assert.match(beforeSubmit.date, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(beforeSubmit.time, /^\d{2}:\d{2}$/);
   assert.equal(beforeSubmit.locationMaxLength, 240);
+  assert.equal(beforeSubmit.locationControlHidden, true, 'in-office mode hides the separate site field');
+  assert.equal(beforeSubmit.locationDisabled, true, 'in-office mode disables the separate site field');
   assert.equal(beforeSubmit.noteMaxLength, 1000);
   assert.equal(beforeSubmit.title, 'Clock In');
   assert.equal(beforeSubmit.submit, 'Submit clock in');
@@ -290,8 +328,8 @@ try {
     assert.equal(fields.get('gmt_workbook_key'), 'timesheet-test-clock-example-test-2026-09');
     assert.equal(fields.get('gmt_filing_mode'), 'monthly-upsert');
     assert.equal(fields.get('gmt_absence_reason'), entry.absence || '');
-    assert.equal(fields.get('gmt_location'), 'Workshop');
-    assert.equal(fields.get('location'), 'Workshop');
+    assert.equal(fields.get('gmt_location'), '', 'in-office clock records do not carry an unused site label');
+    assert.equal(fields.get('location'), '', 'in-office clock records do not carry an unused site label');
     assert.deepEqual(form.files.map((entry) => entry.name), ['attachment_record', 'attachment', 'attachment_csv']);
     assert.equal(fileList.length, 3, 'each quick record should attach record JSON, XLSX and CSV');
     const recordFile = fileList.find((file) => file.name.endsWith('.json'));
@@ -317,11 +355,11 @@ try {
     assert.equal(parsedClockCsv.created, 1, 'clock CSV from the browser producer must parse through the Office Script');
     assert.equal(parsedClockCsvBook.rows[1][0], 'TEST Clock QA');
     assert.equal(parsedClockCsvBook.rows[1][5], entry.action, 'clock CSV preserves the event action');
-    assert.equal(parsedClockCsvBook.rows[1][16], 'Workshop', 'clock CSV preserves the work location');
+    assert.equal(parsedClockCsvBook.rows[1][16], '', 'in-office clock records use the work-setting selection without a duplicate site field');
     assert.equal(parsedClockCsvBook.rows[1][19], fields.get('gmt_record_id'),
       'clock CSV carries the same original source ID as the clock record attachment');
     if (entry.absence) assert.equal(workbook.firstAllRow['Absence reason'], entry.absence);
-    assert.equal(workbook.firstAllRow['Location / site'], 'Workshop');
+    assert.equal(workbook.firstAllRow['Location / site'], '');
     if (entry.action === 'full_day') {
       assert.equal(workbook.firstAllRow['Lunch start'], entry.lunchStart);
       assert.equal(workbook.firstAllRow['Lunch end'], entry.lunchEnd);
@@ -391,7 +429,7 @@ try {
   assert.equal(offsiteRouting.emailCount, beforeOffsiteEmailCount, 'off-site events never use the direct-to-Accounts email path');
   assert.match(offsiteRouting.status, /awaiting Duty Manager approval/i);
 
-    console.log(JSON.stringify({ browser: browserName, responsiveContext, futureTimeAttempt, retryStatus: retryAttempt.status, beforeSubmit, layout, offsiteRouting: { actions: offsiteRouting.events.map((event) => event.action), emailCount: offsiteRouting.emailCount }, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
+    console.log(JSON.stringify({ browser: browserName, responsiveContext, futureTimeAttempt, retryStatus: retryAttempt.status, uncertainClock: { status: uncertainClock.status, deliveryStatus: uncertainClock.updates[0].record.status }, beforeSubmit, layout, offsiteRouting: { actions: offsiteRouting.events.map((event) => event.action), emailCount: offsiteRouting.emailCount }, submissions: result.map((form) => ({ subject: form.subject, attachments: form.files.flatMap((entry) => entry.files.map((file) => file.name)) })) }, null, 2));
     await browser.close();
     browser = null;
   }

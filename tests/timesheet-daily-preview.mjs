@@ -55,7 +55,8 @@ const weekly = {
     { recordId: 'matthew-week|2026-09-07', submissionId: 'matthew-week', date: '2026-09-07', startTime: '08:00', finishTime: '18:00', lunchHad: false, lunchMinutes: 0, workedHours: 10, basicHours: 10, absenceStatus: 'NA', note: 'No break' },
     { recordId: 'matthew-week|2026-09-08', submissionId: 'matthew-week', date: '2026-09-08', startTime: '08:00', finishTime: '18:00', workedHours: 9.5, basicHours: 9.5, note: 'Break: 30 minutes deducted' },
     { recordId: 'matthew-week|2026-09-09', submissionId: 'matthew-week', date: '2026-09-09', absenceStatus: 'NA' },
-    { recordId: 'matthew-week|2026-09-10', submissionId: 'matthew-week', date: '2026-09-10', absenceStatus: 'Sick', status: 'Absent' }
+    { recordId: 'matthew-week|2026-09-10', submissionId: 'matthew-week', date: '2026-09-10', absenceStatus: 'Sick', status: 'Absent' },
+    { recordId: 'matthew-week|2026-09-11', submissionId: 'matthew-week', date: '2026-09-11', start: '08:00', finish: '17:00', lunchMinutes: 0, workedMinutes: 540, workedHours: 9, basicHours: 8, ot15Hours: 1, ot20Hours: 0, absenceStatus: 'Un-Paid', status: 'Absent' }
   ] }
 };
 const clockIn = {
@@ -103,6 +104,10 @@ assert.match(elements['timesheet-history-preview'].innerHTML, /9h 30m/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /Clock out missing/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /data-label="Clock in">08:00/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /Sick/);
+assert.match(elements['timesheet-history-preview'].innerHTML, /Un-Paid/);
+assert.match(elements['timesheet-history-preview'].innerHTML, /data-label="Worked">0m/);
+assert.doesNotMatch(elements['timesheet-history-preview'].innerHTML, /data-label="Worked">9h 00m/);
+assert.match(elements['timesheet-history-preview'].innerHTML, /Counted hours<\/span><strong>19h 30m/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /Pay-month spreadsheet/);
 assert.match(elements['timesheet-history-preview'].innerHTML, /2026-09-08/);
 assert.match(elements['timesheet-history-list'].innerHTML, /Matthew/);

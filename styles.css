@@ -60,6 +60,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .day-card .day-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; min-width: 0; }
 .day-card-body label { display: flex; flex-direction: column; justify-content: flex-end; gap: .22rem; min-width: 0; font-size: .78rem; line-height: 1.25; }
 .day-card-body label input, .day-card-body label select { width: 100%; min-width: 0; margin-top: 0; min-height: 44px; padding: .45rem .5rem; }
+.day-card-body label.finish-next-day-option input[type="checkbox"] { width: 44px; min-width: 44px; padding: 0; }
 .day-card .additional-fields { grid-column: 1 / -1; min-width: 0; margin-top: .1rem; }
 .additional-fields-body { display: grid; gap: .5rem; min-width: 0; margin-top: .5rem; }
 .day-card .day-result { grid-column: 1 / -1; grid-row: 2; min-width: 0; margin: .1rem 0 0; }

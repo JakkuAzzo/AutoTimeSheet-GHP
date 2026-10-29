@@ -60,3 +60,8 @@ export function createTimesheetWorkbook(employee, payMonth) {
 export function parseCsvThroughOfficeScript(workbook, fileName, csv) {
   return JSON.parse(JSON.stringify(officeScript.main(workbook, `${fileName}\n${csv}`)));
 }
+
+export function runRecordThroughOfficeScript(workbook, payload) {
+  const source = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  return JSON.parse(JSON.stringify(officeScript.main(workbook, source)));
+}

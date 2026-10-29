@@ -56,7 +56,7 @@ window.GMT_APP_CONFIG = {
   umami: {
     enabled: true,
     scriptUrl: "https://cloud.umami.is/script.js",
-    websiteId: "3b22159f-da25-4ae0-93f1-beeaf858b685"
+    websiteId: "5eb7e2f3-2bb3-44ae-925b-47a81d9f9f65"
   },
   // Keep the legacy Accounts archive on every new timesheet delivery.
   formSubmitCc: "acc.gmtelect@outlook.com",

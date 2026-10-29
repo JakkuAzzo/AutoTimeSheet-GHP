@@ -158,9 +158,25 @@
 
   function history(kind, options) {
     var value = String(kind || "all").trim() || "all";
-    return request("/api/history?kind=" + encodeURIComponent(value), {
+    var path = "/api/history?kind=" + encodeURIComponent(value);
+    var requestedLimit = options && options.limit;
+    if (requestedLimit !== undefined && requestedLimit !== null && requestedLimit !== "") {
+      var numericLimit = Number(requestedLimit);
+      if (Number.isFinite(numericLimit)) {
+        path += "&limit=" + encodeURIComponent(String(Math.min(1000, Math.max(1, Math.floor(numericLimit)))));
+      }
+    }
+    var optionsValue = options || {};
+    if (optionsValue.source === "sharepoint-check") path += "&source=sharepoint-check";
+    if (optionsValue.offset !== undefined && optionsValue.offset !== null && optionsValue.offset !== "") {
+      var numericOffset = Number(optionsValue.offset);
+      if (Number.isFinite(numericOffset)) path += "&offset=" + encodeURIComponent(String(Math.min(1000000, Math.max(0, Math.floor(numericOffset)))));
+    }
+    var payMonth = String(optionsValue.payMonth || "").trim();
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(payMonth)) path += "&payMonth=" + encodeURIComponent(payMonth);
+    return request(path, {
       method: "GET",
-      upstreamScopes: Array.isArray(config.timesheetHistoryScopes) ? config.timesheetHistoryScopes : []
+      upstreamScopes: optionsValue.source === "sharepoint-check" ? [] : (Array.isArray(config.timesheetHistoryScopes) ? config.timesheetHistoryScopes : [])
     });
   }
 

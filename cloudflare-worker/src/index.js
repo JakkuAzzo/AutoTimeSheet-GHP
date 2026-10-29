@@ -9,6 +9,7 @@ import { completeJobCardAttachmentUpload, expireJobCardAttachmentUploadSession, 
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
+const MAX_TIMESHEET_RECEIPT_BYTES = 32_768;
 const MAX_RECORD_ID = 180;
 const MAX_TEXT = 6000;
 const MAX_ATTACHMENT_BYTES = 220_000;
@@ -17,6 +18,7 @@ const MAX_QUEUE_BATCH = 25;
 const MAX_PROFILE_NAME = 240;
 const MAX_PROFILE_EMAIL = 320;
 const ATTACHMENT_FIELDS = new Set(['attachment_record', 'attachment', 'attachment_csv', 'attachment_calendar_sync']);
+const SAFE_PAYROLL_ROW_KEYS = new Set(['Absence reason', 'Total hours', 'Total minutes', 'Worked hours', 'Worked minutes', 'Basic hours', 'Basic minutes', 'OT x1.5 hours', 'OT x1.5 minutes', 'OT x2.0 hours', 'OT x2.0 minutes', 'Weighted hours']);
 const JWKS_CACHE = new Map();
 const SHAREPOINT_TOKEN_CACHE = new Map();
 const SHAREPOINT_FOLDER_CACHE = new Set();
@@ -147,6 +149,7 @@ function tokenIdentity(claims, env) {
   const adminOids = csvSet(env.ADMIN_OIDS);
   const adminGroups = csvSet(env.ADMIN_GROUP_IDS);
   const timesheetViewerUpns = csvSet(env.TIMESHEET_VIEWER_UPNS);
+  const submissionsAdminUpns = csvSet(env.SUBMISSIONS_ADMIN_UPNS);
   const payMonthStartAdminUpns = csvSet(env.PAY_MONTH_START_ADMIN_UPNS);
   const jobCardAdminUpns = csvSet(env.JOB_CARD_ADMIN_UPNS);
   const operationsAdminUpns = csvSet(env.OPERATIONS_ADMIN_UPNS);
@@ -156,6 +159,7 @@ function tokenIdentity(claims, env) {
   const groups = Array.isArray(claims.groups) ? claims.groups.map((item) => String(item).toLowerCase()) : [];
   const isAdmin = adminUpns.has(upn) || adminOids.has(oid.toLowerCase()) || groups.some((group) => adminGroups.has(group));
   const isHrAdmin = isAdmin || hrAdminUpns.has(upn);
+  const isSubmissionAdmin = submissionsAdminUpns.has(upn);
   return {
     oid,
     upn,
@@ -165,6 +169,7 @@ function tokenIdentity(claims, env) {
     isAdmin,
     isHrAdmin,
     isTimesheetViewer: timesheetViewerUpns.has(upn),
+    isSubmissionAdmin,
     canReviewOffsite: offsiteDutyManagerUpns.has(upn),
     canManagePayMonthStarts: payMonthStartAdminUpns.has(upn),
     isXeroAdmin: isAdmin || xeroAdminUpns.has(upn),
@@ -176,20 +181,57 @@ function tokenIdentity(claims, env) {
 function canViewAllRecords(identity, kind = '') {
   const category = canonicalKind(kind);
   if (!identity) return false;
+  if (identity.isSubmissionAdmin === true) return true;
   if (category === 'timesheets' || category === 'clock') return identity.isTimesheetViewer === true;
   return Boolean(identity.isAdmin || (category === 'job-cards' && !identity.isHrAdmin) || (identity.isHrAdmin && category === 'calendar') || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin));
 }
 
 function canAccessRecord(identity, row) {
   if (!identity || !row) return false;
+  if (identity.isSubmissionAdmin === true) return true;
   const category = canonicalKind(row.kind);
   const ownRecord = row.owner_oid === identity.oid || (category === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase());
   if (category === 'timesheets' || category === 'clock') return Boolean(ownRecord || (identity.isAdmin && identity.isTimesheetViewer === true));
   return Boolean(ownRecord || identity.isAdmin || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin));
 }
 
+function recordPayMonthKey(row, payPeriods = defaultPayPeriods()) {
+  if (!row) return '';
+  const payload = row.payload && typeof row.payload === 'object' ? row.payload : payloadObject(row);
+  const declared = text(payload.payMonth || payload.pay_month, '', 7);
+  if (row.action === 'pay_month_correction' && /^\d{4}-\d{2}$/.test(declared)) return declared;
+  const dates = Array.isArray(payload.rows) ? payload.rows.map((entry) => text(entry?.date, '', 10)).filter(Boolean) : [];
+  return payCycleKeyForDate(dates[0] || payload.date || row.record_date || row.start_date || row.end_date, payPeriods) || declared;
+}
+
+function isOwnerRecord(identity, row) {
+  if (!identity || !row) return false;
+  const category = canonicalKind(row.kind);
+  return row.owner_oid === identity.oid
+    || text(row.employee_upn || row.employee_email || '', '', 320).toLowerCase() === identity.upn?.toLowerCase()
+    || (category === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase());
+}
+
+function canEditRecord(identity, row, nowDate = new Date(), payPeriods = defaultPayPeriods()) {
+  if (!identity || !row) return false;
+  if (identity.isSubmissionAdmin === true) return true;
+  const category = canonicalKind(row.kind);
+  if (category === 'timesheets' || category === 'clock') {
+    const owner = isOwnerRecord(identity, row);
+    const currentPayMonth = recordPayMonthKey(row, payPeriods) === payCycleKeyForDate(londonDateKey(nowDate, 'Europe/London'), payPeriods);
+    if (owner) return currentPayMonth;
+    // Preserve the existing limited Accounts viewer path for other full admins.
+    return identity.isAdmin === true && identity.isTimesheetViewer === true
+      && isCurrentPayMonthRecord(row, 'Europe/London', nowDate, payPeriods);
+  }
+  return Boolean(isOwnerRecord(identity, row) || identity.isAdmin
+    || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock')
+    || (category === 'job-cards' && identity.isJobCardAdmin));
+}
+
 function canReadHistoryRecord(identity, row) {
   if (!identity || !row) return false;
+  if (identity.isSubmissionAdmin === true) return true;
   const category = canonicalKind(row.kind || row.action);
   const employeeUpn = text(row.employee_upn || row.employee_email || row.employeeEmail || row.owner_upn, '', 320).toLowerCase();
   const employeeName = text(row.employee_name || row.employeeName, '', 240).toLowerCase();
@@ -704,6 +746,11 @@ function editablePayCycleKeys(nowDate = new Date(), timeZone = 'Europe/London', 
   return [current, previous].filter(Boolean);
 }
 
+function currentPayCycleKeys(nowDate = new Date(), timeZone = 'Europe/London', payPeriods = defaultPayPeriods()) {
+  const current = payCycleKeyForDate(londonDateKey(nowDate, timeZone), payPeriods);
+  return current ? [current] : [];
+}
+
 function isCurrentPayMonthRecord(row, timeZone = 'Europe/London', nowDate = new Date(), payPeriods = defaultPayPeriods()) {
   if (!row) return false;
   const payload = payloadObject(row);
@@ -714,11 +761,16 @@ function isCurrentPayMonthRecord(row, timeZone = 'Europe/London', nowDate = new 
   return editablePayCycleKeys(nowDate, timeZone, payPeriods).includes(month);
 }
 
-function validatePayMonthCorrection(body, nowDate = new Date(), payPeriods = defaultPayPeriods()) {
+function validatePayMonthCorrection(body, nowDate = new Date(), payPeriods = defaultPayPeriods(), identity = null) {
   const payload = body?.payload && typeof body.payload === 'object' ? body.payload : {};
   const month = text(payload.payMonth, '', 7);
-  if (!/^\d{4}-\d{2}$/.test(month) || !editablePayCycleKeys(nowDate, 'Europe/London', payPeriods).includes(month)) {
-    throw Object.assign(new Error('Only the current and previous pay months are editable'), { status: 409 });
+  const editableMonths = identity?.isSubmissionAdmin === true
+    ? [month]
+    : (identity?.isAdmin === true && identity?.isTimesheetViewer === true
+      ? editablePayCycleKeys(nowDate, 'Europe/London', payPeriods)
+      : currentPayCycleKeys(nowDate, 'Europe/London', payPeriods));
+  if (!/^\d{4}-\d{2}$/.test(month) || !editableMonths.includes(month)) {
+    throw Object.assign(new Error(identity?.isSubmissionAdmin === true ? 'Choose a valid pay month for the record being corrected.' : 'Only the current pay month can be edited.'), { status: 409 });
   }
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   const deletedDays = Array.isArray(payload.deletedDays) ? payload.deletedDays : [];
@@ -812,8 +864,8 @@ function validateNoFutureWork(kind, action, payload, nowDate = new Date()) {
   for (const row of rows) {
     const date = String(row?.date || '').slice(0, 10);
     const absence = String(row?.absenceStatus || row?.absenceReason || row?.absence || 'NA').trim().toLowerCase();
-    if (date > today && !['sick', 'holiday', 'absent'].includes(absence)) {
-      throw Object.assign(new Error('Future dates can only be marked absent, sick or holiday; worked time cannot be entered early.'), { status: 400 });
+    if (date > today && !['sick', 'holiday', 'absent', 'un-paid'].includes(absence)) {
+      throw Object.assign(new Error('Future dates can only be marked absent, sick, holiday or Un-Paid; worked time cannot be entered early.'), { status: 400 });
     }
   }
 }
@@ -857,7 +909,7 @@ function safePayloadValue(value, depth = 0) {
   if (typeof value === 'object') {
     const result = {};
     Object.keys(value).slice(0, 100).forEach((key) => {
-      if (!/^[A-Za-z][A-Za-z0-9_-]{0,80}$/.test(key)) return;
+      if (!/^[A-Za-z][A-Za-z0-9_-]{0,80}$/.test(key) && !SAFE_PAYROLL_ROW_KEYS.has(key)) return;
       if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
       const safeValue = safePayloadValue(value[key], depth + 1);
       if (safeValue !== undefined) result[key] = safeValue;
@@ -870,7 +922,7 @@ function safePayloadValue(value, depth = 0) {
 function parsePayload(body) {
   const payload = body && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : body;
   const safe = {};
-  const keys = ['schemaVersion', 'employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'cycleStart', 'cycleEnd', 'payrollFriday', 'recordDate', 'date', 'time', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'note', 'location', 'row', 'hours', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
+  const keys = ['schemaVersion', 'employeeName', 'employeeEmail', 'employeeUpn', 'testMode', 'notificationEmail', 'weekStart', 'weekEnd', 'cycleStart', 'cycleEnd', 'payrollFriday', 'recordDate', 'date', 'time', 'action', 'actionLabel', 'status', 'absenceReason', 'startTime', 'finishTime', 'lunchStart', 'lunchEnd', 'dayStart', 'dayFinish', 'workedHours', 'basicHours', 'ot15Hours', 'ot20Hours', 'weightedHours', 'note', 'location', 'row', 'hours', 'number', 'dateOfEstimate', 'attention', 'company', 'email', 'validity', 'preparedBy', 'vatRate', 'reference', 'opening', 'terms', 'items', 'subtotal', 'vat', 'total', 'jobReference', 'client', 'site', 'engineer', 'plannedDate', 'description', 'cardType', 'jobStatus', 'jobRevision', 'previousRecordId', 'invoiceNumber', 'xeroReference', 'xeroInvoiceId', 'xeroInvoiceStatus', 'xeroInvoiceUrl', 'xeroInvoiceTotal', 'xeroInvoiceAmountDue', 'xeroInvoiceCurrency', 'xeroLastSyncedAt', 'jobEmailUrl', 'jobEmailMessageId', 'updateReason', 'accountNotes', 'title', 'assignee', 'due', 'priority', 'owner', 'type', 'notes', 'rows', 'dailyRows', 'daily_rows', 'gmtDailyRows', 'totals', 'weighted', 'absenceRanges', 'calendarSync', 'calendarSyncPayload', 'gmtCalendarSyncPayload', 'enquiryId', 'customerName', 'customerEmail', 'customerPhone', 'requestType', 'message', 'conversationUrl', 'conversationId', 'threadId', 'messages', 'replyTo', 'inboxStatus', 'mailbox', 'payMonth', 'deletedDays', 'editNote', 'editedBy', 'editedAt'];
   for (const key of keys) {
     if (payload[key] !== undefined) safe[key] = safePayloadValue(payload[key]);
   }
@@ -921,6 +973,92 @@ function validatePortalRequestDeletion(existing) {
   }
 }
 
+function normaliseUnpaidTimesheetPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const rowKeys = ['rows', 'dailyRows', 'daily_rows', 'gmtDailyRows'];
+  const summaryRowsKey = rowKeys.find((key) => Array.isArray(payload[key]));
+  const reported = { worked: 0, basic: 0, ot15: 0, ot20: 0, weighted: 0, count: 0 };
+  const numeric = (row, keys) => {
+    for (const key of keys) {
+      const value = Number(row?.[key]);
+      if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '' && Number.isFinite(value)) return value;
+    }
+    return null;
+  };
+  const zeroRow = (source, collectSummary) => {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
+    const absence = String(source.absenceStatus || source.absence_status || source.absenceReason || source.absence_reason || source.absence || source['Absence reason'] || '').trim();
+    if (!/^un-paid$/i.test(absence)) return source;
+    const row = { ...source };
+    const workedMinutes = numeric(source, ['workedActual', 'workedMinutes', 'worked_minutes', 'totalMinutes', 'total_minutes', 'Total minutes', 'Worked minutes']);
+    const workedHours = numeric(source, ['workedHours', 'worked_hours', 'hours', 'totalHours', 'total_hours', 'Total hours', 'Worked hours']);
+    if (row.reportedWorkedMinutes === undefined && (workedMinutes !== null || workedHours !== null)) row.reportedWorkedMinutes = workedMinutes !== null ? workedMinutes : workedHours * 60;
+    if (row.reportedWorkedHours === undefined && (workedHours !== null || workedMinutes !== null)) row.reportedWorkedHours = workedHours !== null ? workedHours : workedMinutes / 60;
+    const basicMinutes = numeric(source, ['appliedBasic', 'applied_basic', 'basic', 'basicMinutes', 'basic_minutes', 'Basic minutes']);
+    const basicHours = numeric(source, ['basicHours', 'basic_hours', 'Basic hours']);
+    const ot15Minutes = numeric(source, ['appliedOt15', 'applied_ot15', 'ot15', 'ot15Minutes', 'ot15_minutes', 'OT x1.5 minutes']);
+    const ot15Hours = numeric(source, ['ot15Hours', 'ot15_hours', 'overtime15Hours']);
+    const ot20Minutes = numeric(source, ['appliedOt20', 'applied_ot20', 'ot20', 'ot20Minutes', 'ot20_minutes', 'OT x2.0 minutes']);
+    const ot20Hours = numeric(source, ['ot20Hours', 'ot20_hours', 'overtime20Hours']);
+    const rowWeighted = numeric(source, ['weightedHours', 'weighted_hours', 'Weighted hours']);
+    if (collectSummary) {
+      reported.worked += workedMinutes !== null ? workedMinutes : workedHours !== null ? workedHours * 60 : 0;
+      reported.basic += basicMinutes !== null ? basicMinutes : (basicHours || 0) * 60;
+      reported.ot15 += ot15Minutes !== null ? ot15Minutes : (ot15Hours || 0) * 60;
+      reported.ot20 += ot20Minutes !== null ? ot20Minutes : (ot20Hours || 0) * 60;
+      reported.weighted += rowWeighted !== null ? rowWeighted : (basicHours !== null ? basicHours : (basicMinutes || 0) / 60) + 1.5 * (ot15Hours !== null ? ot15Hours : (ot15Minutes || 0) / 60) + 2 * (ot20Hours !== null ? ot20Hours : (ot20Minutes || 0) / 60);
+      reported.count += 1;
+    }
+    if (row.reportedWorkedMinutes === undefined) row.reportedWorkedMinutes = row.reportedWorkedMinutes ?? (workedMinutes !== null ? workedMinutes : workedHours !== null ? workedHours * 60 : null);
+    if (row.reportedWorkedHours === undefined) row.reportedWorkedHours = row.reportedWorkedHours ?? (workedHours !== null ? workedHours : workedMinutes !== null ? workedMinutes / 60 : null);
+    Object.assign(row, {
+      workedMinutes: 0, worked_minutes: 0, workedHours: 0, worked_hours: 0, workedActual: 0,
+      total: 0, totalMinutes: 0, total_minutes: 0, totalHours: 0, total_hours: 0,
+      basic: 0, basicMinutes: 0, basic_minutes: 0, basicHours: 0, basic_hours: 0, appliedBasic: 0, applied_basic: 0,
+      ot15: 0, ot15Minutes: 0, ot15_minutes: 0, ot15Hours: 0, ot15_hours: 0, appliedOt15: 0, applied_ot15: 0,
+      ot20: 0, ot20Minutes: 0, ot20_minutes: 0, ot20Hours: 0, ot20_hours: 0, appliedOt20: 0, applied_ot20: 0,
+      appliedTotal: 0, weighted_hours: 0,
+      weightedHours: 0, calculationSource: 'unpaid absence'
+    });
+    ['worked_minutes', 'worked_hours', 'total_minutes', 'total_hours', 'basic_minutes', 'basic_hours', 'ot15_minutes', 'ot15_hours', 'ot20_minutes', 'ot20_hours', 'weighted_hours', 'applied_basic', 'applied_ot15', 'applied_ot20', 'totalMinutes', 'Worked minutes', 'Worked hours', 'Total minutes', 'Total hours', 'Basic minutes', 'Basic hours', 'OT x1.5 minutes', 'OT x1.5 hours', 'OT x2.0 minutes', 'OT x2.0 hours', 'Weighted hours'].forEach((key) => {
+      if (Object.hasOwn(source, key)) row[key] = 0;
+    });
+    return row;
+  };
+  rowKeys.forEach((key) => { if (Array.isArray(payload[key])) payload[key] = payload[key].map((row) => zeroRow(row, key === summaryRowsKey)); });
+  if (!reported.count) return payload;
+  const subtract = (object, key, amount) => {
+    if (Object.hasOwn(object, key) && Number.isFinite(Number(object[key]))) object[key] = Math.max(0, Number(object[key]) - amount);
+  };
+  const subtractGroup = (object, keys, amount) => keys.forEach((key) => subtract(object, key, amount));
+  if (payload.totals && typeof payload.totals === 'object') {
+    subtractGroup(payload.totals, ['workedActual', 'total', 'workedMinutes', 'worked_minutes', 'totalMinutes', 'total_minutes'], reported.worked);
+    subtractGroup(payload.totals, ['basic', 'basicMinutes', 'basic_minutes', 'appliedBasic', 'applied_basic'], reported.basic);
+    subtractGroup(payload.totals, ['ot15', 'ot15Minutes', 'ot15_minutes', 'appliedOt15', 'applied_ot15'], reported.ot15);
+    subtractGroup(payload.totals, ['ot20', 'ot20Minutes', 'ot20_minutes', 'appliedOt20', 'applied_ot20'], reported.ot20);
+    subtractGroup(payload.totals, ['workedHours', 'worked_hours', 'totalHours', 'total_hours', 'Worked hours', 'Total hours'], reported.worked / 60);
+    subtractGroup(payload.totals, ['basicHours', 'basic_hours', 'Basic hours'], reported.basic / 60);
+    subtractGroup(payload.totals, ['ot15Hours', 'ot15_hours', 'OT x1.5 hours'], reported.ot15 / 60);
+    subtractGroup(payload.totals, ['ot20Hours', 'ot20_hours', 'OT x2.0 hours'], reported.ot20 / 60);
+    subtract(payload.totals, 'weightedHours', reported.weighted);
+    subtract(payload.totals, 'weighted_hours', reported.weighted);
+    payload.totals.absent = Math.max(Number(payload.totals.absent) || 0, reported.count);
+    payload.totals.unpaid = Math.max(Number(payload.totals.unpaid) || 0, reported.count);
+  }
+  if (Object.hasOwn(payload, 'weightedHours') && Number.isFinite(Number(payload.weightedHours))) payload.weightedHours = Math.max(0, Number(payload.weightedHours) - reported.weighted);
+  [['workedHours', 'worked_hours'], ['basicHours', 'basic_hours'], ['ot15Hours', 'ot15_hours'], ['ot20Hours', 'ot20_hours']]
+    .forEach((keys, index) => keys.forEach((key) => subtract(payload, key, [reported.worked, reported.basic, reported.ot15, reported.ot20][index] / 60)));
+  const events = payload.calendarSync && Array.isArray(payload.calendarSync.events) ? payload.calendarSync.events : [];
+  events.forEach((event) => {
+    if (!event || typeof event !== 'object' || !/timesheet/i.test(String(event.type || event.title || ''))) return;
+    subtract(event, 'workedHours', reported.worked / 60);
+    subtract(event, 'basicHours', reported.basic / 60);
+    subtract(event, 'ot15Hours', reported.ot15 / 60);
+    subtract(event, 'ot20Hours', reported.ot20 / 60);
+  });
+  return payload;
+}
+
 function normaliseInput(body, identity, existing = null, env = null, payPeriods = defaultPayPeriods()) {
   const payload = parsePayload(body);
   const kind = canonicalKind(body.kind || body.type || payload.kind || existing?.kind);
@@ -939,11 +1077,12 @@ function normaliseInput(body, identity, existing = null, env = null, payPeriods 
   const syntheticTestName = /^TEST(?:[\s_-]|$)/i.test(requestedEmployeeName);
   const action = text(body.action || body.gmtAction || payload.action || (kind === 'clock' ? 'clock_event' : 'submission'), 'submission', 100);
   validateNoFutureWork(kind, action, payload);
+  if (kind === 'timesheets') normaliseUnpaidTimesheetPayload(payload);
   if (kind === 'timesheets' && action !== 'pay_month_correction') {
     const computedPayMonth = payMonthForPayload(payload, payload.weekStart || body.weekStart || body.startDate || body.start_date, payPeriods);
     if (computedPayMonth) payload.payMonth = computedPayMonth;
   }
-  const correctionOnBehalf = kind === 'timesheets' && action === 'pay_month_correction' && body.editMode === true && identity.isAdmin && !existing;
+  const correctionOnBehalf = kind === 'timesheets' && action === 'pay_month_correction' && body.editMode === true && (identity.isAdmin || identity.isSubmissionAdmin) && !existing;
   const requestedUpn = text(body.employeeEmail || body.employee_upn, '', 320).toLowerCase();
   const rosterTarget = correctionOnBehalf ? directoryEntryFor(staffDirectory(env || {}), requestedEmployeeName, requestedUpn) : null;
   // Accounts can also correct a real historical sheet whose employee is not
@@ -962,7 +1101,7 @@ function normaliseInput(body, identity, existing = null, env = null, payPeriods 
   const startDate = isoOrBlank(body.startDate || body.start_date || payload.weekStart || body.weekStart);
   const endDate = isoOrBlank(body.endDate || body.end_date || payload.weekEnd || body.weekEnd);
   const recordDate = isoOrBlank(body.recordDate || body.record_date || payload.recordDate || payload.date || body.date);
-  const privilegedEdit = Boolean(existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)));
+  const privilegedEdit = Boolean(existing && (identity.isAdmin || identity.isSubmissionAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)));
   return {
     recordId,
     ownerOid: privilegedEdit || existing?.action === 'pay_month_correction' ? existing.owner_oid : identity.oid,
@@ -2594,6 +2733,7 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
       : null);
   const lunchHad = booleanUpstreamValue(upstreamObjectValue(row, ['lunchHad', 'lunch_had', 'breakTaken', 'break_taken', 'hadBreak']));
   const absenceStatus = text(upstreamObjectValue(row, ['absenceStatus', 'absence_status', 'absenceReason', 'absence_reason', 'absence', 'Absence reason']), 'NA', 160);
+  const unpaidAbsence = /^un-paid$/i.test(absenceStatus.trim());
   const status = text(upstreamObjectValue(row, ['status', 'Status']), defaults.status || 'Recorded', 120);
   const rowSubmittedAt = text(upstreamObjectValue(row, ['submittedAt', 'submitted_at', 'Submitted At']), defaults.submittedAt || '', 100);
   const sourceRecordId = text(upstreamObjectValue(row, ['recordId', 'record_id', 'sourceRecordId', 'source_record_id']), '', MAX_RECORD_ID);
@@ -2617,7 +2757,10 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
   let calculationSource = 'unavailable';
   const validationIssues = [];
   if (!date) validationIssues.push('Date missing');
-  if (!/^(?:na|n\/a|none|no absence|not applicable)$/i.test(absenceStatus.trim())) {
+  if (unpaidAbsence) {
+    workedMinutes = 0;
+    calculationSource = 'unpaid absence';
+  } else if (!/^(?:na|n\/a|none|no absence|not applicable)$/i.test(absenceStatus.trim())) {
     workedMinutes = reportedWorkedMinutes === null ? 0 : reportedWorkedMinutes;
     calculationSource = reportedWorkedMinutes === null ? 'absence' : 'reported absence total';
   } else if (startMinutes !== null && finishMinutes !== null) {
@@ -2656,10 +2799,10 @@ function normaliseUpstreamDailyRow(row, defaults = {}) {
     reportedWorkedHours,
     reportedWorkedMinutes,
     calculationSource,
-    basicHours,
-    ot15Hours,
-    ot20Hours,
-    weightedHours: numericUpstreamValue(upstreamObjectValue(row, ['weightedHours', 'weighted_hours'])),
+    basicHours: unpaidAbsence ? 0 : basicHours,
+    ot15Hours: unpaidAbsence ? 0 : ot15Hours,
+    ot20Hours: unpaidAbsence ? 0 : ot20Hours,
+    weightedHours: unpaidAbsence ? 0 : numericUpstreamValue(upstreamObjectValue(row, ['weightedHours', 'weighted_hours'])),
     location: text(upstreamObjectValue(row, ['location', 'site', 'Location / site']), '', 500),
     note,
     submittedAt: rowSubmittedAt,
@@ -2716,6 +2859,75 @@ function directoryEntryFor(directory, name, upn) {
   }) || null;
 }
 
+// Read the list with the portal's own service identity. Never forward a
+// browser's Flow token or trust a continuation URL outside this exact list.
+async function readSharePointHistory(env, identity) {
+  const site = text(env.SHAREPOINT_SITE_ID, '', 500);
+  const list = text(env.SHAREPOINT_TIMESHEET_LIST_ID, '', 120);
+  if (!site || !/^[a-z0-9-]+$/i.test(list)) throw new Error('SharePoint history is not configured');
+  const expectedPath = `/v1.0/sites/${encodeURIComponent(site)}/lists/${encodeURIComponent(list)}/items`;
+  let historyStage = 'authentication';
+  try {
+    const token = await sharePointGraphToken(env);
+    let url = `https://graph.microsoft.com${expectedPath}?$expand=fields&$top=100`;
+    const visited = new Set();
+    const records = [];
+    const mayViewAll = identity?.isSubmissionAdmin === true || identity?.isTimesheetViewer === true;
+    for (let page = 0; url; page += 1) {
+      historyStage = 'continuation';
+      if (page >= 100 || visited.has(url)) throw new Error('SharePoint history pagination is incomplete');
+      let parsed;
+      try { parsed = new URL(url); } catch (_) { throw new Error('Invalid SharePoint history continuation'); }
+      if (parsed.protocol !== 'https:' || parsed.host !== 'graph.microsoft.com' || parsed.username || parsed.password || parsed.hash || decodeURIComponent(parsed.pathname) !== decodeURIComponent(expectedPath)) {
+        throw new Error('Invalid SharePoint history continuation');
+      }
+      visited.add(url);
+      historyStage = 'request';
+      const response = await fetch(url, { redirect: 'manual', headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
+      if (!response.ok) throw Object.assign(new Error(`SharePoint history is unavailable (HTTP ${response.status})`), { status: 503, publicMessage: `SharePoint history is unavailable (HTTP ${response.status})` });
+      historyStage = 'response';
+      const body = await response.json();
+      if (!body || !Array.isArray(body.value)) throw new Error('Invalid SharePoint history response');
+      historyStage = 'mapping';
+      for (const item of body.value) {
+        const fields = item?.fields;
+        if (!fields || typeof fields !== 'object' || Array.isArray(fields)) continue;
+        let owner = text(fields.Employee_x0020_Email || fields.EmployeeEmail || fields.employee_email, '', 320).toLowerCase();
+        if (!mayViewAll) {
+          const name = text(fields.EmployeeName || fields.employee_name, '', 240).toLowerCase();
+          if (!owner && name) {
+            // Older records can lack an email. Resolve only an exact name
+            // with one known mailbox; ambiguous names fail closed.
+            const matches = [...staffDirectory(env), ...historicalEmployeeAliases(env)]
+              .filter((entry) => entry.name.toLowerCase() === name && entry.upn)
+              .map((entry) => entry.upn);
+            const unique = [...new Set(matches)];
+            if (unique.length === 1) owner = unique[0];
+          }
+          if (!owner || owner !== text(identity?.upn, '', 320).toLowerCase()) continue;
+          const source = upstreamPayloadAndRows(fields);
+          const embedded = source.payload && typeof source.payload === 'object' && !Array.isArray(source.payload) ? source.payload : {};
+          const ownerValues = [embedded.employeeEmail, embedded.employee_email, ...(source.rows || []).flatMap((row) => [row?.employeeEmail, row?.employee_email])].filter(Boolean);
+          if (ownerValues.some((value) => text(value, '', 320).toLowerCase() !== owner)) continue;
+          const nameValues = [embedded.employeeName, embedded.employee_name, ...(source.rows || []).flatMap((row) => [row?.employeeName, row?.employee_name])].filter(Boolean);
+          if (name && nameValues.some((value) => text(value, '', 240).toLowerCase() !== name)) continue;
+        }
+        const mapped = normaliseUpstreamRecord(fields, identity, env);
+        if (!mapped || mapped.synthetic || !canReadHistoryRecord(identity, mapped)) continue;
+        if (!mayViewAll && mapped.payload) mapped.payload = { rows: mapped.payload.rows || [] };
+        records.push(mapped);
+      }
+      const next = body['@odata.nextLink'];
+      if (next !== undefined && next !== null && typeof next !== 'string') throw new Error('Invalid SharePoint history continuation');
+      url = next || '';
+    }
+    return { records, pages: visited.size };
+  } catch (error) {
+    if (error && typeof error === 'object') error.historyStage = historyStage;
+    throw error;
+  }
+}
+
 function normaliseUpstreamRecord(row, identity, env) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
   // SharePoint Get items sometimes wraps the actual columns in `fields` (and
@@ -2736,7 +2948,7 @@ function normaliseUpstreamRecord(row, identity, env) {
   const initialEmail = text(explicitEmail, '', 320).toLowerCase();
   const directoryEntry = directoryEntryFor(directory, initialName, initialEmail)
     || directoryEntryFor(historicalEmployeeAliases(env), initialName, initialEmail);
-  const viewerHasImplicitIdentity = identity.isAdmin || identity.isTimesheetViewer;
+  const viewerHasImplicitIdentity = identity.isAdmin || identity.isTimesheetViewer || identity.isSubmissionAdmin;
   const employeeName = text(directoryEntry?.name || initialName || (viewerHasImplicitIdentity ? '' : identity.name || identity.upn), '', 240);
   const employeeUpn = text(directoryEntry?.upn || initialEmail || (viewerHasImplicitIdentity ? '' : identity.upn), '', 320).toLowerCase();
   if (!employeeName && !employeeUpn) return null;
@@ -3013,11 +3225,20 @@ function completionSummary(records, env, timeZone = 'Europe/London', nowDate = n
   const month = monthKeyInTimeZone(nowDate, timeZone);
   const weeks = completionWeeks(month, timeZone, nowDate);
   const directory = staffDirectory(env);
+  const excludedRosterUpns = csvSet(env.TIMESHEET_ROSTER_EXCLUDED_UPNS);
+  const isExcludedFromExpectedRoster = (record) => {
+    const upn = text(record.employee_upn || record.employeeEmail || record.employee_email, '', 320).toLowerCase();
+    if (upn && excludedRosterUpns.has(upn)) return true;
+    const name = text(record.employee_name || record.employeeName, '', 240);
+    const directoryEntry = directoryEntryFor(directory, name, upn);
+    return Boolean(directoryEntry?.upn && excludedRosterUpns.has(directoryEntry.upn));
+  };
   const identities = new Map();
-  directory.forEach((entry) => {
+  directory.filter((entry) => !excludedRosterUpns.has(entry.upn)).forEach((entry) => {
     identities.set(entry.upn || entry.name.toLowerCase(), { ...entry, configured: true });
   });
   records.filter(timesheetRecord).forEach((record) => {
+    if (isExcludedFromExpectedRoster(record)) return;
     const upn = text(record.employee_upn || record.employeeEmail || record.employee_email, '', 320).toLowerCase();
     const name = text(record.employee_name || record.employeeName, '', 240);
     const key = upn || name.toLowerCase();
@@ -3128,7 +3349,7 @@ async function fetchUpstreamHistory(upstreamUrl, token, kind, identity) {
 }
 
 function upstreamHistoryScope(identity) {
-  return identity && (identity.isAdmin || identity.isTimesheetViewer) ? 'all' : 'own';
+  return identity && (identity.isAdmin || identity.isTimesheetViewer || identity.isSubmissionAdmin) ? 'all' : 'own';
 }
 
 function sameRecord(a, b) {
@@ -3205,6 +3426,36 @@ async function readJson(request) {
     const body = JSON.parse(textBody || '{}');
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('JSON object expected');
     return body;
+  } catch (_) {
+    throw Object.assign(new Error('Request body must be valid JSON'), { status: 400 });
+  }
+}
+
+async function readBoundedJson(request, maximumBytes) {
+  const declaredLength = Number(request.headers.get('content-length') || 0);
+  if (declaredLength > maximumBytes) throw Object.assign(new Error('Request is too large'), { status: 413 });
+  const reader = request.body?.getReader();
+  const chunks = [];
+  let byteLength = 0;
+  if (reader) {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      byteLength += part.value.byteLength;
+      if (byteLength > maximumBytes) {
+        await reader.cancel();
+        throw Object.assign(new Error('Request is too large'), { status: 413 });
+      }
+      chunks.push(part.value);
+    }
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  chunks.forEach((chunk) => { bytes.set(chunk, offset); offset += chunk.byteLength; });
+  try {
+    const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('JSON object expected');
+    return value;
   } catch (_) {
     throw Object.assign(new Error('Request body must be valid JSON'), { status: 400 });
   }
@@ -3314,7 +3565,7 @@ function dispatchForm(record, attachments, payPeriods = defaultPayPeriods()) {
   set('_subject', `[GMT][TIMESHEET][CORRECTION] ${employeeName} | Week ${weekStart || 'unspecified'}`);
   set('_template', 'box');
   set('_captcha', 'false');
-  set('_url', 'https://gmt-services.co.uk/portal/timesheets');
+  set('_url', 'https://gmt-services.co.uk/portal/submissions');
   set('_replyto', employeeEmail);
   set('email', employeeEmail);
   set('employee_name', employeeName);
@@ -3486,10 +3737,306 @@ async function adminDispatchQueued(env, identity, options = {}) {
   });
 }
 
+const TIMESHEET_RECEIPT_EVENTS = new Set(['flow_started', 'workbook_verified', 'flow_completed', 'flow_failed']);
+const TIMESHEET_RECEIPT_FAILURE_STAGES = new Set([
+  'source_validation', 'workbook_routing', 'workbook_upsert', 'workbook_readback',
+  'history_index', 'calendar_sync', 'other'
+]);
+
+function receiptString(value, label, maximum, pattern) {
+  if (typeof value !== 'string') throw Object.assign(new Error(`Invalid ${label}`), { status: 400 });
+  const result = value.trim();
+  if (!result || result.length > maximum || /[\u0000-\u001f\u007f]/.test(result) || (pattern && !pattern.test(result))) {
+    throw Object.assign(new Error(`Invalid ${label}`), { status: 400 });
+  }
+  return result;
+}
+
+function receiptTimestamp(value) {
+  const source = receiptString(value, 'run start time', 48,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/);
+  const milliseconds = Date.parse(source);
+  if (!Number.isFinite(milliseconds)) throw Object.assign(new Error('Invalid run start time'), { status: 400 });
+  if (milliseconds > Date.now() + 5 * 60 * 1000) throw Object.assign(new Error('Run start time is in the future'), { status: 400 });
+  return new Date(milliseconds).toISOString();
+}
+
+function safeReceiptError(value) {
+  const source = receiptString(value, 'safe error', 1000);
+  return source
+    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+    .replace(/\b(access[_ -]?token|client[_ -]?secret|password)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[email]')
+    .replace(/\s+/g, ' ')
+    .slice(0, 600);
+}
+
+function parseTimesheetReceipt(body) {
+  const allowed = new Set([
+    'recordId', 'flowRunId', 'runStartedAt', 'event', 'stage', 'safeError',
+    'created', 'updated', 'unchanged', 'verifiedRows', 'verifiedRecordIds'
+  ]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    throw Object.assign(new Error('Unsupported receipt fields'), { status: 400 });
+  }
+  const recordId = receiptString(body.recordId, 'record ID', MAX_RECORD_ID, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+  const flowRunId = receiptString(body.flowRunId, 'Power Automate run ID', 240, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+  const runStartedAt = receiptTimestamp(body.runStartedAt);
+  const event = receiptString(body.event, 'receipt event', 40);
+  if (!TIMESHEET_RECEIPT_EVENTS.has(event)) throw Object.assign(new Error('Unsupported receipt event'), { status: 400 });
+
+  let evidence = {};
+  if (event === 'flow_failed') {
+    if (Object.hasOwn(body, 'created') || Object.hasOwn(body, 'updated') || Object.hasOwn(body, 'unchanged') || Object.hasOwn(body, 'verifiedRows') || Object.hasOwn(body, 'verifiedRecordIds')) {
+      throw Object.assign(new Error('Unsupported failure evidence'), { status: 400 });
+    }
+    const stage = receiptString(body.stage, 'failure stage', 40);
+    if (!TIMESHEET_RECEIPT_FAILURE_STAGES.has(stage)) throw Object.assign(new Error('Unsupported failure stage'), { status: 400 });
+    evidence = { stage, safeError: safeReceiptError(body.safeError) };
+  } else if (event === 'workbook_verified') {
+    if (Object.hasOwn(body, 'stage') || Object.hasOwn(body, 'safeError')) throw Object.assign(new Error('Unsupported workbook evidence'), { status: 400 });
+    const counts = {};
+    ['created', 'updated', 'unchanged'].forEach((key) => {
+      if (!Number.isSafeInteger(body[key]) || body[key] < 0 || body[key] > 62) {
+        throw Object.assign(new Error(`Invalid ${key} row count`), { status: 400 });
+      }
+      counts[key] = body[key];
+    });
+    if (!Array.isArray(body.verifiedRows) || body.verifiedRows.length < 1 || body.verifiedRows.length > 62 ||
+        !Array.isArray(body.verifiedRecordIds) || body.verifiedRecordIds.length !== body.verifiedRows.length) {
+      throw Object.assign(new Error('Invalid verified workbook rows'), { status: 400 });
+    }
+    const verifiedRows = body.verifiedRows.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row) || Object.keys(row).some((key) => !['recordId', 'date'].includes(key))) {
+        throw Object.assign(new Error('Invalid verified workbook row'), { status: 400 });
+      }
+      const verifiedRecordId = receiptString(row.recordId, 'verified source row ID', 240, /^[A-Za-z0-9][A-Za-z0-9._:|-]*$/);
+      const date = receiptString(row.date, 'verified row date', 10, /^\d{4}-\d{2}-\d{2}$/);
+      const dateMilliseconds = Date.parse(`${date}T00:00:00Z`);
+      if (!Number.isFinite(dateMilliseconds) || new Date(dateMilliseconds).toISOString().slice(0, 10) !== date) {
+        throw Object.assign(new Error('Invalid verified row date'), { status: 400 });
+      }
+      return { recordId: verifiedRecordId, date };
+    });
+    const ids = body.verifiedRecordIds.map((value) => receiptString(value, 'verified source row ID', 240, /^[A-Za-z0-9][A-Za-z0-9._:|-]*$/));
+    const rowKeys = verifiedRows.map((row) => `${row.recordId}\0${row.date}`);
+    const uniqueKeys = new Set(rowKeys);
+    const uniqueIds = new Set(ids);
+    if (uniqueKeys.size !== verifiedRows.length || uniqueIds.size !== ids.length ||
+        ids.some((id) => !verifiedRows.some((row) => row.recordId === id)) ||
+        verifiedRows.some((row) => !ids.includes(row.recordId)) ||
+        counts.created + counts.updated + counts.unchanged !== verifiedRows.length) {
+      throw Object.assign(new Error('Workbook verification evidence is inconsistent'), { status: 400 });
+    }
+    evidence = { ...counts, verifiedRows };
+  } else if (Object.keys(body).some((key) => ['stage', 'safeError', 'created', 'updated', 'unchanged', 'verifiedRows', 'verifiedRecordIds'].includes(key))) {
+    throw Object.assign(new Error('Unsupported receipt evidence'), { status: 400 });
+  }
+  return { recordId, flowRunId, runStartedAt, event, evidence };
+}
+
+function validReceiptDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(`${value}T00:00:00Z`)) &&
+    new Date(Date.parse(`${value}T00:00:00Z`)).toISOString().slice(0, 10) === value;
+}
+
+async function expectedCorrectionRows(env, recordId) {
+  const row = await env.DB.prepare(`SELECT r.record_id, r.kind, r.action, r.status, a.content_base64
+    FROM records r JOIN dispatch_queue q ON q.record_id = r.record_id
+    JOIN record_attachments a ON a.record_id = r.record_id AND a.field_name = 'attachment_record'
+    WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction'
+      AND r.status <> 'Deleted'`).bind(recordId).first();
+  if (!row || row.status === 'Deleted') throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+  const encoded = String(row.content_base64 || '');
+  if (!encoded || encoded.length > 300_000) throw Object.assign(new Error('Correction source attachment is unavailable'), { status: 409 });
+  let envelope;
+  try {
+    envelope = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decodeBase64(encoded)));
+  } catch (_) {
+    throw Object.assign(new Error('Correction source attachment is invalid'), { status: 409 });
+  }
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope) ||
+      envelope.mode !== 'replace-pay-month' || String(envelope.recordId || '') !== recordId ||
+      !Array.isArray(envelope.rows) || envelope.rows.length > 62) {
+    throw Object.assign(new Error('Correction source rows are invalid'), { status: 409 });
+  }
+  const expectedRows = envelope.rows.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !validReceiptDate(entry.date)) {
+      throw Object.assign(new Error('Correction source rows are invalid'), { status: 409 });
+    }
+    const date = entry.date;
+    const expectedRecordId = `${recordId}|${date}`;
+    const entryRecordId = String(entry.recordId || entry.record_id || expectedRecordId);
+    if (entryRecordId !== expectedRecordId) throw Object.assign(new Error('Correction source row identity is invalid'), { status: 409 });
+    return { recordId: expectedRecordId, date };
+  }).sort((left, right) => left.date.localeCompare(right.date));
+  if (new Set(expectedRows.map((entry) => entry.date)).size !== expectedRows.length) {
+    throw Object.assign(new Error('Correction source dates are not unique'), { status: 409 });
+  }
+  return expectedRows;
+}
+
+async function timesheetDeliveryReceiptEndpoint(request, env, origin = '') {
+  if (!env.DB) throw Object.assign(new Error('Receipt service is unavailable'), { status: 503, publicMessage: 'Receipt service is unavailable' });
+  const configuredKey = String(env.TIMESHEET_DELIVERY_CALLBACK_KEY || '');
+  if (configuredKey.length < 32 || configuredKey.length > 500) {
+    throw Object.assign(new Error('Receipt service is unavailable'), { status: 503, publicMessage: 'Receipt service is unavailable' });
+  }
+  const suppliedKey = request.headers.get('X-GMT-Delivery-Key') || '';
+  if (suppliedKey.length > 500 || !constantTimeEqual(suppliedKey, configuredKey)) {
+    throw Object.assign(new Error('Not authorised'), { status: 401, publicMessage: 'Not authorised' });
+  }
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
+    throw Object.assign(new Error('JSON content type required'), { status: 415 });
+  }
+  const body = parseTimesheetReceipt(await readBoundedJson(request, MAX_TIMESHEET_RECEIPT_BYTES));
+  const target = await env.DB.prepare(`SELECT r.record_id FROM records r
+    JOIN dispatch_queue q ON q.record_id = r.record_id
+    WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction'
+      AND r.status <> 'Deleted'`).bind(body.recordId).first();
+  if (!target) throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+
+  if (body.event === 'workbook_verified' || body.event === 'flow_completed') {
+    const priorEvents = await env.DB.prepare(`SELECT event_type FROM timesheet_delivery_receipts
+      WHERE record_id = ? AND flow_run_id = ? AND event_type IN ('flow_started', 'workbook_verified')`)
+      .bind(body.recordId, body.flowRunId).all();
+    const eventTypes = new Set((priorEvents.results || []).map((row) => row.event_type));
+    if (!eventTypes.has('flow_started') || (body.event === 'flow_completed' && !eventTypes.has('workbook_verified'))) {
+      throw Object.assign(new Error('Receipt events are out of order'), { status: 409 });
+    }
+  }
+
+  if (body.event === 'workbook_verified') {
+    const expectedRows = await expectedCorrectionRows(env, body.recordId);
+    const actualRows = body.evidence.verifiedRows;
+    const expectedKeys = expectedRows.map((entry) => `${entry.recordId}\0${entry.date}`).sort();
+    const actualKeys = actualRows.map((entry) => `${entry.recordId}\0${entry.date}`).sort();
+    if (!expectedRows.length || expectedKeys.length !== actualKeys.length ||
+        expectedKeys.some((key, index) => key !== actualKeys[index]) ||
+        body.evidence.created + body.evidence.updated + body.evidence.unchanged !== expectedRows.length) {
+      throw Object.assign(new Error('Workbook verification does not match the correction source'), { status: 409 });
+    }
+    body.evidence.verifiedRows = expectedRows;
+  }
+
+  const evidenceJson = JSON.stringify(body.evidence);
+  if (evidenceJson.length > 32_768) throw Object.assign(new Error('Receipt evidence is too large'), { status: 413 });
+  const priorRun = await env.DB.prepare(`SELECT run_started_at FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? LIMIT 1`).bind(body.recordId, body.flowRunId).first();
+  if (priorRun && priorRun.run_started_at !== body.runStartedAt) {
+    throw Object.assign(new Error('Receipt run start time conflict'), { status: 409 });
+  }
+  if (body.event === 'flow_failed' || body.event === 'flow_completed') {
+    const opposite = body.event === 'flow_failed' ? 'flow_completed' : 'flow_failed';
+    const terminal = await env.DB.prepare(`SELECT receipt_id FROM timesheet_delivery_receipts
+      WHERE record_id = ? AND flow_run_id = ? AND event_type = ? LIMIT 1`)
+      .bind(body.recordId, body.flowRunId, opposite).first();
+    if (terminal) throw Object.assign(new Error('Receipt terminal event conflict'), { status: 409 });
+  }
+
+  const existing = await env.DB.prepare(`SELECT run_started_at, evidence_json FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? AND event_type = ? LIMIT 1`)
+    .bind(body.recordId, body.flowRunId, body.event).first();
+  if (existing) {
+    if (existing.run_started_at !== body.runStartedAt || existing.evidence_json !== evidenceJson) {
+      throw Object.assign(new Error('Conflicting duplicate receipt'), { status: 409 });
+    }
+    return json({ accepted: true }, 200, origin);
+  }
+
+  const terminalEvent = await env.DB.prepare(`SELECT event_type FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? AND event_type IN ('flow_completed', 'flow_failed') LIMIT 1`)
+    .bind(body.recordId, body.flowRunId).first();
+  if (terminalEvent) throw Object.assign(new Error('Receipt run is already terminal'), { status: 409 });
+
+  const receivedAt = now();
+  try {
+    await env.DB.prepare(`INSERT INTO timesheet_delivery_receipts
+      (record_id, flow_run_id, run_started_at, event_type, received_at, evidence_json)
+      SELECT ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM records r JOIN dispatch_queue q ON q.record_id = r.record_id
+        WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND r.status <> 'Deleted'
+      )
+      ON CONFLICT(record_id, flow_run_id, event_type) DO NOTHING`)
+      .bind(body.recordId, body.flowRunId, body.runStartedAt, body.event, receivedAt, evidenceJson, body.recordId).run();
+  } catch (error) {
+    if (/timesheet receipt (?:run start time|terminal event) conflict/i.test(String(error && error.message || ''))) {
+      throw Object.assign(new Error('Conflicting receipt event'), { status: 409 });
+    }
+    throw error;
+  }
+  const stored = await env.DB.prepare(`SELECT run_started_at, evidence_json FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ? AND event_type = ? LIMIT 1`)
+    .bind(body.recordId, body.flowRunId, body.event).first();
+  if (!stored) throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+  if (stored.run_started_at !== body.runStartedAt || stored.evidence_json !== evidenceJson) {
+    throw Object.assign(new Error('Conflicting duplicate receipt'), { status: 409 });
+  }
+  return json({ accepted: true }, 200, origin);
+}
+
 async function adminQueueStatus(env, identity) {
   if (!identity?.isAdmin) throw Object.assign(new Error('Correction queue status is restricted to Accounts'), { status: 403 });
-  const result = await env.DB.prepare('SELECT q.record_id, q.status, q.attempts, q.queued_at, q.last_sent_at AS sent_at, q.updated_at, q.last_error AS error, r.employee_name, r.owner_upn, r.record_date, r.payload_json FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id WHERE r.status <> \'Deleted\' ORDER BY q.updated_at DESC LIMIT 200').all();
+  const result = await env.DB.prepare('SELECT q.record_id, q.status, q.attempts, q.queued_at, q.last_sent_at AS sent_at, q.updated_at, q.last_error AS error, r.employee_name, r.owner_upn, r.record_date, r.payload_json FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id WHERE r.status <> \'Deleted\' ORDER BY q.updated_at DESC, q.record_id ASC LIMIT 200').all();
   const rows = result.results || [];
+  const receiptResult = await env.DB.prepare(`WITH queued_records AS (
+      SELECT q.record_id FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id
+      WHERE r.status <> 'Deleted' ORDER BY q.updated_at DESC, q.record_id ASC LIMIT 200
+    ), run_candidates AS (
+      SELECT receipt.record_id, receipt.flow_run_id, receipt.run_started_at,
+        MAX(receipt.received_at) AS last_received_at
+      FROM timesheet_delivery_receipts receipt
+      JOIN queued_records queued ON queued.record_id = receipt.record_id
+      GROUP BY receipt.record_id, receipt.flow_run_id, receipt.run_started_at
+    ), ranked_runs AS (
+      SELECT record_id, flow_run_id, run_started_at,
+        ROW_NUMBER() OVER (PARTITION BY record_id
+          ORDER BY run_started_at DESC, last_received_at DESC, flow_run_id DESC) AS run_rank
+      FROM run_candidates
+    )
+    SELECT receipt.record_id, receipt.flow_run_id, receipt.run_started_at,
+      receipt.event_type, receipt.received_at, receipt.evidence_json
+    FROM timesheet_delivery_receipts receipt
+    JOIN ranked_runs latest ON latest.record_id = receipt.record_id
+      AND latest.flow_run_id = receipt.flow_run_id
+      AND latest.run_started_at = receipt.run_started_at
+    WHERE latest.run_rank = 1
+    ORDER BY receipt.record_id, receipt.received_at, receipt.receipt_id`).all();
+  const latestRuns = new Map();
+  (receiptResult.results || []).forEach((receipt) => {
+    let run = latestRuns.get(receipt.record_id);
+    if (!run) {
+      run = { flowRunId: text(receipt.flow_run_id, '', 240), runStartedAt: text(receipt.run_started_at, '', 40), events: {} };
+      latestRuns.set(receipt.record_id, run);
+    }
+    let evidence = {};
+    try {
+      evidence = JSON.parse(String(receipt.evidence_json || '{}'));
+    } catch (_) {
+      evidence = {};
+    }
+    const event = text(receipt.event_type, '', 40);
+    const receivedAt = text(receipt.received_at, '', 80);
+    if (event === 'flow_started' || event === 'flow_completed') {
+      run.events[event] = { receivedAt };
+    } else if (event === 'flow_failed') {
+      run.events[event] = {
+        receivedAt,
+        stage: text(evidence.stage, '', 40),
+        safeError: text(evidence.safeError, '', 600)
+      };
+    } else if (event === 'workbook_verified') {
+      run.events[event] = {
+        receivedAt,
+        created: Number(evidence.created || 0),
+        updated: Number(evidence.updated || 0),
+        unchanged: Number(evidence.unchanged || 0),
+        verifiedRowCount: Array.isArray(evidence.verifiedRows) ? evidence.verifiedRows.length : 0
+      };
+    }
+  });
   const counts = { queued: 0, sending: 0, failed: 0, sent: 0, skipped: 0 };
   const records = rows.map((row) => {
     const state = text(row.status, 'unknown', 40).toLowerCase();
@@ -3507,7 +4054,8 @@ async function adminQueueStatus(env, identity) {
       queuedAt: text(row.queued_at, '', 80),
       sentAt: text(row.sent_at, '', 80),
       updatedAt: text(row.updated_at, '', 80),
-      error: text(row.error, '', 1000)
+      error: text(row.error, '', 1000),
+      deliveryReceipt: latestRuns.get(row.record_id) || null
     };
   });
   const endpointConfigured = Boolean(dispatchEndpoint(env));
@@ -3534,7 +4082,7 @@ async function adminUsersEndpoint(request, env, identity, origin) {
       FROM portal_access_assignments ORDER BY owner_upn, role`).all();
     const names = new Map(staffDirectory(env).map((entry) => [entry.upn, entry.name]));
     const configured = [];
-    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['timesheets', 'TIMESHEET_VIEWER_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS'], ['offsite-duty-manager', 'OFFSITE_DUTY_MANAGER_UPNS']]) {
+    for (const [role, variable] of [['admin', 'ADMIN_UPNS'], ['admin', 'ADDITIONAL_ADMIN_UPNS'], ['submissions', 'SUBMISSIONS_ADMIN_UPNS'], ['hr', 'HR_ADMIN_UPNS'], ['timesheets', 'TIMESHEET_VIEWER_UPNS'], ['xero', 'XERO_ADMIN_UPNS'], ['operations', 'OPERATIONS_ADMIN_UPNS'], ['job-card', 'JOB_CARD_ADMIN_UPNS'], ['offsite-duty-manager', 'OFFSITE_DUTY_MANAGER_UPNS']]) {
       for (const upn of csvSet(env[variable])) configured.push({ owner_upn: upn, display_name: names.get(upn) || upn, role, updated_at: 'Worker configuration', managed: false });
     }
     if (csvSet(env.ADMIN_GROUP_IDS).size) configured.push({ owner_upn: 'Configured Entra group', display_name: 'GMT portal administrator group', role: 'admin', updated_at: 'Entra group configuration', managed: false });
@@ -4601,23 +5149,35 @@ async function syncXeroJobCard(request, env, identity, origin, recordId) {
 
 async function listRecords(request, env, identity, payPeriods = defaultPayPeriods()) {
   const url = new URL(request.url);
+  const sourceProbe = url.searchParams.get('source') === 'sharepoint-check';
+  if (sourceProbe && identity.isSubmissionAdmin !== true) throw Object.assign(new Error('History source diagnostics require submission admin access'), { status: 403 });
   const requestedKind = url.searchParams.get('kind') || 'all';
   const kind = requestedKind === 'all' ? '' : canonicalKind(requestedKind);
   if (kind && !ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 500);
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 1000);
+  const offset = Math.min(Math.max(Number(url.searchParams.get('offset') || 0), 0), 1000000);
+  const payMonth = String(url.searchParams.get('payMonth') || '').trim();
+  if (payMonth && !/^\d{4}-(0[1-9]|1[0-2])$/.test(payMonth)) throw Object.assign(new Error('Pay month must use YYYY-MM format'), { status: 400 });
+  const monthPeriod = payMonth && payPeriods && typeof payPeriods.periodForMonth === 'function'
+    ? payPeriods.periodForMonth(payMonth)
+    : null;
+  if (payMonth && !monthPeriod) throw Object.assign(new Error('Pay month is not available'), { status: 400 });
   const projection = `SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
       q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
       q.last_error AS dispatch_last_error
     FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
   const viewAll = Boolean(kind) && canViewAllRecords(identity, kind);
   const isTimesheetViewer = identity.isTimesheetViewer === true;
+  const isSubmissionAdmin = identity.isSubmissionAdmin === true;
   const timesheetViewerAcrossKinds = !kind && isTimesheetViewer && !identity.isAdmin;
   const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
   const hrAdminAcrossKinds = !kind && identity.isHrAdmin && !identity.isAdmin && !identity.isOperationsAdmin;
   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
   const ownRecords = "(r.owner_oid = ? OR (r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND lower(r.owner_upn) = ?))";
   const sharedRecordKinds = "r.kind IN ('job-cards')";
-  const sql = !kind && identity.isAdmin
+  const sql = !kind && isSubmissionAdmin
+    ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
+    : !kind && identity.isAdmin
     ? (isTimesheetViewer
       ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
       : `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`)
@@ -4638,7 +5198,9 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
         : (kind
           ? (viewAll ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`)
           : `${projection} WHERE (${ownRecords} OR ${sharedRecordKinds}) AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
-  const bindings = !kind && identity.isAdmin
+  const bindings = !kind && isSubmissionAdmin
+    ? [limit]
+    : !kind && identity.isAdmin
     ? (isTimesheetViewer ? [limit] : [identity.oid, identity.upn, limit])
     : timesheetViewerAcrossKinds
       ? (identity.isOperationsAdmin ? [limit] : [identity.oid, identity.upn, limit])
@@ -4651,9 +5213,22 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       : jobCardAdminAcrossKinds
         ? [identity.oid, identity.upn, limit]
         : (kind ? (viewAll ? [kind, limit] : [identity.oid, identity.upn, kind, limit]) : [identity.oid, identity.upn, limit]);
-  const result = await env.DB.prepare(sql).bind(...bindings).all();
+  let pagedSql = sql.replace(/ORDER BY r\.updated_at DESC LIMIT \?/g, 'ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?');
+  const queryBindings = bindings.slice(0, -1);
+  if (monthPeriod) {
+    const cycleStart = String(monthPeriod.start || '');
+    const cycleEnd = String(monthPeriod.cycleEnd || monthPeriod.end || '');
+    const orderIndex = pagedSql.indexOf(' ORDER BY');
+    if (orderIndex < 0 || !cycleStart || !cycleEnd) throw Object.assign(new Error('Pay-month history range is unavailable'), { status: 400 });
+    pagedSql = pagedSql.slice(0, orderIndex) + ' AND ((r.record_date >= ? AND r.record_date <= ?) OR (r.start_date <= ? AND r.end_date >= ?))' + pagedSql.slice(orderIndex);
+    queryBindings.push(cycleStart, cycleEnd, cycleEnd, cycleStart);
+  }
+  queryBindings.push(limit + 1, offset);
+  const result = await env.DB.prepare(pagedSql).bind(...queryBindings).all();
   const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
-  const projectedLocalRecords = (result.results || []).map((row) => projectRow(row, true, env, payPeriods));
+  const pageRows = result.results || [];
+  const hasMoreLocalRecords = pageRows.length > limit;
+  const projectedLocalRecords = pageRows.slice(0, limit).map((row) => projectRow(row, true, env, payPeriods));
   const syntheticRecordCount = projectedLocalRecords.filter((row) => row.synthetic).length;
   let records = includeSynthetic ? projectedLocalRecords : projectedLocalRecords.filter((row) => !row.synthetic);
   const localRecordCount = records.length;
@@ -4664,7 +5239,41 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   let upstreamEmployeeMatchedRecordCount = 0;
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
   const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
-  if (upstreamUrl && upstreamEnabledForKind) {
+  const useSecureHistory = text(env.HISTORY_SOURCE, '', 40).toLowerCase() === 'sharepoint';
+  if ((sourceProbe || useSecureHistory) && upstreamEnabledForKind) {
+    let result;
+    try {
+      result = await readSharePointHistory(env, identity);
+    } catch (error) {
+      if (!sourceProbe) {
+        upstream = 'sharepoint-unavailable';
+      } else {
+        const known = ['Shared archive content access is not configured', 'Shared archive content authentication failed', 'SharePoint history is not configured', 'SharePoint history pagination is incomplete', 'Invalid SharePoint history continuation', 'Invalid SharePoint history response'];
+        const safeStage = ['authentication', 'continuation', 'request', 'response', 'mapping'].includes(error?.historyStage) ? error.historyStage : 'unknown';
+        const safeName = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'URIError'].includes(error?.name) ? error.name : 'Error';
+        const errorText = String(error?.message || '');
+        const safeReason = /redirect/i.test(errorText) ? ', redirect' : (/fetch|network|dns|connect|socket/i.test(errorText) ? ', network' : '');
+        const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : `History source processing failed at ${safeStage} (${safeName}${safeReason})`);
+        throw Object.assign(new Error(detail), { status: 503, publicMessage: detail });
+      }
+    }
+    if (result) {
+      upstreamSourceRowCount = result.records.length;
+      upstreamNormalisedRecordCount = result.records.length;
+      upstreamEmployeeMatchedRecordCount = result.records.length;
+      const upstreamRecords = result.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+      upstreamRecordCount = upstreamRecords.length;
+      const merged = deduplicateProviderRecords([...records, ...upstreamRecords]);
+      const fingerprints = new Set();
+      records = removeStaleAbsenceRows(merged.filter((row) => {
+        const fingerprint = historyRecordFingerprint(row);
+        if (!fingerprint || fingerprints.has(fingerprint)) return false;
+        fingerprints.add(fingerprint);
+        return true;
+      }));
+      upstream = 'ok';
+    }
+  } else if (upstreamUrl && upstreamEnabledForKind) {
     const upstreamAuth = await verifiedUpstreamToken(request, env, identity);
     if (!upstreamAuth.token) {
       upstream = upstreamAuth.status;
@@ -4712,7 +5321,33 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   } else if (upstreamUrl && !upstreamEnabledForKind) {
     upstream = 'not-requested-for-category';
   }
-  const completion = identity.isTimesheetViewer && (!kind || kind === 'timesheets')
+  if (monthPeriod) {
+    const start = String(monthPeriod.start || '');
+    const end = String(monthPeriod.cycleEnd || monthPeriod.end || '');
+    const intersectsMonth = (record) => {
+      const payload = record && record.payload && typeof record.payload === 'object' ? record.payload : {};
+      const rows = payload.rows || payload.dailyRows || payload.daily_rows || record.rows || record.daily_rows || record.dailyRows;
+      if (Array.isArray(rows) && rows.some((row) => {
+        const date = String(row && (row.date || row.record_date || row.recordDate || row.workDate || row.Date) || '').slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= start && date <= end;
+      })) return true;
+      const recordDate = String(record && (record.record_date || record.recordDate || record.event_date || record.completed_at || record.completedAt || record.created_at || record.submitted_at || record.updated_at) || payload.recordDate || payload.record_date || payload.date || payload.completedAt || payload.completed_at || payload.createdAt || payload.submittedAt || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(recordDate) && recordDate >= start && recordDate <= end) return true;
+      const rangeStart = String(record && (record.start_date || record.startDate) || payload.startDate || payload.start_date || '').slice(0, 10);
+      const rangeEnd = String(record && (record.end_date || record.endDate) || payload.endDate || payload.end_date || '').slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(rangeStart) && /^\d{4}-\d{2}-\d{2}$/.test(rangeEnd) && rangeStart <= end && rangeEnd >= start;
+    };
+    records = records.filter(intersectsMonth);
+  }
+  const canViewAllTimesheets = identity.isTimesheetViewer === true || identity.isSubmissionAdmin === true;
+  records = records.map((record) => ({
+    ...record,
+    can_edit_record: canEditRecord(identity, record, new Date(), payPeriods),
+    can_edit: ['timesheets', 'clock'].includes(canonicalKind(record.kind || record.action))
+      ? canEditRecord(identity, record, new Date(), payPeriods)
+      : record.can_edit === true
+  }));
+  const completion = canViewAllTimesheets && (!kind || kind === 'timesheets')
     ? completionSummary(records, env)
     : null;
   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
@@ -4727,15 +5362,26 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       upstream_employee_matched_record_count: upstreamEmployeeMatchedRecordCount,
       synthetic_record_count: syntheticRecordCount,
       synthetic_included: includeSynthetic,
-      role: identity.isAdmin ? 'accounts-admin' : (identity.isHrAdmin ? 'accounts-hr' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee'))),
+      history_pagination: {
+        limit,
+        offset,
+        has_more: hasMoreLocalRecords,
+        next_offset: hasMoreLocalRecords ? offset + limit : null,
+        pay_month: payMonth || null
+      },
+      role: identity.isAdmin ? 'accounts-admin' : (identity.isSubmissionAdmin ? 'submissions-manager' : (identity.isHrAdmin ? 'accounts-hr' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee')))),
       is_admin: identity.isAdmin,
       is_hr_admin: identity.isHrAdmin,
-      can_view_all_timesheets: identity.isTimesheetViewer,
+      is_submission_admin: isSubmissionAdmin,
+      can_view_all_timesheets: canViewAllTimesheets,
       is_xero_admin: identity.isXeroAdmin,
       is_operations_admin: identity.isOperationsAdmin,
       is_job_card_admin: identity.isJobCardAdmin,
-      editable_pay_months: editablePayCycleKeys(new Date(), 'Europe/London', payPeriods),
-      visible_scope: identity.isTimesheetViewer
+      editable_pay_months: identity.isAdmin ? editablePayCycleKeys(new Date(), 'Europe/London', payPeriods) : currentPayCycleKeys(new Date(), 'Europe/London', payPeriods),
+      self_editable_pay_months: currentPayCycleKeys(new Date(), 'Europe/London', payPeriods),
+      visible_scope: isSubmissionAdmin
+        ? 'all submissions and all employee timesheets and clock records; My Submissions edit access'
+        : identity.isTimesheetViewer
         ? 'all employee timesheets and clock records'
         : identity.isAdmin
           ? 'all non-timesheet submissions; this account timesheets and clock records'
@@ -4800,6 +5446,9 @@ async function handle(request, env, ctx) {
   }
   const url = new URL(request.url);
   if (url.pathname === '/api/health' && request.method === 'GET') return json({ ok: true, service: 'gmt-portal-api', version: 1 }, 200, origin || '');
+  if (url.pathname === '/api/integrations/timesheet-delivery-receipts' && request.method === 'POST') {
+    return timesheetDeliveryReceiptEndpoint(request, env, origin || '');
+  }
   if (url.pathname === '/api/xero/callback' && request.method === 'GET') {
     if (!env.DB) return xeroRedirectResponse(xeroSettings(env).returnUrl, 'error', 'storage-not-configured');
     return completeXeroConnection(request, env);
@@ -4817,6 +5466,7 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/access' && request.method === 'GET') {
     return json({ isAdmin: identity.isAdmin, isHrAdmin: identity.isHrAdmin, isXeroAdmin: identity.isXeroAdmin,
       isOperationsAdmin: identity.isOperationsAdmin, isJobCardAdmin: identity.isJobCardAdmin,
+      canManageSubmissions: identity.isSubmissionAdmin === true,
       canReviewOffsite: identity.canReviewOffsite === true,
       canManagePayMonthStarts: identity.canManagePayMonthStarts,
       roles: identity.assignedRoles || [] }, 200, origin || '');
@@ -4914,16 +5564,15 @@ async function handle(request, env, ctx) {
   if (url.pathname === '/api/records' && request.method === 'POST') {
     const payPeriods = await loadPayPeriods(env);
     const body = await readJson(request);
-    if (body.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods);
+    if (body.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods, identity);
     const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
-    if (existing && !canAccessRecord(identity, existing)) throw Object.assign(new Error('This record belongs to another GMT account'), { status: 403 });
+    if (existing && !canEditRecord(identity, existing, new Date(), payPeriods)) throw Object.assign(new Error('This record is read-only for your account'), { status: 403 });
     if (existing?.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
     if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
-    if (existing && existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing, 'Europe/London', new Date(), payPeriods)) throw Object.assign(new Error('Only the current and previous pay months may be edited.'), { status: 409 });
     validatePortalRequestMutation(body, existing, identity);
-    const input = normaliseInput(body, existing && (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
+    const input = normaliseInput(body, existing && (identity.isAdmin || identity.isSubmissionAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
     const result = await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
@@ -4952,7 +5601,8 @@ async function handle(request, env, ctx) {
       return jobCardAttachmentStartEndpoint(request, env, identity, recordId, origin || '');
     }
     if (request.method !== 'POST') return json({ error: 'Attachments are only available for job cards' }, 400, origin || '');
-    if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    const payPeriods = await loadPayPeriods(env);
+    if (!canEditRecord(identity, existing, new Date(), payPeriods)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (existing.kind !== 'timesheets') return json({ error: 'Only timesheet corrections can be queued' }, 400, origin || '');
     const body = await readJson(request);
@@ -4983,21 +5633,25 @@ async function handle(request, env, ctx) {
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (request.method === 'GET') {
       const payPeriods = await loadPayPeriods(env);
-      return json({ record: projectRow(existing, true, env, payPeriods), payload: payloadObject(existing) }, 200, origin || '');
+      const record = projectRow(existing, true, env, payPeriods);
+      record.can_edit = ['timesheets', 'clock'].includes(canonicalKind(existing.kind)) && canEditRecord(identity, existing, new Date(), payPeriods);
+      record.can_edit_record = canEditRecord(identity, existing, new Date(), payPeriods);
+      return json({ record, payload: payloadObject(existing) }, 200, origin || '');
     }
     if (existing.action === 'archive_import' && (request.method === 'PATCH' || request.method === 'DELETE')) return json({ error: 'Scanned job-card records are managed through Accounts review' }, 409, origin || '');
     if (request.method === 'PATCH') {
       const payPeriods = await loadPayPeriods(env);
-      if (existing.kind === 'timesheets' && !isCurrentPayMonthRecord(existing, 'Europe/London', new Date(), payPeriods)) return json({ error: 'Only the current and previous pay months may be edited.' }, 409, origin || '');
+      if (!canEditRecord(identity, existing, new Date(), payPeriods)) return json({ error: 'This record is read-only for your account.' }, 403, origin || '');
       const body = await readJson(request);
       if (existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') return json({ error: 'A pay-month correction cannot change record type' }, 400, origin || '');
-      if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods);
+      if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods, identity);
       validatePortalRequestMutation(body, existing, identity);
-      const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
+      const input = normaliseInput({ ...body, recordId }, (identity.isAdmin || identity.isSubmissionAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
       const result = await saveRecord(env, input, identity, existing);
       return json({ ok: true, record_id: input.recordId, ...result }, 200, origin || '');
     }
     if (request.method === 'DELETE') {
+      if (identity.isSubmissionAdmin === true && !isOwnerRecord(identity, existing)) return json({ error: 'Submission managers can edit records but cannot delete another employee’s submission.' }, 403, origin || '');
       // The calendar passes ?day for a single-day action. The record-level
       // soft delete below must never turn that request into a weekly delete.
       if (url.searchParams.has('day') && (existing.kind === 'timesheets' || existing.kind === 'clock')) {
@@ -5051,6 +5705,7 @@ export {
   staffDirectory,
   historyTitleDetails,
   normaliseUpstreamRecord,
+  readSharePointHistory,
   historyRecordFingerprint,
   listRecords,
   projectRow,

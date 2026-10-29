@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const context=vm.createContext({window:{}});
+vm.runInContext(readFileSync('tools/stats-charts.js','utf8'),context);
+const series=context.window.GMTStatsCharts.series;
+const items=[{date:'2026-09-21',minutes:450},{date:'2026-09-22',minutes:90},{date:'2026-10-01',minutes:30}];
+const month=series(items,{period:'month',month:'2026-10',start:'2026-09-21',end:'2026-10-02'},'worked-hours');
+assert.equal(month.length,12,'use the complete pay-month boundary');
+assert.equal(month[0].value,450);assert.equal(month[1].value,90);assert.equal(month[10].value,30);
+assert.equal(month.reduce((a,x)=>a+x.value,0),570,'preserve minutes without rounding');
+const year=series(items,{period:'year',year:'2026'},'worked-days');
+assert.equal(year.length,12);assert.equal(year[8].value,2);assert.equal(year[9].value,1);
+const all=series(items.concat([{date:'2024-01-01'}]),{period:'all'},'worked-days');
+assert.deepEqual(Array.from(all,x=>x.key),['2024','2025','2026']);
+assert.deepEqual(Array.from(all,x=>x.value),[1,0,3]);
+assert.equal(series([],{period:'all'},'worked-days').length,0);
+console.log('Statistics chart intervals and exact totals: PASS');

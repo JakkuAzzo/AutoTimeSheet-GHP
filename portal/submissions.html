@@ -7,9 +7,9 @@
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/brand/gmt-icon-256.png?v=gmt-logo-favicon-20260901">
 <title>Submitted documents | GMT Staff Portal</title>
 <link rel="stylesheet" href="../styles.css?v=portal-responsive-layout-20261016-v4">
-<link rel="stylesheet" href="../portal.css?v=portal-responsive-layout-20261016-v6">
+<link rel="stylesheet" href="../portal.css?v=team-paymonth-downloads-20261028">
   <link rel="stylesheet" href="../tools/estimates.css?v=paymonth-weekend-removal-20261013">
-<script src="../config.js?v=portal-api-live-20260915"></script>
+<script src="../config.js?v=umami-gmt-20261028"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="../viewport-effects.js?v=viewport-shell-20261016-v1"></script>
 <script defer src="auth.js?v=portal-responsive-motion-20261015-v1"></script>
@@ -46,7 +46,15 @@
       <section class="pay-month-list-panel" aria-label="Pay month list">
         <div class="pay-month-list-heading"><div><p class="portal-card-kicker" data-pay-month-list-kicker>Pay month list</p><h3 id="pay-month-list-title">Available sheets</h3></div><span id="pay-month-list-count" class="small-text"></span></div>
         <div id="submissions-list" class="estimate-history-list submissions-record-list pay-month-list" aria-label="Pay month and record list" aria-live="polite"></div>
-        <div class="pay-month-bulk-download"><button type="button" id="download-all-sheets" class="secondary" data-download-all-sheets hidden>Download All Sheets</button><span class="small-text">Includes all sheets matching the filters above.</span><span id="download-all-sheets-status" class="small-text" role="status"></span></div>
+        <div class="pay-month-bulk-download" aria-label="Download timesheets by team">
+          <p class="small-text">Download authorised pay-month sheets by team. The selected pay-month and staff filters apply.</p>
+          <div class="pay-month-bulk-download-actions">
+            <button type="button" class="secondary" data-download-sheet-group="engineer" hidden>Download Engineer.zip</button>
+            <button type="button" class="secondary" data-download-sheet-group="accounts" hidden>Download Accounts.zip</button>
+            <button type="button" class="secondary" data-download-sheet-group="contractor" hidden>Download Contractor.zip</button>
+          </div>
+          <span id="download-team-sheets-status" class="small-text" role="status" aria-live="polite"></span>
+        </div>
       </section>
       <article id="submissions-preview" class="estimate-paper estimate-history-preview pay-month-preview" aria-live="polite"><p class="small-text">Select a pay month to preview its combined daily rows.</p></article>
     </div>
@@ -62,8 +70,8 @@
 <script defer src="../lazy-xlsx.js?v=excel-generator-20260922a"></script>
 <script defer src="pay-month-workbook.js?v=pay-month-start-20261016"></script>
 <script defer src="zip-store.js?v=paymonth-bulk-download-20260928"></script>
-<script defer src="submissions.js?v=weekly-timesheet-cycle-labels-20261017"></script>
-<script defer src="calendar-data.js?v=source-date-20260927"></script>
+<script defer src="submissions.js?v=team-paymonth-save-progress-20261028"></script>
+<script defer src="calendar-data.js?v=complete-history-20261028-v2"></script>
 <script defer src="calendar-actions.js?v=calendar-request-quick-edit-weekly-timesheet-cycle-labels-20261023"></script>
 </body>
 </html>

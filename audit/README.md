@@ -13,6 +13,8 @@ The audit page lets an accounts/admin user upload a GMT timesheet archive and ge
 - file-level parse status separate from audit mismatch warnings
 - row categories for worked rows, bank holidays, ignored empty weekends, month markers, total rows, and footer rows
 - downloadable combined audit workbook and JSON
+- employee-name filtering across totals, issues, source details, and filtered exports
+- the confirmed `Simon` name variant is grouped under `Simon Thornton`; source documents remain unchanged
 - optional submit flow that emails accounts the calculated workbook and warning CSV through FormSubmit
 
 ## GMT rules implemented
@@ -25,7 +27,8 @@ The audit page lets an accounts/admin user upload a GMT timesheet archive and ge
 - Hours over 50 are **not** automatically OT x2.0.
 - Saturday lunch crossing 13:00 is deducted from the later segment first unless exact lunch time is supplied.
 - Holiday rows are paid as 8h basic if recorded.
-- Suspicious overnight spans are flagged for review, not silently corrected.
+- Finish-before-start spans are not silently treated as overnight work. For legacy unmarked decimal times, a PM-equivalent finish is calculated only when the claimed totals support it (or the resulting day span is clearly more plausible); the source value stays intact and the inferred finish is flagged for confirmation.
+- Other suspicious overnight spans remain flagged for review.
 
 ## Word document handling
 
@@ -46,6 +49,7 @@ The audit page lets an accounts/admin user upload a GMT timesheet archive and ge
    - combined totals
    - source row checks
    - parsed file details and ignored row categories
+   - select a named employee to scope the review; downloads stay disabled in the all-employee and Unknown views
 5. Download either:
    - the combined Excel audit workbook
    - the audit JSON

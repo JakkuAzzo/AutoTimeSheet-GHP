@@ -204,18 +204,19 @@
     if (!date) return null;
     var start = text(objectValue(row, ["start", "startTime", "start_time", "clockIn", "clock_in", "dayStart", "day_start", "Start"]));
     var finish = text(objectValue(row, ["finish", "finishTime", "finish_time", "clockOut", "clock_out", "dayFinish", "day_finish", "Finish"]));
-    var worked = number(objectValue(row, ["workedMinutes", "worked_minutes"]));
-    if (worked === null) {
+    var absence = text(objectValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence", "Absence reason"]));
+    var unpaid = /^un-paid$/i.test(absence.trim());
+    var worked = unpaid ? 0 : number(objectValue(row, ["workedMinutes", "worked_minutes"]));
+    if (!unpaid && worked === null) {
       var hours = number(objectValue(row, ["workedHours", "worked_hours", "hours", "totalHours", "Worked hours"]));
       if (hours !== null) worked = hours * 60;
     }
-    if (worked === null) {
+    if (!unpaid && worked === null) {
       var basic = number(objectValue(row, ["basicHours", "basic_hours", "Basic hours"]));
       var ot15 = number(objectValue(row, ["ot15Hours", "ot15_hours", "overtime15Hours"]));
       var ot20 = number(objectValue(row, ["ot20Hours", "ot20_hours", "overtime20Hours"]));
       if (basic !== null || ot15 !== null || ot20 !== null) worked = ((basic || 0) + (ot15 || 0) + (ot20 || 0)) * 60;
     }
-    var absence = text(objectValue(row, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence", "Absence reason"]));
     var lunchStart = text(objectValue(row, ["lunchStart", "lunch_start", "breakStart", "break_start", "Lunch start"]));
     var lunchEnd = text(objectValue(row, ["lunchEnd", "lunch_end", "breakEnd", "break_end", "Lunch end"]));
     var breakValue = objectValue(row, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "Break"]);
@@ -244,7 +245,7 @@
       }
       if (!breakStatus && breakTotal === null) issues.push("Break not recorded");
     }
-    if (start && finish && timeMinutes(start) !== null && timeMinutes(finish) !== null && timeMinutes(finish) >= timeMinutes(start)) {
+    if (!unpaid && start && finish && timeMinutes(start) !== null && timeMinutes(finish) !== null && timeMinutes(finish) >= timeMinutes(start)) {
       if (breakTotal !== null) worked = Math.max(0, timeMinutes(finish) - timeMinutes(start) - breakTotal);
       else if (worked === null) worked = timeMinutes(finish) - timeMinutes(start);
     }
@@ -266,7 +267,8 @@
       issue: issues.join("; "),
       record: record,
       row: row,
-      scheduled: scheduled
+      scheduled: scheduled,
+      hasRecordedWork: (!absence || /^(na|none|no absence|not applicable|n\/a)$/i.test(absence)) && !!(start || finish || (worked !== null && worked > 0))
     };
   }
   function dateFallback(record, options) {
@@ -303,7 +305,7 @@
   function timesheetQuality(record) {
     var rows = rowsFor(record);
     if (!rows.length) return { valid: false, validRows: 0, rowCount: 0 };
-    var events = rows.map(function (row, index) { return rowEvent(record, row, index, {}); }).filter(Boolean).filter(function (event) { return event.scheduled !== false; });
+    var events = rows.map(function (row, index) { return rowEvent(record, row, index, {}); }).filter(Boolean).filter(function (event) { return event.scheduled !== false || event.hasRecordedWork; });
     if (!events.length) return { valid: false, validRows: 0, rowCount: 0 };
     var validRows = events.filter(function (event) {
       if (event.issue && /same time|earlier than clock|clock in missing|clock out missing/i.test(event.issue)) return false;
@@ -411,7 +413,7 @@
         if (lunchEnd !== "" && lunchEnd != null) group.row.lunchEnd = text(lunchEnd);
 
         var absence = objectValue(sourceRow, ["absenceStatus", "absence_status", "absenceReason", "absence_reason", "absence", "Absence reason"]);
-        if (absence !== "" && absence != null) group.row.absenceStatus = absence;
+        if (absence !== "" && absence != null && (recordKind === "timesheets" || !group.row.absenceStatus || /^un-paid$/i.test(String(absence).trim()))) group.row.absenceStatus = absence;
         var note = objectValue(sourceRow, ["note", "notes", "description", "Note"]);
         if (note !== "" && note != null) group.row.note = note;
         var rawBreak = objectValue(sourceRow, ["lunchMinutes", "lunch_minutes", "breakMinutes", "break_minutes", "break", "Break"]);
@@ -423,7 +425,8 @@
           var hours = number(objectValue(sourceRow, ["workedHours", "worked_hours", "hours", "totalHours", "Worked hours"]));
           if (hours !== null) directWorked = hours * 60;
         }
-        if (directWorked !== "" && directWorked != null && Number.isFinite(Number(directWorked))) group.row.workedMinutes = Number(directWorked);
+        if (/^un-paid$/i.test(String(group.row.absenceStatus || "").trim())) group.row.workedMinutes = 0;
+        else if (directWorked !== "" && directWorked != null && Number.isFinite(Number(directWorked))) group.row.workedMinutes = Number(directWorked);
         if (recordKind === "clock" && action === "lunch_end" && group.row.lunchStart && group.row.lunchEnd && timeMinutes(group.row.lunchStart) !== null && timeMinutes(group.row.lunchEnd) !== null) {
           group.row.lunchMinutes = Math.max(0, timeMinutes(group.row.lunchEnd) - timeMinutes(group.row.lunchStart));
         }
@@ -431,7 +434,8 @@
     });
     return Object.keys(groups).map(function (keyValue) {
       var group = groups[keyValue];
-      if (group.row.start && group.row.finish && timeMinutes(group.row.start) !== null && timeMinutes(group.row.finish) !== null && timeMinutes(group.row.finish) >= timeMinutes(group.row.start) && group.row.lunchMinutes !== undefined) {
+      if (/^un-paid$/i.test(String(group.row.absenceStatus || "").trim())) group.row.workedMinutes = 0;
+      else if (group.row.start && group.row.finish && timeMinutes(group.row.start) !== null && timeMinutes(group.row.finish) !== null && timeMinutes(group.row.finish) >= timeMinutes(group.row.start) && group.row.lunchMinutes !== undefined) {
         group.row.workedMinutes = Math.max(0, timeMinutes(group.row.finish) - timeMinutes(group.row.start) - group.row.lunchMinutes);
       }
       var latest = group.latest || {};
@@ -577,11 +581,10 @@
         var rows = rowsFor(record);
         var rowEvents = rows.map(function (row, index) { return rowEvent(record, row, index, options); }).filter(Boolean);
         if (rowEvents.length) {
-          // A roster schedule is authoritative for the shared calendar. Keep
-          // the source record available in history, but do not label a day as
-          // worked when it falls outside the employee's configured workdays.
-          // Michelle, for example, is rostered on Tuesday and Wednesday only.
-          events = events.concat(rowEvents.filter(function (event) { return event.scheduled !== false; }));
+          // A roster describes normal days, not a ban on extra shifts. Show
+          // recorded work outside it for review, while excluding empty roster
+          // and absence placeholders on unscheduled days.
+          events = events.concat(rowEvents.filter(function (event) { return event.scheduled !== false || event.hasRecordedWork; }));
         } else if (!rows.length) {
           // A sparse header has no day to place on the calendar. Showing its
           // anchor would imply that a submission was made on that date.
@@ -646,5 +649,29 @@
       return [];
     }
   }
-  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, combineDailyRecords: combineDailyRecords, authoritativeTimesheetRecords: authoritativeTimesheetRecords, localEvents: localEvents, mergeEvents: mergeEvents };
+  async function loadHistory(api, options) {
+    var offset = 0;
+    var records = [];
+    var seen = new Set();
+    var meta = {};
+    while (true) {
+      var page = await api.history("all", { limit: 1000, offset: offset, source: options && options.source });
+      if (!page || !Array.isArray(page.records)) throw new Error("Invalid calendar history response");
+      page.records.forEach(function (record) {
+        // The upstream history is repeated on each local page. Only suppress
+        // identical records so that distinct corrections remain available.
+        var fingerprint = JSON.stringify(record);
+        if (!seen.has(fingerprint)) { seen.add(fingerprint); records.push(record); }
+      });
+      if (offset === 0) meta = Object.assign({}, page.meta || {});
+      if (page.meta && page.meta.upstream && page.meta.upstream !== "ok") meta.calendar_history_incomplete = true;
+      var pagination = page.meta && page.meta.history_pagination;
+      if (!pagination || !pagination.has_more) break;
+      var next = Number(pagination.next_offset);
+      if (!Number.isInteger(next) || next <= offset || next > 1000000) throw new Error("Invalid calendar history pagination");
+      offset = next;
+    }
+    return { records: records, meta: meta };
+  }
+  window.GMTCalendarData = { safe: safe, key: key, kind: kind, recordsToEvents: recordsToEvents, rowsFor: rowsFor, combineDailyRecords: combineDailyRecords, authoritativeTimesheetRecords: authoritativeTimesheetRecords, localEvents: localEvents, mergeEvents: mergeEvents, loadHistory: loadHistory };
 }());

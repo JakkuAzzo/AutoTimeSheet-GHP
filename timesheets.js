@@ -113,7 +113,7 @@
       historyLink.hidden = true;
       if (isAdmin && String(meta && meta.upstream || "") === "flow-permission-not-configured") {
         historyLink.hidden = false;
-        historyLink.innerHTML = '<a class="portal-text-link" href="timesheets.html?connect-history=1">Connect Microsoft 365 history access <span aria-hidden="true">→</span></a>';
+        historyLink.innerHTML = '<a class="portal-text-link" href="/portal/submissions?tab=timesheets">Connect Microsoft 365 history access <span aria-hidden="true">→</span></a>';
       }
     }
     // The protected history iframe can deliver its records before the
@@ -695,37 +695,50 @@
     rows.forEach(function (row) {
       var start = timeMinutes(row.start);
       var finish = timeMinutes(row.finish);
-      var correctedFinish = start !== null && finish !== null && finish <= start ? pmEquivalentMinutes(row.finish, start) : null;
-      if (correctedFinish !== null) {
-        row.finish = formatClockMinutes(correctedFinish);
-        finish = correctedFinish;
-        row.finishCorrection = 'PM equivalent';
-      }
-      var breakMinutes = row.lunchMinutes === null ? 0 : Math.max(0, row.lunchMinutes);
-      // A clock interval is authoritative whenever both ends are present.
-      // Keep any submitted total as reportedWorkedHours for audit, but do not
-      // let a stale/malformed total drive calendar labels or pay-month totals.
-      if (start !== null && finish !== null && finish > start) {
-        row.workedMinutes = Math.max(0, finish - start - breakMinutes);
-        row.workedHours = row.workedMinutes / 60;
-        row.calculationSource = 'clock interval';
-      } else if (start !== null && finish !== null && finish <= start) {
-        row.workedMinutes = null;
-        row.workedHours = null;
-        row.calculationSource = 'invalid clock interval';
-      } else if (row.absenceIsNone) {
-        row.workedMinutes = null;
-        row.workedHours = null;
-        row.calculationSource = 'missing clock';
-      }
-      if (row.absenceIsNone && start === null) row.issues.push('Clock in missing');
-      if (row.absenceIsNone && finish === null) row.issues.push('Clock out missing');
-      if (row.breakStatus === 'added' && row.lunchMinutes === null) row.issues.push('Break duration missing');
-      if (row.absenceIsNone && start !== null && finish !== null && !row.breakStatus && row.lunchMinutes === null) row.issues.push('Break not recorded');
-      if (!row.absenceIsNone && start === null && finish === null) row.breakStatus = row.breakStatus || 'not-required';
-      if (start !== null && finish !== null) {
-        if (finish === start) row.issues.push('Clock in and clock out are the same time');
-        else if (finish < start) row.issues.push('Finish is earlier than clock in');
+      var unpaid = /^un-paid$/i.test(String(row.absenceStatus || '').trim());
+      if (unpaid) {
+        row.workedMinutes = 0;
+        row.workedHours = 0;
+        row.basicHours = 0;
+        row.ot15Hours = 0;
+        row.ot20Hours = 0;
+        row.weightedHours = 0;
+        row.calculationSource = 'unpaid absence';
+        row.issues = row.issues.filter(function (issue) { return !/clock|break|finish is earlier/i.test(issue); });
+        if (start === null && finish === null) row.breakStatus = row.breakStatus || 'not-required';
+      } else {
+        var correctedFinish = start !== null && finish !== null && finish <= start ? pmEquivalentMinutes(row.finish, start) : null;
+        if (correctedFinish !== null) {
+          row.finish = formatClockMinutes(correctedFinish);
+          finish = correctedFinish;
+          row.finishCorrection = 'PM equivalent';
+        }
+        var breakMinutes = row.lunchMinutes === null ? 0 : Math.max(0, row.lunchMinutes);
+        // A clock interval is authoritative whenever both ends are present.
+        // Keep any submitted total as reportedWorkedHours for audit, but do not
+        // let a stale/malformed total drive calendar labels or pay-month totals.
+        if (start !== null && finish !== null && finish > start) {
+          row.workedMinutes = Math.max(0, finish - start - breakMinutes);
+          row.workedHours = row.workedMinutes / 60;
+          row.calculationSource = 'clock interval';
+        } else if (start !== null && finish !== null && finish <= start) {
+          row.workedMinutes = null;
+          row.workedHours = null;
+          row.calculationSource = 'invalid clock interval';
+        } else if (row.absenceIsNone) {
+          row.workedMinutes = null;
+          row.workedHours = null;
+          row.calculationSource = 'missing clock';
+        }
+        if (row.absenceIsNone && start === null) row.issues.push('Clock in missing');
+        if (row.absenceIsNone && finish === null) row.issues.push('Clock out missing');
+        if (row.breakStatus === 'added' && row.lunchMinutes === null) row.issues.push('Break duration missing');
+        if (row.absenceIsNone && start !== null && finish !== null && !row.breakStatus && row.lunchMinutes === null) row.issues.push('Break not recorded');
+        if (!row.absenceIsNone && start === null && finish === null) row.breakStatus = row.breakStatus || 'not-required';
+        if (start !== null && finish !== null) {
+          if (finish === start) row.issues.push('Clock in and clock out are the same time');
+          else if (finish < start) row.issues.push('Finish is earlier than clock in');
+        }
       }
       if (row.scheduled === false && row.scheduleIssue) row.issues.push(row.scheduleIssue);
       if (row.sourceDate) row.issues.push('Source date corrected from ' + row.sourceDate);
