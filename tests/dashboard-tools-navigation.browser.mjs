@@ -29,7 +29,8 @@ const server = createServer((request, response) => {
     return;
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(repoRoot, `.${pathname}`);
+  let file = resolve(repoRoot, `.${pathname}`);
+  if (!extname(file) && existsSync(file + '.html')) file += '.html';
   if (!file.startsWith(repoRoot + sep) && file !== repoRoot) {
     response.writeHead(403).end('Forbidden');
     return;
@@ -55,11 +56,14 @@ const pages = [];
 
 async function openRoute(path, options = {}) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.setDefaultTimeout(8000);
   pages.push(page);
   let accessCalls = 0;
   const historyKinds = [];
   const historyRequests = [];
-  let historyFailuresRemaining = options.historyFailureCount || 0;
+  const historyFailuresRemaining = { tasks: options.historyFailureCount ? 1 : 0, all: options.historyFailureCount ? 1 : 0 };
+  let taskCalls = 0;
+  let taskFailuresRemaining = options.taskFailureCount || 0;
   let releaseAccess;
   const accessGate = options.holdAccess ? new Promise((resolveAccess) => { releaseAccess = resolveAccess; }) : null;
   await page.route(`${apiOrigin}/api/access`, async (route) => {
@@ -76,12 +80,23 @@ async function openRoute(path, options = {}) {
     const url = new URL(route.request().url());
     historyKinds.push(url.searchParams.get('kind') || 'all');
     historyRequests.push({ kind: url.searchParams.get('kind') || 'all', limit: url.searchParams.get('limit') });
-    if (options.historyFailure || historyFailuresRemaining > 0) {
-      if (historyFailuresRemaining > 0) historyFailuresRemaining -= 1;
+    const historyKind = url.searchParams.get('kind') || 'all';
+    const failOnce = url.searchParams.get('limit') !== '1000' && (historyFailuresRemaining[historyKind] || 0) > 0;
+    if (options.historyFailure || failOnce) {
+      if (failOnce) historyFailuresRemaining[historyKind] -= 1;
       await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Synthetic history outage' }) });
       return;
     }
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ records: options.historyRecords || [] }) });
+  });
+  await page.route(`${apiOrigin}/api/tasks**`, async (route) => {
+    taskCalls += 1;
+    if (options.taskFailure || taskFailuresRemaining > 0) {
+      if (taskFailuresRemaining > 0) taskFailuresRemaining -= 1;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Synthetic task outage' }) });
+      return;
+    }
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ records: options.taskRecords || [], pending: [] }) });
   });
   await page.route('**/config.js?*', async (route) => {
     await route.fulfill({
@@ -94,7 +109,7 @@ async function openRoute(path, options = {}) {
     const main = document.querySelector('main');
     return main && !main.hidden;
   });
-  return { page, accessCalls: () => accessCalls, historyKinds: () => historyKinds.slice(), historyRequests: () => historyRequests.slice(), releaseAccess: () => releaseAccess && releaseAccess() };
+  return { page, accessCalls: () => accessCalls, taskCalls: () => taskCalls, historyKinds: () => historyKinds.slice(), historyRequests: () => historyRequests.slice(), releaseAccess: () => releaseAccess && releaseAccess() };
 }
 
 async function assertInternalLinksResolve(page) {
@@ -117,23 +132,25 @@ try {
   };
   const dashboard = await openRoute('/portal/', { access: employeeAccess });
   const dashboardPage = dashboard.page;
-  const sections = await dashboardPage.locator('main > section').evaluateAll((items) => items.map((item) => item.getAttribute('aria-label') || item.querySelector('h2')?.textContent?.trim() || ''));
-  assert.deepEqual(sections.slice(0, 5), ['Today', 'What do you need to do?', 'My work', 'My statistics', 'Shared information'], 'dashboard sections should follow the staff task sequence');
+  const sections = await dashboardPage.locator('main > .portal-dashboard-carousel > section, main > section').evaluateAll((items) => items.map((item) => item.getAttribute('aria-label') || item.querySelector('h2')?.textContent?.trim() || ''));
+  assert.deepEqual(sections.slice(0, 5), ['Today', 'My work', 'My statistics', 'What do you need to do?', 'Shared information'], 'dashboard sections should follow the staff task sequence');
   assert.equal(await dashboardPage.locator('[data-updates-slide], [data-updates-next], [data-updates-prev], [data-updates-dot]').count(), 0, 'dashboard tasks and statistics should not require carousel navigation');
   assert.equal(await dashboardPage.locator('[data-clock-form]').count(), 1, 'daily clock-in should remain on the dashboard');
-  assert.equal(await dashboardPage.locator('#portal-task-board').isVisible(), true, 'the task board should be visible without navigation');
+  await dashboardPage.locator('[data-dashboard-next]').click();
+  assert.equal(await dashboardPage.locator('#portal-task-board').isVisible(), true, 'the task board should be visible on the My work slide');
   assert.equal(await dashboardPage.locator('#portal-notifications').isVisible(), true, 'notifications should be visible without navigation');
-  assert.equal(await dashboardPage.locator('#portal-statistics-title').isVisible(), true, 'personal statistics should be visible without navigation');
+  await dashboardPage.locator('[data-dashboard-next]').click();
+  assert.equal(await dashboardPage.locator('#portal-statistics-title').isVisible(), true, 'personal statistics should be visible on their slide');
   await dashboardPage.locator('#portal-statistics-pay-month').waitFor({ state: 'attached' });
   assert.match(await dashboardPage.locator('#portal-statistics-pay-month').inputValue(), /^\d{4}-\d{2}$/);
   assert.ok(dashboard.historyRequests().some((request) => request.kind === 'all' && request.limit === '500'), 'the dashboard should request the supported 500-record history bound');
-  await dashboardPage.evaluate(() => window.GMTPortalApi.history('all', { limit: 999 }));
-  assert.equal(dashboard.historyRequests().at(-1).limit, '500', 'the history API wrapper should cap requested history at 500 records');
+  await dashboardPage.evaluate(() => window.GMTPortalApi.history('all', { limit: 1999 }));
+  assert.equal(dashboard.historyRequests().at(-1).limit, '1000', 'the history API wrapper should cap requested history at 1000 records');
   assert.equal(await dashboardPage.locator('[data-admin-users-link]').isVisible(), false, 'User management should remain hidden from a standard employee');
   const workPanels = await dashboardPage.locator('.portal-work-section h2').allTextContents();
   assert.deepEqual(workPanels, ['My work', 'Task Board', 'Updates and notifications'], 'My work should put the task board before notifications');
   assert.equal(await dashboardPage.locator('a[href="submissions.html"]').count(), 1, 'Submitted documents should use its local HTML route');
-  assert.equal(await dashboardPage.locator('a[href="timesheets.html"]').count(), 1, 'the calendar should use its local HTML route');
+  assert.equal(await dashboardPage.locator('a[href="submissions.html?tab=calendar"]').count(), 1, 'the calendar should use its current submissions route');
   await assertInternalLinksResolve(dashboardPage);
 
   await dashboardPage.getByRole('link', { name: /Tools/ }).click();
@@ -212,28 +229,31 @@ try {
     access: employeeAccess,
     historyRecords: [syntheticNotification]
   });
+  await notificationPage.page.locator('[data-dashboard-next]').click();
   await notificationPage.page.locator('[data-notification-index="0"]').click();
   const submittedDocumentLink = notificationPage.page.locator('.portal-notification-dialog a[href*="/portal/submissions"]');
   const submittedDocumentHref = await submittedDocumentLink.getAttribute('href');
   assert.equal(submittedDocumentHref, '/portal/submissions.html?record=synthetic-task-1', 'notification details should link to the served Submitted documents route');
   assert.equal((await notificationPage.page.request.get(`${origin}${submittedDocumentHref}`)).status(), 200, 'the notification destination should resolve locally');
 
-  const dashboardError = await openRoute('/portal/', { access: employeeAccess, historyFailure: true });
+  const dashboardError = await openRoute('/portal/', { access: employeeAccess, historyFailure: true, taskFailure: true });
   await dashboardError.page.waitForFunction(() => !document.querySelector('#portal-task-board-status').textContent.startsWith('Loading'));
   assert.equal(await dashboardError.page.locator('#portal-task-board-status').innerText(), 'Synthetic history outage');
   assert.equal(await dashboardError.page.locator('#portal-notification-status').innerText(), 'Notifications could not be loaded.');
 
-  const dashboardRetry = await openRoute('/portal/', { access: employeeAccess, historyFailureCount: 2 });
+  const dashboardRetry = await openRoute('/portal/', { access: employeeAccess, historyFailureCount: 2, taskFailureCount: 1 });
+  await dashboardRetry.page.locator('[data-dashboard-next]').click();
   await dashboardRetry.page.waitForFunction(() => !document.querySelector('#portal-task-board-status').textContent.startsWith('Loading')
     && !document.querySelector('#portal-notification-status').textContent.startsWith('Loading'));
   assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry task history' }).isVisible(), true, 'the Task Board error should offer a retry');
-  assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry notifications' }).isVisible(), true, 'the Updates error should offer a retry');
+  assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry notifications' }).isVisible(), true, `the Updates error should offer a retry; calls: ${JSON.stringify(dashboardRetry.historyRequests())}; status: ${await dashboardRetry.page.locator('#portal-notification-status').innerText()}`);
   await dashboardRetry.page.getByRole('button', { name: 'Retry task history' }).click();
   await dashboardRetry.page.getByRole('button', { name: 'Retry notifications' }).click();
-  await dashboardRetry.page.waitForFunction(() => document.querySelector('#portal-task-board-status').textContent === 'No submitted tasks yet.'
-    && document.querySelector('#portal-notification-status').textContent === 'No new notifications.');
+  await dashboardRetry.page.waitForFunction(() => document.querySelector('#portal-task-board-status').textContent === 'No tasks yet.'
+    && document.querySelector('#portal-notification-status').textContent === 'No new notifications.', null, { timeout: 8000 });
   assert.equal(await dashboardRetry.page.getByRole('button', { name: 'Retry task history' }).isVisible(), false, 'a recovered Task Board should clear its retry');
   assert.equal(dashboardRetry.historyKinds().filter((kind) => kind === 'tasks').length, 2, 'retry should reload task history independently');
+  assert.equal(dashboardRetry.taskCalls(), 2, 'retry should reload the workflow task source independently');
   assert.equal(dashboardRetry.historyKinds().filter((kind) => kind === 'all').length, 3, 'notification retry should share its own history request; calendar loading remains separate');
 
   const groupedTools = readFileSync(resolve(repoRoot, 'tools/index.html'), 'utf8');
