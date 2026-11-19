@@ -3017,9 +3017,9 @@ body {
 .google-review-rating-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
   gap: .65rem;
   width: 100%;
-  max-width: 860px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -3027,6 +3027,8 @@ body {
 
 .google-review-rating-list li { min-width: 0; }
 .google-review-rating-list a {
+  box-sizing: border-box;
+  height: 100%;
   background: #fff;
   border-radius: 10px;
   display: flex;
