@@ -391,7 +391,15 @@
 
         panels.forEach(function (panel) { panel.style.removeProperty('height'); });
         track.style.height = 'auto';
-        track.style.height = panels[index].scrollHeight + 'px';
+        if (root.classList.contains('content-carousel-wide')) {
+          // Measure both natural content heights so switching tabs does not
+          // resize the section, including when the viewport width changes.
+          var sharedHeight = Math.max.apply(null, panels.map(function (panel) { return panel.scrollHeight; }));
+          panels.forEach(function (panel) { panel.style.height = sharedHeight + 'px'; });
+          track.style.height = sharedHeight + 'px';
+        } else {
+          track.style.height = panels[index].scrollHeight + 'px';
+        }
       }
 
       root.addEventListener('gmt:panel-resize', sizeActivePanel);
