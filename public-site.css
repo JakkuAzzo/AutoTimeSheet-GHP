@@ -2958,10 +2958,9 @@ body {
 
 .google-reviews-viewport {
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-top: 4px solid var(--gold);
-  background: rgba(255, 255, 255, .94);
-  box-shadow: 0 10px 26px rgba(18, 61, 29, .07);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .google-reviews-track {

@@ -56,7 +56,7 @@ copy('assets');
 const publishedWebsiteImages = new Set([
   'facebook.svg', 'pump-association.jpeg', 'motor-repair-v2.png', 'pumps-v2.png',
   'retouched/motors-workbench.jpg', 'retouched/motors-shelf.jpg',
-  'retouched/blue-motors.jpg', 'retouched/motor-stator.jpg', 'retouched/workshop-building.jpg',
+  'retouched/blue-motors.jpg', 'retouched/motor-stator.jpg', 'retouched/workshop-building.jpg', 'retouched/motor-armature.jpg', 'retouched/assembled-pump.jpg',
   'hero/hero-workshop-Photo-2.jpg', 'hero/hero-workshop-Photo-3.jpg',
   'hero/hero-workshop-Photo-6.jpg', 'hero/hero-workshop-Photo-7.jpg',
   'workshop/stator-rewind.jpg', 'workshop/workshop-signage.jpg',
