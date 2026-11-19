@@ -55,6 +55,8 @@ copy('assets');
 // out of the published bundle, including their old direct URLs.
 const publishedWebsiteImages = new Set([
   'facebook.svg', 'pump-association.jpeg', 'motor-repair-v2.png', 'pumps-v2.png',
+  'retouched/motors-workbench.jpg', 'retouched/motors-shelf.jpg',
+  'retouched/blue-motors.jpg', 'retouched/motor-stator.jpg',
   'hero/hero-workshop-Photo-2.jpg', 'hero/hero-workshop-Photo-3.jpg',
   'hero/hero-workshop-Photo-6.jpg', 'hero/hero-workshop-Photo-7.jpg',
   'workshop/stator-rewind.jpg', 'workshop/workshop-signage.jpg',
