@@ -4386,3 +4386,56 @@ body {
     font-size: .84rem;
   }
 }
+
+/* The services dialog reuses the same cards as the homepage. */
+body.services-overlay-open { overflow: hidden; }
+.services-overlay {
+  box-sizing: border-box;
+  width: min(1180px, calc(100% - 2rem));
+  max-width: none;
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  border: 1px solid rgba(18, 61, 29, .16);
+  border-radius: 18px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .3);
+  overflow: auto;
+}
+.services-overlay::backdrop { background: rgba(7, 25, 13, .7); }
+.services-overlay-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  padding: .65rem .8rem 0;
+  background: #fff;
+}
+.services-overlay-close {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(18, 61, 29, .2);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--green);
+  font: inherit;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.services-overlay-close:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+.services-overlay #services[data-scroll-snap] {
+  box-sizing: border-box;
+  height: auto;
+  min-height: 0 !important;
+  max-height: none;
+  margin: 0;
+  padding: .5rem clamp(1rem, 3vw, 2rem) 2rem;
+  overflow: visible;
+  opacity: 1;
+  transform: none;
+}
+@media (max-width: 620px) {
+  .services-overlay { width: calc(100% - 1rem); max-height: calc(100dvh - 1rem); }
+}

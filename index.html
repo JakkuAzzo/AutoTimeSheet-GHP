@@ -26,10 +26,10 @@
     .hero.is-hero-intro-active .hero-inner { opacity: 1 !important; visibility: visible !important; transform: none !important; pointer-events: auto !important; }
   </style>
 </noscript>
-<link rel="stylesheet" href="public-site.css?v=review-card-spacing-20261119">
+<link rel="stylesheet" href="public-site.css?v=services-overlay-20261119">
 <link rel="preload" as="image" href="image.webp" fetchpriority="high">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script defer src="public-site-mapfix-20260928.js?v=equal-story-panel-height-20261119-v1"></script>
+<script defer src="public-site-mapfix-20260928.js?v=services-overlay-20261119"></script>
 <script defer src="/viewport-effects.js?v=viewport-shell-20261022-v2"></script>
 </head>
 <body>
@@ -124,7 +124,7 @@
       <a href="services/component-manufacturing/" data-service-enquiry-open data-enquiry-topic="Component repair or manufacture" data-enquiry-image="assets/website/retouched/workshop-building.jpg" data-enquiry-image-alt="GMT Electrical Services workshop building in Croydon" data-enquiry-offering="Provide the component details, measurements or drawings. GMT will review the request and advise whether repair, sourcing or a manufacturing enquiry is appropriate." data-enquiry-concerns="A part is worn or damaged|Include the component name or part number|Provide photos, measurements or drawings where available"><span aria-hidden="true">⚙</span><strong>Component enquiries</strong></a>
       <a href="services/breakdown-enquiries/" data-service-enquiry-open data-enquiry-topic="Equipment breakdown" data-enquiry-image="assets/website/retouched/workshop-building.jpg" data-enquiry-image-alt="GMT Electrical Services workshop in Croydon" data-enquiry-offering="Provide the equipment details, fault symptoms and location. GMT’s workshop team will assess the request, advise on the appropriate route and confirm scope and response availability." data-enquiry-concerns="Equipment has stopped operating|Unusual noise, vibration or visible damage|Include the equipment location and fault symptoms"><span aria-hidden="true">!</span><strong>Equipment breakdown enquiries</strong></a>
       <a href="/process/"><span aria-hidden="true">☷</span><strong>Repair process guides</strong></a>
-      <a href="#services"><span aria-hidden="true">→</span><strong>View all services</strong></a>
+      <a href="#services" data-services-overlay-open><span aria-hidden="true">→</span><strong>View all services</strong></a>
     </div>
   </section>
     <section class="section workshop-details-section content-carousel-panel" id="where-to-find-us" aria-labelledby="workshop-details-title">
@@ -206,7 +206,7 @@
 
   <section class="section" id="services" data-scroll-reveal data-scroll-snap>
     <div class="section-heading">
-      <h2>Repair services for essential equipment</h2>
+      <h2 id="services-heading">Repair services for essential equipment</h2>
       <p>Explore GMT's motor, pump, fan, extractor and gearbox services. Each service has a dedicated page and a direct route to the workshop.</p>
     </div>
     <div class="services-carousel" data-service-carousel>
@@ -462,6 +462,11 @@
     </div>
   </section>
 </main>
+
+<dialog class="services-overlay" data-services-overlay aria-labelledby="services-heading">
+  <div class="services-overlay-toolbar"><button class="services-overlay-close" type="button" data-services-overlay-close aria-label="Close services">×</button></div>
+  <div data-services-overlay-content></div>
+</dialog>
 
 <div class="contact-modal" data-contact-modal hidden>
   <div class="contact-modal-backdrop" data-contact-close></div>
