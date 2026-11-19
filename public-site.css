@@ -4510,3 +4510,28 @@ body.services-overlay-open { overflow: hidden; }
 }
 
 #services[hidden] { display: none !important; }
+
+/* Keep the introductory carousel compact and sized to What we offer. */
+[data-section-navigation-label="Why GMT"] .content-carousel-controls { gap: .35rem; }
+[data-section-navigation-label="Why GMT"] .content-carousel-status { min-width: 76px; }
+[data-section-navigation-label="Why GMT"] .content-carousel-panel { overflow-y: auto; }
+.marketing-trust-section { padding-block: .75rem; }
+.marketing-trust-section .section-heading { margin-bottom: .4rem; }
+.marketing-trust-grid { gap: .6rem; }
+.marketing-trust-grid article { padding: .55rem; }
+.marketing-trust-grid h3 { font-size: 1rem; margin-bottom: .2rem; }
+.marketing-trust-grid p { font-size: .9rem; line-height: 1.3; }
+.marketing-trust-grid .trust-mark { min-width: 2rem; min-height: 2rem; margin-bottom: .25rem; }
+.marketing-inline-cta { margin: .5rem 0 0; }
+@media (max-width: 560px) {
+  .marketing-trust-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1024px) {
+  [data-section-navigation-label="Why GMT"][data-scroll-snap] {
+    height: auto;
+    max-height: none;
+  }
+}
+
+/* The floating section control must never obscure footer content. */
+.site-footer { position: relative; z-index: 16; }
