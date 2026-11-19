@@ -4537,3 +4537,13 @@ body.services-overlay-open { overflow: hidden; }
 
 /* The floating section control must never obscure footer content. */
 .site-footer { position: relative; z-index: 16; }
+
+.hero-headline-line { display: block; }
+.hero .hero-inner > .hero-copy h1 {
+  font-size: clamp(1.05rem, 2.65vw, 2.5rem);
+  line-height: 1.08;
+  text-wrap: normal;
+}
+@media (max-width: 820px) {
+  .hero .hero-inner > .hero-copy h1 { font-size: clamp(1.05rem, 4.4vw, 2rem); }
+}
