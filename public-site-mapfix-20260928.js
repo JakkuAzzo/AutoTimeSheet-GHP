@@ -541,26 +541,34 @@
   }
 
   function initServicesOverlay() {
-    var trigger = document.querySelector('[data-services-overlay-open]');
+    var triggers = document.querySelectorAll('[data-services-overlay-open]');
     var dialog = document.querySelector('[data-services-overlay]');
     var content = dialog && dialog.querySelector('[data-services-overlay-content]');
     var section = document.getElementById('services');
     var closeButton = dialog && dialog.querySelector('[data-services-overlay-close]');
-    if (!trigger || !dialog || !content || !section || !closeButton || !dialog.showModal) return;
+    if (!triggers.length || !dialog || !content || !section || !closeButton || !dialog.showModal) return;
     var placeholder = document.createComment('Services section location');
 
     function restore() {
+      section.hidden = true;
       if (placeholder.parentNode) placeholder.parentNode.replaceChild(section, placeholder);
       document.body.classList.remove('services-overlay-open');
     }
-    trigger.addEventListener('click', function (event) {
-      event.preventDefault();
+    function open() {
+      if (dialog.open) return;
       section.parentNode.insertBefore(placeholder, section);
       content.appendChild(section);
+      section.hidden = false;
       document.body.classList.add('services-overlay-open');
       dialog.showModal();
       closeButton.focus();
+    }
+    // Keep the section as a functional fallback when JavaScript is disabled.
+    section.hidden = true;
+    Array.prototype.forEach.call(triggers, function (trigger) {
+      trigger.addEventListener('click', function (event) { event.preventDefault(); open(); });
     });
+    if (window.location.hash === '#services') open();
     closeButton.addEventListener('click', function () { dialog.close(); });
     dialog.addEventListener('close', restore);
     dialog.addEventListener('click', function (event) {
@@ -665,7 +673,11 @@
     }
 
     function open(trigger) {
-      lastFocus = trigger || document.activeElement;
+      // A service card is hidden again when its overlay hands off to the
+      // enquiry form; return focus to the visible Services navigation instead.
+      lastFocus = trigger && trigger.closest('#services[hidden]')
+        ? document.querySelector('[data-site-nav] [data-services-overlay-open]')
+        : (trigger || document.activeElement);
       setContext(trigger);
       modal.hidden = false;
       document.body.classList.add('modal-open');

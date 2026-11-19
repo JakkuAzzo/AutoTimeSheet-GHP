@@ -4439,3 +4439,72 @@ body.services-overlay-open { overflow: hidden; }
 @media (max-width: 620px) {
   .services-overlay { width: calc(100% - 1rem); max-height: calc(100dvh - 1rem); }
 }
+
+/* Match the story panel: clear white surface, readable guidance and a
+   bottom-right enquiry action, without a second decorative photograph. */
+.content-carousel-wide > .content-carousel-track > .workshop-motion {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(250px, .85fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  align-items: start;
+  gap: 1.5rem clamp(1.5rem, 4vw, 3.5rem);
+  background: #fff;
+  color: var(--ink);
+}
+.content-carousel-wide .workshop-motion::after { display: none; }
+.content-carousel-wide .workshop-motion-content {
+  grid-column: 1;
+  grid-row: 1;
+  display: block;
+  min-height: 0;
+  max-width: 52rem;
+  align-self: start;
+}
+.content-carousel-wide .workshop-motion-content > .eyebrow {
+  margin: 0 0 1rem;
+  color: var(--green-2);
+}
+.content-carousel-wide .workshop-motion-content h2 {
+  margin: 0 0 1rem;
+  color: var(--green);
+  font-size: clamp(2rem, 3.5vw, 2.6rem);
+  line-height: 1.08;
+}
+.content-carousel-wide .workshop-motion-content > p:not(.eyebrow) {
+  max-width: 52rem;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.content-carousel-wide .workshop-repair-guide {
+  grid-column: 1;
+  grid-row: 2;
+}
+.content-carousel-wide .workshop-repair-step,
+.content-carousel-wide .workshop-repair-related { background: #f7f9f6; }
+.content-carousel-wide .workshop-enquiry-prompt {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: end;
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin-inline: 0;
+  text-align: left;
+}
+.content-carousel-wide .workshop-enquiry-prompt .button { align-self: flex-end; margin-inline: 0; }
+@media (max-width: 800px) {
+  .content-carousel-wide > .content-carousel-track > .workshop-motion {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    gap: 1.25rem;
+  }
+  .content-carousel-wide .workshop-motion-content { grid-column: 1; grid-row: 1; }
+  .content-carousel-wide .workshop-repair-guide { grid-column: 1; grid-row: 2; }
+  .content-carousel-wide .workshop-enquiry-prompt { grid-column: 1; grid-row: 3; max-width: 390px; }
+}
+
+#services[hidden] { display: none !important; }

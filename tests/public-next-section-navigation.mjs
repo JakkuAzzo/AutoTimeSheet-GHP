@@ -66,7 +66,6 @@ try {
 
       const expectedNextSections = [
         'What customers say',
-        'Repair services for essential equipment',
         'Our story and how to reach out',
         'A look at GMT’s engineering work',
         'Get in touch'
@@ -83,7 +82,7 @@ try {
       assert.equal(await finalNavigationControl.isDisabled(), true, `${viewport.width}px: keep the final navigation locked while scrolling to the last section`);
       await page.waitForFunction(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1, { timeout: 4000 });
       const terminalState = await page.evaluate(() => {
-        const sections = Array.from(document.querySelectorAll('main [data-scroll-snap]')).filter((section) => !section.parentElement?.closest('[data-scroll-snap]'));
+        const sections = Array.from(document.querySelectorAll('main [data-scroll-snap]')).filter((section) => !section.hidden && !section.parentElement?.closest('[data-scroll-snap]'));
         const lastSectionRect = sections.at(-1).getBoundingClientRect();
         return {
           atDocumentEnd: window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1,
@@ -124,7 +123,7 @@ try {
     await nextSectionControl.press('Enter');
     await waitForNavigation(reducedMotionPage, 'What customers say');
     const focusMovedIntoDestination = await reducedMotionPage.evaluate(() => {
-      const sections = Array.from(document.querySelectorAll('main [data-scroll-snap]')).filter((section) => !section.parentElement?.closest('[data-scroll-snap]'));
+      const sections = Array.from(document.querySelectorAll('main [data-scroll-snap]')).filter((section) => !section.hidden && !section.parentElement?.closest('[data-scroll-snap]'));
       return sections[1].contains(document.activeElement);
     });
     assert.equal(focusMovedIntoDestination, true, 'keyboard activation moves focus to the destination section');
@@ -137,7 +136,7 @@ try {
   await clearancePage.route('**/*', (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort('blockedbyclient'));
   try {
     await clearancePage.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
-    for (const nextName of ['What customers say', 'Repair services for essential equipment', 'Our story and how to reach out', 'A look at GMT’s engineering work']) {
+    for (const nextName of ['What customers say', 'Our story and how to reach out', 'A look at GMT’s engineering work']) {
       await clearancePage.getByRole('button', { name: /^Next Section:/i }).click();
       await waitForNavigation(clearancePage, nextName);
     }

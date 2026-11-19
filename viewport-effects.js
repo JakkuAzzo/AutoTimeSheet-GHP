@@ -146,7 +146,7 @@
     if (!main) return;
 
     var sections = Array.prototype.slice.call(main.querySelectorAll('[data-scroll-snap]')).filter(function (section) {
-      return !section.parentElement || !section.parentElement.closest('[data-scroll-snap]');
+      return !isInHiddenTree(section) && (!section.parentElement || !section.parentElement.closest('[data-scroll-snap]'));
     });
     if (sections.length < 2) return;
 
