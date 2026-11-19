@@ -30,7 +30,8 @@ try {
     await page.waitForFunction(() => document.querySelector('#what-we-offer').classList.contains('is-active'));
     const after = await heights();
     assert.ok(Math.max(...after) - Math.min(...after) < 1 && Math.abs(before[0] - after[0]) < 1, `${viewport.width}: panel heights stay equal`);
-    const trigger = page.locator('[data-services-overlay-open]');
+    const trigger = page.locator('#what-we-offer [data-services-overlay-open]');
+    assert.equal(await page.locator('main > #services').isHidden(), true);
     await trigger.click();
     const dialog = page.locator('[data-services-overlay]');
     assert.equal(await dialog.evaluate(element => element.open), true);
@@ -38,11 +39,22 @@ try {
     assert.equal(await page.locator('[data-services-overlay-close]').evaluate(element => element === document.activeElement), true);
     assert.ok(await dialog.evaluate(element => element.scrollHeight > element.clientHeight), `${viewport.width}: cards can be scrolled`);
     await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('[data-services-overlay]').open && !!document.querySelector('main > #services'));
+    await page.waitForFunction(() => !document.querySelector('[data-services-overlay]').open && !!document.querySelector('main > #services[hidden]'));
     await trigger.click();
     await dialog.locator('.service-card [data-enquire-nav]').first().click();
     assert.equal(await dialog.evaluate(element => element.open), false);
     assert.equal(await page.locator('[data-contact-modal]').isVisible(), true);
+    await page.locator('[data-contact-modal] .contact-close').click();
+    assert.equal(await page.locator('[data-site-nav] [data-services-overlay-open]').evaluate(element => element === document.activeElement), true);
+    await page.locator('[data-site-nav] [data-services-overlay-open]').click();
+    assert.equal(await dialog.evaluate(element => element.open), true);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !!document.querySelector('main > #services[hidden]'));
+    assert.ok(await page.evaluate(() => {
+      const sections = [...document.querySelectorAll('main > [data-scroll-snap]')].filter(element => !element.hidden);
+      const reviews = sections.findIndex(element => element.classList.contains('google-reviews-section'));
+      return reviews >= 0 && sections[reviews + 1].getAttribute('data-section-navigation-label') === 'Our story and how to reach out';
+    }), 'Reviews are followed by Our story');
     await page.close();
   }
   console.log('Services overlay and equal carousel heights: PASS');

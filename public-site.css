@@ -4506,3 +4506,5 @@ body.services-overlay-open { overflow: hidden; }
   .content-carousel-wide .workshop-repair-guide { grid-column: 1; grid-row: 2; }
   .content-carousel-wide .workshop-enquiry-prompt { grid-column: 1; grid-row: 3; max-width: 390px; }
 }
+
+#services[hidden] { display: none !important; }
