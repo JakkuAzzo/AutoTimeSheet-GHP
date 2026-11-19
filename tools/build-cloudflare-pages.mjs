@@ -43,7 +43,7 @@ for (const file of [
   'timesheet-mobile-fixes.js', 'timesheet-preflight.js', 'timesheet-status-labels.js',
   // The custom domain serves the public company site at /. Keep its scripts
   // and media in the same Pages bundle as the protected portal.
-  'public-site.css', 'headline-lines-20261119.css', 'headline-name-larger-20261119.css', 'public-site-mapfix-20260928.js', 'viewport-effects.js'
+  'public-site.css', 'headline-lines-20261119.css', 'headline-name-larger-20261119.css', 'headline-one-line-20261119.css', 'public-site-mapfix-20260928.js', 'viewport-effects.js'
 ]) copy(file);
 copy('sitemap.xml');
 // Public IndexNow ownership verification file.
