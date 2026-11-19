@@ -3027,6 +3027,8 @@ body {
 
 .google-review-rating-list li { min-width: 0; }
 .google-review-rating-list a {
+  background: #fff;
+  border-radius: 10px;
   display: flex;
   min-height: 52px;
   align-items: center;
