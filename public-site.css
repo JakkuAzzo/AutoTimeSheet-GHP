@@ -849,7 +849,7 @@ html[data-viewport-effects-ready="true"] [data-scroll-reveal].is-visible {
 }
 
 .about-band {
-  --team-image: url("assets/website/workshop/joe-workshop.jpg");
+  --team-image: url("assets/website/workshop/workshop-signage.jpg");
   position: relative;
   isolation: isolate;
   min-height: clamp(520px, 62vw, 720px);
@@ -3503,7 +3503,7 @@ body {
   position: absolute;
   inset: -18px;
   z-index: 0;
-  background-image: url("assets/website/workshop/joe-workshop.jpg");
+  background-image: url("assets/website/workshop/workshop-signage.jpg");
   background-position: center;
   background-size: cover;
   filter: blur(16px) saturate(.82);

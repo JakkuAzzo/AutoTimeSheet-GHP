@@ -51,6 +51,21 @@ copy('e7d606f354bb4e84a5319087cc42e829.txt');
 copy('robots.txt');
 copy('portal/profile.js', 'profile.js');
 copy('assets');
+// Preserve the original media in source control while keeping removed photos
+// out of the published bundle, including their old direct URLs.
+const publishedWebsiteImages = new Set([
+  'facebook.svg', 'pump-association.jpeg', 'motor-repair-v2.png', 'pumps-v2.png',
+  'hero/hero-workshop-Photo-2.jpg', 'hero/hero-workshop-Photo-3.jpg',
+  'hero/hero-workshop-Photo-6.jpg', 'hero/hero-workshop-Photo-7.jpg',
+  'workshop/stator-rewind.jpg', 'workshop/workshop-signage.jpg',
+]);
+const websiteAssets = path.join(output, 'assets', 'website');
+for (const entry of fs.readdirSync(websiteAssets, { recursive: true, withFileTypes: true })) {
+  if (!entry.isFile()) continue;
+  const filename = path.join(entry.parentPath ?? entry.path, entry.name);
+  const relative = path.relative(websiteAssets, filename).split(path.sep).join('/');
+  if (!publishedWebsiteImages.has(relative)) fs.rmSync(filename);
+}
 copy('data/calendar/events.json');
 
 const rootTransform = (contents) => contents

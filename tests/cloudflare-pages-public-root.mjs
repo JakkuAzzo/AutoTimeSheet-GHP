@@ -44,7 +44,9 @@ try {
   assert.match(redirects, /^\/portal\/timesheets\.html \/portal\/submissions 301$/m);
   assert.match(redirects, /^\/timesheets\.html \/portal\/submissions 301$/m);
   assert.ok(fs.existsSync(path.join(output, 'public-site-mapfix-20260928.js')));
-  assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));
+  assert.ok(fs.existsSync(path.join(output, 'assets', 'website', 'pumps-v2.png')));
+  assert.ok(!fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'pump-repair.jpg')));
+  assert.ok(!fs.existsSync(path.join(output, 'assets', 'website', 'workshop', 'joe-workshop.jpg')));
   assert.ok(fs.existsSync(path.join(output, 'reviews', 'index.html')));
   assert.ok(fs.existsSync(path.join(output, 'pay-periods.js')));
   assert.ok(fs.existsSync(path.join(output, 'responsive-tables.js')));
