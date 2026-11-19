@@ -393,7 +393,9 @@
         track.style.height = 'auto';
         // Use the tallest natural panel so the section remains stable when
         // switching panels, including after a viewport resize.
-        var sharedHeight = Math.max.apply(null, panels.map(function (panel) { return panel.scrollHeight; }));
+        var reference = root.querySelector('#what-we-offer');
+        var sharedHeight = reference ? reference.scrollHeight
+          : Math.max.apply(null, panels.map(function (panel) { return panel.scrollHeight; }));
         panels.forEach(function (panel) { panel.style.height = sharedHeight + 'px'; });
         track.style.height = sharedHeight + 'px';
       }
