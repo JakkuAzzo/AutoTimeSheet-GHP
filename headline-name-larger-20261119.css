@@ -1,0 +1,19 @@
+.hero-headline-line { display: block; }
+.hero .hero-inner > .hero-copy h1 {
+  font-size: clamp(1.05rem, 2.65vw, 2.5rem);
+  line-height: 1.08;
+  text-wrap: normal;
+}
+@media (max-width: 820px) {
+  .hero .hero-inner > .hero-copy h1 { font-size: clamp(1.05rem, 4.4vw, 2rem); }
+}
+
+.hero .hero-inner > .hero-copy h1 .hero-headline-line:first-child {
+  font-size: clamp(1.65rem, 4vw, 3.75rem);
+  line-height: 1.05;
+}
+@media (max-width: 820px) {
+  .hero .hero-inner > .hero-copy h1 .hero-headline-line:first-child {
+    font-size: clamp(1.45rem, 6vw, 3.1rem);
+  }
+}
