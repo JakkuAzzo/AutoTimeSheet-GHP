@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const siteRoot = 'https://gmt-services.co.uk';
-const publicCssHref = '/public-site.css?v=responsive-layout-20261015-v35';
+const publicCssHref = '/public-site.css?v=workshop-wall-retouch-20261119';
 const viewportEffectsSrc = '/viewport-effects.js?v=responsive-layout-20261015-v1';
 
 const pages = [
@@ -140,7 +140,7 @@ const pages = [
     description: 'Contact GMT Electrical Services about balancing enquiries for motors, fans and rotating equipment from its Croydon workshop.',
     heading: 'Balancing Services',
     intro: 'If vibration or balance is a concern with a motor, fan or rotating assembly, provide GMT with the equipment details and symptoms. The team will assess the request and advise whether it falls within the available balancing scope.',
-    image: 'assets/website/workshop/workshop-signage.jpg',
+    image: 'assets/website/retouched/workshop-building.jpg',
     imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['What to include', 'A description of the equipment and the issue helps GMT understand the balancing enquiry.', ['Equipment type and make or model', 'Where and how the equipment is used', 'The vibration or operating symptoms']],
@@ -154,7 +154,7 @@ const pages = [
     description: 'Enquire about component repair or manufacture for motor and electromechanical equipment with GMT Electrical Services in Croydon.',
     heading: 'Component Manufacturing & Precision Repairs',
     intro: 'For a worn or damaged component, provide GMT with the equipment and part details. The workshop will review the request and advise whether repair, replacement, sourcing or a manufacturing enquiry is appropriate.',
-    image: 'assets/website/workshop/workshop-signage.jpg',
+    image: 'assets/website/retouched/workshop-building.jpg',
     imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['Component details', 'Provide the equipment make and model, component name or part number, and any available photos or measurements. This information supports an accurate assessment.', ['Equipment type and application', 'Component details and visible damage', 'Any drawings or specifications you can share']],
@@ -168,7 +168,7 @@ const pages = [
     description: 'Contact GMT Electrical Services about on-site engineering support for motor, pump, fan, extractor and gearbox equipment in London and the South East.',
     heading: 'On-Site Engineering Support',
     intro: 'GMT Electrical Services receives workshop and site repair enquiries across London and the South East. Provide the equipment details, fault symptoms and site location; the team will assess the request and advise whether workshop or on-site support is appropriate.',
-    image: 'assets/website/workshop/workshop-signage.jpg',
+    image: 'assets/website/retouched/workshop-building.jpg',
     imageAlt: 'GMT Electrical Services workshop in Croydon',
     sections: [
       ['Prepare a site enquiry', 'Describe the equipment, fault and site. Include access information and any site constraints for the team to review.', ['Site address and contact details', 'Equipment make, model and use', 'Fault symptoms and requested support']],
