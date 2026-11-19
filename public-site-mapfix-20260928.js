@@ -391,15 +391,11 @@
 
         panels.forEach(function (panel) { panel.style.removeProperty('height'); });
         track.style.height = 'auto';
-        if (root.classList.contains('content-carousel-wide')) {
-          // Measure both natural content heights so switching tabs does not
-          // resize the section, including when the viewport width changes.
-          var sharedHeight = Math.max.apply(null, panels.map(function (panel) { return panel.scrollHeight; }));
-          panels.forEach(function (panel) { panel.style.height = sharedHeight + 'px'; });
-          track.style.height = sharedHeight + 'px';
-        } else {
-          track.style.height = panels[index].scrollHeight + 'px';
-        }
+        // Use the tallest natural panel so the section remains stable when
+        // switching panels, including after a viewport resize.
+        var sharedHeight = Math.max.apply(null, panels.map(function (panel) { return panel.scrollHeight; }));
+        panels.forEach(function (panel) { panel.style.height = sharedHeight + 'px'; });
+        track.style.height = sharedHeight + 'px';
       }
 
       root.addEventListener('gmt:panel-resize', sizeActivePanel);
@@ -542,6 +538,40 @@
         if (timer) window.clearInterval(timer);
       });
     });
+  }
+
+  function initServicesOverlay() {
+    var trigger = document.querySelector('[data-services-overlay-open]');
+    var dialog = document.querySelector('[data-services-overlay]');
+    var content = dialog && dialog.querySelector('[data-services-overlay-content]');
+    var section = document.getElementById('services');
+    var closeButton = dialog && dialog.querySelector('[data-services-overlay-close]');
+    if (!trigger || !dialog || !content || !section || !closeButton || !dialog.showModal) return;
+    var placeholder = document.createComment('Services section location');
+
+    function restore() {
+      if (placeholder.parentNode) placeholder.parentNode.replaceChild(section, placeholder);
+      document.body.classList.remove('services-overlay-open');
+    }
+    trigger.addEventListener('click', function (event) {
+      event.preventDefault();
+      section.parentNode.insertBefore(placeholder, section);
+      content.appendChild(section);
+      document.body.classList.add('services-overlay-open');
+      dialog.showModal();
+      closeButton.focus();
+    });
+    closeButton.addEventListener('click', function () { dialog.close(); });
+    dialog.addEventListener('close', restore);
+    dialog.addEventListener('click', function (event) {
+      if (event.target === dialog) { dialog.close(); return; }
+      // The existing enquiry modal must be able to receive focus outside the
+      // native dialog; return the original cards before their click handlers run.
+      if (event.target.closest('[data-enquire-nav], [data-service-enquiry-open]')) {
+        dialog.close();
+        restore();
+      }
+    }, true);
   }
 
   function initContactModal() {
@@ -811,6 +841,7 @@
     initContentCarousel();
     initGoogleReviewsCarousel();
     initContactModal();
+    initServicesOverlay();
     initWorkshopEnquiry();
   }
 
