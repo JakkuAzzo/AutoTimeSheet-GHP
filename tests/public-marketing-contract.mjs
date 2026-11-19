@@ -38,7 +38,7 @@ const processIndex = fs.readFileSync(path.join(repo, 'process/index.html'), 'utf
 const publicSiteScript = fs.readFileSync(path.join(repo, 'public-site-mapfix-20260928.js'), 'utf8');
 const publicStyles = fs.readFileSync(path.join(repo, 'public-site.css'), 'utf8');
 
-assert.match(homepage, /GMT ELECTRICAL SERVICES<\/span>\s*<span[^>]*>Specialist Motor, Pump,<\/span>\s*<span[^>]*>Fan &amp; Gearbox Repairs<\/span>\s*<span[^>]*>Across London &amp; the South East/i);
+assert.match(homepage, /GMT ELECTRICAL SERVICES<\/span>\s*<span[^>]*>Est\. 1985<\/span><\/h1>/i);
 assert.match(homepage, /Why Choose GMT\?/i);
 assert.match(homepage, /id="services"/);
 assert.doesNotMatch(homepage, /Trusted Across London|useful turnaround/i,
