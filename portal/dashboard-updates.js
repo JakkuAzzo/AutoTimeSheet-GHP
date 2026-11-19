@@ -261,7 +261,8 @@
       statisticsStatus.textContent = "Loading all available records for " + monthLabel(month) + "…";
       return loadStatisticsMonth(month);
     }
-    var records = statisticsMonthCache[month];
+    var identity = profileIdentity();
+    var records = statisticsMonthCache[month].filter(function (record) { return record && (statisticsAdmin || recordOwnerMatches(record, identity)); });
     personalHistoryRecords = records;
     if (statisticsAdmin && statisticsEmployee && statisticsEmployee.value) records = records.filter(function (record) { return employeeKey(record) === statisticsEmployee.value; });
     var result = calculateStatistics(records, month);
@@ -486,11 +487,11 @@
   }
 
   function taskAssignee(record, payload) {
-    return record.assignee || record.task_assignee || payload.assignee || payload.assignedTo || "Unassigned";
+    return record.assignee || record.assigneeName || record.assigneeUpn || record.task_assignee || payload.assignee || payload.assignedTo || "Unassigned";
   }
 
   function taskCreator(record, payload) {
-    return record.created_by || record.createdBy || payload.createdBy || payload.created_by || record.employee_name || record.employee_upn || "GMT account";
+    return record.requesterName || record.requesterUpn || record.created_by || record.createdBy || payload.createdBy || payload.created_by || record.employee_name || record.employee_upn || "GMT account";
   }
 
   function taskProgress(record, payload) {
@@ -510,9 +511,47 @@
   }
 
   function taskRecords(body) {
-    return body && Array.isArray(body.records) ? body.records.filter(function (record) {
-      return record && (record.kind === undefined || String(record.kind).toLowerCase() === "tasks");
+    var records = body && Array.isArray(body.records) ? body.records.filter(function (record) {
+      return record && typeof record === "object";
     }) : [];
+    var positions = Object.create(null);
+    records.forEach(function (record, index) {
+      if (record.taskId) positions[String(record.taskId)] = index;
+    });
+    (body && Array.isArray(body.pending) ? body.pending : []).forEach(function (item) {
+      var pendingTask = item && item.task;
+      if (!pendingTask || typeof pendingTask !== "object") return;
+      var taskId = String(pendingTask.taskId || "");
+      if (taskId && positions[taskId] !== undefined) {
+        var confirmed = records[positions[taskId]];
+        if (!confirmed.pendingSync) records[positions[taskId]] = Object.assign({}, confirmed, { pendingSync: item });
+      }
+      else {
+        if (taskId) positions[taskId] = records.length;
+        records.push(Object.assign({}, pendingTask, { pendingSync: item }));
+      }
+    });
+    return records;
+  }
+
+  function mergeTaskRecords(historyRecords, workflowRecords) {
+    var records = [];
+    var positions = Object.create(null);
+    function keyFor(record) {
+      return String(record && (record.taskId || record.task_id || record.source_record_id || record.sourceRecordId || record.record_id || record.id) || "");
+    }
+    historyRecords.concat(workflowRecords).forEach(function (record) {
+      var key = keyFor(record);
+      if (key && positions[key] !== undefined) {
+        // The workflow snapshot carries the current status; retain legacy
+        // history fields and enrich them with that authoritative snapshot.
+        records[positions[key]] = Object.assign({}, records[positions[key]], record);
+      } else {
+        if (key) positions[key] = records.length;
+        records.push(record);
+      }
+    });
+    return records;
   }
 
   function renderTask(record) {
@@ -522,12 +561,16 @@
     var assignee = taskAssignee(record, payload);
     var creator = taskCreator(record, payload);
     var taskStatus = String(record.status || payload.status || "Submitted");
-    var due = record.due_date || payload.due || "No due date";
-    var job = record.job_reference || payload.jobReference || "No job reference";
+    var due = record.dueDate || record.due_date || payload.due || "No due date";
+    var job = record.jobReference || record.job_reference || payload.jobReference || "No job reference";
+    var syncNotice = record.pendingSync
+      ? '<p class="portal-task-sync-status">Update not confirmed: ' + safe(record.pendingSync.error || "Open task tools to review this update.") + '</p>'
+      : '';
     var bar = progress.value === null ? "" : '<span class="portal-task-progress-bar" style="width:' + progress.value + '%"></span>';
     return '<article class="portal-task-card">' +
       '<div class="portal-task-card-heading"><h3>' + safe(title) + '</h3><span class="portal-task-status">' + safe(taskStatus) + '</span></div>' +
       '<p class="portal-task-card-reference">' + safe(job) + ' · Due ' + safe(due) + '</p>' +
+      syncNotice +
       '<dl class="portal-task-card-meta">' +
         '<div><dt>Assigned to</dt><dd>' + safe(assignee) + '</dd></div>' +
         '<div><dt>Created by</dt><dd>' + safe(creator) + '</dd></div>' +
@@ -540,7 +583,7 @@
   function renderTasks(records) {
     if (!board) return;
     if (!records.length) {
-      board.innerHTML = '<p class="portal-task-board-empty">No submitted tasks are available for this account yet.</p>';
+      board.innerHTML = '<p class="portal-task-board-empty">No tasks are available for this account yet.</p>';
       return;
     }
     board.innerHTML = records.map(renderTask).join("");
@@ -553,24 +596,50 @@
       taskRetry.disabled = true;
     }
     status.textContent = "Loading submitted tasks…";
-    if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== "function" || !window.GMTPortalApi.enabled()) {
+    if (!window.GMTPortalApi || typeof window.GMTPortalApi.enabled !== "function" || !window.GMTPortalApi.enabled()
+      || (typeof window.GMTPortalApi.tasks !== "function" && typeof window.GMTPortalApi.history !== "function")) {
       status.textContent = "Protected task history is not connected.";
       renderTasks([]);
       if (taskRetry) taskRetry.disabled = false;
       return;
     }
-    try {
-      var body = await window.GMTPortalApi.history("tasks");
-      var records = taskRecords(body);
-      status.textContent = records.length ? records.length + " submitted task" + (records.length === 1 ? "" : "s") + "." : "No submitted tasks yet.";
-      renderTasks(records);
-    } catch (error) {
+    var historyRecords = [];
+    var workflowRecords = [];
+    var historyError = null;
+    var workflowError = null;
+    if (typeof window.GMTPortalApi.history === "function") {
+      try {
+        historyRecords = taskRecords(await window.GMTPortalApi.history("tasks"));
+      } catch (error) {
+        historyError = error;
+      }
+    }
+    if (typeof window.GMTPortalApi.tasks === "function") {
+      try {
+        workflowRecords = taskRecords(await window.GMTPortalApi.tasks());
+      } catch (error) {
+        workflowError = error;
+      }
+    }
+    if (historyError && workflowError) {
+      var error = historyError || workflowError;
       status.textContent = error && error.message ? error.message : "Submitted tasks could not be loaded.";
       renderTasks([]);
       if (taskRetry) taskRetry.hidden = false;
-    } finally {
       if (taskRetry) taskRetry.disabled = false;
+      return;
     }
+    var records = mergeTaskRecords(historyRecords, workflowRecords);
+    if (historyError || workflowError) {
+      status.textContent = records.length
+        ? "Showing " + records.length + " task" + (records.length === 1 ? "" : "s") + "; one task source could not be loaded."
+        : "No tasks yet. One task source could not be loaded.";
+      if (taskRetry) taskRetry.hidden = false;
+    } else {
+      status.textContent = records.length ? records.length + " task" + (records.length === 1 ? "" : "s") + "." : "No tasks yet.";
+    }
+    renderTasks(records);
+    if (taskRetry) taskRetry.disabled = false;
   }
 
   async function loadNotifications() {

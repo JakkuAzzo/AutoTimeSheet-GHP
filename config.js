@@ -32,6 +32,9 @@ window.GMT_APP_CONFIG = {
   // keeps portal CRUD available without requesting the Power Automate Flow
   // Service resource, whose delegated permission may not be present yet.
   portalApiScopes: ["openid", "profile", "email"],
+  // Task board reads and writes use the delegated Flow Service token verified
+  // by the Worker before it calls the server-side TASK_WORKFLOW_URL secret.
+  taskWorkflowScopes: ["https://service.flow.microsoft.com//.default"],
   portalHistoryEndpoint: "https://gmt-portal-api.raspy-breeze-e230.workers.dev",
   portalHistoryScopes: ["openid", "profile", "email"],
   fallbackFormSubmitEndpoint: "https://formsubmit.co/7aa066a9c2d177d1c0702281ab88d0fe",

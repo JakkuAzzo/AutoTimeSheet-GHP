@@ -3,6 +3,7 @@ import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-r
 import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
 import { getJobCardArchiveRecord, getJobCardBatch, jobCardBatchStatus, normalizeJobCardEntry, queryJobCardArchive, reviewJobCardArchive, startJobCardBatch, upsertJobCardArchive, upsertJobCardSourceFile } from './job-card-archive.js';
+import { applyTaskAction, canReadTask, createTaskWorkflowStore, executeTaskOperation, handleTaskWorkflowRequest, normalizeTaskRecord, normalizeTaskRequest, taskManager, taskRequestMatches, taskWorkflowUrl } from './task-workflow.js';
 import { offsiteClockEndpoint } from './offsite-clock.js';
 import { completeJobCardAttachmentUpload, expireJobCardAttachmentUploadSession, findCompletedJobCardAttachment, getJobCardAttachment, getJobCardAttachmentUploadSession, listJobCardAttachments, normalizeJobCardAttachmentMetadata, readJobCardAttachmentBytes, reserveJobCardAttachmentUploadSession } from './job-card-attachments.js';
 
@@ -5396,6 +5397,47 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   };
 }
 
+async function sendTaskWorkflowOperation(target, token, operation) {
+  let response;
+  try {
+    response = await fetch(target.href, {
+      method: 'POST',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(30000),
+      headers: { accept: 'application/json', 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(operation),
+      cf: { cacheTtl: 0, cacheEverything: false }
+    });
+  } catch (_) {
+    throw Object.assign(new Error('Microsoft 365 task workflow did not return a result'), { status: 502 });
+  }
+  if (response.status >= 300 && response.status < 400) {
+    throw Object.assign(new Error('Microsoft 365 task workflow returned an unexpected redirect'), { status: 502 });
+  }
+  const textBody = await response.text();
+  if (textBody.length > MAX_BODY_BYTES) throw Object.assign(new Error('Microsoft 365 task workflow returned an oversized response'), { status: 502 });
+  let result;
+  try { result = textBody ? JSON.parse(textBody) : null; } catch (_) { result = null; }
+  if (!response.ok || !result || result.success !== true) {
+    throw Object.assign(new Error('Microsoft 365 task workflow did not confirm the operation'), { status: 502 });
+  }
+  return result;
+}
+
+async function taskWorkflowEndpoint(request, env, identity, origin) {
+  const target = taskWorkflowUrl(env);
+  const flowToken = await authenticateFlowToken(request, env, identity);
+  const store = createTaskWorkflowStore(env.DB);
+  const result = await handleTaskWorkflowRequest(request, {
+    identity,
+    directory: staffDirectory(env),
+    store,
+    timestamp: now(),
+    workflow: (operation) => sendTaskWorkflowOperation(target, flowToken, operation)
+  });
+  return json(result.body, result.status, origin || '');
+}
+
 async function handle(request, env, ctx) {
   const origin = allowedOrigin(request, env);
   if (origin === null) return json({ error: 'Origin is not allowed' }, 403);
@@ -5416,6 +5458,10 @@ async function handle(request, env, ctx) {
   }
   const identity = await authenticate(request, env);
   if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
+
+  if (url.pathname === '/api/tasks' || /^\/api\/tasks\/[^/]+\/(?:actions|history)$/.test(url.pathname)) {
+    return taskWorkflowEndpoint(request, env, identity, origin || '');
+  }
 
   if (url.pathname === '/api/access' && request.method === 'GET') {
     return json({ isAdmin: identity.isAdmin, isHrAdmin: identity.isHrAdmin, isXeroAdmin: identity.isXeroAdmin,
@@ -5626,7 +5672,7 @@ export default {
       const status = Number(error && error.status) || 500;
       const message = error?.publicMessage || (status >= 500 ? 'GMT portal service is temporarily unavailable' : (error.message || 'Request failed'));
       const origin = allowedOrigin(request, env);
-      return json({ error: message }, status, origin || '');
+      return json({ error: message, ...(error?.operationId ? { operationId: error.operationId } : {}), ...(error?.syncStatus ? { syncStatus: error.syncStatus } : {}) }, status, origin || '');
     }
   },
 

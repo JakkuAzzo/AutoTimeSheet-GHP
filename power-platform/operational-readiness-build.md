@@ -73,15 +73,20 @@ The field-level automation contract and current build status are recorded in
 
 ## Flow B: Task calendar synchronisation
 
-**Trigger:** Dataverse `Task` row added, modified or deleted.
+**Trigger:** Microsoft Lists `Tasks` row added or modified by the protected
+Worker-to-Power-Automate task workflow.
 
-**Filter:** run only when due date, status, task title, owner or linked job reference changes.
+**Filter:** run only after approval (`Status = To-Do`) when due date, status,
+task title, assigned staff member or linked job reference changes.
 
 The same event identity and failure-handling pattern as Job Cards applies.
 
 **Event title:** `[GMT][TASK] {task title}`
 
-Use an all-day event on the due date. A completed/cancelled task should follow the agreed delete/retain policy; default to deletion only after Accounts signs off the behaviour.
+Use an all-day event on the due date and retain the Outlook event ID on the Task
+List row. Update that same event when scheduling fields change. Retain the event
+when a task is completed or cancelled; do not delete it. Use the SharePoint row
+ETag to reject a concurrent stale update.
 
 ## Flow C: Timesheet attachment storage extension
 

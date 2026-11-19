@@ -122,13 +122,22 @@ Link`, `Folder Link`, `Source Email Subject`, `Processed By Flow`.
 
 ### Tasks
 
-`Task ID`, `Task Title`, `Employee`, `Assigned To`, `Company / Job Ref`,
-`Status`, `Priority`, `Due Date`, `Year`, `Month`, `Created At`, `Updated At`,
-`Folder Link`, `Processed By Flow`.
+`Task ID` (single-line text, enforce unique values), `Last Action ID`,
+`Task Title`, `Requested By UPN`, `Requested By`, `Requested By Object ID`,
+`Requested Assignee UPN`, `Assigned To UPN`, `Company / Job Ref`, `Status`,
+`Priority`, `Due Date`, `Outlook Event ID`, `Calendar Sync Status`,
+`Calendar Sync Error`, `Last Calendar Sync`, `Created At`, and `Updated At`.
 
-Task requests initially use `Pending approval`. Accounts approval changes them
-to `To-Do`; operational progress values are `In-Progress`, `Completed`, and
-`Cancelled`.
+Task requests initially use `Pending approval`. The Worker permits only
+Accounts/Operations to approve, reject, assign, schedule or cancel active work;
+approval changes status to `To-Do`, rejection changes it to `Cancelled`, and
+assigned staff progress through `In-Progress` and `Completed`.
+
+Create a `Task Workflow Actions` List with `Action ID` (single-line text,
+enforce unique values), `Task ID`, `Action`, `Action Status` (`Started`,
+`Completed`, `Failed`), `Outcome JSON`, `Last Error`, `Started At`, and
+`Completed At`. This is the flow's idempotency log. It contains no bearer
+token or trigger URL.
 
 ### Calendar Requests
 
@@ -345,21 +354,40 @@ must not pass raw email HTML or FormSubmit attachment names into the workbook.
 6. Create or update a single `Job Cards` List item for the job reference.
 7. Move email to `Processed`.
 
-## Flow 4: Task Intake and Approval
+## Flow 4: Protected Task Workflow API
 
-**Trigger:** Outlook: *When a new email arrives (V3)* in the GMT Portal task
-folder, with subject `[GMT][TASK]`.
+**Trigger:** Power Automate `When an HTTP request is received`, restricted to
+the GMT tenant and the delegated Flow Service audience. The Worker stores the
+trigger URL as `TASK_WORKFLOW_URL`; do not put it in Pages config or email.
 
-1. Validate the `gmt_type=task`, task ID, title and requester metadata.
-2. Create or update a `Tasks` List item with `Status = Pending approval`.
-3. Notify the licensed accounts approver group. The unlicensed requester does
-   not receive List edit permissions.
-4. Use **Start and wait for an approval** or an accounts-owned List approval
-   view. On approval set status to `To-Do`; on rejection set it to `Cancelled`
-   and notify the requester.
-5. Save optional files under
-   `GMT Web-App/Tasks/{year}/{month}/{employee}/{status}/` and move the source
-   email to `Processed`.
+The flow accepts `list`, `get`, and `upsert` actions from
+`power-platform/submission-envelope-contract.json`:
+
+1. For `list`, return only the task projection required by the authorized Worker
+   request. For `get`, resolve the stable `Task ID` and return the current List
+   row.
+2. For `upsert`, look up the unique `Action ID` in `Task Workflow Actions`. If
+   it already has a completed outcome, return that outcome without another
+   List or calendar write. Resume a `Started` action by checking `Last Action ID`
+   and intended values before repeating a write.
+3. Resolve the `Task ID`. For updates, compare each current List value with the
+   corresponding `event.changes.from` value and write with the current SharePoint
+   row ETag (`If-Match`). On a conflict, re-read and reject the stale action
+   rather than overwriting a newer approval, assignment, schedule, or status.
+4. Create the task row only for a `request` action with `Pending approval`.
+   Update the row for a validated approval, rejection, assignment, schedule,
+   cancellation, or progress action. Do not trust task ownership or status
+   values supplied by the browser; the Worker derives the actor from its
+   verified Entra identity and sends that actor with the operation.
+5. Record the terminal result under the unique `Action ID`, then return
+   `{success, taskId, sharePointItemId, status, outlookEventId,
+   calendarSyncStatus}`. Return success only after the List row and action log
+   have been written.
+
+The Microsoft `Tasks` List is the authority for task status and assignment.
+The Worker D1 copy supports protected reads, activity history, and retries; it
+is not a substitute approval record. Do not create the old Outlook-email task
+intake path or a browser-side FormSubmit fallback.
 
 ## Flow 5: Calendar Request Approval
 

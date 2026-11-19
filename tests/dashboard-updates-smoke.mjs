@@ -39,6 +39,16 @@ const tasks = Array.from({ length: 12 }, (_, index) => ({
   due_date: `2026-10-${String(index + 1).padStart(2, '0')}`,
   updated_at: `2026-10-${String(index + 1).padStart(2, '0')}T12:00:00Z`
 }));
+const workflowTasks = tasks.map((task) => ({
+  taskId: task.source_record_id,
+  title: task.task_title,
+  assigneeUpn: task.assignee,
+  requesterName: task.employee_name,
+  status: task.status === 'Complete' ? 'Completed' : task.status,
+  jobReference: task.job_reference,
+  dueDate: task.due_date,
+  updatedAt: task.updated_at
+}));
 const enquiries = Array.from({ length: 10 }, (_, index) => ({
   kind: 'enquiries',
   source_record_id: `enquiry-${index + 1}`,
@@ -53,6 +63,13 @@ const notificationRecords = [
   ...enquiries,
   { kind: 'timesheets', source_record_id: 'timesheet-1', employee_name: 'Sample Engineer', updated_at: '2026-10-13T14:00:00Z' }
 ];
+const legacyOnlyTask = {
+  kind: 'tasks',
+  source_record_id: 'legacy-task-only',
+  task_title: 'Legacy history task',
+  status: 'Submitted',
+  job_reference: 'GMT-LEGACY'
+};
 function londonDateKey(date) {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
@@ -110,6 +127,9 @@ async function createDashboardPage(viewport, scenario) {
   const failTasks = scenario === 'error' || scenario === 'task-error';
   const failNotifications = scenario === 'error' || scenario === 'notification-error';
   const invalidNotifications = scenario === 'invalid-notifications';
+  const pendingTaskOperation = scenario === 'pending-task'
+    ? { action: 'transition', error: 'The update was not confirmed.', task: { ...workflowTasks[0], title: 'Unconfirmed completion', status: 'Completed' } }
+    : null;
   await page.evaluate(({ fixtureTasks, fixtureNotifications, failure, startDates }) => {
     const historyCalls = [];
     Object.defineProperty(window, 'localStorage', {
@@ -119,22 +139,23 @@ async function createDashboardPage(viewport, scenario) {
     window.GMTPortalApi = {
       enabled: () => !failure.disconnected,
       payMonthStarts: async () => ({ startDates }),
+      tasks: async () => {
+        if (failure.tasks) throw new Error('Protected tasks unavailable for this check.');
+        return { records: fixtureTasks, pending: failure.pendingTaskOperation ? [failure.pendingTaskOperation] : [] };
+      },
       history: async (kind, options) => {
         historyCalls.push({ kind, options: options || {} });
-        if ((kind === 'tasks' && failure.tasks) || (kind !== 'tasks' && failure.notifications)) {
-          throw new Error('Protected history unavailable for this check.');
-        }
+        if ((kind === 'tasks' && failure.taskHistory) || (kind !== 'tasks' && failure.notifications)) throw new Error('Protected history unavailable for this check.');
         if (kind !== 'tasks' && failure.invalidNotifications) return { unexpected: true };
-        if (kind === 'tasks') return { records: fixtureTasks };
-        return { records: fixtureNotifications };
+        return { records: kind === 'tasks' ? fixtureNotifications.filter((record) => record.kind === 'tasks' && /^(task-|legacy-task-only)/.test(record.source_record_id || '')) : fixtureNotifications };
       },
       calls: () => historyCalls.slice()
     };
   }, {
-    fixtureTasks: empty ? [] : tasks,
-    fixtureNotifications: empty ? [] : [...notificationRecords, ...personalRecords],
+    fixtureTasks: empty ? [] : workflowTasks,
+    fixtureNotifications: empty ? [] : [...notificationRecords, ...personalRecords, ...(scenario === 'legacy-extra' ? [legacyOnlyTask] : [])],
     startDates: configuredStartDates,
-    failure: { tasks: failTasks, notifications: failNotifications, invalidNotifications, disconnected, missingIdentity }
+    failure: { tasks: failTasks, taskHistory: scenario === 'error', notifications: failNotifications, invalidNotifications, disconnected, missingIdentity, pendingTaskOperation }
   });
   await page.addScriptTag({ path: resolve(repoRoot, 'pay-periods.js') });
   await page.addScriptTag({ path: resolve(repoRoot, 'portal/dashboard-updates.js') });
@@ -150,8 +171,8 @@ async function createDashboardPage(viewport, scenario) {
 try {
   const page = await createDashboardPage({ width: 390, height: 844 }, 'populated');
   assert.equal(await page.locator('[data-updates-slide], [data-updates-carousel], [data-updates-dot], [data-updates-next], [data-updates-prev]').count(), 0, 'dashboard tasks and statistics should be visible without carousel navigation');
-  const dashboardSections = await page.locator('main > section').evaluateAll((items) => items.map((item) => item.getAttribute('aria-label') || item.querySelector('h2')?.textContent?.trim() || ''));
-  assert.deepEqual(dashboardSections.slice(0, 5), ['Today', 'What do you need to do?', 'My work', 'My statistics', 'Shared information']);
+  const dashboardSections = await page.locator('main > .portal-dashboard-carousel > section, main > section').evaluateAll((items) => items.map((item) => item.getAttribute('aria-label') || item.querySelector('h2')?.textContent?.trim() || ''));
+  assert.deepEqual(dashboardSections.slice(0, 5), ['Today', 'My work', 'My statistics', 'What do you need to do?', 'Shared information']);
   assert.equal(await page.locator('#portal-task-board').isVisible(), true);
   assert.equal(await page.locator('#portal-notifications').isVisible(), true);
   assert.equal(await page.locator('#portal-statistics-title').isVisible(), true);
@@ -161,7 +182,7 @@ try {
   assert.equal(await page.locator('[data-statistics-value="estimates-written"]').innerText(), '1', 'only the signed-in employee estimate should count');
   assert.equal(await page.locator('[data-statistics-value="job-cards-raised"]').innerText(), '1', 'only the signed-in employee job card should count');
   assert.equal(await page.locator('[data-statistics-value="tasks-completed"]').innerText(), '2', 'pending tasks should not count, and task update dates should place completions in the correct month');
-  assert.match(await page.locator('#portal-statistics-source-note').innerText(), /records currently available to your account/i);
+  assert.match(await page.locator('#portal-statistics-source-note').innerText(), /Loads all records for the selected pay month/i);
   const statisticMonths = await page.locator('#portal-statistics-pay-month option').evaluateAll((options) => options.map((option) => option.value));
   assert.ok(statisticMonths.includes(priorPayMonth), 'the selector should offer a prior pay month present in personal history');
   await page.locator('#portal-statistics-pay-month').selectOption(priorPayMonth);
@@ -188,6 +209,10 @@ try {
   assert.match(await firstTask.innerText(), /50%/);
   assert.match(await page.locator('#portal-task-board').innerText(), /Task 12/);
 
+  const mergedHistoryPage = await createDashboardPage({ width: 390, height: 844 }, 'legacy-extra');
+  assert.equal(await mergedHistoryPage.locator('#portal-task-board .portal-task-card').count(), tasks.length + 1, 'legacy tasks remain visible alongside workflow tasks');
+  assert.match(await mergedHistoryPage.locator('#portal-task-board').innerText(), /Legacy history task/);
+
   await page.locator('[data-notification-index="0"]').click();
   assert.equal(await page.locator('.portal-notification-dialog[open]').count(), 1, 'notification details should still open');
   await page.locator('[data-notification-close]').click();
@@ -212,7 +237,7 @@ try {
     responsiveResults.push(metrics);
     assert.ok(metrics.documentWidth <= width, `document overflows at ${width}px: ${JSON.stringify(metrics)}`);
     assert.ok(metrics.bodyWidth <= width, `body overflows at ${width}px: ${JSON.stringify(metrics)}`);
-    assert.ok(metrics.cardColumns >= 1 && metrics.cardColumns <= 5, `statistics cards should fit their grid at ${width}px: ${JSON.stringify(metrics)}`);
+    assert.ok(metrics.cardColumns >= 1 && metrics.cardColumns <= 6, `statistics cards should fit their grid at ${width}px: ${JSON.stringify(metrics)}`);
     if (width === 390) assert.ok(metrics.cardColumns <= 2, 'phone widths should use a compact statistics grid');
     if (width >= 1024) assert.ok(metrics.cardColumns >= 4, 'desktop widths should show multiple statistics cards in one row');
   }
@@ -224,7 +249,7 @@ try {
   }
   assert.equal(await emptyPage.locator('#portal-statistics-pay-month').inputValue(), currentPayMonth, 'empty history should still expose the current pay month');
   assert.equal(await emptyPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
-  assert.equal(await emptyPage.locator('#portal-task-board-status').innerText(), 'No submitted tasks yet.');
+  assert.equal(await emptyPage.locator('#portal-task-board-status').innerText(), 'No tasks yet.');
   assert.equal(await emptyPage.locator('#portal-notification-status').innerText(), 'No new notifications.');
   assert.match(await emptyPage.locator('#portal-notifications').innerText(), /no new notifications/i);
   assert.equal(await emptyPage.locator('#portal-notifications').getAttribute('aria-live'), null, 'notification count should be the only live announcement');
@@ -242,9 +267,18 @@ try {
   assert.doesNotMatch(await notificationsErrorPage.locator('#portal-notifications').innerText(), /No new notifications/);
 
   const tasksErrorPage = await createDashboardPage({ width: 390, height: 844 }, 'task-error');
-  assert.equal(await tasksErrorPage.locator('#portal-task-board-status').innerText(), 'Protected history unavailable for this check.');
-  assert.equal(await tasksErrorPage.locator('#portal-task-board .portal-task-board-empty').count(), 1);
+  assert.equal(await tasksErrorPage.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'history records remain visible when the workflow source fails');
+  assert.match(await tasksErrorPage.locator('#portal-task-board-status').innerText(), /one task source could not be loaded/);
   assert.equal(await tasksErrorPage.locator('#portal-notifications [data-notification-index]').count(), 8, 'Updates should remain available when the Task Board fails independently');
+
+  const pendingTaskPage = await createDashboardPage({ width: 390, height: 844 }, 'pending-task');
+  assert.equal(await pendingTaskPage.locator('#portal-task-board .portal-task-card').count(), tasks.length, 'a failed update does not add a duplicate task card');
+  const pendingTaskCard = pendingTaskPage.locator('#portal-task-board .portal-task-card').first();
+  const pendingTaskCardText = await pendingTaskCard.innerText();
+  assert.match(pendingTaskCardText, /Replace motor bearings at north wing/, 'a failed update keeps the last confirmed List task visible');
+  assert.match(pendingTaskCardText, /In-Progress/, 'the confirmed status remains visible');
+  assert.doesNotMatch(pendingTaskCardText, /Unconfirmed completion|Completed/, 'the pending operation payload must not replace confirmed task fields');
+  assert.match(pendingTaskCardText, /The update was not confirmed\./, 'the failed sync remains visible alongside the confirmed task');
 
   const disconnectedPage = await createDashboardPage({ width: 390, height: 844 }, 'disconnected');
   assert.equal(await disconnectedPage.locator('#portal-statistics-status').innerText(), 'Personal statistics are not connected.');
@@ -264,7 +298,8 @@ try {
 
   const requestedHistory = await page.evaluate(() => window.GMTPortalApi.calls());
   assert.ok(requestedHistory.some((call) => call.kind === 'all' && call.options.limit === 500), 'personal statistics should reuse history with the Worker record bound');
-  assert.equal(requestedHistory.filter((call) => call.kind === 'all').length, 1, 'notifications and personal statistics should share one history response');
+  assert.ok(requestedHistory.some((call) => call.kind === 'all' && call.options.payMonth === currentPayMonth), 'statistics should load the selected pay month');
+  assert.ok(requestedHistory.some((call) => call.kind === 'all' && call.options.payMonth === priorPayMonth), 'statistics should load the selected prior pay month');
 
   console.log(`Dashboard updates, task board and personal statistics acceptance: PASS (${responsiveResults.map((result) => `${result.width}px/${result.cardColumns}col`).join(', ')})`);
 } finally {

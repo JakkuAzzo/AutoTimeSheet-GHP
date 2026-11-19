@@ -22,16 +22,18 @@
     },
     {
       "displayName": "GMT Portal - Task Calendar Sync",
-      "sourceTable": "Task",
-      "trigger": "Dataverse row added or modified",
-      "requiredColumns": ["Task Title", "Due Date", "Assigned To", "Linked Job Card", "Status", "Outlook Event ID", "Calendar Sync Status", "Calendar Sync Error", "Last Calendar Sync"],
+      "sourceTable": "Microsoft Lists Tasks",
+      "trigger": "Microsoft List row added or modified by the protected task workflow",
+      "requiredColumns": ["Task ID", "Action ID", "Task Title", "Due Date", "Assigned To UPN", "Linked Job Card", "Status", "Outlook Event ID", "Calendar Sync Status", "Calendar Sync Error", "Last Calendar Sync"],
       "eventTitle": "[GMT][TASK] {task title}",
       "lifecycle": {
-        "new": "Create an all-day event only when a due date exists and Outlook Event ID is blank.",
-        "update": "Update the event identified by Outlook Event ID when due date, assignee or title changes.",
-        "completedOrCancelled": "Leave the event unchanged until Accounts approves delete-versus-retain behaviour.",
-        "failure": "Write failed status and error text to the source record; do not discard the task."
-      }
+        "new": "Create one all-day event only when status is To-Do, a due date exists, and Outlook Event ID is blank.",
+        "update": "Update the event identified by Outlook Event ID when due date, assignee, or title changes. Never create a second event for the same Task ID.",
+        "completedOrCancelled": "Retain the existing Outlook event for audit; do not delete it when the task is completed or cancelled.",
+        "failure": "Write failed status and error text to the source List row; do not discard the task."
+      },
+      "dedupeKey": "Task ID",
+      "listConcurrency": "The task workflow checks event.changes.from values and updates with the SharePoint row ETag. On an ETag conflict, re-read and reject stale updates rather than overwriting newer task state."
     }
   ],
   "releaseChecks": [
@@ -39,6 +41,6 @@
     "Confirm both create exactly one event in GMT Operational Calendar.",
     "Change the date and confirm the existing event updates rather than duplicates.",
     "Confirm failure status is visible when the shared-calendar connection is unavailable.",
-    "Keep flows disabled until a GMT-owned connection and two flow co-owners are recorded."
+    "Do not enable the task calendar flow until a GMT-owned connection and two flow co-owners are recorded."
   ]
 }
