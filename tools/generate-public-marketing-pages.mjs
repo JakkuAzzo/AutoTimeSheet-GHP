@@ -56,8 +56,8 @@ const pages = [
     description: 'Contact GMT in Croydon about commercial fan repair or installation, including scroll fans, toilet extractors and boiler fans.',
     heading: 'Fan Repairs in Croydon',
     intro: 'GMT Electrical Services provides repair and installation support for commercial fan equipment. The Croydon team handles enquiries about scroll fans, toilet extractors, boiler fans and other fan systems.',
-    image: 'assets/website/fan-repair-v2.png',
-    imageAlt: 'Commercial fan equipment',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['Fan and ventilation enquiries', 'Describe where the fan is installed, what it serves and the fault symptoms. For equipment at a site, include the location and any access or timing details the team should know.', ['Fan type and make or model, if available', 'Noise, vibration or loss of operation', 'Whether you need repair or installation support']],
       ['Get advice on the next step', 'Provide the fan details, fault symptoms and site information. GMT will review the request, advise on a suitable repair or installation route and confirm scope and availability.', ['Commercial scroll fans', 'Toilet and boiler fans', 'Related extractor equipment']]
@@ -70,8 +70,8 @@ const pages = [
     description: 'Enquire with GMT Electrical Services about repair, supply or fitting for commercial kitchen extractor fans. Croydon workshop, London and South East enquiries.',
     heading: 'Extractor Fan Repairs for Restaurants',
     intro: 'A problem with a kitchen extractor can affect the people and equipment using the kitchen. GMT Electrical Services handles repair, supply and fitting enquiries for kitchen extractor fans from its Croydon base.',
-    image: 'assets/website/kitchen-extractors-v2.png',
-    imageAlt: 'Commercial kitchen extractor fan equipment',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['Extractor details and fault symptoms', 'Include the site location, extractor or fan type and symptoms. Where safe, provide the make, model or a photo of the unit.', ['Restaurant or commercial kitchen site location', 'Extractor type and equipment details', 'What has changed or stopped working']],
       ['Repair, supply or fitting', 'Provide the extractor details, fault symptoms and site location. GMT will assess the enquiry, advise on a suitable repair, supply or fitting route and confirm scope and availability.', ['Kitchen extractor fan repairs', 'Supply enquiries', 'Fitting and installation enquiries']]
@@ -84,8 +84,8 @@ const pages = [
     description: 'Mechanical gearbox repair and supply enquiries for South London businesses. Contact GMT Electrical Services in Croydon for workshop advice.',
     heading: 'Gearbox Repairs in South London',
     intro: 'GMT Electrical Services handles mechanical gearbox repair and supply enquiries for businesses in South London and the wider area. Provide the gearbox details, application and fault symptoms; the workshop team will assess the enquiry, advise on a suitable route and confirm the next step.',
-    image: 'assets/website/gearbox-repair-v2.png',
-    imageAlt: 'Mechanical gearbox equipment',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['Gearbox repair enquiries', 'Include the gearbox make and model if available, the equipment it is connected to and the symptoms. Photos of the unit and visible damage give the workshop useful identification details.', ['Noise, vibration or difficulty operating', 'The motor or machinery connected to it', 'Whether you are asking about repair or supply']],
       ['Get advice on repair or supply', 'GMT will review the gearbox details and fault symptoms, then advise whether repair or supply is a suitable route. The team confirms scope and availability for the specific equipment before work proceeds.', ['Mechanical gearbox repairs', 'Supply enquiries', 'Related motor and equipment repair']]
@@ -98,8 +98,8 @@ const pages = [
     description: 'Contact GMT Electrical Services in Croydon about AC motor rewinding and repair enquiries. Provide your motor details for workshop advice.',
     heading: 'AC Motor Rewinding Services',
     intro: 'For an AC motor rewind or repair enquiry, provide the motor details and fault symptoms. GMT’s Croydon workshop team will assess the information, advise on a suitable route and confirm the scope and availability for your equipment.',
-    image: 'assets/website/motor-rewind-v2.png',
-    imageAlt: 'Motor rewind work at the workshop',
+    image: 'assets/website/workshop/stator-rewind.jpg',
+    imageAlt: 'Copper windings inside a motor stator',
     sections: [
       ['Information to include', 'The motor nameplate and a clear description of its use help the team understand an AC rewind enquiry.', ['Manufacturer and model', 'Supply and rating information shown on the nameplate', 'What happened before the fault appeared']],
       ['Get advice on the repair route', 'The right route depends on the motor and its condition. GMT will review the nameplate details and fault symptoms, then advise whether a rewind, another repair or a replacement enquiry is appropriate. Scope and availability are confirmed directly with the workshop.', ['Use the enquiry form or phone GMT', 'Add photos where helpful', 'Confirm scope and the next step with the workshop']]
@@ -126,8 +126,8 @@ const pages = [
     description: 'Enquire about motor inspection, testing and fault diagnosis as part of a repair request from GMT Electrical Services in Croydon.',
     heading: 'Motor Testing & Diagnostics',
     intro: 'When a motor stops working or changes in operation, a clear account of the fault helps the workshop assess the repair request. Provide the motor details and symptoms; GMT will advise whether inspection or testing is appropriate as part of the enquiry.',
-    image: 'assets/website/workshop/test-bench.jpg',
-    imageAlt: 'Electrical testing equipment in the GMT workshop',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['Describe the fault', 'Share what the motor does, when the issue started and what equipment it serves. Include any available make, model and nameplate information.', ['Starting or running problems', 'Overheating, noise or vibration', 'Relevant use or operating conditions']],
       ['Get advice on inspection and testing', 'GMT will review the motor details and fault symptoms, then advise whether inspection or testing is appropriate alongside repair or rewind work. The workshop confirms which checks are available for the specific equipment.', ['Motor inspection enquiries', 'Testing associated with repair', 'Repair and replacement routes']]
@@ -140,8 +140,8 @@ const pages = [
     description: 'Contact GMT Electrical Services about balancing enquiries for motors, fans and rotating equipment from its Croydon workshop.',
     heading: 'Balancing Services',
     intro: 'If vibration or balance is a concern with a motor, fan or rotating assembly, provide GMT with the equipment details and symptoms. The team will assess the request and advise whether it falls within the available balancing scope.',
-    image: 'assets/website/workshop/workshop-bench.jpg',
-    imageAlt: 'Engineering workshop bench at GMT Electrical Services',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['What to include', 'A description of the equipment and the issue helps GMT understand the balancing enquiry.', ['Equipment type and make or model', 'Where and how the equipment is used', 'The vibration or operating symptoms']],
       ['Confirm the service scope', 'Balancing requirements vary with the assembly and its application. GMT will review the equipment details and advise on the appropriate service route; scope and availability are confirmed for each request.', ['Motor and rotor enquiries', 'Fan and rotating assembly enquiries', 'Related inspection or repair needs']]
@@ -154,8 +154,8 @@ const pages = [
     description: 'Enquire about component repair or manufacture for motor and electromechanical equipment with GMT Electrical Services in Croydon.',
     heading: 'Component Manufacturing & Precision Repairs',
     intro: 'For a worn or damaged component, provide GMT with the equipment and part details. The workshop will review the request and advise whether repair, replacement, sourcing or a manufacturing enquiry is appropriate.',
-    image: 'assets/website/workshop/workshop-bench.jpg',
-    imageAlt: 'Engineering tools and equipment at the GMT workshop',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['Component details', 'Provide the equipment make and model, component name or part number, and any available photos or measurements. This information supports an accurate assessment.', ['Equipment type and application', 'Component details and visible damage', 'Any drawings or specifications you can share']],
       ['Get advice on the component', 'GMT will review the part details and advise whether repair, sourcing or a manufacturing enquiry is a suitable next step. Any work or supply arrangement is confirmed after assessment.', ['Motor and electromechanical equipment parts', 'Replacement part enquiries', 'Related workshop repair work']]
@@ -182,8 +182,8 @@ const pages = [
     description: 'Contact GMT Electrical Services about a motor, pump, fan, extractor or gearbox breakdown. Provide the fault details and location for workshop advice.',
     heading: 'Equipment Breakdown Enquiries',
     intro: 'If equipment has broken down, provide GMT Electrical Services with the equipment details, fault symptoms and location. The workshop will assess the request, advise on the appropriate route and confirm scope and response availability.',
-    image: 'assets/website/workshop/pump-repair.jpg',
-    imageAlt: 'Equipment being inspected at the GMT workshop',
+    image: 'assets/website/pumps-v2.png',
+    imageAlt: 'Pump equipment',
     sections: [
       ['Tell us what has happened', 'A clear description helps the team understand the breakdown enquiry. If the equipment is at a site, include the location and a contact person.', ['Equipment type, make and model', 'The fault symptoms and when they began', 'Site location and contact information']],
       ['Contact GMT directly', 'For a breakdown enquiry, call GMT or use the enquiry form. Response availability and timing should be confirmed directly with the team.', ['Call 0208 683 0464', 'Email info@gmt-services.co.uk', 'Use the homepage enquiry form']]
@@ -211,8 +211,8 @@ const pages = [
     description: 'Prepare a pump repair enquiry with the information GMT needs to advise on repair, supply or installation in London and the South East.',
     heading: 'How to Prepare a Pump Repair Enquiry',
     intro: 'Pump systems vary by application. Provide the pump details, the system it serves and a description of the problem. GMT will assess the enquiry and advise on the appropriate next step.',
-    image: 'assets/website/workshop/pump-repair.jpg',
-    imageAlt: 'Pump equipment at the GMT workshop',
+    image: 'assets/website/pumps-v2.png',
+    imageAlt: 'Pump equipment',
     sections: [
       ['1. Identify the pump', 'Share the pump type, manufacturer and model where available. Mention whether it is a sump, pool, multi-stage or another type of pump.', ['Pump and motor nameplate details', 'System or equipment served', 'Site or workshop location']],
       ['2. Describe the issue', 'Explain the symptoms and when they occur. Include any relevant site or operating information that helps describe the fault.', ['Loss of operation or unusual noise', 'Visible damage or leakage', 'Any recent maintenance or changes']],
@@ -226,8 +226,8 @@ const pages = [
     description: 'Find out what to include when contacting GMT about fan, extractor or ventilation equipment repairs and installation support.',
     heading: 'Fan & Extractor Repair Enquiries',
     intro: 'GMT handles enquiries about commercial fans, extractors and related equipment. Provide the site, unit type and fault symptoms so the team can assess the request and advise on suitable support.',
-    image: 'assets/website/kitchen-extractors-v2.png',
-    imageAlt: 'Commercial kitchen extractor equipment',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['1. Describe the equipment', 'Tell GMT where it is installed and what it serves. If available, include the manufacturer, model or an equipment label photo.', ['Scroll, boiler or toilet fan', 'Kitchen extractor or related equipment', 'Commercial site location']],
       ['2. Explain the fault', 'Describe what has changed and whether the equipment has stopped, become noisy or shown visible damage.', ['Fault symptoms', 'When the problem started', 'Any access details for a site enquiry']],
@@ -241,8 +241,8 @@ const pages = [
     description: 'Prepare a gearbox repair or refurbishment enquiry for GMT Electrical Services with equipment details, symptoms and site information.',
     heading: 'Gearbox Repair & Refurbishment Enquiries',
     intro: 'A gearbox enquiry is easier to review when it includes the gearbox identity, the machinery it serves and a description of the fault. GMT handles mechanical gearbox repair and supply enquiries.',
-    image: 'assets/website/gearbox-repair-v2.png',
-    imageAlt: 'Mechanical gearbox equipment',
+    image: 'assets/website/workshop/workshop-signage.jpg',
+    imageAlt: 'GMT Electrical Services workshop building in Croydon',
     sections: [
       ['1. Identify the gearbox', 'Share the manufacturer, model, ratio or nameplate details where available, and describe the machinery it is connected to.', ['Gearbox make and model', 'Connected motor or machinery', 'Site or workshop location']],
       ['2. Describe the symptoms', 'Explain what changed and when. Include noise, vibration, leaks or operating issues if they are present.', ['Fault symptoms', 'When the issue began', 'Any visible damage or recent change']],
