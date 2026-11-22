@@ -34,9 +34,25 @@ function text(value: unknown): string {
   return value == null ? "" : String(value);
 }
 
-function number(value: unknown): number {
+function requireSafeCellText(value: unknown): void {
+  // Match the employee register's conservative handling of formula-like text.
+  if (/^[=+\-@]/.test(text(value).replace(/^\s+/, ""))) {
+    throw new Error("Formula-like cell text requires review before workbook filing");
+  }
+}
+
+function hours(value: unknown): number | string {
+  if (value == null || (typeof value === "string" && value.trim() === "")) return "";
+  if (typeof value !== "number" && typeof value !== "string") throw new Error("Invalid source hours");
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  if (!Number.isFinite(parsed)) throw new Error("Invalid source hours");
+  return parsed;
+}
+
+function completeTotal(values: unknown[]): number | string {
+  const parsed = values.map(hours);
+  if (parsed.some((value) => value === "")) return "";
+  return parsed.reduce<number>((sum, value) => sum + Number(value), 0);
 }
 
 function safeSheetName(value: string, fallback: string): string {
@@ -64,8 +80,8 @@ function writeRecords(sheet: ExcelScript.Worksheet, records: PortalRecord[]): vo
   const values = records.map((record) => [
     text(record.employeeName), text(record.employeeEmail), text(record.date), text(record.action),
     text(record.status), text(record.absenceReason), text(record.startTime), text(record.lunchStart),
-    text(record.lunchEnd), text(record.finishTime), number(record.workedHours), number(record.basicHours),
-    number(record.ot15Hours), number(record.ot20Hours), text(record.note), text(record.recordId),
+    text(record.lunchEnd), text(record.finishTime), hours(record.workedHours), hours(record.basicHours),
+    hours(record.ot15Hours), hours(record.ot20Hours), text(record.note), text(record.recordId),
     text(record.sourceFolderLink)
   ]);
   if (values.length) sheet.getRangeByIndexes(1, 0, values.length, RECORD_HEADERS.length).setValues(values);
@@ -78,9 +94,18 @@ function writeRecords(sheet: ExcelScript.Worksheet, records: PortalRecord[]): vo
 
 function main(workbook: ExcelScript.Workbook, recordsJson: string, monthLabel: string): { employees: number; records: number; sheets: string[] } {
   const parsed = JSON.parse(recordsJson || "[]") as PortalRecord[];
+  if (!Array.isArray(parsed) || parsed.some((record) => !record || typeof record !== "object" || Array.isArray(record) || !text(record.employeeName).trim() || !text(record.date).trim())) {
+    throw new Error("Each source record requires an employee and date");
+  }
   const records = parsed
-    .filter((record) => text(record.employeeName).trim() && text(record.date).trim())
     .sort((a, b) => `${text(a.employeeName)}|${text(a.date)}`.localeCompare(`${text(b.employeeName)}|${text(b.date)}`));
+  records.forEach((record) => {
+    [record.workedHours, record.basicHours, record.ot15Hours, record.ot20Hours].forEach(hours);
+    [record.employeeName, record.employeeEmail, record.date, record.action, record.status,
+      record.absenceReason, record.startTime, record.lunchStart, record.lunchEnd, record.finishTime,
+      record.note, record.recordId, record.sourceFolderLink].forEach(requireSafeCellText);
+  });
+  requireSafeCellText(monthLabel);
   const byEmployee = new Map<string, PortalRecord[]>();
   records.forEach((record) => {
     const key = `${text(record.employeeName).trim()}|${text(record.employeeEmail).trim().toLowerCase()}`;
@@ -91,18 +116,20 @@ function main(workbook: ExcelScript.Workbook, recordsJson: string, monthLabel: s
 
   const allUsers = getOutputSheet(workbook, "All Users");
   writeRecords(allUsers, records);
-  const occupied = new Set<string>(["All Users", "Monthly Totals"]);
+  const occupied = new Set<string>(["all users", "monthly totals"]);
   const outputSheets = ["All Users"];
 
   [...byEmployee.entries()].forEach(([key, employeeRecords], index) => {
     const employeeName = key.split("|")[0];
-    let sheetName = safeSheetName(employeeName, `Employee ${index + 1}`);
+    const baseName = safeSheetName(employeeName, `Employee ${index + 1}`);
+    let sheetName = baseName;
     let suffix = 2;
-    while (occupied.has(sheetName)) {
-      sheetName = safeSheetName(`${employeeName} ${suffix}`, `Employee ${index + 1}`);
+    while (occupied.has(sheetName.toLowerCase())) {
+      const ending = ` ${suffix}`;
+      sheetName = `${baseName.slice(0, 31 - ending.length)}${ending}`;
       suffix += 1;
     }
-    occupied.add(sheetName);
+    occupied.add(sheetName.toLowerCase());
     writeRecords(getOutputSheet(workbook, sheetName), employeeRecords);
     outputSheets.push(sheetName);
   });
@@ -115,10 +142,10 @@ function main(workbook: ExcelScript.Workbook, recordsJson: string, monthLabel: s
     return [
       text(first.employeeName), text(first.employeeEmail), employeeRecords.length,
       employeeRecords.filter((record) => text(record.status).toLowerCase() === "absent").length,
-      employeeRecords.reduce((sum, record) => sum + number(record.workedHours), 0),
-      employeeRecords.reduce((sum, record) => sum + number(record.basicHours), 0),
-      employeeRecords.reduce((sum, record) => sum + number(record.ot15Hours), 0),
-      employeeRecords.reduce((sum, record) => sum + number(record.ot20Hours), 0)
+      completeTotal(employeeRecords.map((record) => record.workedHours)),
+      completeTotal(employeeRecords.map((record) => record.basicHours)),
+      completeTotal(employeeRecords.map((record) => record.ot15Hours)),
+      completeTotal(employeeRecords.map((record) => record.ot20Hours))
     ];
   });
   if (totalValues.length) totals.getRangeByIndexes(1, 0, totalValues.length, totalHeaders.length).setValues(totalValues);

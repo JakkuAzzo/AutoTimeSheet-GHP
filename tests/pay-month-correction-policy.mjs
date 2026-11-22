@@ -26,20 +26,21 @@ const simon = normaliseInput(correction, { oid: 'simon-oid', upn: 'simon@gmt-ser
 assert.equal(simon.employeeName, 'Simon');
 assert.equal(simon.ownerUpn, 'simon@gmt-services.co.uk');
 
-const now = new Date('2026-09-27T12:00:00Z');
+const now = new Date('2026-09-18T12:00:00Z');
 assert.equal(isCurrentPayMonthRecord({ kind: 'timesheets', payload_json: JSON.stringify({ payMonth: '2026-09' }) }, 'Europe/London', now), true);
-assert.equal(isCurrentPayMonthRecord({ kind: 'timesheets', payload_json: JSON.stringify({ payMonth: '2026-08' }) }, 'Europe/London', now), false);
+assert.equal(isCurrentPayMonthRecord({ kind: 'timesheets', payload_json: JSON.stringify({ payMonth: '2026-07' }) }, 'Europe/London', now), false);
 
 validatePayMonthCorrection(correction, now);
 assert.throws(() => validatePayMonthCorrection({ ...correction, payload: { ...correction.payload, rows: [{ date: '2026-09-22' }] } }, now), /pay month/i);
-assert.throws(() => validatePayMonthCorrection({ ...correction, payload: { ...correction.payload, payMonth: '2026-08' } }, now), /editable/i);
+assert.throws(() => validatePayMonthCorrection({ ...correction, payload: { ...correction.payload, payMonth: '2026-08' } }, now), /current pay month/i);
 const stored = { kind: 'timesheets', action: 'pay_month_correction', owner_oid: 'accounts-oid', owner_upn: 'matthew@gmt-services.co.uk' };
-assert.equal(canAccessRecord({ oid: 'matthew-oid', upn: 'matthew@gmt-services.co.uk', isAdmin: false }, stored), true);
+assert.equal(canAccessRecord({ oid: 'matthew-oid', upn: 'matthew@gmt-services.co.uk', isAdmin: false }, stored), false, 'an older editor-owned correction needs ownership review');
+assert.equal(canAccessRecord({ oid: 'matthew-oid', upn: 'matthew@gmt-services.co.uk', isAdmin: false }, {...stored,owner_oid:'matthew-oid'}), true, 'a correction bound to the employee remains accessible');
 assert.equal(canAccessRecord({ oid: 'simon-oid', upn: 'simon@gmt-services.co.uk', isAdmin: false }, stored), false);
 
 let historyQuery = null;
 const historyEnv = {
-  DB: { prepare(sql) { return { bind(...bindings) { historyQuery = { sql, bindings }; return { async all() { return { results: [] }; } }; } }; } }
+  DB: { prepare(sql) { return { bind(...bindings) { if (sql.includes('SELECT r.*')) historyQuery = { sql, bindings }; return { async all() { return { results: [] }; } }; } }; } }
 };
 await listRecords(new Request('https://gmt-portal-api.example/api/history?kind=timesheets'), historyEnv, { oid: 'matthew-oid', upn: 'matthew@gmt-services.co.uk', isAdmin: false });
 assert.match(historyQuery.sql, /pay_month_correction/);

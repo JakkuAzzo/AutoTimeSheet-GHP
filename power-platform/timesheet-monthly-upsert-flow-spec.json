@@ -6,7 +6,7 @@
   "observedLiveOn": "2026-09-28",
   "ownership": {
     "flow": "GMT Portal - Timesheet Intake",
-    "storage": "GMT Web-App SharePoint / Shared Documents / Timesheets",
+    "storage": "GMT Web-App SharePoint / Shared Documents / Submitted Documents / Timesheets (private employee folders)",
     "index": "Timesheet Submissions Microsoft List"
   },
   "recordIdentity": {
@@ -39,27 +39,31 @@
   "acceptedRecordJson": [
     "One legacy dated row object",
     "An array of legacy dated row objects",
-    "One schemaVersion 2 replace-pay-month envelope with rows and stable recordId"
+    "One schemaVersion 2 replace-pay-month envelope with rows and stable recordId",
+    "One schemaVersion 3 replace-pay-month envelope with source-rate fields; process only after the destination layout, receiver and receipt mapping have been independently verified"
   ],
   "routing": {
     "authority": "The Date field of every daily row; weekStart, weekEnd, subject and receive date are not payroll dates",
     "periodPolicy": "Use pay-periods.js: the four-week cycle anchored 2026-08-24 runs through 2026-09-20. Payroll is processed on Friday 2026-09-18. The cycle-end date and payroll Friday are separate dates; daily row dates determine the pay month.",
     "mixedPayMonths": "Partition a legacy attachment into one per-pay-month row array. Never rewrite its Date values to fit the named week. Replacement snapshots must belong to exactly one declared pay month.",
-    "folder": "/Timesheets/{payYear}/{payMonthNumber}/{employeeName}",
+    "folder": "/Submitted Documents/Timesheets/{employeeObjectId}/{payMonth}",
+    "privacy": "Before any workbook write, resolve employeeObjectId against the verified tenant identity, require the employee folder to grant only the Admin security group and that employee, and verify that the destination and its children have no broader access. Abort on missing, inherited, unexpected, anonymous or organisation-wide permissions. The existing /Timesheets folder is not an approved target for new private filings.",
+    "adminGroupObjectId": "e0d972cd-46ed-4930-a9c6-51db65474f1f",
     "workbook": "GMT Timesheet - {employeeName} - Pay Month {payMonth}.xlsx",
     "referenceValidator": "power-platform/intake-record-routing.mjs",
     "checksBeforeExcel": [
       "Parse controlled record JSON and require one verified employee identity and a stable source record ID",
       "Reject inconsistent employee names/emails, invalid or duplicate Date values, and declared months that disagree with Date",
       "Hold future worked days and off-roster default worked rows for source review; do not infer absence",
+      "Verify the private employee folder and workbook access policy before creating or writing a workbook; do not trust a path supplied by the submitted document",
       "Ensure the exact company workbook exists and contains only Daily Entries and Weekly Totals"
     ]
   },
   "writeOrder": [
     "Validate the source attachment and partition by dated pay month",
-    "For each protected pay-month correction, post flow_started for the correction record using the provider run ID and run start timestamp before any workbook write",
+    "Resolve the protected correction using record ID, generation, provider run ID and run start; use only the returned workbook ID and decoded sourceBase64, then post flow_started before any workbook write",
     "Run the tested pay-month register v3 Office Script against each exact company workbook",
-    "Require Office Script read-back to verify every accepted row by source ID, Date, Action and normalized payroll cells; post workbook_verified only when the verified rows exactly match the correction source",
+    "Require the Office Script to validate each source row ID and re-read every dated row, notes, payroll cells and totals; post workbook_verified only when the verified rows exactly match the correction source",
     "Upsert the protected list/history item using the stable source record ID after the workbook update succeeds",
     "Post flow_completed for the correction record only after all partitions and index writes succeed",
     "Mark the message processed only after all partitions and index writes succeed"
@@ -75,37 +79,39 @@
     "runIdentity": {
       "flowRunId": "The Power Automate workflow run name; stable for all callbacks in one run.",
       "runStartedAt": "The Power Automate run start timestamp as RFC 3339; use the same value for every event in that run.",
-      "correctionRecordId": "The existing protected correction record ID. Do not accept it from an unauthenticated browser or substitute an Outlook message ID."
+      "correctionRecordId": "The existing protected correction record ID. Do not accept it from an unauthenticated browser or substitute an Outlook message ID.",
+      "generation": "The gmt_delivery_generation field emitted by the Worker: lowercase SHA-256 of the exact queued JSON attachment bytes. Include it unchanged in every callback; a missing or stale digest is rejected."
     },
     "idempotencyKey": ["recordId", "flowRunId", "event"],
     "events": {
       "flow_started": {
         "when": "After source validation and pay-month routing, before any workbook write.",
-        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_started" }
+        "body": { "recordId": "existing-correction-record-id", "generation": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_started" }
       },
       "workbook_verified": {
         "when": "After the Office Script re-reads the workbook and verifies every correction row; before the protected history index is updated.",
-        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "workbook_verified", "created": 0, "updated": 0, "unchanged": 1, "verifiedRecordIds": ["existing-correction-record-id|2026-10-26"], "verifiedRows": [{ "recordId": "existing-correction-record-id|2026-10-26", "date": "2026-10-26" }] }
+        "body": { "recordId": "existing-correction-record-id", "generation": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "workbook_verified", "workbookId": "server-approved-workbook-id", "created": 0, "updated": 0, "unchanged": 1, "verifiedRecordIds": ["existing-correction-record-id|2026-10-26"], "verifiedRows": [{ "recordId": "existing-correction-record-id|2026-10-26", "date": "2026-10-26", "start": "09:00", "finish": "12:00", "breakMinutes": 0, "absence": "NA", "totalMinutes": 180, "notes": "Fictional location note" }] }
       },
       "flow_completed": {
         "when": "After workbook verification and all protected history/index actions succeed.",
-        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_completed" }
+        "body": { "recordId": "existing-correction-record-id", "generation": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_completed" }
       },
       "flow_failed": {
         "when": "When processing fails; post from the failure handler with the failed stage and a short, sanitised error. Never include names, email addresses, tokens, or full action outputs in safeError.",
-        "body": { "recordId": "existing-correction-record-id", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_failed", "stage": "workbook_readback", "safeError": "One or more dated rows did not match after the workbook write." },
+        "body": { "recordId": "existing-correction-record-id", "generation": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "flowRunId": "provider-run-name", "runStartedAt": "2026-10-26T10:00:00Z", "event": "flow_failed", "stage": "workbook_readback", "safeError": "One or more dated rows did not match after the workbook write." },
         "allowedStages": ["source_validation", "workbook_routing", "workbook_upsert", "workbook_readback", "history_index", "calendar_sync", "other"]
       }
     },
     "workbookVerification": {
-      "officeScriptOutput": ["verifiedRecordIds", "verifiedRows", "unverifiedRecordIds"],
-      "requiredCondition": "Only post workbook_verified when unverifiedRecordIds is empty, verifiedRows exactly covers correction attachment row IDs and Dates, and created + updated + unchanged equals the verified row count.",
-      "noClientRouting": "The flow derives the employee workbook path from validated source data and approved pay-month rules. The callback body never carries or selects a workbook path, SharePoint item ID, employee, or tenant."
+      "officeScriptOutput": ["verifiedRecordIds", "verifiedRecordIdsJson", "verifiedRowsJson", "unverifiedRecordIds"],
+      "requiredCondition": "Only post workbook_verified when unverifiedRecordIds is empty, the rows serialized in verifiedRowsJson cover the correction attachment row IDs and dates and contain the workbook-read times, break, absence, total and notes, and created + updated + unchanged equals the verified row count. For a schemaVersion 3 source, each row must additionally contain sourceBasicMinutes, sourceOt15Minutes and sourceOt20Minutes exactly as read from the corresponding source-rate columns, retaining null for an unknown figure and 0 only for explicit zero. Send verifiedRowsJson and verifiedRecordIdsJson together without the array variants. Unknown numeric values stay null inside the JSON; never coerce an unrecorded break or rate to zero. Recreate the Excel Run script action after the output signature changes and reverify its mappings. Secure the inputs and outputs of every action carrying those values; the Worker compares them with the protected source and does not store them in receipt evidence.",
+      "noClientRouting": "The Worker resolves and records the approved workbook ID from the protected source. The flow uses that exact ID in Excel and echoes it in workbook_verified; it cannot select a workbook by providing a different ID. It passes the resolver's decoded sourceBase64, not the incoming attachment, to Excel. A receipt is not independent proof of the Excel action inputs."
     },
     "retryPolicy": {
       "identity": "Retry a callback with the same recordId, flowRunId, runStartedAt, event, and evidence. Matching retries are idempotent; conflicting evidence is rejected.",
-      "callbackOutage": "Retry only the failed receipt HTTP action with bounded backoff while the existing workbook and history work continues. Do not replay the whole flow or repeat a workbook write because a receipt call failed. If any receipt remains pending at run end, retry pending receipts in event order with the original identity and evidence when service returns; do not repeat the workbook action.",
-      "startOutage": "A flow_started callback outage must not block or duplicate payroll processing. Keep the receipt pending and do not submit later receipt events until flow_started is accepted; retry pending receipts in order, including after the processing run if needed.",
+      "callbackOutage": "Retry only the failed receipt HTTP action with bounded backoff and the original identity and evidence. Do not replay the whole flow or repeat a workbook write because a receipt call failed. If an outcome is uncertain after retries, hold the correction for reconciliation and retry the original receipt in event order.",
+      "startOutage": "If flow_started is not accepted or its outcome is uncertain, do not run the workbook action or update the index. Retry the same receipt with the same identity and evidence; if it remains unresolved, hold for reconciliation.",
+      "verifiedOutage": "If workbook_verified is not accepted or its outcome is uncertain, do not update the history index or repeat the workbook write. Retain the original verified evidence, retry the same receipt, and hold for reconciliation if unresolved.",
       "failureOutage": "If the receipt service is unavailable, a failure receipt may also be unavailable. The portal must show the stage as not reported until the original run receipt is accepted."
     }
   },

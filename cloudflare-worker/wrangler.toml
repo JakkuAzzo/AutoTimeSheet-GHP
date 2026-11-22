@@ -42,7 +42,20 @@ STAFF_DIRECTORY_JSON = '[{"name":"Jason","upn":"jason@gmt-services.co.uk"},{"nam
 TIMESHEET_ROSTER_EXCLUDED_UPNS = "faith.b@gmt-services.co.uk,amanda.bb@gmtelectservsltd.onmicrosoft.com"
 # Keep verified former aliases separate from the attendance roster when needed.
 HISTORICAL_EMPLOYEE_ALIASES_JSON = '[]'
-DISPATCH_ENABLED = "true"
+# Import targets who are not included in the attendance roster. Identity is
+# still verified against an existing portal record or the Microsoft directory.
+DOCUMENT_IMPORT_DIRECTORY_JSON = '[{"name":"Djamel Benrahmoune","upn":"djamelbenrahmoune@gmt-services.co.uk"}]'
+# Enable only after the shared folder and Microsoft Graph filing/read-back test pass.
+DOCUMENT_IMPORT_SHARED_STORAGE_READY = "false"
+PRIVATE_TIMESHEET_ADMIN_GROUP_ID = "e0d972cd-46ed-4930-a9c6-51db65474f1f"
+PRIVATE_TIMESHEET_SITE_OWNER_GROUP_ID = "b89b71c6-ba9a-4712-bf29-57f50d1c2969"
+PRIVATE_TIMESHEET_DESTINATION_VERIFIED = "false"
+# Resolver remains disabled until the receiving flow uses its verified result.
+TIMESHEET_PRIVATE_ROUTE_RESOLVER_ENABLED = "false"
+TIMESHEET_WORKBOOK_PROVISIONING_ENABLED = "false"
+# Preserve the live delivery hold until the provider-side write fence and
+# real-data acceptance run are complete. Deploys must not re-enable dispatch.
+DISPATCH_ENABLED = "false"
 PAY_MONTH_REPLAY_READY = "false"
 DISPATCH_WEEKDAY = "Friday"
 DISPATCH_HOUR = "18"

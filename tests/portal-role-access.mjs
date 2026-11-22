@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import { DatabaseSync } from 'node:sqlite';
 import { webcrypto } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
@@ -115,19 +116,25 @@ for (const [name, identity] of [['Michelle', michelle], ['Lidia', lidia], ['ordi
 let lastHistoryQuery = null;
 const historyDb = {
   prepare(sql) {
-    return { bind(...bindings) { lastHistoryQuery = { sql, bindings }; return { all: async () => ({ results: [] }) }; } };
+    return { bind(...bindings) { if (sql.includes('SELECT r.*')) lastHistoryQuery = { sql, bindings }; return { all: async () => ({ results: [] }) }; } };
   }
 };
 const historyEnv = { DB: historyDb, STAFF_DIRECTORY_JSON: '[]' };
 await listRecords(new Request('https://gmt.example/api/history?kind=estimates'), historyEnv, michelle);
-assert.match(lastHistoryQuery.sql, /WHERE \(r\.owner_oid = \?/);
-assert.deepEqual(lastHistoryQuery.bindings, [michelle.oid, michelle.upn, 'estimates', 200], 'HR/Xero API reads stay scoped to Michelle’s own estimate records');
+assert.deepEqual(lastHistoryQuery.bindings, [michelle.oid, michelle.upn, 'estimates', 201, 0], 'HR/Xero API reads stay scoped to Michelle’s own estimate records');
+const historySqlite = new DatabaseSync(':memory:');
+historySqlite.exec(readFileSync(new URL('../cloudflare-worker/schema.sql',import.meta.url),'utf8'));
+const insertHistory=historySqlite.prepare("INSERT INTO records(record_id,owner_oid,owner_upn,employee_name,kind,action,status,submitted_at,updated_at,payload_json) VALUES(?,?,?,'Person','estimates','submission','Submitted','t','t','{}')");
+insertHistory.run('own',michelle.oid,michelle.upn);
+insertHistory.run('other','other-id','other@example.test');
+assert.deepEqual(historySqlite.prepare(lastHistoryQuery.sql).all(...lastHistoryQuery.bindings).map(row=>row.record_id),['own'],'HR/Xero staff list only their own estimate records');
+historySqlite.close();
 await listRecords(new Request('https://gmt.example/api/history?kind=estimates'), historyEnv, faith);
 assert.match(lastHistoryQuery.sql, /r\.kind = \?/);
-assert.deepEqual(lastHistoryQuery.bindings, ['estimates', 200], 'full administrators can list shared estimate-history records');
+assert.deepEqual(lastHistoryQuery.bindings, ['estimates', 201, 0], 'full administrators can list shared estimate-history records');
 await listRecords(new Request('https://gmt.example/api/history?kind=estimates'), historyEnv, operationsAdmin);
 assert.match(lastHistoryQuery.sql, /r\.kind = \?/);
-assert.deepEqual(lastHistoryQuery.bindings, ['estimates', 200], 'Operations can list shared estimate-history records');
+assert.deepEqual(lastHistoryQuery.bindings, ['estimates', 201, 0], 'Operations can list shared estimate-history records');
 
 const adminUsersEndpoint = workerSource.match(/async function adminUsersEndpoint\([\s\S]*?\n\}/)?.[0] || '';
 assert.match(adminUsersEndpoint, /if \(!identity\?\.isAdmin\)[\s\S]*status: 403/);

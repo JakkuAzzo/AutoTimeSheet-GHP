@@ -51,6 +51,8 @@ copy('e7d606f354bb4e84a5319087cc42e829.txt');
 copy('robots.txt');
 copy('portal/profile.js', 'profile.js');
 copy('assets');
+copy('vendor/xlsx-0.20.3.min.js');
+copy('vendor/xlsx-0.20.3.LICENSE');
 // Preserve the original media in source control while keeping removed photos
 // out of the published bundle, including their old direct URLs.
 const publishedWebsiteImages = new Set([

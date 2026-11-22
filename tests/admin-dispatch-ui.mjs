@@ -37,12 +37,13 @@ try {
       correctionQueueStatus: async () => {
         window.statusCalls += 1;
         return {
-          providerStatus: 'awaiting-workbook-route',
-          counts: { queued: 1, sending: 0, failed: 1, sent: 1, skipped: 0 },
+          providerStatus: window.queueProviderStatus || 'awaiting-workbook-route',
+          counts: { queued: 1, sending: 0, failed: 1, sent: 1, skipped: 0, uncertain: 1 },
           records: [
             { recordId: 'gmt-correction-michelle-20260907', employeeName: 'Michelle', date: '2026-09-07', status: 'queued', attempts: 0 },
             { recordId: 'gmt-correction-simon-20260908', employeeName: 'Simon', date: '2026-09-08', status: 'failed', attempts: 2, error: 'Workbook route not certified' },
-            { employeeName: 'Ainsley', date: '2026-09-09', status: 'sent', attempts: 1 }
+            { employeeName: 'Ainsley', date: '2026-09-09', status: 'sent', attempts: 1 },
+            { recordId: 'synthetic-uncertain', employeeName: 'Test Employee', date: '2026-09-10', status: 'uncertain', attempts: 1, workbookWriteHold: true, error: 'Email handoff outcome is uncertain; reconcile before retrying.',deliveryReceipt:{flowRunId:'fixture-run',runStartedAt:'2026-09-10T10:00:00Z',workbookId:'fixture-workbook',generation:'a'.repeat(64),events:{}} }
           ]
         };
       },
@@ -93,6 +94,14 @@ try {
   await page.locator('#submissions-delivery-trigger').click();
   await page.waitForFunction(() => window.statusCalls === 1);
   assert.equal(await page.locator('#submissions-delivery-dialog').isVisible(), true);
+  assert.match(await page.locator('#submissions-delivery-trigger').innerText(), /1 needs review/i, 'Accounts sees uncertain handoffs in the status indicator');
+  const uncertain = page.locator('.submissions-delivery-item').filter({hasText:'Test Employee'});
+  assert.match(await uncertain.innerText(), /Needs review/);
+  assert.match(await uncertain.innerText(), /reconcile before retrying/i);
+  assert.match(await uncertain.innerText(), /Timesheet edits are on hold while this workbook delivery finishes or is reviewed/i);
+  assert.match(await uncertain.innerText(), /Run ID:\s*fixture-run/);
+  assert.match(await uncertain.innerText(), /Workbook ID:\s*fixture-workbook/);
+  assert.match(await uncertain.innerText(), /Source generation:\s*a{64}/);
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /Michelle/);
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /Simon/);
   assert.match(await page.locator('#submissions-delivery-details').innerText(), /gmt-correction-simon-20260908/, 'Accounts can reconcile each queue state to its exact source record ID');
@@ -103,6 +112,11 @@ try {
   assert.equal(await page.evaluate(() => window.statusCalls), 1, 'opening the status dialog makes one read-only status request');
   await page.locator('[data-delivery-close]').click();
   assert.equal(await page.locator('#submissions-delivery-dialog').isVisible(), false);
+  await page.evaluate(() => { window.queueProviderStatus='awaiting-source-review'; });
+  await page.locator('#submissions-delivery-trigger').click();
+  await page.waitForFunction(() => window.statusCalls === 2);
+  assert.match(await page.locator('#submissions-delivery-details').innerText(), /held until their source records have been reviewed/i);
+  await page.locator('[data-delivery-close]').click();
   for (const [group, expectedNames] of [['engineer', ['Simon', 'Ainsley']], ['accounts', ['Michelle']], ['contractor', ['Djamel']]]) {
     const downloadPromise = page.waitForEvent('download');
     await page.locator('[data-download-sheet-group="' + group + '"]').click();

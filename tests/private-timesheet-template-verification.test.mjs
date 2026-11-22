@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import JSZip from 'jszip';
+import {blankPayMonthWorkbookBase64} from '../cloudflare-worker/src/pay-month-template.js';
+import {verifyUploadedBlankWorkbook} from '../cloudflare-worker/src/private-timesheet-template-verification.js';
+const created={id:'workbook',eTag:'"first-version"'};
+const zip=await JSZip.loadAsync(Buffer.from(blankPayMonthWorkbookBase64,'base64'));
+zip.file('customXml/provider.xml','<provider/>');
+const bytes=await zip.generateAsync({type:'uint8array'});
+const meta={id:'workbook',eTag:'"first-version"',file:{mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},size:bytes.length};
+const io={metadata:async()=>({...meta}),content:async()=>bytes};
+assert.equal(await verifyUploadedBlankWorkbook(created,io),true,'provider metadata may change bytes while preserving the upload version');
+assert.equal(await verifyUploadedBlankWorkbook({...created,eTag:''},io),false);
+assert.equal(await verifyUploadedBlankWorkbook(created,{...io,metadata:async()=>({...meta,eTag:'"changed"'})}),false);
+let reads=0;assert.equal(await verifyUploadedBlankWorkbook(created,{...io,metadata:async()=>({...meta,eTag:++reads===1?created.eTag:'"changed"'})}),false,'a concurrent update during read-back is held');
+assert.equal(await verifyUploadedBlankWorkbook(created,{...io,content:async()=>new Uint8Array([1,2,3])}),false);
+assert.equal(await verifyUploadedBlankWorkbook(created,{...io,metadata:async()=>({...meta,size:bytes.length+1})}),false);
+console.log('PASS: blank workbook verification requires the original upload version before and after read-back');

@@ -1,0 +1,80 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "GMT synthetic private timesheet delivery",
+    "description": "Isolated test routes for fictional workbook deliveries only.",
+    "version": "1.0"
+  },
+  "host": "gmt-timesheet-synthetic-20261110.raspy-breeze-e230.workers.dev",
+  "basePath": "/",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "deliveryKey": {"type": "apiKey", "name": "X-GMT-Delivery-Key", "in": "header"}
+  },
+  "security": [{"deliveryKey": []}],
+  "paths": {
+    "/api/integrations/private-timesheet-route": {
+      "post": {
+        "operationId": "ResolvePrivateTimesheet",
+        "summary": "Resolve the fictional workbook and verified source",
+        "parameters": [{
+          "name": "body", "in": "body", "required": true,
+          "schema": {
+            "type": "object",
+            "required": ["recordId", "generation", "flowRunId", "runStartedAt"],
+            "properties": {
+              "recordId": {"type": "string"},
+              "generation": {"type": "string"},
+              "flowRunId": {"type": "string"},
+              "runStartedAt": {"type": "string"}
+            }
+          }
+        }],
+        "responses": {
+          "200": {"description": "Verified destination and source", "schema": {
+            "type": "object", "properties": {
+              "employeeFolderId": {"type": "string"}, "folderId": {"type": "string"},
+              "workbookId": {"type": "string"}, "payMonth": {"type": "string"},
+              "generation": {"type": "string"}, "sourceBase64": {"type": "string"}
+            }
+          }},
+          "default": {"description": "Request rejected or unavailable"}
+        }
+      }
+    },
+    "/api/integrations/timesheet-delivery-receipts": {
+      "post": {
+        "operationId": "PostTimesheetReceipt",
+        "summary": "Record a fictional delivery event",
+        "parameters": [{
+          "name": "body", "in": "body", "required": true,
+          "schema": {
+            "type": "object",
+            "required": ["recordId", "generation", "flowRunId", "runStartedAt", "event"],
+            "properties": {
+              "recordId": {"type": "string"}, "generation": {"type": "string"},
+              "flowRunId": {"type": "string"}, "runStartedAt": {"type": "string"},
+              "event": {"type": "string"}, "workbookId": {"type": "string"},
+              "created": {"type": "integer"}, "updated": {"type": "integer"},
+              "unchanged": {"type": "integer"},
+              "verifiedRecordIdsJson": {"type": "string"},
+              "verifiedRowsJson": {"type": "string"},
+              "verifiedRecordIds": {"type": "array", "items": {"type": "string"}},
+              "verifiedRows": {"type": "array", "items": {"type": "object", "required": ["recordId", "date", "start", "finish", "breakMinutes", "absence", "totalMinutes", "notes"], "properties": {
+                "recordId": {"type": "string"}, "date": {"type": "string"}, "start": {"type": "string"}, "finish": {"type": "string"}, "breakMinutes": {"type": "integer", "x-nullable": true}, "absence": {"type": "string"}, "totalMinutes": {"type": "integer", "x-nullable": true}, "notes": {"type": "string"},
+                "sourceBasicMinutes": {"type": "integer", "x-nullable": true}, "sourceOt15Minutes": {"type": "integer", "x-nullable": true}, "sourceOt20Minutes": {"type": "integer", "x-nullable": true}
+              }}},
+              "stage": {"type": "string"}, "safeError": {"type": "string"}
+            }
+          }
+        }],
+        "responses": {
+          "200": {"description": "Receipt accepted", "schema": {"type": "object", "properties": {"accepted": {"type": "boolean"}}}},
+          "default": {"description": "Receipt rejected or unavailable"}
+        }
+      }
+    }
+  }
+}

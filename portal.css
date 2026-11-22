@@ -1621,3 +1621,18 @@ html[data-portal-viewport-shell="true"] .portal-dashboard-grid {
 .portal-statistics-card { text-decoration: none; transition: border-color .15s, transform .15s; }
 .portal-statistics-card:hover { border-color: #367349; transform: translateY(-2px); }
 .portal-statistics-card:focus-visible { outline: 3px solid #bf9b24; outline-offset: 3px; }
+
+#source-review [data-list] { max-height: 28rem; overflow-y: auto; }
+#source-review [data-fields] pre { font: inherit; margin: .3rem 0 1rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+#source-review [data-fields] table { width: 100%; min-width: 1100px; border-collapse: collapse; }
+#source-review [data-fields] th, #source-review [data-fields] td { padding: .45rem .6rem; text-align: left; vertical-align: top; white-space: nowrap; border-bottom: 1px solid #d9e2d9; }
+#source-review [data-fields] th:last-child, #source-review [data-fields] td:last-child { min-width: 10rem; white-space: normal; }
+#source-review .source-review-confirm { display: flex; align-items: flex-start; gap: .5rem; }
+#private-original-review .private-original-review-table { max-width: 100%; overflow-x: auto; }
+#private-original-review .private-original-review-table table { min-width: 850px; table-layout: auto; }
+#private-original-review .private-original-review-table th, #private-original-review .private-original-review-table td { white-space: nowrap; }
+#source-review .source-review-confirm input { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; margin: .1rem 0 0; }
+#source-review button:disabled { opacity: .5; cursor: not-allowed; }
+#ownership-review .source-review-confirm { display: flex; align-items: flex-start; gap: .5rem; }
+#ownership-review .source-review-confirm input { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; margin: .1rem 0 0; }
+#ownership-review button:disabled { opacity: .5; cursor: not-allowed; }

@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {DatabaseSync} from 'node:sqlite';
+import {privateTimesheetWorkbookStore} from '../cloudflare-worker/src/private-timesheet-workbook-store.js';
+
+const db=new DatabaseSync(':memory:');
+db.exec(await readFile(new URL('../cloudflare-worker/migrations/0022_private_timesheet_workbooks.sql',import.meta.url),'utf8'));
+const DB={prepare(sql){const s=(args=[])=>({bind(...v){return s(v)},first(){return db.prepare(sql).get(...args)||null},run(){return {meta:db.prepare(sql).run(...args)}}});return s()}};
+const io=privateTimesheetWorkbookStore(DB,()=> '2026-11-10T12:00:00Z');
+const reservation={employeeId:'employee-oid',payMonth:'2026-10',rootId:'employee-folder',fileName:'GMT Timesheet - Example - Pay Month 2026-10.xlsx'};
+assert.equal(await io.getMarker(reservation.employeeId,reservation.payMonth),null);
+assert.equal(await io.reserve(reservation),true);
+assert.equal(await io.reserve(reservation),false,'a second request cannot acquire the same employee and month');
+assert.equal((await io.getMarker(reservation.employeeId,reservation.payMonth)).state,'reserved');
+await assert.rejects(io.markReady({...reservation,rootId:'different-root',folderId:'month',workbookId:'book'}),/reserved|workbook/i);
+await io.markReady({...reservation,folderId:'month',workbookId:'book'});
+assert.deepEqual({...await io.getMarker(reservation.employeeId,reservation.payMonth)},{...reservation,state:'ready',folderId:'month',workbookId:'book'});
+await assert.rejects(io.markReady({...reservation,folderId:'month',workbookId:'different-book'}),/reserved|workbook/i);
+assert.equal((await io.getMarker(reservation.employeeId,reservation.payMonth)).workbookId,'book','a ready marker cannot be overwritten');
+console.log('PASS: workbook creation has an exclusive durable reservation and immutable ready identity');

@@ -41,9 +41,13 @@ assert.ok(flowSpec.recordIdentity.forbiddenFallbacks.includes('Outlook message I
 assert.deepEqual(flowSpec.recordIdentity.companionMergeKey, ['Source record ID', 'Employee', 'Date']);
 assert.ok(flowSpec.acceptedRecordJson.includes('One schemaVersion 2 replace-pay-month envelope with rows and stable recordId'));
 assert.match(flowSpec.routing.authority, /Date field of every daily row/);
-assert.equal(flowSpec.routing.folder, '/Timesheets/{payYear}/{payMonthNumber}/{employeeName}');
+assert.equal(flowSpec.routing.folder, '/Submitted Documents/Timesheets/{employeeObjectId}/{payMonth}');
 assert.equal(flowSpec.routing.workbook, 'GMT Timesheet - {employeeName} - Pay Month {payMonth}.xlsx');
 assert.ok(flowSpec.writeOrder.some((step) => step.includes('pay-month register v3 Office Script')));
+assert.ok(flowSpec.writeOrder.some((step) => /returned workbook ID/.test(step)));
+assert.equal(flowSpec.deliveryReceipts.events.workbook_verified.body.workbookId,'server-approved-workbook-id');
+assert.match(flowSpec.deliveryReceipts.retryPolicy.startOutage, /do not (?:run|write)/i, 'an unrecorded start must not lead to a workbook write');
+assert.match(flowSpec.deliveryReceipts.retryPolicy.verifiedOutage, /do not (?:update|write)/i, 'an unrecorded verification must not advance to the history index');
 assert.match(flowSpec.corrections.audit, /editor identity, edit time, affected Date values/);
 
 console.log(JSON.stringify({

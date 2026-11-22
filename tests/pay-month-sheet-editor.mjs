@@ -28,7 +28,7 @@ try {
       queueAttachments: async (recordId, attachments) => { window.__queuedCorrection = { recordId, attachments }; return { queued: true }; },
       updateRecord: async () => { throw new Error('Original source records must not be overwritten'); },
       history: async () => ({
-        meta: { is_admin: true, editable_pay_months: ['2026-09', '2026-10'], completion: { employees: [
+        meta: { is_admin: true, can_view_all_timesheets: true, timesheet_revision_consistent: true, timesheet_owner_revisions: {'matthew@gmt-services.co.uk':0}, editable_pay_months: ['2026-09', '2026-10'], completion: { employees: [
           { employee_name: 'Matthew', employee_upn: 'matthew@gmt-services.co.uk' },
           { employee_name: 'Ainsley', employee_upn: 'ainsley@gmt-services.co.uk' },
           { employee_name: 'Faith', employee_upn: 'faith.b@gmt-services.co.uk' }
@@ -59,7 +59,7 @@ try {
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'ARCHIVE REAL' }).count(), 0);
   assert.equal(await page.locator('[data-sheet-index]').filter({ hasText: 'Faith' }).count(), 1, 'Accounts can start an empty roster employee sheet');
   await page.locator('[data-sheet-index]').filter({ hasText: 'Ainsley' }).click();
-  assert.match(await page.getByRole('link', { name: 'Open full editor' }).getAttribute('href'), /month=2026-09/, 'an August-dated source opens its September pay-month editor');
+  assert.match(await page.locator('#submissions-preview .timesheet-paper-meta').innerText(), /Pay month: 2026-09/, 'an August-dated source opens in its September pay-month editor');
   await page.locator('#submissions-day').fill('');
   await page.locator('#submissions-day').dispatchEvent('change');
   await page.locator('[data-sheet-index]').filter({ hasText: 'Matthew' }).click();

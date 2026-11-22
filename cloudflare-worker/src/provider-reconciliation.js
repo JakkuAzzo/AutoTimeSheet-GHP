@@ -39,10 +39,64 @@ function providerRowIsAbsenceOnly(row) {
   return !text(start) && !text(finish) && (worked === null || worked === 0);
 }
 
+// A source ID can be reused for changed submissions. Choosing one worked row
+// by completeness or input order would hide a genuine correction conflict.
+function workedRowSignature(row) {
+  const start = text(row?.start ?? row?.startTime ?? row?.start_time ?? row?.clockIn ?? row?.clock_in, '', 80).toLowerCase();
+  const finish = text(row?.finish ?? row?.finishTime ?? row?.finish_time ?? row?.clockOut ?? row?.clock_out, '', 80).toLowerCase();
+  if (!start && !finish) return null;
+  const rawBreak = row?.breakMinutes ?? row?.break_minutes ?? row?.lunchMinutes ?? row?.lunch_minutes ?? row?.break;
+  let breakValue = text(rawBreak, '', 120).toLowerCase();
+  if (/^(no break|none|0(?:\.0+)?(?: minutes?)?)$/.test(breakValue)) breakValue = '0';
+  else if (/^\d+(?:\.0+)?(?: minutes?(?: deducted)?)?$/.test(breakValue)) breakValue = String(Number.parseFloat(breakValue));
+  if (!breakValue) {
+    const status = text(row?.breakStatus ?? row?.break_status, '', 80).toLowerCase();
+    if (status === 'not-taken' || row?.lunchHad === false || row?.lunch_had === false) breakValue = '0';
+    else if (status) breakValue = `status:${status}`;
+  }
+  const absence = text(row?.absenceReason ?? row?.absence_reason ?? row?.absenceStatus ?? row?.absence_status ?? row?.absence, '', 120).toLowerCase();
+  return JSON.stringify([start, finish, breakValue, absence]);
+}
+
+function assertNoConflictingWorkedRows(left, right) {
+  for (const a of left) {
+    const key = providerRowKey(a), signature = workedRowSignature(a);
+    if (!validDate(key) || signature === null) continue;
+    for (const b of right) {
+      const other = workedRowSignature(b);
+      if (providerRowKey(b) === key && other !== null && signature !== other) {
+        throw Object.assign(new Error('Timesheet source rows conflict and need review.'), { status: 409 });
+      }
+    }
+  }
+}
+
+// Some separately received messages carry the same daily record ID. Do not
+// infer that same-date rows with different IDs are duplicates or one shift.
+function assertNoReusedDailyIdConflicts(records) {
+  const seen = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    const rows = record?.payload?.rows;
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const rawId = row?.recordId ?? row?.record_id;
+      const id = typeof rawId === 'string' ? rawId.trim() : '';
+      const date = providerRowKey(row), signature = workedRowSignature(row);
+      if (!id || !validDate(date) || signature === null) continue;
+      const key = JSON.stringify([id, date]);
+      if (seen.has(key) && seen.get(key) !== signature) {
+        throw Object.assign(new Error('Timesheet source rows conflict and need review.'), { status: 409 });
+      }
+      seen.set(key, signature);
+    }
+  }
+}
+
 function mergeProviderRows(leftRows, rightRows, options = {}) {
   const byDate = new Map();
   const left = Array.isArray(leftRows) ? leftRows : [];
   const right = Array.isArray(rightRows) ? rightRows : [];
+  assertNoConflictingWorkedRows(left, right);
   const source = options.dropLeftAbsenceOnly ? left.filter((row) => !providerRowIsAbsenceOnly(row)).concat(right) : left.concat(right);
   source.forEach((row, index) => {
     if (!row || typeof row !== 'object') return;
@@ -54,6 +108,7 @@ function mergeProviderRows(leftRows, rightRows, options = {}) {
 }
 
 function deduplicateProviderRecords(records) {
+  assertNoReusedDailyIdConflicts(records);
   const bySourceId = new Map();
   (Array.isArray(records) ? records : []).forEach((record) => {
     const key = text(record && record.source_record_id, '', MAX_RECORD_ID) || `provider-row-${bySourceId.size}`;

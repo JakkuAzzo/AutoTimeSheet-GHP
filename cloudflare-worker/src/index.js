@@ -1,4 +1,19 @@
 import payPeriods from '../../pay-periods.js';
+import payMonthWorkbook from '../../portal/pay-month-workbook.js';
+import { assertNoHistoricalOwnerConflict, resolveImportOwnerFromDatabase, resolveRosterUpn, normalizeImportCandidate, timesheetRecordMayBelongTo } from './submission-import-policy.js';
+import { syntheticQueueCapability } from './synthetic-queue-capability.js';
+import { syntheticFixture } from './synthetic-portal-fixture.js';
+import { fileImportedDocument } from './document-import-storage.js';
+import { bindPrivateOriginalProof, createPrivateOriginalIntent, readPrivateOriginalIntent, reservePrivateOriginalCreate } from './private-timesheet-original-store.js';
+import { filePrivateTimesheetOriginal, verifyPrivateTimesheetOriginal } from './private-timesheet-originals.js';
+import { createPrivateOriginalGraphIo } from './private-timesheet-original-graph.js';
+import { getPrivateOriginalReviewSnapshot, recordPrivateOriginalReview, revokePrivateOriginalReview } from './private-timesheet-original-review-store.js';
+import { ensurePrivateTimesheetFolder, ensurePrivateTimesheetWorkbook, verifyPrivateTimesheetParent, verifyPinnedInheritedParent, verifyPrivateTimesheetWorkbook } from './private-timesheet-access.js';
+import { privateTimesheetWorkbookStore } from './private-timesheet-workbook-store.js';
+import { blankPayMonthWorkbookBase64 } from './pay-month-template.js';
+import { verifyUploadedBlankWorkbook } from './private-timesheet-template-verification.js';
+import { verifyPreparedAttachments } from './timesheet-prepared-attachments.js';
+import { saveImportedInvoice, listImportedInvoices } from './submission-import-invoices.js';
 import { deduplicateProviderRecords, removeStaleAbsenceRows } from './provider-reconciliation.js';
 import { canonicalEstimateInput, createEstimateIndexStore, correlateEstimateRecords } from './estimate-index.js';
 import { normalizeEstimateArchiveRecord, queryEstimateArchive, upsertEstimateArchive, upsertEstimateAssociation } from './estimate-archive.js';
@@ -8,7 +23,10 @@ import { completeJobCardAttachmentUpload, expireJobCardAttachmentUploadSession, 
 
 const ALLOWED_KINDS = new Set(['timesheets', 'clock', 'estimates', 'job-cards', 'calendar', 'tasks', 'audit', 'enquiries']);
 const MAX_BODY_BYTES = 1_300_000;
-const MAX_TIMESHEET_RECEIPT_BYTES = 32_768;
+// Verified row notes are compared with the protected source in memory and are
+// not retained in the receipt. Allow the bounded pay-month source to fit even
+// when notes require JSON escaping, while keeping the callback size bounded.
+const MAX_TIMESHEET_RECEIPT_BYTES = 1_300_000;
 const MAX_RECORD_ID = 180;
 const MAX_TEXT = 6000;
 const MAX_ATTACHMENT_BYTES = 220_000;
@@ -45,7 +63,7 @@ function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
-    'access-control-allow-headers': 'Authorization, X-GMT-Upstream-Authorization, Content-Type, Accept',
+    'access-control-allow-headers': 'Authorization, X-GMT-Upstream-Authorization, X-GMT-Original-Extension, Content-Type, Accept',
     'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'cache-control': 'no-store',
     vary: 'Origin'
@@ -81,7 +99,7 @@ function decodeJsonPart(value) {
   return JSON.parse(new TextDecoder().decode(base64UrlDecode(value)));
 }
 
-function constantTimeEqual(left, right) {
+export function constantTimeEqual(left, right) {
   const a = new TextEncoder().encode(String(left || ''));
   const b = new TextEncoder().encode(String(right || ''));
   if (a.length !== b.length) return false;
@@ -185,11 +203,19 @@ function canViewAllRecords(identity, kind = '') {
   return Boolean(identity.isAdmin || (category === 'job-cards' && !identity.isHrAdmin) || (identity.isHrAdmin && category === 'calendar') || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin));
 }
 
+function isCorrectionOwner(identity,row) {
+  const oid=String(identity?.oid||'').trim().toLowerCase(),upn=String(identity?.upn||'').trim().toLowerCase();
+  return Boolean(oid && upn && oid===String(row?.owner_oid||'').trim().toLowerCase() &&
+    upn===String(row?.owner_upn||'').trim().toLowerCase());
+}
+
 function canAccessRecord(identity, row) {
   if (!identity || !row) return false;
   if (identity.isSubmissionAdmin === true) return true;
   const category = canonicalKind(row.kind);
-  const ownRecord = row.owner_oid === identity.oid || (category === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase());
+  const ownRecord = category === 'timesheets' && row.action === 'pay_month_correction'
+    ? isCorrectionOwner(identity,row)
+    : row.owner_oid === identity.oid;
   if (category === 'timesheets' || category === 'clock') return Boolean(ownRecord || (identity.isAdmin && identity.isTimesheetViewer === true));
   return Boolean(ownRecord || identity.isAdmin || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin));
 }
@@ -206,9 +232,13 @@ function recordPayMonthKey(row, payPeriods = defaultPayPeriods()) {
 function isOwnerRecord(identity, row) {
   if (!identity || !row) return false;
   const category = canonicalKind(row.kind);
+  // Legacy on-behalf corrections may retain the editor's OID. Hold them for
+  // ownership review instead of allowing mutations based on an address alone.
+  if (category === 'timesheets' && row.action === 'pay_month_correction') {
+    return isCorrectionOwner(identity,row);
+  }
   return row.owner_oid === identity.oid
-    || text(row.employee_upn || row.employee_email || '', '', 320).toLowerCase() === identity.upn?.toLowerCase()
-    || (category === 'timesheets' && row.action === 'pay_month_correction' && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase());
+    || text(row.employee_upn || row.employee_email || '', '', 320).toLowerCase() === identity.upn?.toLowerCase();
 }
 
 function canEditRecord(identity, row, nowDate = new Date(), payPeriods = defaultPayPeriods()) {
@@ -237,7 +267,7 @@ function canReadHistoryRecord(identity, row) {
   const ownRecord = employeeUpn
     ? employeeUpn === identity.upn
     : Boolean(identity.name && employeeName && employeeName === identity.name.toLowerCase());
-  if (category === 'timesheets' || category === 'clock') return identity.isTimesheetViewer === true || ownRecord;
+  if (category === 'timesheets' || category === 'clock') return identity.isTimesheetViewer === true || Boolean(employeeUpn && ownRecord);
   if (identity.isAdmin || identity.isOperationsAdmin) return true;
   if (category === 'job-cards' || (identity.isHrAdmin && category === 'calendar')) return true;
   return ownRecord;
@@ -1060,6 +1090,10 @@ function normaliseUnpaidTimesheetPayload(payload) {
 
 function normaliseInput(body, identity, existing = null, env = null, payPeriods = defaultPayPeriods()) {
   const payload = parsePayload(body);
+  if (existing && /^document-import-/i.test(String(existing.record_id || ''))) {
+    const original=payloadObject(existing);
+    ['importSourceId','importSourceIndex','importSourceName','importedBy'].forEach(key => { if (Object.hasOwn(original,key)) payload[key]=original[key]; });
+  }
   const kind = canonicalKind(body.kind || body.type || payload.kind || existing?.kind);
   if (!ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
   const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
@@ -1506,12 +1540,120 @@ async function sharePointGraphToken(env) {
   return token.access_token;
 }
 
-async function graphSharePointRequest(env, path, init = {}) {
+export async function graphSharePointRequest(env, path, init = {}) {
   const token = await sharePointGraphToken(env);
   const response = await fetch(`https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(text(env.SHAREPOINT_SITE_ID, '', 500))}/drives/${encodeURIComponent(text(env.SHAREPOINT_DRIVE_ID, '', 500))}${path}`, {
     ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers || {}) }
   });
   return response;
+}
+
+async function readDocumentBytes(request, limit=20*1024*1024) {
+  const declared=Number(request.headers.get('content-length')||0);
+  if(declared>limit)throw Object.assign(new Error('Document exceeds 20 MiB.'),{status:413});
+  const reader=request.body?.getReader();if(!reader)throw Object.assign(new Error('Document content is required.'),{status:400});
+  const chunks=[];let size=0;
+  while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>limit){try{await reader.cancel();}catch(_){}throw Object.assign(new Error('Document exceeds 20 MiB.'),{status:413});}chunks.push(part.value);}
+  const out=new Uint8Array(size);let offset=0;for(const chunk of chunks){out.set(chunk,offset);offset+=chunk.length;}return out;
+}
+
+function documentImportSharePointIo(env) {
+  return {
+    ensureFolder:path=>ensureSharePointFolder(env,path),
+    async lookup(path){const response=await graphSharePointRequest(env,`/root:/${encodeDrivePath(path)}`);if(response.status===404)return null;if(!response.ok)throw Object.assign(new Error('SharePoint could not check the document destination.'),{status:503});return response.json();},
+    async upload(path,bytes){
+      const response=await graphSharePointRequest(env,`/root:/${encodeDrivePath(path)}:/createUploadSession`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'fail'}})});
+      if(!response.ok)throw Object.assign(new Error('SharePoint could not start filing.'),{status:503});
+      const session=await response.json();if(!/^https:\/\//i.test(String(session?.uploadUrl||'')))throw Object.assign(new Error('SharePoint returned an invalid upload session.'),{status:503});
+      let item=null;for(let offset=0;offset<bytes.length;offset+=10*1024*1024){const end=Math.min(offset+10*1024*1024,bytes.length),chunk=bytes.slice(offset,end);const put=await fetch(session.uploadUrl,{method:'PUT',headers:{'content-type':'application/octet-stream','content-length':String(chunk.length),'content-range':`bytes ${offset}-${end-1}/${bytes.length}`},body:chunk});if(!put.ok)throw Object.assign(new Error('SharePoint could not file the document.'),{status:503});if(end===bytes.length)item=await put.json();}return item;
+    },
+    async read(item){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(item.id)}/content`);if(!response.ok)throw Object.assign(new Error('SharePoint read-back failed.'),{status:503});return readDocumentBytes(response);},
+    async share(item){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(item.id)}/createLink`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'view',scope:'organization',retainInheritedPermissions:true})});if(!response.ok)throw Object.assign(new Error('SharePoint access could not be configured.'),{status:503});return (await response.json()).link;},
+    async save(value){await env.DB.prepare(`INSERT INTO document_import_files (record_id,kind,source_id,file_name,size_bytes,sharepoint_item_id,sharepoint_path,sharing_url,filed_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET kind=excluded.kind,source_id=excluded.source_id,file_name=excluded.file_name,size_bytes=excluded.size_bytes,sharepoint_item_id=excluded.sharepoint_item_id,sharepoint_path=excluded.sharepoint_path,sharing_url=excluded.sharing_url,filed_at=excluded.filed_at`).bind(value.recordId,value.kind,value.sourceId,value.fileName,value.sizeBytes,value.itemId,value.path,value.url,now()).run();}
+  };
+}
+
+async function verifyPrivateParentDestination(env,parentId) {
+  const context={adminGroupId:env.PRIVATE_TIMESHEET_ADMIN_GROUP_ID,siteOwnerGroupId:env.PRIVATE_TIMESHEET_SITE_OWNER_GROUP_ID};
+  const io={
+    async metadata(id){const r=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}`);if(!r.ok)throw Object.assign(new Error('Private timesheet parent is unavailable'),{status:503});return r.json();},
+    async permissions(id){const r=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}/permissions`);if(!r.ok)throw Object.assign(new Error('Private timesheet parent permissions could not be read'),{status:503});const b=await r.json();if(b['@odata.nextLink'])throw Object.assign(new Error('Private timesheet parent permissions were incomplete'),{status:503});return b.value;}
+  };
+  // The only accepted empty inheritance markers are on this pinned fictional
+  // test parent, after checking its exact direct, independently private anchor.
+  if(env.SYNTHETIC_TEST_SERVICE_ENABLED==='true' && env.SYNTHETIC_RATE_TEST_MODE==='provider-fixture-v1' &&
+      env.SYNTHETIC_TEST_READ_ONLY_DESTINATION==='true' && parentId==='01ZURLVFIIINPOKIYCCZEJFTFMCUTRGBUL' &&
+      env.PRIVATE_TIMESHEET_PARENT_ID===parentId) {
+    return verifyPinnedInheritedParent(context,parentId,'01ZURLVFJFVBSV44GD4RA35FCIVFNDWPGP',io);
+  }
+  verifyPrivateTimesheetParent(context,await io.permissions(parentId));
+}
+
+async function verifyPrivateTimesheetDestination(env,record) {
+  const upn=String(record.owner_upn||'').trim().toLowerCase(),token=await sharePointGraphToken(env);
+  if(!upn)throw new Error('Timesheet employee is unavailable');
+  const directory=await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(upn)}?$select=id,userPrincipalName`,{headers:{authorization:`Bearer ${token}`,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+  if(!directory.ok)throw new Error('Timesheet employee could not be verified');
+  const user=await directory.json(),employeeOid=String(user?.id||'').toLowerCase();
+  if(String(user?.userPrincipalName||'').toLowerCase()!==upn||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(employeeOid))throw new Error('Timesheet employee could not be verified');
+  // A pay-month correction can be created by Accounts on an employee's
+  // behalf, so its owner_oid can identify the editor rather than the employee.
+  // Bind the resolved directory subject separately and fail closed if the
+  // address is later reused or renamed. Concurrent first resolutions race on
+  // the unique keys; only the persisted pair is allowed to proceed.
+  await env.DB.prepare('INSERT INTO private_timesheet_subjects (employee_upn,employee_oid,created_at) VALUES (?,?,?) ON CONFLICT DO NOTHING').bind(upn,employeeOid,now()).run();
+  const subject=await env.DB.prepare('SELECT employee_oid FROM private_timesheet_subjects WHERE employee_upn=?').bind(upn).first();
+  if(subject?.employee_oid!==employeeOid)throw Object.assign(new Error('Timesheet employee identity needs reconciliation'),{status:503});
+  const root='Submitted Documents/Timesheets';
+  const configuredParent=String(env.PRIVATE_TIMESHEET_PARENT_ID||'').trim();
+  if(configuredParent&&!/^[A-Za-z0-9!_-]{1,256}$/.test(configuredParent))throw Object.assign(new Error('Private timesheet parent is invalid'),{status:503});
+  const parentResponse=await graphSharePointRequest(env,configuredParent?`/items/${encodeURIComponent(configuredParent)}`:`/root:/${encodeDrivePath(root)}`);
+  if(!parentResponse.ok)throw Object.assign(new Error('Private timesheet parent is unavailable'),{status:503});
+  const parent=await parentResponse.json();if(!parent?.id||(configuredParent&&parent.id!==configuredParent)||!parent.folder||parent.file||parent.remoteItem)throw Object.assign(new Error('Private timesheet parent is invalid'),{status:503});
+  const checkParent=async(expected=parent.id)=>{
+    if(expected!==parent.id)throw Object.assign(new Error('Private timesheet parent changed'),{status:503});
+    await verifyPrivateParentDestination(env,parent.id);
+  };
+  await checkParent();
+  const io={
+    verifyParent:checkParent,
+    async find(){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(parent.id)}:/${encodeURIComponent(user.id)}`);if(response.status===404)return null;if(!response.ok)throw new Error('Private folder lookup failed');return response.json();},
+    async refresh(id){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}`);if(!response.ok)throw new Error('Private folder refresh failed');return response.json();},
+    async createEmpty(path){if(env.SYNTHETIC_TEST_READ_ONLY_DESTINATION==='true')throw Object.assign(new Error('Test destination is unavailable'),{status:503});await checkParent();const name=path.split('/').pop();const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(parent.id)}/children`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,folder:{},'@microsoft.graph.conflictBehavior':'fail'})});if(!response.ok)throw new Error('Private folder creation failed');return response.json();},
+    async markCreated(id,employee,admin){await env.DB.prepare('INSERT INTO private_timesheet_folders (employee_oid,folder_id,admin_group_oid,created_at) VALUES (?,?,?,?) ON CONFLICT(employee_oid) DO NOTHING').bind(employee,id,admin,now()).run();if(!await this.wasCreatedByApp(id,employee,admin))throw new Error('Private folder identity could not be verified');},
+    async wasCreatedByApp(id,employee,admin){const row=await env.DB.prepare('SELECT folder_id,admin_group_oid FROM private_timesheet_folders WHERE employee_oid=?').bind(employee).first();return row?.folder_id===id&&row?.admin_group_oid===admin;},
+    async grantPrivate(id,recipients,options){if(env.SYNTHETIC_TEST_READ_ONLY_DESTINATION==='true')throw Object.assign(new Error('Test destination permissions cannot be changed'),{status:503});if(options?.retainInheritedPermissions!==true||recipients.length!==1)throw new Error('Private folder grant is invalid');const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}/invite`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({recipients:recipients.map(objectId=>({objectId})),roles:['write'],requireSignIn:true,sendInvitation:false,retainInheritedPermissions:true})});if(!response.ok||response.status===207)throw new Error('Private folder permissions could not be applied');},
+    async permissions(id){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}/permissions`);if(!response.ok)throw new Error('Private folder permissions could not be read');const body=await response.json();if(body['@odata.nextLink'])throw new Error('Private folder permissions were incomplete');return body.value;}
+  };
+  const folder=await ensurePrivateTimesheetFolder({adminGroupId:env.PRIVATE_TIMESHEET_ADMIN_GROUP_ID,employeeId:user?.id,employeeUpn:upn,siteOwnerGroupId:env.PRIVATE_TIMESHEET_SITE_OWNER_GROUP_ID,parentId:parent.id},io);
+  await checkParent();
+  return {...folder,employeeId:user.id,employeeUpn:upn,parentId:parent.id};
+}
+
+async function verifyPrivateWorkbookDestination(env,folder,record,month){
+  const io={
+    ...privateTimesheetWorkbookStore(env.DB,now),
+    async verifyParent(id){await verifyPrivateParentDestination(env,id);},
+    async metadata(id){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}`);if(!response.ok)throw new Error('Private workbook metadata could not be read');return response.json();},
+    async findChild(parentId,name){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}`);if(response.status===404)return null;if(!response.ok)throw new Error('Private workbook lookup failed');return response.json();},
+    async permissions(id){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}/permissions`);if(!response.ok)throw new Error('Private workbook permissions could not be read');const body=await response.json();if(body['@odata.nextLink'])throw new Error('Private workbook permissions were incomplete');return body.value;},
+    async createFolder(parentId,name){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(parentId)}/children`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,folder:{},'@microsoft.graph.conflictBehavior':'fail'})});if(!response.ok)throw new Error('Private month folder could not be created');return response.json();},
+    async createBlankWorkbook(parentId,name){
+      const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}:/createUploadSession`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'fail'}})});
+      if(!response.ok)throw new Error('Private workbook upload could not be started');
+      const session=await response.json();let url;try{url=new URL(String(session?.uploadUrl||''));}catch(_){throw new Error('Private workbook upload endpoint is invalid');}
+      if(url.protocol!=='https:'||url.username||url.password)throw new Error('Private workbook upload endpoint is invalid');
+      const bytes=decodeBase64(blankPayMonthWorkbookBase64);
+      const put=await fetch(url.toString(),{method:'PUT',headers:{'content-length':String(bytes.length),'content-range':`bytes 0-${bytes.length-1}/${bytes.length}`,'content-type':'application/octet-stream'},body:bytes,signal:AbortSignal.timeout(30000)});
+      if(!put.ok||![200,201].includes(put.status))throw new Error('Private workbook upload failed');return put.json();
+    },
+    async verifyBlank(id,created){return verifyUploadedBlankWorkbook(created,{
+      async metadata(){return io.metadata(id);},
+      async content(){const response=await graphSharePointRequest(env,`/items/${encodeURIComponent(id)}/content`);if(!response.ok)throw new Error('Private workbook read-back failed');return readDocumentBytes(response,100000);}
+    });}
+  };
+  const context={rootId:folder.id,parentId:folder.parentId,employeeId:folder.employeeId,employeeUpn:folder.employeeUpn,adminGroupId:env.PRIVATE_TIMESHEET_ADMIN_GROUP_ID,siteOwnerGroupId:env.PRIVATE_TIMESHEET_SITE_OWNER_GROUP_ID,employeeName:record.employee_name,payMonth:month};
+  return env.TIMESHEET_WORKBOOK_PROVISIONING_ENABLED==='true'?ensurePrivateTimesheetWorkbook(context,io):verifyPrivateTimesheetWorkbook(context,io);
 }
 
 function requireJobCardArchiveAdmin(identity) {
@@ -2392,6 +2534,19 @@ function historicalEmployeeAliases(env) {
   return staffDirectory({ STAFF_DIRECTORY_JSON: env?.HISTORICAL_EMPLOYEE_ALIASES_JSON });
 }
 
+function documentImportRoster(env) {
+  return staffDirectory({STAFF_DIRECTORY_JSON:JSON.stringify([...staffDirectory(env),...staffDirectory({STAFF_DIRECTORY_JSON:env.DOCUMENT_IMPORT_DIRECTORY_JSON})])});
+}
+async function documentImportOwner(identity,data,roster,env) {
+  const upn=resolveRosterUpn(data,roster);
+  return resolveImportOwnerFromDatabase(identity,upn,roster,env.DB,async requested=>{
+    const graphToken=await sharePointGraphToken(env);
+    const response=await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(requested)}?$select=id,userPrincipalName`,{headers:{authorization:`Bearer ${graphToken}`,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+    if(!response.ok)throw new Error('Directory lookup unavailable');
+    const user=await response.json();return {oid:user?.id,upn:user?.userPrincipalName};
+  });
+}
+
 function upstreamValue(row, keys) {
   for (const key of keys) {
     if (row && row[key] !== undefined && row[key] !== null && String(row[key]).trim()) return upstreamScalar(row[key]);
@@ -2895,8 +3050,8 @@ async function readSharePointHistory(env, identity) {
         if (!mayViewAll) {
           const name = text(fields.EmployeeName || fields.employee_name, '', 240).toLowerCase();
           if (!owner && name) {
-            // Older records can lack an email. Resolve only an exact name
-            // with one known mailbox; ambiguous names fail closed.
+            // A unique name is only a routing candidate. Before release the
+            // source must also carry an explicit, matching employee address.
             const matches = [...staffDirectory(env), ...historicalEmployeeAliases(env)]
               .filter((entry) => entry.name.toLowerCase() === name && entry.upn)
               .map((entry) => entry.upn);
@@ -2913,6 +3068,7 @@ async function readSharePointHistory(env, identity) {
         }
         const mapped = normaliseUpstreamRecord(fields, identity, env);
         if (!mapped || mapped.synthetic || !canReadHistoryRecord(identity, mapped)) continue;
+        if (!mayViewAll && !upstreamEmployeeClaimsAgree(fields, mapped)) continue;
         if (!mayViewAll && mapped.payload) mapped.payload = { rows: mapped.payload.rows || [] };
         records.push(mapped);
       }
@@ -2927,7 +3083,7 @@ async function readSharePointHistory(env, identity) {
   }
 }
 
-function normaliseUpstreamRecord(row, identity, env) {
+function flattenUpstreamRecord(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
   // SharePoint Get items sometimes wraps the actual columns in `fields` (and
   // a few older flow versions used `item`/`properties`). Flatten those
@@ -2937,7 +3093,36 @@ function normaliseUpstreamRecord(row, identity, env) {
     .map((key) => row[key])
     .filter((value) => value && typeof value === 'object' && !Array.isArray(value))
     .reduce((merged, value) => Object.assign(merged, value), {});
-  row = Object.keys(nested).length ? { ...nested, ...row } : row;
+  return Object.keys(nested).length ? { ...nested, ...row } : row;
+}
+
+// Do not release a multi-person attachment just because its outer header
+// names the requesting employee. All explicit employee claims must agree.
+function upstreamEmployeeClaimsAgree(sourceRow, mapped) {
+  const row = flattenUpstreamRecord(sourceRow);
+  if (!row || !mapped?.employee_upn) return false;
+  const { payload } = upstreamPayloadAndRows(row);
+  const headerName = text(upstreamValue(row, ['employee_name', 'employeeName', 'EmployeeName', 'Employee Name', 'employee', 'Employee', 'gmt_employee']) || mapped.employee_name, '', 240).toLowerCase();
+  const objects = [row, payload, ...collectUpstreamDailyRows(payload)].filter((value) => value && typeof value === 'object' && !Array.isArray(value));
+  const emailKeys = new Set(['employeeupn', 'employeeemail', 'gmtemployeeupn']);
+  const nameKeys = new Set(['employeename', 'gmtemployee']);
+  let hasExplicitOwner=false;
+  for (const object of objects) {
+    for (const [key, value] of Object.entries(object)) {
+      const normalizedKey = key.toLowerCase().replace(/_x0020_/g, '').replace(/[_\s]/g, '');
+      if ((emailKeys.has(normalizedKey) || (object===row && normalizedKey==='email')) && text(value, '', 320)) {
+        if (text(value, '', 320).toLowerCase() !== mapped.employee_upn.toLowerCase()) return false;
+        hasExplicitOwner=true;
+      }
+      if (object !== row && nameKeys.has(normalizedKey) && text(value, '', 240) && headerName && text(value, '', 240).toLowerCase() !== headerName) return false;
+    }
+  }
+  return hasExplicitOwner;
+}
+
+function normaliseUpstreamRecord(row, identity, env) {
+  row = flattenUpstreamRecord(row);
+  if (!row) return null;
   const title = upstreamValue(row, ['title', 'Title', 'subject', 'Subject']);
   const titleDetails = historyTitleDetails(title);
   const directory = staffDirectory(env);
@@ -2947,9 +3132,10 @@ function normaliseUpstreamRecord(row, identity, env) {
   const initialEmail = text(explicitEmail, '', 320).toLowerCase();
   const directoryEntry = directoryEntryFor(directory, initialName, initialEmail)
     || directoryEntryFor(historicalEmployeeAliases(env), initialName, initialEmail);
-  const viewerHasImplicitIdentity = identity.isAdmin || identity.isTimesheetViewer || identity.isSubmissionAdmin;
-  const employeeName = text(directoryEntry?.name || initialName || (viewerHasImplicitIdentity ? '' : identity.name || identity.upn), '', 240);
-  const employeeUpn = text(directoryEntry?.upn || initialEmail || (viewerHasImplicitIdentity ? '' : identity.upn), '', 320).toLowerCase();
+  // A history source may return rows belonging to several staff members.
+  // Missing source identity must never be filled from the requesting viewer.
+  const employeeName = text(directoryEntry?.name || initialName, '', 240);
+  const employeeUpn = text(directoryEntry?.upn || initialEmail, '', 320).toLowerCase();
   if (!employeeName && !employeeUpn) return null;
   const titleKind = /\[(?:CLOCK|DAY)\]/i.test(String(title || '')) ? 'clock' : '';
   const rawKind = text(upstreamValue(row, ['kind', 'category', 'record_type', 'recordType', 'action', 'gmt_type']) || titleKind || 'timesheets', 'timesheets', 120).toLowerCase().replace(/[\s_]+/g, '-');
@@ -3355,6 +3541,41 @@ function sameRecord(a, b) {
   return a.owner_oid === b.ownerOid && a.owner_upn === b.ownerUpn && a.employee_name === b.employeeName && a.kind === b.kind && a.action === b.action && a.status === b.status && (a.start_date || '') === b.startDate && (a.end_date || '') === b.endDate && (a.record_date || '') === b.recordDate && a.issue === b.issue && a.payload_json === b.payloadJson;
 }
 
+export async function saveReviewedPayMonth(env,input,identity,existing,guard) {
+  const key=guard.employeeUpn.toLowerCase(),revision=guard.localRevision;
+  if(input.kind!=='timesheets'||input.action!=='pay_month_correction'||!input.ownerOid||String(input.ownerUpn||'').toLowerCase()!==key||!Number.isSafeInteger(revision)||revision<0)throw Object.assign(new Error('The reviewed timesheet target is invalid.'),{status:400});
+  let revisionCheck="COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0)=? AND NOT EXISTS (SELECT 1 FROM dispatch_queue WHERE record_id=? AND status IN ('sending','sent','failed','uncertain')) AND NOT EXISTS (SELECT 1 FROM dispatch_queue q JOIN records r ON r.record_id=q.record_id WHERE lower(r.owner_upn)=? AND r.kind='timesheets' AND r.action='pay_month_correction' AND r.record_id<>? AND q.status IN ('queued','sending','sent','failed','uncertain')) AND (?=1 OR NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=?))";
+  revisionCheck+=` AND NOT EXISTS (SELECT 1 FROM records identity_source WHERE identity_source.kind IN ('timesheets','clock') AND identity_source.status<>'Deleted'
+    AND ((lower(identity_source.owner_oid)=? AND lower(identity_source.owner_upn)<>?) OR (lower(identity_source.owner_upn)=? AND lower(identity_source.owner_oid)<>?)))`;
+  const oid=String(input.ownerOid).toLowerCase();
+  const reviewArgs=[identity.isSubmissionAdmin === true || (identity.isAdmin === true && identity.isTimesheetViewer === true) ? 1 : 0,input.recordId,oid,key,key,oid];
+  if (guard.reviewEventWatermark !== undefined) {
+    if (!Number.isSafeInteger(guard.reviewEventWatermark) || guard.reviewEventWatermark < 0 || !guard.ownerOid) throw Object.assign(new Error('The reviewed timesheet target is invalid.'),{status:400});
+    revisionCheck+=" AND COALESCE((SELECT MAX(e.event_id) FROM timesheet_ownership_review_events e JOIN timesheet_ownership_reviews review ON review.review_id=e.review_id WHERE lower(review.subject_oid)=?),0)=?";
+    reviewArgs.push(String(guard.ownerOid).toLowerCase(),guard.reviewEventWatermark);
+    revisionCheck+=" AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records source ON source.record_id=review.record_id WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?)";
+    reviewArgs.push(String(guard.ownerOid).toLowerCase(),key);
+  }
+  if(!existing){
+    try {
+      const result=await env.DB.prepare(`INSERT INTO records (record_id,owner_oid,owner_upn,employee_name,kind,action,status,start_date,end_date,record_date,submitted_at,updated_at,issue,payload_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE ${revisionCheck}`)
+        .bind(input.recordId,input.ownerOid,input.ownerUpn,input.employeeName,input.kind,input.action,input.status,input.startDate,input.endDate,input.recordDate,input.submittedAt,input.updatedAt,input.issue,input.payloadJson,key,revision,input.recordId,key,input.recordId,...reviewArgs).run();
+      // D1 counts trigger writes in meta.changes. The primary-key insert can
+      // affect at most one record, so any positive count means it succeeded.
+      if(Number(result?.meta?.changes||0)<1)throw Object.assign(new Error('The timesheet changed or an earlier workbook is awaiting delivery. Refresh and check its status before trying again.'),{status:409});
+      return {created:true,changed:false};
+    } catch(error){if(error?.status)throw error;if(/unique|constraint/i.test(String(error?.message||'')))throw Object.assign(new Error('The timesheet changed during review. Refresh and try again.'),{status:409});throw error;}
+  }
+  if(String(existing.owner_upn||'').toLowerCase()!==key||existing.action!=='pay_month_correction')throw Object.assign(new Error('The reviewed correction target is invalid.'),{status:409});
+  const oldPayload=JSON.stringify({employee_name:existing.employee_name,kind:existing.kind,action:existing.action,status:existing.status,start_date:existing.start_date,end_date:existing.end_date,record_date:existing.record_date,submitted_at:existing.submitted_at,updated_at:existing.updated_at,issue:existing.issue,payload:payloadObject(existing)});
+  const version=env.DB.prepare(`INSERT INTO record_versions (record_id,owner_oid,payload_json,changed_at,changed_by_oid) SELECT ?,?,?,?,? WHERE ${revisionCheck}`).bind(existing.record_id,existing.owner_oid,oldPayload,now(),identity.oid,key,revision,input.recordId,key,input.recordId,...reviewArgs);
+  const update=env.DB.prepare(`UPDATE records SET owner_upn=?,employee_name=?,kind=?,action=?,status=?,start_date=?,end_date=?,record_date=?,submitted_at=?,updated_at=?,issue=?,payload_json=? WHERE record_id=? AND owner_oid=? AND ${revisionCheck}`).bind(input.ownerUpn,input.employeeName,input.kind,input.action,input.status,input.startDate,input.endDate,input.recordDate,input.submittedAt,input.updatedAt,input.issue,input.payloadJson,input.recordId,existing.owner_oid,key,revision,input.recordId,key,input.recordId,...reviewArgs);
+  const retire=env.DB.prepare("UPDATE dispatch_queue SET status='skipped',updated_at=?,last_error='Superseded by a newer correction; awaiting its workbook.' WHERE record_id=? AND status='queued' AND changes()=1").bind(now(),input.recordId);
+  const result=await env.DB.batch([version,update,retire]);
+  if(Number(result?.[1]?.meta?.changes||0)<1)throw Object.assign(new Error('The timesheet changed or an earlier workbook is awaiting delivery. Refresh and check its status before trying again.'),{status:409});
+  return {created:false,changed:true};
+}
+
 async function saveRecord(env, input, identity, existing = null) {
   const changed = existing && !sameRecord(existing, input);
   const writeVersion = async () => env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
@@ -3385,6 +3606,27 @@ async function saveRecord(env, input, identity, existing = null) {
     if (changed) await writeVersion();
     return { created: false, changed };
   }
+  if (existing.kind === 'timesheets') {
+    const update=env.DB.prepare(`UPDATE records SET owner_upn=?,employee_name=?,kind=?,action=?,status=?,start_date=?,end_date=?,record_date=?,submitted_at=?,updated_at=?,issue=?,payload_json=?
+      WHERE record_id=? AND owner_oid IS ? AND owner_upn IS ? AND employee_name IS ? AND kind IS ? AND action IS ? AND status IS ?
+        AND start_date IS ? AND end_date IS ? AND record_date IS ? AND submitted_at IS ? AND updated_at IS ? AND issue IS ? AND payload_json IS ?
+        AND (?=1 OR NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=records.record_id))`)
+      .bind(input.ownerUpn,input.employeeName,input.kind,input.action,input.status,input.startDate,input.endDate,input.recordDate,input.submittedAt,input.updatedAt,input.issue,input.payloadJson,
+        input.recordId,existing.owner_oid,existing.owner_upn,existing.employee_name,existing.kind,existing.action,existing.status,existing.start_date??null,existing.end_date??null,
+        existing.record_date??null,existing.submitted_at,existing.updated_at,existing.issue??null,existing.payload_json,
+        identity.isSubmissionAdmin === true || (identity.isAdmin === true && identity.isTimesheetViewer === true) ? 1 : 0);
+    const statements=[update];
+    if (changed) {
+      const prior=JSON.stringify({employee_name:existing.employee_name,kind:existing.kind,action:existing.action,status:existing.status,
+        start_date:existing.start_date,end_date:existing.end_date,record_date:existing.record_date,submitted_at:existing.submitted_at,
+        updated_at:existing.updated_at,issue:existing.issue,payload:payloadObject(existing)});
+      statements.push(env.DB.prepare('INSERT INTO record_versions (record_id,owner_oid,payload_json,changed_at,changed_by_oid) SELECT ?,?,?,?,? WHERE changes()=1')
+        .bind(existing.record_id,existing.owner_oid,prior,now(),identity.oid));
+    }
+    const result=await env.DB.batch(statements);
+    if (Number(result?.[0]?.meta?.changes || 0)<1) throw Object.assign(new Error('The timesheet changed or needs ownership review. Refresh before editing.'),{status:409});
+    return {created:false,changed};
+  }
   if (changed) await writeVersion();
   await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ?`)
     .bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId).run();
@@ -3397,8 +3639,7 @@ async function deleteRecord(env, existing, identity) {
   if (!identity.isAdmin && !deletableStatuses.has(String(existing.status || '').toLowerCase())) {
     throw Object.assign(new Error('Submitted records cannot be deleted'), { status: 409 });
   }
-  await env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
-    .bind(existing.record_id, existing.owner_oid, JSON.stringify({
+  const previousVersion = JSON.stringify({
       employee_name: existing.employee_name,
       kind: existing.kind,
       action: existing.action,
@@ -3410,7 +3651,28 @@ async function deleteRecord(env, existing, identity) {
       updated_at: existing.updated_at,
       issue: existing.issue,
       payload: payloadObject(existing)
-    }), now(), identity.oid).run();
+    });
+  if (existing.kind === 'timesheets') {
+    // A delivery may be claimed after the route read this record. Keep the
+    // source, its prior version and the queue transition in one transaction.
+    const timestamp = now();
+    const update = env.DB.prepare(`UPDATE records SET status='Deleted',issue=?,payload_json='{}',updated_at=?
+      WHERE record_id=? AND owner_oid IS ? AND owner_upn IS ? AND employee_name IS ? AND kind IS ? AND action IS ?
+        AND status IS ? AND start_date IS ? AND end_date IS ? AND record_date IS ? AND submitted_at IS ?
+        AND updated_at IS ? AND issue IS ? AND payload_json IS ?
+        AND (?=1 OR NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=records.record_id))
+        AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=records.record_id AND q.status NOT IN ('queued','skipped'))`)
+      .bind('Deleted by ' + identity.upn,timestamp,existing.record_id,existing.owner_oid,existing.owner_upn,existing.employee_name,existing.kind,existing.action,existing.status,existing.start_date??null,existing.end_date??null,existing.record_date??null,existing.submitted_at,existing.updated_at,existing.issue??null,existing.payload_json,identity.isSubmissionAdmin === true || (identity.isAdmin === true && identity.isTimesheetViewer === true) ? 1 : 0);
+    const version = env.DB.prepare('INSERT INTO record_versions (record_id,owner_oid,payload_json,changed_at,changed_by_oid) SELECT ?,?,?,?,? WHERE changes()=1')
+      .bind(existing.record_id,existing.owner_oid,previousVersion,timestamp,identity.oid);
+    const retire = env.DB.prepare("UPDATE dispatch_queue SET status='skipped',updated_at=?,last_error='Correction deleted before delivery.' WHERE record_id=? AND status='queued' AND changes()=1")
+      .bind(timestamp,existing.record_id);
+    const result = await env.DB.batch([update,version,retire]);
+    if (Number(result?.[0]?.meta?.changes || 0) < 1) throw Object.assign(new Error('The timesheet changed or its workbook delivery needs review. Refresh and check its status before deleting.'), { status: 409 });
+    return { deleted: true, soft_deleted: true };
+  }
+  await env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
+    .bind(existing.record_id, existing.owner_oid, previousVersion, now(), identity.oid).run();
   await env.DB.prepare("UPDATE records SET status = 'Deleted', issue = ?, payload_json = ?, updated_at = ? WHERE record_id = ?")
     .bind('Deleted by ' + identity.upn, '{}', now(), existing.record_id).run();
   return { deleted: true, soft_deleted: true };
@@ -3428,6 +3690,533 @@ async function readJson(request) {
   } catch (_) {
     throw Object.assign(new Error('Request body must be valid JSON'), { status: 400 });
   }
+}
+
+// This review trail alone does not grant access to a record, its older versions
+// or attachments. All release routes must adopt the same snapshot-bound policy
+// before these decisions can be used for employee access.
+function requireTimesheetOwnershipReviewer(identity) {
+  if (identity?.isAdmin !== true || identity?.isTimesheetViewer !== true || !identity.oid) {
+    throw Object.assign(new Error('Timesheet ownership review is restricted to authorised reviewers'), { status: 403 });
+  }
+}
+
+async function timesheetReviewSnapshot(env, recordId) {
+  const row = await env.DB.prepare(`SELECT r.record_id,r.owner_oid,r.owner_upn,r.employee_name,r.kind,r.action,r.status,
+    r.start_date,r.end_date,r.record_date,r.submitted_at,r.updated_at,r.payload_json,v.revision,q.status AS delivery_status,
+    active.review_id AS active_review_id,active.subject_oid AS active_subject_oid,active.payload_sha256 AS active_payload_sha256,
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_ownership_review_events e
+      JOIN timesheet_ownership_reviews review ON review.review_id=e.review_id WHERE review.record_id=r.record_id),0) AS review_event_id
+    FROM records r JOIN timesheet_review_record_revisions v ON v.record_id=r.record_id
+    LEFT JOIN dispatch_queue q ON q.record_id=r.record_id
+    LEFT JOIN timesheet_ownership_reviews active ON active.record_id=r.record_id AND active.record_revision=v.revision
+      AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=active.review_id AND e.event_type IN ('revoked','invalidated'))
+    WHERE r.record_id=? AND r.kind='timesheets' AND r.status<>'Deleted'`).bind(recordId).first();
+  if (!row) throw Object.assign(new Error('Timesheet is unavailable for review'), { status: 404 });
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(row.payload_json));
+  return { row, payloadSha256: Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2,'0')).join('') };
+}
+
+async function timesheetOwnershipReviewEndpoint(request, env, identity, recordId, origin, revoke = false) {
+  requireTimesheetOwnershipReviewer(identity);
+  if (revoke) {
+    const body = await readJson(request);
+    const reviewId = Number(body.reviewId);
+    if (!Number.isSafeInteger(reviewId) || reviewId < 1) throw Object.assign(new Error('A valid review is required'), { status: 400 });
+    const event = await env.DB.prepare(`INSERT INTO timesheet_ownership_review_events(review_id,event_type,actor_oid,occurred_at)
+      SELECT review.review_id,'revoked',?,? FROM timesheet_ownership_reviews review
+      JOIN timesheet_review_record_revisions v ON v.record_id=review.record_id AND v.revision=review.record_revision
+      JOIN records r ON r.record_id=review.record_id AND r.kind='timesheets' AND r.status<>'Deleted'
+      WHERE review.review_id=? AND review.record_id=? AND NOT EXISTS (
+        SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated'))
+      RETURNING event_id`).bind(identity.oid,now(),reviewId,recordId).first();
+    if (!event) throw Object.assign(new Error('The review is no longer active'), { status: 409 });
+    return json({ revoked:true,reviewId },200,origin);
+  }
+  if (request.method === 'GET') {
+    const { row, payloadSha256 } = await timesheetReviewSnapshot(env,recordId);
+    const { revision, review_event_id:reviewEventId,delivery_status:deliveryStatus,
+      active_review_id:reviewId,active_subject_oid:subjectOid,active_payload_sha256:reviewDigest,...record } = row;
+    const activeReview=reviewId?{reviewId,subjectOid,payloadSha256:reviewDigest}:null;
+    return json({ record,revision,reviewEventId,payloadSha256,deliveryStatus:deliveryStatus||null,activeReview },200,origin);
+  }
+  const body = await readJson(request);
+  const revision = body.expectedRevision, reviewEventId = body.expectedReviewEventId, digest = String(body.payloadSha256 || '');
+  const subjectOid = String(body.subjectOid || '').trim().toLowerCase();
+  const subjectUpn = String(body.subjectUpn || '').trim().toLowerCase();
+  const evidence = String(body.evidenceReference || '').trim();
+  if (!Number.isSafeInteger(revision) || revision < 1 || !Number.isSafeInteger(reviewEventId) || reviewEventId < 0 || !/^[a-f0-9]{64}$/.test(digest) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(subjectOid) ||
+      !/^[^\s@]+@[^\s@]+$/.test(subjectUpn) || subjectUpn.length > 320 || !/^[a-zA-Z0-9._:/-]{1,180}$/.test(evidence)) {
+    throw Object.assign(new Error('Review identity, revision and evidence are required'), { status: 400 });
+  }
+  const { row, payloadSha256 } = await timesheetReviewSnapshot(env,recordId);
+  if (revision !== Number(row.revision) || reviewEventId !== Number(row.review_event_id) || digest !== payloadSha256) throw Object.assign(new Error('The reviewed timesheet or review history has changed'), { status: 409 });
+  let user;
+  try {
+    const token = await sharePointGraphToken(env);
+    const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(subjectOid)}?$select=id,userPrincipalName,accountEnabled`, {
+      headers: { authorization:`Bearer ${token}`,accept:'application/json' }, signal:AbortSignal.timeout(10000)
+    });
+    if (!response.ok) throw new Error('Directory unavailable');
+    user = await response.json();
+  } catch (_) { throw Object.assign(new Error('Employee directory verification is unavailable'), { status: 503 }); }
+  if (String(user?.id || '').toLowerCase() !== subjectOid || String(user?.userPrincipalName || '').toLowerCase() !== subjectUpn || user?.accountEnabled !== true) {
+    throw Object.assign(new Error('Employee directory identity does not match the review'), { status: 409 });
+  }
+  // The external directory check cannot share a transaction with D1. Bind
+  // the write to the exact record revision and bytes observed before it.
+  const review = await env.DB.prepare(`INSERT INTO timesheet_ownership_reviews(record_id,record_revision,payload_sha256,subject_oid,reviewer_oid,evidence_reference,reviewed_at)
+    SELECT r.record_id,v.revision,?,?,?,?,? FROM records r
+    JOIN timesheet_review_record_revisions v ON v.record_id=r.record_id
+    WHERE r.record_id=? AND r.kind='timesheets' AND r.status<>'Deleted' AND v.revision=? AND r.payload_json=?
+      AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=r.record_id AND q.status IN ('sending','sent','failed','uncertain'))
+      AND COALESCE((SELECT MAX(e.event_id) FROM timesheet_ownership_review_events e JOIN timesheet_ownership_reviews prior ON prior.review_id=e.review_id WHERE prior.record_id=r.record_id),0)=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews x WHERE x.record_id=r.record_id AND NOT EXISTS (
+        SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=x.review_id AND e.event_type IN ('revoked','invalidated')))
+    RETURNING review_id`).bind(digest,subjectOid,identity.oid,evidence,now(),recordId,revision,row.payload_json,reviewEventId).first();
+  if (!review) throw Object.assign(new Error('The timesheet changed or already has an active review'), { status: 409 });
+  return json({ reviewId:review.review_id,subjectOid,revision,payloadSha256 },201,origin);
+}
+
+function canonicalSourceFields(fields) {
+  let count=0;
+  const normalize=(value,depth)=>{
+    if (++count>50000 || depth>32) throw new Error('Source fields are too complex');
+    if (value===null || typeof value==='string' || typeof value==='boolean') return value;
+    if (typeof value==='number' && Number.isFinite(value)) return value;
+    if (Array.isArray(value)) return value.map(item=>normalize(item,depth+1));
+    if (!value || typeof value!=='object') throw new Error('Source fields are invalid');
+    const result=Object.create(null);
+    for(const key of Object.keys(value).sort()) result[key]=normalize(value[key],depth+1);
+    return result;
+  };
+  return JSON.stringify(normalize(fields,0));
+}
+
+async function describeSourceItem(item) {
+  if (!item || typeof item.id!=='string' || !/^[1-9][0-9]{0,18}$/.test(item.id) || item.deleted ||
+      typeof item.eTag!=='string' || !item.eTag.trim() || item.eTag.length>500 || /[\x00-\x1f\x7f]/.test(item.eTag) ||
+      !item.fields || typeof item.fields!=='object' || Array.isArray(item.fields)) throw new Error('Unversioned source');
+  const bytes=new TextEncoder().encode(canonicalSourceFields(item.fields));
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  return {itemId:item.id,etag:item.eTag,fields:item.fields,fieldsSha256:Array.from(new Uint8Array(digest),value=>value.toString(16).padStart(2,'0')).join(''),fieldBytes:bytes.length};
+}
+
+// Internal inventory only. Two matching complete scans narrow provider races;
+// they cannot prevent a SharePoint change after the final response.
+export async function readCompleteTimesheetSourceSnapshot(env) {
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  if (!site || !/^[a-z0-9-]+$/i.test(list)) throw Object.assign(new Error('Timesheet source history is unavailable'),{status:503});
+  const path=`/v1.0/sites/${encodeURIComponent(site)}/lists/${encodeURIComponent(list)}/items`;
+  const scan=async()=>{
+    const token=await sharePointGraphToken(env),seenUrls=new Set(),seenIds=new Set(),items=[];
+    let url=`https://graph.microsoft.com${path}?$expand=fields&$top=100`,bytes=0;
+    for(let page=0;url;page++) {
+      if(page>=100 || seenUrls.has(url))throw new Error('Incomplete source pagination');
+      const parsed=new URL(url);
+      if(parsed.protocol!=='https:' || parsed.host!=='graph.microsoft.com' || parsed.username || parsed.password || parsed.hash ||
+          decodeURIComponent(parsed.pathname)!==decodeURIComponent(path))throw new Error('Invalid source continuation');
+      seenUrls.add(url);
+      const response=await fetch(url,{redirect:'manual',headers:{authorization:`Bearer ${token}`,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+      if(!response.ok)throw new Error('Source history unavailable');
+      const body=await readBoundedJson(response,MAX_BODY_BYTES);
+      if(!body || !Array.isArray(body.value))throw new Error('Invalid source response');
+      for(const item of body.value) {
+        const entry=await describeSourceItem(item);bytes+=entry.fieldBytes;
+        if(seenIds.has(entry.itemId) || items.length>=10000 || bytes>16_000_000)throw new Error('Invalid or oversized source history');
+        seenIds.add(entry.itemId);delete entry.fieldBytes;items.push(entry);
+      }
+      const next=body['@odata.nextLink'];
+      if(next!==undefined && (typeof next!=='string' || !next))throw new Error('Invalid source continuation');
+      url=next||'';
+    }
+    items.sort((a,b)=>a.itemId.localeCompare(b.itemId));return items;
+  };
+  let first,second;
+  try {first=await scan();second=await scan();}
+  catch (_) {throw Object.assign(new Error('Timesheet source history is unavailable'),{status:503});}
+  const manifest=items=>items.map(({itemId,etag,fieldsSha256})=>({itemId,etag,fieldsSha256}));
+  const firstManifest=JSON.stringify(manifest(first)),secondManifest=JSON.stringify(manifest(second));
+  if(firstManifest!==secondManifest)throw Object.assign(new Error('Timesheet source history changed while loading'),{status:409});
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(secondManifest));
+  return {items:second,fingerprint:Array.from(new Uint8Array(digest),value=>value.toString(16).padStart(2,'0')).join('')};
+}
+
+async function sourceReviewSnapshot(env,itemId) {
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  if (!site || !/^[a-z0-9-]+$/i.test(list)) throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+  let item,fieldsSha256;
+  try {
+    const token=await sharePointGraphToken(env);
+    const url=`https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(site)}/lists/${encodeURIComponent(list)}/items/${encodeURIComponent(itemId)}?$expand=fields`;
+    const response=await fetch(url,{redirect:'manual',headers:{authorization:`Bearer ${token}`,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+    if (!response.ok) throw new Error('Provider unavailable');
+    item=await readBoundedJson(response,MAX_BODY_BYTES);
+    const description=await describeSourceItem(item);
+    if(description.itemId!==itemId)throw new Error('Wrong source');
+    fieldsSha256=description.fieldsSha256;
+  } catch (_) {throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});}
+  let sourceUrl='';
+  try {
+    const parsed=new URL(String(item.webUrl||'')),host=site.split(',')[0].toLowerCase();
+    if(parsed.protocol==='https:' && parsed.hostname.toLowerCase()===host && !parsed.port && !parsed.username && !parsed.password)sourceUrl=parsed.href;
+  }catch(_){}
+  return {site,list,itemId,etag:item.eTag,fields:item.fields,fieldsSha256,sourceUrl};
+}
+
+// A stable read does not prove that deleted or externally stored history exists.
+async function readStableTimesheetSourceVersions(env,itemId) {
+  if(!/^[1-9][0-9]{0,18}$/.test(itemId))throw Object.assign(new Error('A valid source item is required'),{status:400});
+  const current=await sourceReviewSnapshot(env,itemId);
+  const path=`/v1.0/sites/${encodeURIComponent(current.site)}/lists/${encodeURIComponent(current.list)}/items/${encodeURIComponent(itemId)}/versions`;
+  const scan=async()=>{
+    const token=await sharePointGraphToken(env),ids=[],seen=new Set(),urls=new Set();let url=`https://graph.microsoft.com${path}`;
+    for(let page=0;url;page++){
+      if(page>=20||urls.has(url))throw new Error('Incomplete versions');
+      const parsed=new URL(url);
+      if(parsed.protocol!=='https:'||parsed.host!=='graph.microsoft.com'||parsed.username||parsed.password||parsed.hash||decodeURIComponent(parsed.pathname)!==decodeURIComponent(path))throw new Error('Invalid continuation');
+      urls.add(url);
+      const response=await fetch(url,{redirect:'manual',headers:{authorization:`Bearer ${token}`,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+      if(!response.ok)throw new Error('Versions unavailable');
+      const body=await readBoundedJson(response,MAX_BODY_BYTES);
+      if(!body||!Array.isArray(body.value))throw new Error('Invalid versions');
+      for(const entry of body.value){const id=entry?.id;if(typeof id!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(id)||seen.has(id)||ids.length>=100)throw new Error('Invalid versions');seen.add(id);ids.push(id)}
+      const next=body['@odata.nextLink'];if(next!==undefined&&(typeof next!=='string'||!next))throw new Error('Invalid continuation');url=next||'';
+    }
+    ids.sort();const result=[];let bytes=0;
+    for(let start=0;start<ids.length;start+=20){
+      const group=ids.slice(start,start+20),requests=group.map((id,index)=>({id:String(index+1),method:'GET',url:`${path.slice('/v1.0'.length)}/${encodeURIComponent(id)}?$expand=fields`}));
+      const response=await fetch('https://graph.microsoft.com/v1.0/$batch',{method:'POST',redirect:'manual',headers:{authorization:`Bearer ${token}`,accept:'application/json','content-type':'application/json'},body:JSON.stringify({requests}),signal:AbortSignal.timeout(10000)});
+      if(!response.ok)throw new Error('Versions unavailable');
+      const body=await readBoundedJson(response,9_000_000);
+      if(!Array.isArray(body?.responses)||body.responses.length!==group.length)throw new Error('Incomplete versions');
+      const byId=new Map();for(const entry of body.responses){if(!entry||typeof entry.id!=='string'||byId.has(entry.id)||entry.status!==200)throw new Error('Invalid version response');byId.set(entry.id,entry.body)}
+      for(let index=0;index<group.length;index++){
+        const id=group[index],version=byId.get(String(index+1));
+        if(version?.id!==id||!version.fields||typeof version.fields!=='object'||Array.isArray(version.fields)||new TextEncoder().encode(JSON.stringify(version)).length>MAX_BODY_BYTES)throw new Error('Invalid version');
+        const canonical=canonicalSourceFields(version.fields);bytes+=new TextEncoder().encode(canonical).length;if(bytes>8_000_000)throw new Error('Oversized versions');
+        const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical));
+        result.push({versionId:id,modifiedAt:typeof version.lastModifiedDateTime==='string'?version.lastModifiedDateTime:'',fields:version.fields,fieldsSha256:Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('')});
+      }
+    }
+    return result;
+  };
+  let first,second;
+  try{first=await scan();second=await scan()}catch(_){throw Object.assign(new Error('Previous source versions are unavailable'),{status:503})}
+  const manifest=entries=>JSON.stringify(entries.map(({versionId,modifiedAt,fieldsSha256})=>({versionId,modifiedAt,fieldsSha256})));
+  if(manifest(first)!==manifest(second))throw Object.assign(new Error('Source versions changed while loading'),{status:409});
+  const latest=await sourceReviewSnapshot(env,itemId);
+  if(latest.etag!==current.etag||latest.fieldsSha256!==current.fieldsSha256)throw Object.assign(new Error('The source changed while loading versions'),{status:409});
+  return {site:latest.site,list:latest.list,itemId,currentEtag:latest.etag,currentFieldsSha256:latest.fieldsSha256,versions:second};
+}
+
+// Reviewer-only display; no decision here grants access or delivery authority.
+async function timesheetSourceVersions(request,env,identity,itemId,origin) {
+  requireTimesheetOwnershipReviewer(identity);
+  if(!/^[1-9][0-9]{0,18}$/.test(itemId))throw Object.assign(new Error('A valid source item is required'),{status:400});
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  const watermark=async()=>env.DB.prepare(`SELECT COALESCE(MAX(e.event_id),0) AS event_id FROM timesheet_source_version_review_events e
+    JOIN timesheet_source_version_reviews r ON r.review_id=e.review_id WHERE r.site_id=? AND r.list_id=? AND r.item_id=?`).bind(site,list,itemId).first();
+  const before=await watermark();if(!Number.isSafeInteger(before?.event_id))throw Object.assign(new Error('Source version reviews are unavailable'),{status:503});
+  const snapshot=await readStableTimesheetSourceVersions(env,itemId);
+  const active=await env.DB.prepare(`SELECT r.review_id,r.version_id,r.fields_sha256,r.classification,r.subject_oid,r.subject_upn FROM timesheet_source_version_reviews r
+    WHERE r.site_id=? AND r.list_id=? AND r.item_id=? AND NOT EXISTS (SELECT 1 FROM timesheet_source_version_review_events e WHERE e.review_id=r.review_id AND e.event_type='revoked') LIMIT 101`).bind(site,list,itemId).all();
+  const events=await env.DB.prepare(`SELECT r.version_id,MAX(e.event_id) AS event_id FROM timesheet_source_version_reviews r JOIN timesheet_source_version_review_events e ON e.review_id=r.review_id
+    WHERE r.site_id=? AND r.list_id=? AND r.item_id=? GROUP BY r.version_id LIMIT 10001`).bind(site,list,itemId).all();
+  const after=await watermark();if(!Array.isArray(active?.results)||active.results.length>100||!Array.isArray(events?.results)||events.results.length>10000||!Number.isSafeInteger(after?.event_id))throw Object.assign(new Error('Source version reviews are unavailable'),{status:503});
+  if(before.event_id!==after.event_id)throw Object.assign(new Error('Source version reviews changed while loading'),{status:409});
+  const decisions=new Map(),eventIds=new Map();for(const item of active.results){if(decisions.has(item.version_id))throw Object.assign(new Error('Source version reviews are unavailable'),{status:503});decisions.set(item.version_id,item)}
+  for(const event of events.results){if(!Number.isSafeInteger(event.event_id)||eventIds.has(event.version_id))throw Object.assign(new Error('Source version reviews are unavailable'),{status:503});eventIds.set(event.version_id,event.event_id)}
+  const versions=snapshot.versions.map(version=>{const decision=decisions.get(version.versionId);decisions.delete(version.versionId);return {...version,reviewEventId:eventIds.get(version.versionId)||0,reviewStatus:!decision?'unreviewed':decision.fields_sha256===version.fieldsSha256?'reviewed':'changed',...(decision?{reviewId:decision.review_id,classification:decision.classification,subjectOid:decision.subject_oid,subjectUpn:decision.subject_upn}:{})}});
+  for(const decision of decisions.values())versions.push({versionId:decision.version_id,reviewStatus:'missing',reviewId:decision.review_id,classification:decision.classification,subjectOid:decision.subject_oid,subjectUpn:decision.subject_upn,reviewEventId:eventIds.get(decision.version_id)||0});
+  return json({itemId,currentEtag:snapshot.currentEtag,currentFieldsSha256:snapshot.currentFieldsSha256,versions},200,origin);
+}
+
+async function assertCurrentSourceReviewSubject(env,subjectOid,subjectUpn) {
+  let user;
+  try {
+    const token=await sharePointGraphToken(env),response=await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(subjectOid)}?$select=id,userPrincipalName`,{
+      redirect:'manual',headers:{authorization:`Bearer ${token}`,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+    if(!response.ok)throw new Error('Directory unavailable');user=await response.json();
+  } catch (_) {throw Object.assign(new Error('Employee directory verification is unavailable'),{status:503});}
+  if(String(user?.id||'').toLowerCase()!==subjectOid || String(user?.userPrincipalName||'').toLowerCase()!==subjectUpn)
+    throw Object.assign(new Error('Employee directory identity does not match the review'),{status:409});
+}
+
+// Internal, one item only. This does not prove that other items, deleted
+// versions, attachments or external archives have been reviewed, and grants
+// no authority to deliver. A caller must independently authorise access.
+export async function readClassifiedTimesheetSourceVersions(env,itemId,expected,subject) {
+  const conflict=()=>Object.assign(new Error('Previous source versions need review before workbook filing.'),{status:409});
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  const oid=String(subject?.oid||'').trim().toLowerCase(),upn=String(subject?.upn||'').trim().toLowerCase();
+  const validOid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
+  const validUpn=value=>value.length<=320 && /^[^\s@]+@[^\s@]+$/.test(value);
+  if(!site||!/^[a-z0-9-]+$/i.test(list)||!/^[1-9][0-9]{0,18}$/.test(String(itemId||''))||
+      !validOid(oid)||!validUpn(upn)||typeof expected?.etag!=='string'||!expected.etag||!/^[a-f0-9]{64}$/.test(expected?.fieldsSha256||''))throw conflict();
+  const watermark=async()=>env.DB.prepare(`SELECT COALESCE(MAX(e.event_id),0) AS event_id FROM timesheet_source_version_review_events e
+    JOIN timesheet_source_version_reviews r ON r.review_id=e.review_id WHERE r.site_id=? AND r.list_id=? AND r.item_id=?`).bind(site,list,itemId).first();
+  const before=await watermark();if(!Number.isSafeInteger(before?.event_id))throw conflict();
+  const first=await readStableTimesheetSourceVersions(env,itemId);
+  if(first.currentEtag!==expected.etag||first.currentFieldsSha256!==expected.fieldsSha256)throw conflict();
+  const result=await env.DB.prepare(`SELECT r.review_id,r.version_id,r.fields_sha256,r.classification,r.subject_oid,r.subject_upn
+    FROM timesheet_source_version_reviews r WHERE r.site_id=? AND r.list_id=? AND r.item_id=? AND NOT EXISTS
+      (SELECT 1 FROM timesheet_source_version_review_events e WHERE e.review_id=r.review_id AND e.event_type='revoked') LIMIT 101`).bind(site,list,itemId).all();
+  if(!Array.isArray(result?.results)||result.results.length>100||result.results.length!==first.versions.length)throw conflict();
+  const decisions=new Map();
+  for(const review of result.results){
+    const ownerOid=String(review.subject_oid||'').trim().toLowerCase(),ownerUpn=String(review.subject_upn||'').trim().toLowerCase();
+    if(decisions.has(review.version_id)||!Number.isSafeInteger(review.review_id)||
+       (review.classification==='employee'&&(!validOid(ownerOid)||!validUpn(ownerUpn)||(ownerOid===oid)!==(ownerUpn===upn)))||
+       (review.classification==='not_timesheet'&&(review.subject_oid!==null||review.subject_upn!==null))||
+       !['employee','not_timesheet'].includes(review.classification))throw conflict();
+    decisions.set(review.version_id,{...review,ownerOid});
+  }
+  for(const version of first.versions){const decision=decisions.get(version.versionId);if(!decision||decision.fields_sha256!==version.fieldsSha256)throw conflict();}
+  await assertCurrentSourceReviewSubject(env,oid,upn);
+  const latest=await readStableTimesheetSourceVersions(env,itemId),after=await watermark();
+  const manifest=snapshot=>JSON.stringify(snapshot.versions.map(({versionId,modifiedAt,fieldsSha256})=>({versionId,modifiedAt,fieldsSha256})));
+  if(!Number.isSafeInteger(after?.event_id)||after.event_id!==before.event_id||latest.currentEtag!==expected.etag||
+      latest.currentFieldsSha256!==expected.fieldsSha256||manifest(first)!==manifest(latest))throw conflict();
+  return {itemId,currentEtag:latest.currentEtag,currentFieldsSha256:latest.currentFieldsSha256,reviewEventId:after.event_id,
+    versions:latest.versions.filter(version=>decisions.get(version.versionId).ownerOid===oid).map(version=>({...version,reviewId:decisions.get(version.versionId).review_id}))};
+}
+
+async function timesheetReviewSubjectLookup(request,env,identity,origin) {
+  requireTimesheetOwnershipReviewer(identity);
+  const upn=String(new URL(request.url).searchParams.get('upn')||'').trim().toLowerCase();
+  if(upn.length>320 || !/^[^\s@]+@[^\s@]+$/.test(upn))throw Object.assign(new Error('Enter the employee’s exact work sign-in'),{status:400});
+  let user;
+  try {
+    const token=await sharePointGraphToken(env);
+    const response=await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(upn)}?$select=id,userPrincipalName,displayName,accountEnabled`,{
+      redirect:'manual',headers:{authorization:`Bearer ${token}`,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+    if(!response.ok)throw new Error('Directory unavailable');
+    user=await readBoundedJson(response,MAX_BODY_BYTES);
+  }catch(_){throw Object.assign(new Error('Employee directory verification is unavailable'),{status:503});}
+  const oid=String(user?.id||'').toLowerCase();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(oid) ||
+      String(user?.userPrincipalName||'').toLowerCase()!==upn || typeof user?.accountEnabled!=='boolean')
+    throw Object.assign(new Error('The employee sign-in could not be verified'),{status:409});
+  return json({oid,upn,name:text(user.displayName,'',200),accountEnabled:user.accountEnabled},200,origin);
+}
+
+// Internal only. The caller must independently authorise the requester and
+// the requested employee; this helper checks one current provider item, not
+// earlier versions, attachments, or completeness of the overall list.
+export async function readReviewedTimesheetSource(env,itemId,subject) {
+  const conflict=()=>Object.assign(new Error('The reviewed source is unavailable or changed'),{status:409});
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  const oid=String(subject?.oid||'').trim().toLowerCase(),upn=String(subject?.upn||'').trim().toLowerCase();
+  if(!site || !/^[a-z0-9-]+$/i.test(list) || !/^[1-9][0-9]{0,18}$/.test(String(itemId||'')) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(oid) || !/^[^\s@]+@[^\s@]+$/.test(upn)) throw conflict();
+  const active=()=>env.DB.prepare(`SELECT review.review_id,review.source_etag,review.fields_sha256 FROM timesheet_source_reviews review
+    WHERE review.site_id=? AND review.list_id=? AND review.item_id=? AND lower(review.subject_oid)=? AND lower(review.subject_upn)=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_source_review_events e WHERE e.review_id=review.review_id AND e.event_type='revoked')`)
+    .bind(site,list,itemId,oid,upn).first();
+  const decision=await active();if(!decision)throw conflict();
+  const first=await sourceReviewSnapshot(env,itemId);
+  if(first.etag!==decision.source_etag || first.fieldsSha256!==decision.fields_sha256)throw conflict();
+  await assertCurrentSourceReviewSubject(env,oid,upn);
+  const latest=await sourceReviewSnapshot(env,itemId),stillActive=await active();
+  if(latest.etag!==decision.source_etag || latest.fieldsSha256!==decision.fields_sha256 ||
+      !stillActive || stillActive.review_id!==decision.review_id || stillActive.source_etag!==decision.source_etag || stillActive.fields_sha256!==decision.fields_sha256)throw conflict();
+  return {itemId,etag:latest.etag,fieldsSha256:latest.fieldsSha256,fields:latest.fields,reviewId:decision.review_id};
+}
+
+// Current-list classification only, not an authorisation to deliver. Earlier
+// versions, attachments, external sources and the post-read provider race
+// still require independent controls before this result can release data.
+export async function readClassifiedCurrentTimesheetSources(env,subject) {
+  const conflict=()=>Object.assign(new Error('Current timesheet sources need review before workbook filing.'),{status:409});
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  const oid=String(subject?.oid||'').trim().toLowerCase(),upn=String(subject?.upn||'').trim().toLowerCase();
+  const validOid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
+  const validUpn=value=>value.length<=320 && /^[^\s@]+@[^\s@]+$/.test(value);
+  if(!site||!/^[a-z0-9-]+$/i.test(list)||!validOid(oid)||!validUpn(upn))throw conflict();
+  const watermark=async()=>env.DB.prepare(`SELECT
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_review_events e JOIN timesheet_source_reviews r ON r.review_id=e.review_id WHERE r.site_id=? AND r.list_id=?),0) AS event_id,
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_exclusion_events e JOIN timesheet_source_exclusions x ON x.exclusion_id=e.exclusion_id WHERE x.site_id=? AND x.list_id=?),0) AS exclusion_event_id`).bind(site,list,site,list).first();
+  const before=await watermark();if(!Number.isSafeInteger(before?.event_id)||!Number.isSafeInteger(before?.exclusion_event_id))throw conflict();
+  const first=await readCompleteTimesheetSourceSnapshot(env);
+  const result=await env.DB.prepare(`SELECT r.review_id,r.item_id,r.source_etag,r.fields_sha256,r.subject_oid,r.subject_upn
+    FROM timesheet_source_reviews r WHERE r.site_id=? AND r.list_id=? AND NOT EXISTS (
+      SELECT 1 FROM timesheet_source_review_events e WHERE e.review_id=r.review_id AND e.event_type='revoked') LIMIT 10001`).bind(site,list).all();
+  if(!Array.isArray(result?.results)||result.results.length>10000)throw conflict();
+  const decisions=new Map();
+  for(const review of result.results){
+    const ownerOid=String(review.subject_oid||'').trim().toLowerCase(),ownerUpn=String(review.subject_upn||'').trim().toLowerCase();
+    if(decisions.has(review.item_id)||!validOid(ownerOid)||!validUpn(ownerUpn)||(ownerOid===oid)!==(ownerUpn===upn))throw conflict();
+    decisions.set(review.item_id,{...review,ownerOid,ownerUpn});
+  }
+  const exclusions=await env.DB.prepare(`SELECT x.exclusion_id,x.item_id,x.source_etag,x.fields_sha256 FROM timesheet_source_exclusions x
+    WHERE x.site_id=? AND x.list_id=? AND NOT EXISTS (SELECT 1 FROM timesheet_source_exclusion_events e
+      WHERE e.exclusion_id=x.exclusion_id AND e.event_type='revoked') LIMIT 10001`).bind(site,list).all();
+  if(!Array.isArray(exclusions?.results)||exclusions.results.length>10000)throw conflict();
+  for(const exclusion of exclusions.results){if(decisions.has(exclusion.item_id))throw conflict();decisions.set(exclusion.item_id,{...exclusion,excluded:true});}
+  if(first.items.length!==decisions.size)throw conflict();
+  for(const item of first.items){const decision=decisions.get(item.itemId);if(!decision||decision.source_etag!==item.etag||decision.fields_sha256!==item.fieldsSha256)throw conflict();}
+  await assertCurrentSourceReviewSubject(env,oid,upn);
+  const latest=await readCompleteTimesheetSourceSnapshot(env),after=await watermark();
+  if(!Number.isSafeInteger(after?.event_id)||!Number.isSafeInteger(after?.exclusion_event_id)||after.event_id!==before.event_id||after.exclusion_event_id!==before.exclusion_event_id||latest.fingerprint!==first.fingerprint)throw conflict();
+  const items=latest.items.filter(item=>decisions.get(item.itemId)?.ownerOid===oid).map(item=>({...item,reviewId:decisions.get(item.itemId).review_id}));
+  return {items,sourceFingerprint:latest.fingerprint,reviewEventId:after.event_id,exclusionEventId:after.exclusion_event_id};
+}
+
+// Reviewer overview only: this is not an authorisation to release any source.
+// Decisions and provider data can change after this response is produced.
+async function timesheetSourceReviewInventory(env,identity,origin) {
+  requireTimesheetOwnershipReviewer(identity);
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  const watermark=async()=>env.DB.prepare(`SELECT
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_review_events e JOIN timesheet_source_reviews r ON r.review_id=e.review_id WHERE r.site_id=? AND r.list_id=?),0) AS event_id,
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_exclusion_events e JOIN timesheet_source_exclusions x ON x.exclusion_id=e.exclusion_id WHERE x.site_id=? AND x.list_id=?),0) AS exclusion_event_id`).bind(site,list,site,list).first();
+  const before=await watermark();
+  if(!Number.isSafeInteger(before?.event_id)||!Number.isSafeInteger(before?.exclusion_event_id))throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+  const snapshot=await readCompleteTimesheetSourceSnapshot(env);
+  const rows=await env.DB.prepare(`SELECT r.review_id,r.item_id,r.source_etag,r.fields_sha256,r.subject_oid,r.subject_upn
+    FROM timesheet_source_reviews r WHERE r.site_id=? AND r.list_id=? AND NOT EXISTS (
+      SELECT 1 FROM timesheet_source_review_events e WHERE e.review_id=r.review_id AND e.event_type='revoked') LIMIT 10001`).bind(site,list).all();
+  const excluded=await env.DB.prepare(`SELECT x.exclusion_id,x.item_id,x.source_etag,x.fields_sha256 FROM timesheet_source_exclusions x
+    WHERE x.site_id=? AND x.list_id=? AND NOT EXISTS (SELECT 1 FROM timesheet_source_exclusion_events e WHERE e.exclusion_id=x.exclusion_id AND e.event_type='revoked') LIMIT 10001`).bind(site,list).all();
+  const after=await watermark();
+  if(!Array.isArray(rows?.results)||rows.results.length>10000||!Array.isArray(excluded?.results)||excluded.results.length>10000||!Number.isSafeInteger(after?.event_id)||!Number.isSafeInteger(after?.exclusion_event_id))
+    throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+  if(before.event_id!==after.event_id||before.exclusion_event_id!==after.exclusion_event_id)throw Object.assign(new Error('Timesheet source reviews changed while loading'),{status:409});
+  const decisions=new Map();
+  for(const review of rows.results) {
+    if(decisions.has(review.item_id))throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+    decisions.set(review.item_id,review);
+  }
+  for(const exclusion of excluded.results){if(decisions.has(exclusion.item_id))throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});decisions.set(exclusion.item_id,{...exclusion,excluded:true});}
+  const items=snapshot.items.map(item=>{
+    const review=decisions.get(item.itemId);
+    const sourceFields=item.fields||{};
+    const claimedName=typeof sourceFields.EmployeeName==='string'?sourceFields.EmployeeName.replace(/[\x00-\x1f\x7f]/g,' ').trim().slice(0,160):'';
+    const sourceDate=value=>{const date=typeof value==='string'?value.slice(0,10):'';return validReceiptDate(date)?date:''};
+    // These labels help a reviewer locate a source; they are not identity
+    // evidence and are never used to grant access or select a workbook.
+    const labels={claimedName,weekStart:sourceDate(sourceFields.Week_x0020_Start),weekEnd:sourceDate(sourceFields.Week_x0020_End)};
+    if(!review)return {itemId:item.itemId,status:'unreviewed',...labels};
+    decisions.delete(item.itemId);
+    const status=review.source_etag===item.etag && review.fields_sha256===item.fieldsSha256?(review.excluded?'excluded':'reviewed'):'changed';
+    return {itemId:item.itemId,status,...(review.excluded?{exclusionId:review.exclusion_id}:{reviewId:review.review_id,subjectOid:review.subject_oid,subjectUpn:review.subject_upn}),...labels};
+  });
+  for(const review of decisions.values())items.push({itemId:review.item_id,status:'missing',...(review.excluded?{exclusionId:review.exclusion_id}:{reviewId:review.review_id,subjectOid:review.subject_oid,subjectUpn:review.subject_upn})});
+  items.sort((a,b)=>a.itemId.localeCompare(b.itemId));
+  return json({items,sourceFingerprint:snapshot.fingerprint,reviewEventId:after.event_id,exclusionEventId:after.exclusion_event_id},200,origin);
+}
+
+async function timesheetSourceReviewEndpoint(request,env,identity,itemId,origin,revoke=false) {
+  requireTimesheetOwnershipReviewer(identity);
+  if (!/^[1-9][0-9]{0,18}$/.test(itemId)) throw Object.assign(new Error('A valid source item is required'),{status:400});
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  if (!site || !/^[a-z0-9-]+$/i.test(list)) throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+  if (revoke) {
+    const body=await readJson(request),reviewId=Number(body.reviewId);
+    if(!Number.isSafeInteger(reviewId)||reviewId<1)throw Object.assign(new Error('A valid review is required'),{status:400});
+    const event=await env.DB.prepare(`INSERT INTO timesheet_source_review_events(review_id,event_type,actor_oid,occurred_at)
+      SELECT review.review_id,'revoked',?,? FROM timesheet_source_reviews review
+      WHERE review.review_id=? AND review.site_id=? AND review.list_id=? AND review.item_id=?
+        AND NOT EXISTS (SELECT 1 FROM timesheet_source_review_events e WHERE e.review_id=review.review_id AND e.event_type='revoked') RETURNING event_id`)
+      .bind(identity.oid,now(),reviewId,site,list,itemId).first();
+    if(!event)throw Object.assign(new Error('The source review is no longer active'),{status:409});
+    return json({revoked:true,reviewId},200,origin);
+  }
+  const watermark=async()=>env.DB.prepare(`SELECT
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_review_events e JOIN timesheet_source_reviews r ON r.review_id=e.review_id WHERE r.site_id=? AND r.list_id=? AND r.item_id=?),0) AS event_id,
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_exclusion_events e JOIN timesheet_source_exclusions x ON x.exclusion_id=e.exclusion_id WHERE x.site_id=? AND x.list_id=? AND x.item_id=?),0) AS exclusion_event_id`)
+    .bind(site,list,itemId,site,list,itemId).first();
+  if(request.method==='GET') {
+    const snapshot=await sourceReviewSnapshot(env,itemId),event=await watermark();
+    if(!event || !Number.isSafeInteger(event.event_id)||!Number.isSafeInteger(event.exclusion_event_id))throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+    return json({itemId,etag:snapshot.etag,fields:snapshot.fields,fieldsSha256:snapshot.fieldsSha256,sourceUrl:snapshot.sourceUrl,reviewEventId:event.event_id,exclusionEventId:event.exclusion_event_id},200,origin);
+  }
+  const body=await readJson(request),etag=body.expectedEtag,digest=String(body.fieldsSha256||''),eventId=body.expectedReviewEventId,exclusionEventId=body.expectedExclusionEventId;
+  const subjectOid=String(body.subjectOid||'').trim().toLowerCase(),subjectUpn=String(body.subjectUpn||'').trim().toLowerCase(),evidence=String(body.evidenceReference||'').trim();
+  if(typeof etag!=='string'||!etag.trim()||etag.length>500||/[\x00-\x1f\x7f]/.test(etag)||!/^[a-f0-9]{64}$/.test(digest)||
+      !Number.isSafeInteger(eventId)||eventId<0||!Number.isSafeInteger(exclusionEventId)||exclusionEventId<0||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(subjectOid)||
+      !/^[^\s@]+@[^\s@]+$/.test(subjectUpn)||subjectUpn.length>320||!/^[a-zA-Z0-9._:/-]{1,180}$/.test(evidence))
+    throw Object.assign(new Error('Source version, employee identity and evidence are required'),{status:400});
+  const snapshot=await sourceReviewSnapshot(env,itemId),event=await watermark();
+  if(!event || event.event_id!==eventId || event.exclusion_event_id!==exclusionEventId || snapshot.etag!==etag || snapshot.fieldsSha256!==digest)throw Object.assign(new Error('The source or its review history has changed'),{status:409});
+  await assertCurrentSourceReviewSubject(env,subjectOid,subjectUpn);
+  const latest=await sourceReviewSnapshot(env,itemId);
+  if(latest.etag!==etag || latest.fieldsSha256!==digest)throw Object.assign(new Error('The source changed during review'),{status:409});
+  const review=await env.DB.prepare(`INSERT INTO timesheet_source_reviews(site_id,list_id,item_id,source_etag,fields_sha256,subject_oid,subject_upn,reviewer_oid,evidence_reference,reviewed_at)
+    SELECT ?,?,?,?,?,?,?,?,?,? WHERE COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_review_events e JOIN timesheet_source_reviews prior ON prior.review_id=e.review_id
+      WHERE prior.site_id=? AND prior.list_id=? AND prior.item_id=?),0)=?
+    AND COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_exclusion_events e JOIN timesheet_source_exclusions prior ON prior.exclusion_id=e.exclusion_id
+      WHERE prior.site_id=? AND prior.list_id=? AND prior.item_id=?),0)=?
+    AND NOT EXISTS (SELECT 1 FROM timesheet_source_reviews prior WHERE prior.site_id=? AND prior.list_id=? AND prior.item_id=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_source_review_events e WHERE e.review_id=prior.review_id AND e.event_type='revoked'))
+    AND NOT EXISTS (SELECT 1 FROM timesheet_source_exclusions prior WHERE prior.site_id=? AND prior.list_id=? AND prior.item_id=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_source_exclusion_events e WHERE e.exclusion_id=prior.exclusion_id AND e.event_type='revoked')) RETURNING review_id`)
+    .bind(site,list,itemId,etag,digest,subjectOid,subjectUpn,identity.oid,evidence,now(),site,list,itemId,eventId,site,list,itemId,exclusionEventId,site,list,itemId,site,list,itemId).first();
+  if(!review)throw Object.assign(new Error('The source or its review history has changed'),{status:409});
+  return json({reviewId:review.review_id,itemId,subjectOid,etag,fieldsSha256:digest},201,origin);
+}
+
+async function timesheetSourceExclusionEndpoint(request,env,identity,itemId,origin,revoke=false) {
+  requireTimesheetOwnershipReviewer(identity);
+  if(!/^[1-9][0-9]{0,18}$/.test(itemId))throw Object.assign(new Error('A valid source item is required'),{status:400});
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  if(!site||!/^[a-z0-9-]+$/i.test(list))throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+  const body=await readJson(request);
+  if(revoke){const id=Number(body.exclusionId);if(!Number.isSafeInteger(id)||id<1)throw Object.assign(new Error('A valid classification is required'),{status:400});
+    const event=await env.DB.prepare(`INSERT INTO timesheet_source_exclusion_events(exclusion_id,event_type,actor_oid,occurred_at)
+      SELECT x.exclusion_id,'revoked',?,? FROM timesheet_source_exclusions x WHERE x.exclusion_id=? AND x.site_id=? AND x.list_id=? AND x.item_id=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_source_exclusion_events e WHERE e.exclusion_id=x.exclusion_id AND e.event_type='revoked') RETURNING event_id`)
+      .bind(identity.oid,now(),id,site,list,itemId).first();
+    if(!event)throw Object.assign(new Error('The source classification is no longer active'),{status:409});return json({revoked:true,exclusionId:id},200,origin);
+  }
+  const etag=body.expectedEtag,digest=String(body.fieldsSha256||''),reviewEventId=body.expectedReviewEventId,exclusionEventId=body.expectedExclusionEventId,evidence=String(body.evidenceReference||'').trim();
+  if(typeof etag!=='string'||!etag.trim()||etag.length>500||/[\x00-\x1f\x7f]/.test(etag)||!/^[a-f0-9]{64}$/.test(digest)||
+      !Number.isSafeInteger(reviewEventId)||reviewEventId<0||!Number.isSafeInteger(exclusionEventId)||exclusionEventId<0||!/^[a-zA-Z0-9._:/-]{1,180}$/.test(evidence))
+    throw Object.assign(new Error('Source version and evidence are required'),{status:400});
+  const first=await sourceReviewSnapshot(env,itemId),latest=await sourceReviewSnapshot(env,itemId);
+  if(first.etag!==etag||first.fieldsSha256!==digest||latest.etag!==etag||latest.fieldsSha256!==digest)throw Object.assign(new Error('The source changed during review'),{status:409});
+  const entry=await env.DB.prepare(`INSERT INTO timesheet_source_exclusions(site_id,list_id,item_id,source_etag,fields_sha256,reviewer_oid,evidence_reference,reviewed_at)
+    SELECT ?,?,?,?,?,?,?,? WHERE COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_review_events e JOIN timesheet_source_reviews r ON r.review_id=e.review_id WHERE r.site_id=? AND r.list_id=? AND r.item_id=?),0)=?
+    AND COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_exclusion_events e JOIN timesheet_source_exclusions x ON x.exclusion_id=e.exclusion_id WHERE x.site_id=? AND x.list_id=? AND x.item_id=?),0)=?
+    AND NOT EXISTS (SELECT 1 FROM timesheet_source_reviews r WHERE r.site_id=? AND r.list_id=? AND r.item_id=? AND NOT EXISTS (SELECT 1 FROM timesheet_source_review_events e WHERE e.review_id=r.review_id AND e.event_type='revoked'))
+    AND NOT EXISTS (SELECT 1 FROM timesheet_source_exclusions x WHERE x.site_id=? AND x.list_id=? AND x.item_id=? AND NOT EXISTS (SELECT 1 FROM timesheet_source_exclusion_events e WHERE e.exclusion_id=x.exclusion_id AND e.event_type='revoked')) RETURNING exclusion_id`)
+    .bind(site,list,itemId,etag,digest,identity.oid,evidence,now(),site,list,itemId,reviewEventId,site,list,itemId,exclusionEventId,site,list,itemId,site,list,itemId).first();
+  if(!entry)throw Object.assign(new Error('The source or its review history has changed'),{status:409});
+  return json({exclusionId:entry.exclusion_id,itemId,etag,fieldsSha256:digest},201,origin);
+}
+
+async function timesheetSourceVersionReviewEndpoint(request,env,identity,itemId,versionId,origin,revoke=false) {
+  requireTimesheetOwnershipReviewer(identity);
+  if(!/^[1-9][0-9]{0,18}$/.test(itemId)||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(versionId))throw Object.assign(new Error('A valid source version is required'),{status:400});
+  const site=text(env.SHAREPOINT_SITE_ID,'',500),list=text(env.SHAREPOINT_TIMESHEET_LIST_ID,'',120);
+  if(!site||!/^[a-z0-9-]+$/i.test(list))throw Object.assign(new Error('Source version review is unavailable'),{status:503});
+  const body=await readJson(request);
+  if(revoke){const reviewId=Number(body.reviewId);if(!Number.isSafeInteger(reviewId)||reviewId<1)throw Object.assign(new Error('A valid version review is required'),{status:400});
+    const event=await env.DB.prepare(`INSERT INTO timesheet_source_version_review_events(review_id,event_type,actor_oid,occurred_at)
+      SELECT r.review_id,'revoked',?,? FROM timesheet_source_version_reviews r WHERE r.review_id=? AND r.site_id=? AND r.list_id=? AND r.item_id=? AND r.version_id=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_source_version_review_events e WHERE e.review_id=r.review_id AND e.event_type='revoked') RETURNING event_id`).bind(identity.oid,now(),reviewId,site,list,itemId,versionId).first();
+    if(!event)throw Object.assign(new Error('The source version review is no longer active'),{status:409});return json({revoked:true,reviewId},200,origin);
+  }
+  const classification=body.classification,etag=body.expectedCurrentEtag,currentDigest=String(body.expectedCurrentFieldsSha256||''),digest=String(body.fieldsSha256||''),eventId=body.expectedReviewEventId,evidence=String(body.evidenceReference||'').trim();
+  const oid=String(body.subjectOid||'').trim().toLowerCase(),upn=String(body.subjectUpn||'').trim().toLowerCase();
+  if(!['employee','not_timesheet'].includes(classification)||typeof etag!=='string'||!etag.trim()||etag.length>500||/[\x00-\x1f\x7f]/.test(etag)||
+      !/^[a-f0-9]{64}$/.test(currentDigest)||!/^[a-f0-9]{64}$/.test(digest)||!Number.isSafeInteger(eventId)||eventId<0||!/^[a-zA-Z0-9._:/-]{1,180}$/.test(evidence)||
+      (classification==='employee'&&(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(oid)||upn.length>320||!/^[^\s@]+@[^\s@]+$/.test(upn)))||
+      (classification==='not_timesheet'&&(oid||upn)))throw Object.assign(new Error('Source version, classification and evidence are required'),{status:400});
+  const matches=snapshot=>snapshot.currentEtag===etag&&snapshot.currentFieldsSha256===currentDigest&&snapshot.versions.some(version=>version.versionId===versionId&&version.fieldsSha256===digest);
+  const first=await readStableTimesheetSourceVersions(env,itemId);if(!matches(first))throw Object.assign(new Error('The source version changed during review'),{status:409});
+  if(classification==='employee')await assertCurrentSourceReviewSubject(env,oid,upn);
+  const latest=await readStableTimesheetSourceVersions(env,itemId);if(!matches(latest))throw Object.assign(new Error('The source version changed during review'),{status:409});
+  const review=await env.DB.prepare(`INSERT INTO timesheet_source_version_reviews(site_id,list_id,item_id,version_id,fields_sha256,classification,subject_oid,subject_upn,reviewer_oid,evidence_reference,reviewed_at)
+    SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE COALESCE((SELECT MAX(e.event_id) FROM timesheet_source_version_review_events e JOIN timesheet_source_version_reviews r ON r.review_id=e.review_id
+      WHERE r.site_id=? AND r.list_id=? AND r.item_id=? AND r.version_id=?),0)=?
+    AND NOT EXISTS (SELECT 1 FROM timesheet_source_version_reviews r WHERE r.site_id=? AND r.list_id=? AND r.item_id=? AND r.version_id=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_source_version_review_events e WHERE e.review_id=r.review_id AND e.event_type='revoked')) RETURNING review_id`)
+    .bind(site,list,itemId,versionId,digest,classification,classification==='employee'?oid:null,classification==='employee'?upn:null,identity.oid,evidence,now(),site,list,itemId,versionId,eventId,site,list,itemId,versionId).first();
+  if(!review)throw Object.assign(new Error('The source version review history changed'),{status:409});
+  return json({reviewId:review.review_id,itemId,versionId,classification,fieldsSha256:digest},201,origin);
 }
 
 async function readBoundedJson(request, maximumBytes) {
@@ -3489,16 +4278,530 @@ function parseQueuedAttachments(body) {
   return attachments;
 }
 
-function queueRecordAttachments(env, record, body) {
+const SOURCE_RATE_FIELDS = ['sourceBasicMinutes', 'sourceOt15Minutes', 'sourceOt20Minutes'];
+const SOURCE_RATE_COLUMNS = ['Source basic hours', 'Source overtime 1.5× hours', 'Source overtime 2× hours'];
+function renderPayMonthRows(rows, period, rateMode, invalid) {
+  try { return payMonthWorkbook.toWorkbookData({rows:rows.map(row=>({row}))},period,{includeSourceRates:rateMode}).dailyEntries; }
+  catch (_) { throw invalid(); }
+}
+function sourceRatesMatch(actual, rendered, rateMode) {
+  return SOURCE_RATE_FIELDS.every((key,index)=>{
+    if (!rateMode) return !Object.hasOwn(actual,key);
+    const value=rendered[SOURCE_RATE_COLUMNS[index]];
+    return Object.hasOwn(actual,key) && actual[key] === (value === '' ? null : value);
+  });
+}
+export function validatePayMonthAttachmentVersion(record, attachments) {
+  const invalid=()=>Object.assign(new Error('The workbook does not match the saved timesheet. Refresh and try again.'),{status:409});
+  const payload=payloadObject(record), attachment=attachments.find(item=>item.fieldName==='attachment_record');
+  let source;
+  try {source=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(decodeBase64(attachment?.contentBase64)));}catch(_){throw invalid();}
+  if(!source || typeof source!=='object' || Array.isArray(source) || ![2,3].includes(source.schemaVersion) || source.mode!=='replace-pay-month' ||
+     source.recordId!==record.record_id || String(source.employeeUpn||'').toLowerCase()!==String(record.owner_upn||'').toLowerCase() ||
+     !payload.editedAt || source.submittedAt!==payload.editedAt || !payload.payMonth || source.payMonth!==payload.payMonth || !Array.isArray(source.rows) || source.rows.length===0)throw invalid();
+  const savedDeletions=payload.deletedDays === undefined ? [] : payload.deletedDays;
+  const sourceDeletions=source.deletedDays === undefined ? [] : source.deletedDays;
+  if (![savedDeletions,sourceDeletions].every(days=>Array.isArray(days) && days.length<=62 &&
+      days.every(validReceiptDate) && new Set(days).size===days.length) ||
+      JSON.stringify([...savedDeletions].sort())!==JSON.stringify([...sourceDeletions].sort())) throw invalid();
+  const savedRows=payload.rows === undefined ? [] : payload.rows;
+  if (!Array.isArray(savedRows) || savedRows.length>62 || source.rows.length>62 ||
+      savedRows.some(row=>!row || typeof row!=='object' || Array.isArray(row)) ||
+      source.rows.some(row=>!row || typeof row!=='object' || Array.isArray(row) || !validReceiptDate(row.date)) ||
+      new Set(source.rows.map(row=>row.date)).size!==source.rows.length ||
+      source.rows.some(row=>savedDeletions.includes(row.date))) throw invalid();
+  const rateMode=source.schemaVersion===3;
+  const expected=renderPayMonthRows(savedRows,{},rateMode,invalid);
+  if (expected.some(row=>!validReceiptDate(row.Date)) || new Set(expected.map(row=>row.Date)).size!==expected.length) throw invalid();
+  const allowed=new Set(['recordId','date','startTime','finishTime','breakMinutes','absenceReason','totalMinutes','workedHours','note','changeNote',...(rateMode?SOURCE_RATE_FIELDS:[])]);
+  for (const row of source.rows) {
+    if (Object.keys(row).some(key=>!allowed.has(key))) throw invalid();
+    if (rateMode) sourceRateValues(row,409);
+  }
+  for (const row of expected) {
+    const actual=source.rows.find(item=>item.date===row.Date);
+    const minutes=row['Total hours'];
+    const changeNote=`Edited by ${payload.editedBy || 'Accounts'} at ${payload.editedAt || 'unknown time'}`;
+    if (!actual || Object.keys(actual).some(key=>!allowed.has(key)) || actual.recordId!==`${record.record_id}|${row.Date}` ||
+        actual.startTime!==row.Start || actual.finishTime!==row.Finish || actual.breakMinutes!==row.Break ||
+        actual.absenceReason!==row.Absence || actual.totalMinutes!==minutes ||
+        actual.workedHours!==(minutes===''?'':Number((minutes/60).toFixed(4))) || actual.note!==row.Notes || actual.changeNote!==changeNote || !sourceRatesMatch(actual,row,rateMode)) throw invalid();
+  }
+  return source;
+}
+
+// `historyRows` must be selected and authorised by the server, never from
+// the request body. This comparison alone does not establish their provenance.
+function validatePayMonthSourceAgainstHistory(record, historyRows, attachments, period, allowAdditionalRows) {
+  const invalid=()=>Object.assign(new Error('The workbook does not match the saved timesheet history.'),{status:409});
+  validatePayMonthAttachmentVersion(record,attachments);
+  const payload=payloadObject(record);
+  let source;
+  try { source=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(decodeBase64(attachments.find(item=>item.fieldName==='attachment_record')?.contentBase64))); }
+  catch (_) { throw invalid(); }
+  if (!period || !validReceiptDate(period.start) || !validReceiptDate(period.cycleEnd) || period.start>period.cycleEnd ||
+      source.cycleStart!==period.start || source.cycleEnd!==period.cycleEnd || !Array.isArray(historyRows) || historyRows.length>62 ||
+      historyRows.some(row=>!row || typeof row!=='object' || Array.isArray(row))) throw invalid();
+  const inCycle=date=>validReceiptDate(date) && date>=period.start && date<=period.cycleEnd;
+  const rateMode=source.schemaVersion===3;
+  const historyEntries=renderPayMonthRows(historyRows,period,rateMode,invalid);
+  if (historyEntries.some(row=>!inCycle(row.Date)) || new Set(historyEntries.map(row=>row.Date)).size!==historyEntries.length ||
+      (payload.deletedDays||[]).some(date=>!inCycle(date))) throw invalid();
+  const corrected=renderPayMonthRows(payload.rows||[],period,rateMode,invalid);
+  if (corrected.some(row=>!inCycle(row.Date))) throw invalid();
+  const rows=new Map(historyEntries.map(row=>[row.Date,row]));
+  for (const row of corrected) rows.set(row.Date,row);
+  for (const date of payload.deletedDays||[]) rows.delete(date);
+  if ((!allowAdditionalRows && (!rows.size || rows.size!==source.rows.length)) || source.rows.some(row=>!inCycle(row.date))) throw invalid();
+  const correctedDates=new Set(corrected.map(row=>row.Date));
+  const allowed=new Set(['recordId','date','startTime','finishTime','breakMinutes','absenceReason','totalMinutes','workedHours','note','changeNote',...(rateMode?SOURCE_RATE_FIELDS:[])]);
+  let matched=0;
+  for (const actual of source.rows) {
+    const row=rows.get(actual.date), minutes=row?.['Total hours'];
+    if (!row && allowAdditionalRows) continue;
+    const changeNote=correctedDates.has(actual.date)?`Edited by ${payload.editedBy || 'Accounts'} at ${payload.editedAt || 'unknown time'}`:'';
+    if (!row || Object.keys(actual).some(key=>!allowed.has(key)) || actual.recordId!==`${record.record_id}|${row.Date}` ||
+        actual.startTime!==row.Start || actual.finishTime!==row.Finish || actual.breakMinutes!==row.Break ||
+        actual.absenceReason!==row.Absence || actual.totalMinutes!==minutes ||
+        actual.workedHours!==(minutes===''?'':Number((minutes/60).toFixed(4))) || actual.note!==row.Notes || actual.changeNote!==changeNote || !sourceRatesMatch(actual,row,rateMode)) throw invalid();
+    matched++;
+  }
+  if (matched!==rows.size) throw invalid();
+  return source;
+}
+
+export function validateCompletePayMonthSource(record, historyRows, attachments, period) {
+  return validatePayMonthSourceAgainstHistory(record,historyRows,attachments,period,false);
+}
+
+// A necessary partial check only: additional upstream days are not approved
+// by this function and still require independently verified complete history.
+export function validateKnownPayMonthSource(record, historyRows, attachments, period) {
+  return validatePayMonthSourceAgainstHistory(record,historyRows,attachments,period,true);
+}
+
+// This selector accepts only D1 rows already obtained by a server-side query.
+// Directory verification, source completeness and the queue's atomic revision
+// check remain the caller's responsibility; no browser-supplied list is trusted.
+export function selectTrustedPayMonthHistory(records,subject,period) {
+  const invalid=()=>Object.assign(new Error('Timesheet history needs review before workbook filing.'),{status:409});
+  const oid=String(subject?.oid||'').trim().toLowerCase(),upn=String(subject?.upn||'').trim().toLowerCase();
+  if (!oid || !upn || !period || !validReceiptDate(period.start) || !validReceiptDate(period.cycleEnd) || period.start>period.cycleEnd ||
+      !Array.isArray(records) || records.length>1000) throw invalid();
+  const selected=new Map(),ids=new Set(),originalRates=new Map();
+  const choose=(date,candidate)=>{
+    const previous=selected.get(date);
+    if(previous && candidate.priority===previous.priority && candidate.priority<3){
+      const differs=candidate.deleted!==previous.deleted || (!candidate.deleted && JSON.stringify(candidate.rendered)!==JSON.stringify(previous.rendered));
+      const conflict=Boolean(previous.conflict||differs);
+      if(candidate.updated>previous.updated)selected.set(date,{...candidate,conflict});
+      else previous.conflict=conflict;
+      return;
+    }
+    if(previous && candidate.priority===previous.priority && candidate.updated===previous.updated &&
+       (candidate.deleted!==previous.deleted || (!candidate.deleted && JSON.stringify(candidate.rendered)!==JSON.stringify(previous.rendered))))previous.conflict=true;
+    if(!previous || candidate.priority>previous.priority || (candidate.priority===previous.priority && candidate.updated>previous.updated))selected.set(date,candidate);
+  };
+  for (const record of records) {
+    const id=String(record?.record_id||'');
+    if (!id || ids.has(id) || String(record.owner_oid||'').toLowerCase()!==oid || String(record.owner_upn||'').toLowerCase()!==upn ||
+        !['timesheets','clock'].includes(record.kind) || record.status==='Deleted') throw invalid();
+    ids.add(id);
+    let payload;
+    try {payload=JSON.parse(record.payload_json);} catch (_) {throw invalid();}
+    if (!payload || typeof payload!=='object' || Array.isArray(payload)) throw invalid();
+    const entries=payload.rows ?? payload.dailyRows ?? payload.daily_rows;
+    if (!Array.isArray(entries) || entries.length>80 || entries.some(row=>!row || typeof row!=='object' || Array.isArray(row))) throw invalid();
+    const days=payload.deletedDays===undefined?[]:payload.deletedDays;
+    if (!Array.isArray(days) || days.length>62 || days.some(day=>!validReceiptDate(day)) || new Set(days).size!==days.length) throw invalid();
+    if (!entries.length && (record.action!=='pay_month_correction' || !days.length)) throw invalid();
+    // A label inside a source payload is not independent evidence that a
+    // conflicting day was reviewed. Ordinary sources have equal priority.
+    const priority=record.action==='pay_month_correction'?3:1;
+    const parsed=Date.parse(String(record.updated_at||record.submitted_at||'')),updated=Number.isFinite(parsed)?parsed:0;
+    const rendered=payMonthWorkbook.toWorkbookData({rows:entries.map(row=>({row}))},period).dailyEntries;
+    if (rendered.some(row=>!validReceiptDate(row.Date)) || new Set(rendered.map(row=>row.Date)).size!==rendered.length) throw invalid();
+    if(record.action==='pay_month_correction')for(const day of days){
+      if(rendered.some(row=>row.Date===day))throw invalid();
+      if(day>=period.start && day<=period.cycleEnd)choose(day,{deleted:true,priority,updated});
+    }
+    for(let i=0;i<rendered.length;i++) {
+      const renderedRow=rendered[i], date=renderedRow.Date;
+      if(date<period.start || date>period.cycleEnd) continue;
+      const evidence=entries[i].sourceEvidence && typeof entries[i].sourceEvidence==='object' ? entries[i].sourceEvidence : {};
+      // Rate claims are independent of total hours; disagreement must not be
+      // hidden by identical clock totals. This is conflict detection, not
+      // authentication or approval of either claim.
+      const rateEvidence=[evidence.rateEvidenceVersion??null,evidence.claimedBasic??null,evidence.claimedOt15??null,evidence.claimedOt20??null];
+      if(priority<3 && rateEvidence[0]===1 && rateEvidence.slice(1).some(value=>value!==null)) {
+        if(!originalRates.has(date)) originalRates.set(date,[]);
+        originalRates.get(date).push(rateEvidence);
+      }
+      choose(date,{row:entries[i],priority,updated,rendered:{...renderedRow,rateEvidence},deleted:false});
+    }
+  }
+  if([...selected.values()].some(entry=>entry.conflict))throw invalid();
+  for(const [date,entry] of selected) {
+    if(entry.deleted || entry.priority!==3) continue;
+    if((originalRates.get(date)||[]).some(rates=>JSON.stringify(rates)!==JSON.stringify(entry.rendered.rateEvidence))) throw invalid();
+  }
+  return [...selected.entries()].filter(([,entry])=>!entry.deleted).sort(([a],[b])=>a.localeCompare(b)).map(([,entry])=>entry.row);
+}
+
+// A local candidate only: this does not establish completeness of SharePoint
+// or other external sources. The queue must also bind the returned revision
+// in its transaction after the server has verified those sources.
+export async function readLocalPayMonthSnapshot(env,subject,period,excludeRecordId) {
+  const conflict=()=>Object.assign(new Error('Timesheet history needs review before workbook filing.'),{status:409});
+  const oid=String(subject?.oid||'').trim().toLowerCase(),upn=String(subject?.upn||'').trim().toLowerCase();
+  if (!oid || !upn || typeof excludeRecordId!=='string' || !excludeRecordId || !validReceiptDate(period?.start) || !validReceiptDate(period?.cycleEnd) || period.start>period.cycleEnd) throw conflict();
+  const version=async()=>env.DB.prepare(`SELECT COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0) AS revision,
+    (SELECT count(*) FROM records identity_source WHERE identity_source.kind IN ('timesheets','clock') AND identity_source.status<>'Deleted'
+      AND ((lower(identity_source.owner_oid)=? AND lower(identity_source.owner_upn)<>?) OR
+           (lower(identity_source.owner_upn)=? AND lower(identity_source.owner_oid)<>?))) AS identity_conflicts,
+    (SELECT count(*) FROM timesheet_ownership_reviews review LEFT JOIN records source ON source.record_id=review.record_id
+      WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?) AS review_count,
+    COALESCE((SELECT MAX(e.event_id) FROM timesheet_ownership_review_events e JOIN timesheet_ownership_reviews review ON review.review_id=e.review_id
+      LEFT JOIN records source ON source.record_id=review.record_id WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?),0) AS review_event,
+    (SELECT count(*) FROM timesheet_import_source_days h WHERE ((h.owner_oid<>'' AND lower(h.owner_oid)=?) OR (h.owner_upn<>'' AND lower(h.owner_upn)=?) OR (h.owner_oid='' AND h.owner_upn='')) AND (h.source_day='*' OR h.source_day BETWEEN ? AND ?)) AS imported_source_count`)
+    .bind(upn,oid,upn,upn,oid,oid,upn,oid,upn,oid,upn,period.start,period.cycleEnd).first();
+  const before=await version();
+  if(before && Number.isSafeInteger(before.imported_source_count) && before.imported_source_count>0)throw Object.assign(new Error('This imported timesheet is held for independent source review.'),{status:409});
+  if (!before || !Number.isSafeInteger(before.revision) || !Number.isSafeInteger(before.review_count) || !Number.isSafeInteger(before.review_event) || !Number.isSafeInteger(before.imported_source_count) || before.imported_source_count!==0 || before.review_count!==0 || before.identity_conflicts!==0) throw conflict();
+  const result=await env.DB.prepare(`SELECT r.* FROM records r WHERE (lower(r.owner_upn)=? OR lower(r.owner_oid)=?) AND r.kind IN ('timesheets','clock')
+    AND r.status<>'Deleted' AND r.record_id<>? ORDER BY r.record_id LIMIT 1001`).bind(upn,oid,excludeRecordId).all();
+  if (!Array.isArray(result?.results) || result.results.length>1000) throw conflict();
+  const rows=selectTrustedPayMonthHistory(result.results,{oid,upn},period);
+  const after=await version();
+  if(after && Number.isSafeInteger(after.imported_source_count) && after.imported_source_count>0)throw Object.assign(new Error('This imported timesheet is held for independent source review.'),{status:409});
+  if (!after || after.revision!==before.revision || after.review_count!==before.review_count || after.review_event!==before.review_event || after.imported_source_count!==0 || after.identity_conflicts!==0) throw conflict();
+  return {rows,revision:before.revision,reviewEvent:before.review_event};
+}
+
+function hasSourceRateClaims(row) {
+  const evidence=row?.sourceEvidence;
+  return !!evidence && typeof evidence==='object' && !Array.isArray(evidence) &&
+    ['claimedBasic','claimedOt15','claimedOt20'].some(key=>evidence[key]!==null && evidence[key]!==undefined && evidence[key]!=='');
+}
+function hasUninterpretedSourceRates(row) {
+  return hasSourceRateClaims(row) && row.sourceEvidence.rateEvidenceVersion!==1;
+}
+
+// For a reviewer, preserve every distinct value or deletion for a date. A
+// later correction is not by itself evidence that a disagreement is resolved.
+// This is a diagnostic projection and must never select a delivery source.
+function reviewPayMonthAlternatives(records,subject,period) {
+  const invalid=()=>Object.assign(new Error('Timesheet history needs review before workbook filing.'),{status:409});
+  const byDate=new Map();let total=0;
+  const add=(date,candidate)=>{
+    if(date<period.start||date>period.cycleEnd)return;
+    if(++total>1000)throw invalid();
+    const list=byDate.get(date)||[];list.push(candidate);byDate.set(date,list);
+  };
+  for(const record of records){
+    selectTrustedPayMonthHistory([record],subject,period);
+    let payload;try{payload=JSON.parse(record.payload_json)}catch(_){throw invalid()}
+    const entries=payload.rows??payload.dailyRows??payload.daily_rows,rendered=renderPayMonthRows(entries,period,true,invalid);
+    for(let i=0;i<entries.length;i++)add(rendered[i].Date,{recordId:record.record_id,deleted:false,row:rendered[i],raw:entries[i]});
+    for(const day of payload.deletedDays||[])add(day,{recordId:record.record_id,deleted:true,row:null,raw:null});
+  }
+  if(byDate.size>62)throw invalid();
+  const rows=[],conflicts=[];
+  for(const [date,candidates] of [...byDate.entries()].sort(([a],[b])=>a.localeCompare(b))){
+    const variants=new Set(candidates.map(item=>JSON.stringify({deleted:item.deleted,row:item.row})));
+    const unknownRates=candidates.some(item=>!item.deleted&&hasUninterpretedSourceRates(item.raw));
+    if(variants.size>1||unknownRates)conflicts.push({date,...(unknownRates?{reason:'uninterpreted-source-rates'}:{}),candidates:candidates.map(({recordId,deleted,row,raw})=>({recordId,deleted,row,...(!deleted&&hasUninterpretedSourceRates(raw)?{rateReviewNeeded:true}:{})}))});
+    else if(!candidates[0].deleted)rows.push(candidates[0].raw);
+  }
+  return {rows,conflicts};
+}
+
+// Internal review-only preview. It does not authorise a caller, prove external
+// or historical source completeness, or grant permission to save or deliver.
+// A production consumer must bind the complete state to its own atomic write;
+// this double read cannot prevent a change after the final observation.
+export async function readOwnershipReviewedPayMonthPreview(env,subject,period,excludeRecordId) {
+  const conflict=()=>Object.assign(new Error('Timesheet history needs review before workbook filing.'),{status:409});
+  const oid=String(subject?.oid||'').trim().toLowerCase(),upn=String(subject?.upn||'').trim().toLowerCase();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(oid)||upn.length>320||!/^[^\s@]+@[^\s@]+$/.test(upn)||
+     typeof excludeRecordId!=='string'||!excludeRecordId||!validReceiptDate(period?.start)||!validReceiptDate(period?.cycleEnd)||period.start>period.cycleEnd)throw conflict();
+  const state=()=>env.DB.prepare(`SELECT COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0) AS revision,
+    COALESCE((SELECT MAX(event_id) FROM timesheet_ownership_review_events),0) AS review_event,
+    (SELECT count(*) FROM timesheet_import_source_days h WHERE ((h.owner_oid<>'' AND lower(h.owner_oid)=?) OR
+      (h.owner_upn<>'' AND lower(h.owner_upn)=?) OR (h.owner_oid='' AND h.owner_upn='')) AND (h.source_day='*' OR h.source_day BETWEEN ? AND ?)) AS source_holds`)
+    .bind(upn,oid,upn,period.start,period.cycleEnd).first();
+  const scan=async()=>{
+    const result=await env.DB.prepare(`SELECT r.*,v.revision AS ownership_revision,
+      EXISTS(SELECT 1 FROM timesheet_ownership_reviews history WHERE history.record_id=r.record_id) AS has_review,
+      review.review_id,review.record_revision,review.payload_sha256,review.subject_oid AS reviewed_subject_oid
+      FROM records r LEFT JOIN timesheet_review_record_revisions v ON v.record_id=r.record_id
+      LEFT JOIN timesheet_ownership_reviews review ON review.record_id=r.record_id AND review.record_revision=v.revision AND NOT EXISTS
+        (SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated'))
+      WHERE r.kind IN ('timesheets','clock') AND r.status<>'Deleted' AND r.record_id<>? AND
+        (lower(r.owner_oid)=? OR lower(r.owner_upn)=? OR EXISTS
+          (SELECT 1 FROM timesheet_ownership_reviews history WHERE history.record_id=r.record_id AND lower(history.subject_oid)=?))
+      ORDER BY r.record_id LIMIT 1001`).bind(excludeRecordId,oid,upn,oid).all();
+    if(!Array.isArray(result?.results)||result.results.length>1000)throw conflict();
+    const ids=new Set();let bytes=0;
+    for(const row of result.results){
+      if(!row.record_id||ids.has(row.record_id)||typeof row.payload_json!=='string')throw conflict();
+      ids.add(row.record_id);bytes+=new TextEncoder().encode(row.payload_json).length;if(bytes>16_000_000)throw conflict();
+    }
+    return result.results;
+  };
+  const before=await state();
+  if(!Number.isSafeInteger(before?.revision)||!Number.isSafeInteger(before?.review_event)||before?.source_holds!==0)throw conflict();
+  const first=await scan();
+  await assertCurrentSourceReviewSubject(env,oid,upn);
+  const latest=await scan(),after=await state();
+  if(!Number.isSafeInteger(after?.revision)||!Number.isSafeInteger(after?.review_event)||after?.source_holds!==0||
+     before.revision!==after.revision||before.review_event!==after.review_event||JSON.stringify(first)!==JSON.stringify(latest))throw conflict();
+  const accepted=[];
+  for(const row of latest){
+    if(row.has_review){
+      if(row.kind!=='timesheets'||!Number.isSafeInteger(row.review_id)||!Number.isSafeInteger(row.ownership_revision)||
+         row.record_revision!==row.ownership_revision||!/^[a-f0-9]{64}$/.test(String(row.payload_sha256||''))||
+         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(row.reviewed_subject_oid||'')))throw conflict();
+      const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(row.payload_json));
+      if(Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('')!==row.payload_sha256)throw conflict();
+      if(row.reviewed_subject_oid.toLowerCase()!==oid)continue;
+      // The copy is solely for the selector; persisted owner metadata is untouched.
+      accepted.push({...row,owner_oid:oid,owner_upn:upn});
+    }else{
+      if(String(row.owner_oid||'').toLowerCase()!==oid||String(row.owner_upn||'').toLowerCase()!==upn)throw conflict();
+      accepted.push(row);
+    }
+  }
+  const alternatives=reviewPayMonthAlternatives(accepted,{oid,upn},period);
+  return {scope:'review-only',...alternatives,revision:after.revision,reviewEvent:after.review_event};
+}
+
+// Reviewer-only view of other current local records. This omits the selected
+// correction and says nothing about old versions, attachments or upstream
+// sources. It never queues, saves or authorises delivery.
+async function ownershipLocalHistoryPreview(request,env,identity,recordId,origin) {
+  requireTimesheetOwnershipReviewer(identity);
+  const conflict=()=>Object.assign(new Error('The ownership decision or local history needs review.'),{status:409});
+  const upn=String(new URL(request.url).searchParams.get('upn')||'').trim().toLowerCase();
+  if(upn.length>320||!/^[^\s@]+@[^\s@]+$/.test(upn))throw conflict();
+  const first=await timesheetReviewSnapshot(env,recordId),row=first.row;
+  const oid=String(row.active_subject_oid||'').toLowerCase(),payload=payloadObject(row),month=String(payload.payMonth||'');
+  if(row.action!=='pay_month_correction'||!row.active_review_id||row.active_payload_sha256!==first.payloadSha256||
+     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(oid)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))throw conflict();
+  const period=(await loadPayPeriods(env)).periodForMonth(month);if(!period)throw conflict();
+  const attachment=()=>env.DB.prepare("SELECT content_base64 FROM record_attachments WHERE record_id=? AND field_name='attachment_record'").bind(recordId).first();
+  const sourceBefore=await attachment();
+  const preview=await readOwnershipReviewedPayMonthPreview(env,{oid,upn},period,recordId);
+  const finalPeriod=(await loadPayPeriods(env)).periodForMonth(month),last=await timesheetReviewSnapshot(env,recordId),sourceAfter=await attachment();
+  if(!finalPeriod||JSON.stringify(period)!==JSON.stringify(finalPeriod)||last.payloadSha256!==first.payloadSha256||
+     last.row.revision!==row.revision||last.row.review_event_id!==row.review_event_id||last.row.active_review_id!==row.active_review_id||
+     String(last.row.active_subject_oid||'').toLowerCase()!==oid||last.row.active_payload_sha256!==first.payloadSha256||
+     (sourceBefore?.content_base64??null)!==(sourceAfter?.content_base64??null))throw conflict();
+  const rows=payMonthWorkbook.toWorkbookData({rows:preview.rows.map(item=>({row:item}))},period).dailyEntries;
+  let queuedComparison={status:'missing'};
+  if(sourceAfter){
+    queuedComparison={status:'invalid'};
+    try{
+      const encoded=String(sourceAfter.content_base64||'');if(!encoded||encoded.length>300_000)throw conflict();
+      const source=validatePayMonthAttachmentVersion({...row,owner_upn:upn},[{fieldName:'attachment_record',contentBase64:encoded}]);
+      const inCycle=date=>validReceiptDate(date)&&date>=period.start&&date<=period.cycleEnd;
+      const minuteValue=value=>value===''||(Number.isSafeInteger(value)&&value>=0&&value<=1440);
+      if(source.rows.some(item=>!inCycle(item.date)||item.recordId!==`${recordId}|${item.date}`||
+        typeof item.startTime!=='string'||typeof item.finishTime!=='string'||!minuteValue(item.breakMinutes)||!minuteValue(item.totalMinutes)||
+        typeof item.absenceReason!=='string'||typeof item.note!=='string'||typeof item.changeNote!=='string'||
+        item.workedHours!==(item.totalMinutes===''?'':Number((item.totalMinutes/60).toFixed(4)))))throw conflict();
+      const rateMode=source.schemaVersion===3,fail=()=>conflict();
+      const local=renderPayMonthRows(preview.rows,period,rateMode,fail),corrected=renderPayMonthRows(payload.rows||[],period,rateMode,fail);
+      if(local.some(item=>!inCycle(item.Date))||corrected.some(item=>!inCycle(item.Date)))throw conflict();
+      const localByDate=new Map(local.map(item=>[item.Date,item]));
+      for(const item of corrected)localByDate.set(item.Date,item);
+      for(const day of payload.deletedDays||[])localByDate.delete(day);
+      const fields=['Start','Finish','Break','Absence','Total hours','Notes',...(rateMode?SOURCE_RATE_COLUMNS:[])];
+      const queuedByDate=new Map(source.rows.map(item=>[item.date,{Start:item.startTime,Finish:item.finishTime,Break:item.breakMinutes,Absence:item.absenceReason,
+        'Total hours':item.totalMinutes,Notes:item.note,...(rateMode?Object.fromEntries(SOURCE_RATE_COLUMNS.map((key,index)=>[key,item[SOURCE_RATE_FIELDS[index]]===null?'':item[SOURCE_RATE_FIELDS[index]]])):{})}]));
+      const unresolved=new Set(preview.conflicts.map(item=>item.date));
+      const unresolvedRates=new Set([...preview.rows,...(payload.rows||[])].filter(item=>hasUninterpretedSourceRates(item)||(!rateMode&&hasSourceRateClaims(item))).map(item=>payMonthWorkbook.toWorkbookData({rows:[{row:item}]},period).dailyEntries[0].Date).filter(inCycle));
+      const dates=[...new Set([...localByDate.keys(),...queuedByDate.keys(),...unresolved])].sort().map(date=>{
+        const a=localByDate.get(date),b=queuedByDate.get(date),localValue=a?Object.fromEntries(fields.map(key=>[key,a[key]])):null,queuedValue=b?Object.fromEntries(fields.map(key=>[key,b[key]])):null;
+        if(unresolved.has(date))return {date,status:'needs-review',fields:[],local:null,queued:queuedValue};
+        if(unresolvedRates.has(date))return {date,status:'needs-review',reason:'source-rates',fields:[],local:null,queued:queuedValue};
+        const differing=a&&b?fields.filter(key=>localValue[key]!==queuedValue[key]):[];
+        return {date,status:!a?'only-queued':!b?'only-local':differing.length?'different':'match',fields:differing,local:localValue,queued:queuedValue};
+      });
+      queuedComparison={status:'compared',dates};
+    }catch(_){/* Invalid or uncomparable retained data is not a successful check. */}
+  }
+  return json({scope:'other-local-records-only',payMonth:month,rows,conflicts:preview.conflicts,queuedComparison},200,origin);
+}
+
+// Hold inconsistent stored identities for review; an object ID or address
+// alone cannot establish which historical rows belong in a workbook.
+function unambiguousLocalTimesheetSubject(subject) {
+  return `NOT EXISTS (SELECT 1 FROM records identity_source
+    WHERE identity_source.kind IN ('timesheets','clock') AND identity_source.status<>'Deleted'
+      AND ((lower(identity_source.owner_oid)=lower(${subject}.owner_oid) AND lower(identity_source.owner_upn)<>lower(${subject}.owner_upn))
+        OR (lower(identity_source.owner_upn)=lower(${subject}.owner_upn) AND lower(identity_source.owner_oid)<>lower(${subject}.owner_oid))))`;
+}
+
+export function queueRecordAttachments(env, record, body, capability = null, localSnapshotRevision = undefined) {
   const payload = payloadObject(record);
-  if (syntheticRecord(record, payload)) {
+  const synthetic = syntheticRecord(record, payload);
+  const rateProviderDestination = env.SYNTHETIC_RATE_TEST_MODE === 'provider-fixture-v1' &&
+    env.PRIVATE_TIMESHEET_PARENT_ID === '01ZURLVFIIINPOKIYCCZEJFTFMCUTRGBUL' &&
+    env.SYNTHETIC_TEST_EMPLOYEE_FOLDER_ID === '01ZURLVFLBUIMATW7STNBLMXO3VGLMSTCB' &&
+    env.SYNTHETIC_TEST_MONTH_FOLDER_ID === '01ZURLVFOCW3CCKIKQRZFJYU6JYYWSK3UK' &&
+    env.SYNTHETIC_TEST_WORKBOOK_ID === '01ZURLVFKFZ6PPD3U36RHLN74B2KFNIR4F';
+  if (capability === syntheticQueueCapability && (env.SYNTHETIC_TEST_QUEUE_ENABLED !== 'true' ||
+      env.DISPATCH_ENABLED !== 'false' || env.PAY_MONTH_REPLAY_READY !== 'false' ||
+      (env.PRIVATE_TIMESHEET_PARENT_ID !== '01ZURLVFJFVBSV44GD4RA35FCIVFNDWPGP' && !rateProviderDestination) ||
+      payload.testMode !== true || !synthetic || record.kind !== 'timesheets' || record.action !== 'pay_month_correction')) {
+    throw Object.assign(new Error('The isolated queue accepts fictional timesheet corrections only'), { status: 403 });
+  }
+  if (synthetic && capability !== syntheticQueueCapability) {
     return { queued: false, skipped: true, reason: 'synthetic-test-record' };
   }
   const attachments = parseQueuedAttachments(body);
   if (record.action === 'pay_month_correction' && !attachments.some((attachment) => attachment.fieldName === 'attachment_record')) {
     throw Object.assign(new Error('Pay-month corrections require a dated JSON record attachment for workbook filing'), { status: 400 });
   }
+  let correctionSource;
+  if(record.action==='pay_month_correction'){
+    const source=correctionSource=validatePayMonthAttachmentVersion(record,attachments);
+    if(source.schemaVersion===3 && env.PAY_MONTH_RATE_DELIVERY_READY!=='true') throw Object.assign(new Error('Source rate delivery is not ready'),{status:409});
+    if(source.schemaVersion===3 && capability!==syntheticQueueCapability) throw Object.assign(new Error('Source rate delivery awaits independent original review'),{status:409});
+  }
+  const bindLocalSource=record.action==='pay_month_correction' && !synthetic;
+  // Only the isolated gateway supplies the unforgeable capability after it
+  // validates the exact fictional fixture and the complete local snapshot.
+  // Its proof records those local facts; it does not release source holds.
+  const proveLocalSource=bindLocalSource || (synthetic && capability===syntheticQueueCapability && Number.isSafeInteger(localSnapshotRevision) && localSnapshotRevision>=0);
+  if (bindLocalSource && (!Number.isSafeInteger(localSnapshotRevision) || localSnapshotRevision<0))
+    throw Object.assign(new Error('The verified timesheet history is unavailable.'),{status:409});
+  if(bindLocalSource && (!validReceiptDate(correctionSource?.cycleStart)||!validReceiptDate(correctionSource?.cycleEnd)||correctionSource.cycleStart>correctionSource.cycleEnd))throw Object.assign(new Error('The verified pay-month period is unavailable.'),{status:409});
   const timestamp = now();
+  if(record.kind==='timesheets') {
+    const queueWithPrior=(prior)=>{
+    // Each statement runs inside the same D1 batch transaction. A stale
+    // browser must neither erase newer attachments nor reset an in-flight
+    // delivery. Unknown/failed delivery outcomes require reconciliation.
+    let guard=`EXISTS (SELECT 1 FROM records r WHERE r.record_id=? AND r.payload_json=? AND r.owner_oid IS ? AND r.owner_upn IS ? AND r.employee_name IS ? AND r.kind IS ? AND r.action IS ? AND r.status<>'Deleted') AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=? AND q.status IN ('sending','sent','failed','uncertain')) AND NOT EXISTS (SELECT 1 FROM dispatch_queue q JOIN records r ON r.record_id=q.record_id WHERE lower(r.owner_upn)=? AND r.kind='timesheets' AND r.action='pay_month_correction' AND r.record_id<>? AND q.status IN ('queued','sending','sent','failed','uncertain')) AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=?)`;
+    const guardArgs=[record.record_id,record.payload_json,record.owner_oid??null,record.owner_upn??null,record.employee_name??null,record.kind??null,record.action??null,record.record_id,String(record.owner_upn||'').toLowerCase(),record.record_id,record.record_id];
+    if(bindLocalSource){guard+=' AND NOT EXISTS (SELECT 1 FROM timesheet_import_source_holds source_hold WHERE source_hold.record_id=?) AND NOT EXISTS (SELECT 1 FROM timesheet_import_source_days h WHERE ((h.owner_oid<>\'\' AND lower(h.owner_oid)=?) OR (h.owner_upn<>\'\' AND lower(h.owner_upn)=?) OR (h.owner_oid=\'\' AND h.owner_upn=\'\')) AND (h.source_day=\'*\' OR h.source_day BETWEEN ? AND ?))';guardArgs.push(record.record_id,String(record.owner_oid||'').toLowerCase(),String(record.owner_upn||'').toLowerCase(),correctionSource.cycleStart,correctionSource.cycleEnd);}
+    const finalBaseGuard=guard,finalBaseArgs=[...guardArgs];
+    if (localSnapshotRevision!==undefined) {
+      if (!Number.isSafeInteger(localSnapshotRevision) || localSnapshotRevision<0 || !record.owner_oid || !record.owner_upn) throw Object.assign(new Error('The verified timesheet history is unavailable.'),{status:409});
+      guard+=` AND COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0)=?
+        AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records source ON source.record_id=review.record_id
+          WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?)
+        AND EXISTS (SELECT 1 FROM records identity_subject WHERE identity_subject.record_id=? AND ${unambiguousLocalTimesheetSubject('identity_subject')})`;
+      guardArgs.push(String(record.owner_upn).toLowerCase(),localSnapshotRevision,String(record.owner_oid).toLowerCase(),String(record.owner_upn).toLowerCase(),record.record_id);
+    }
+    let initialGuard=guard,initialArgs=[...guardArgs];
+    // A skipped item is an explicit hold, and a queued item with a prior
+    // attempt has an ambiguous delivery outcome. Neither may be reset by
+    // an attachment submission. The reservation below uses its own skipped
+    // marker only after this initial comparison succeeds.
+    initialGuard+=` AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=? AND
+      (q.status='skipped' OR (q.status='queued' AND (q.attempts<>0 OR q.last_sent_at IS NOT NULL))))`;
+    initialArgs.push(record.record_id);
+    if(record.action==='pay_month_correction') {
+      if(prior?.status==='completed') {
+        let source;
+        try {source=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(decodeBase64(prior.source_base64)));}catch(_){throw Object.assign(new Error('The previous workbook source needs reconciliation.'),{status:409});}
+        const previousAt=Date.parse(String(source?.submittedAt||'')),currentAt=Date.parse(String(payload.editedAt||''));
+        if(![2,3].includes(source?.schemaVersion) || source.mode!=='replace-pay-month' || source.recordId!==record.record_id ||
+          String(source.employeeUpn||'').toLowerCase()!==String(record.owner_upn||'').toLowerCase() || source.payMonth!==payload.payMonth ||
+          !Number.isFinite(previousAt) || !Number.isFinite(currentAt) || currentAt<=previousAt)
+          throw Object.assign(new Error('The saved correction has already completed or needs reconciliation.'),{status:409});
+        initialGuard+=` AND EXISTS (SELECT 1 FROM dispatch_queue q JOIN record_attachments a ON a.record_id=q.record_id AND a.field_name='attachment_record'
+          WHERE q.record_id=? AND q.status='completed' AND a.content_base64=?)`;
+        initialArgs.push(record.record_id,prior.source_base64);
+        // A completed flag alone cannot prove which bytes reached a workbook.
+        // Bind the retained source to a route and both generation receipts.
+        initialGuard+=` AND EXISTS (SELECT 1 FROM timesheet_delivery_routes route
+          JOIN timesheet_delivery_receipts receipt ON receipt.record_id=route.record_id AND receipt.flow_run_id=route.flow_run_id AND receipt.run_started_at=route.run_started_at
+          WHERE route.record_id=? AND route.generation=? AND receipt.event_type='flow_completed'
+            AND json_extract(receipt.evidence_json,'$.generation')=route.generation
+            AND EXISTS (SELECT 1 FROM timesheet_delivery_receipts verified WHERE verified.record_id=route.record_id
+              AND verified.flow_run_id=route.flow_run_id AND verified.run_started_at=route.run_started_at AND verified.event_type='workbook_verified'
+              AND json_extract(verified.evidence_json,'$.generation')=route.generation
+              AND json_extract(verified.evidence_json,'$.sourceRowVerification')=?))`;
+        initialArgs.push(record.record_id,prior.generation,source.schemaVersion===3?'source-row-v2':'source-row-v1');
+      }else {
+        initialGuard+=` AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=? AND q.status='completed')`;
+        initialArgs.push(record.record_id);
+      }
+    }
+    // The reservation is invisible outside the D1 batch. A unique marker
+    // prevents later statements from mutating an existing queue when the
+    // initial comparison lost a race. It becomes queued only at the end.
+    const marker='queue-preparation:'+randomBase64Url(18);
+    const reserved=`${guard} AND EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=? AND q.status='skipped' AND q.last_error=?)`;
+    const reservedArgs=[...guardArgs,record.record_id,marker];
+    // Updating the record advances the owner revision inside this same batch.
+    // Check the original revision before that update, then verify the final
+    // record, review state and exact attachments without expecting it to stay
+    // unchanged after our own write.
+    let ready=`${finalBaseGuard} AND EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=? AND q.status='skipped' AND q.last_error=?)
+      AND EXISTS (SELECT 1 FROM records r WHERE r.record_id=? AND r.status='Queued for Accounts')
+      AND (SELECT count(*) FROM record_attachments a WHERE a.record_id=?)=?`;
+    const readyArgs=[...finalBaseArgs,record.record_id,marker,record.record_id,record.record_id,attachments.length];
+    if(localSnapshotRevision!==undefined) {
+      ready+=` AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records source ON source.record_id=review.record_id
+        WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?)`;
+      readyArgs.push(String(record.owner_oid).toLowerCase(),String(record.owner_upn).toLowerCase());
+    }
+    for(const attachment of attachments) {
+      ready+=` AND EXISTS (SELECT 1 FROM record_attachments a WHERE a.record_id=? AND a.field_name=? AND a.file_name=?
+        AND a.content_type=? AND a.content_base64=? AND a.size_bytes=?)`;
+      readyArgs.push(record.record_id,attachment.fieldName,attachment.fileName,attachment.contentType,attachment.contentBase64,attachment.sizeBytes);
+    }
+    const sourceAttachment=attachments.find(item=>item.fieldName==='attachment_record');
+    const proofStatement=proveLocalSource ? env.DB.prepare(`INSERT INTO timesheet_queue_source_guards(record_id,owner_upn,owner_revision,source_base64)
+      SELECT ?,?,?,? WHERE ${ready} AND COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0)=?
+      ON CONFLICT(record_id) DO UPDATE SET owner_upn=excluded.owner_upn,owner_revision=excluded.owner_revision,source_base64=excluded.source_base64`)
+      .bind(record.record_id,String(record.owner_upn).toLowerCase(),localSnapshotRevision+1,sourceAttachment.contentBase64,...readyArgs,String(record.owner_upn).toLowerCase(),localSnapshotRevision+1) : null;
+    const attachmentManifest=proveLocalSource ? JSON.stringify(attachments.map(({fieldName,fileName,contentType,contentBase64,sizeBytes})=>({fieldName,fileName,contentType,contentBase64,sizeBytes}))) : null;
+    const attachmentProofStatement=proveLocalSource ? env.DB.prepare(`INSERT INTO timesheet_queue_attachment_guards(record_id,manifest_json)
+      SELECT ?,? WHERE ${ready} AND COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0)=?
+      ON CONFLICT(record_id) DO UPDATE SET manifest_json=excluded.manifest_json`)
+      .bind(record.record_id,attachmentManifest,...readyArgs,String(record.owner_upn).toLowerCase(),localSnapshotRevision+1) : null;
+    let finalReady=ready;
+    const finalReadyArgs=[...readyArgs];
+    if (proveLocalSource) {
+      finalReady+=` AND EXISTS (SELECT 1 FROM timesheet_queue_source_guards proof WHERE proof.record_id=? AND proof.owner_upn=? AND proof.owner_revision=? AND proof.source_base64=?)`;
+      finalReadyArgs.push(record.record_id,String(record.owner_upn).toLowerCase(),localSnapshotRevision+1,sourceAttachment.contentBase64);
+      finalReady+=` AND EXISTS (SELECT 1 FROM timesheet_queue_attachment_guards proof WHERE proof.record_id=? AND proof.manifest_json=?)`;
+      finalReadyArgs.push(record.record_id,attachmentManifest);
+    }
+    const statements=[
+      env.DB.prepare(`INSERT INTO dispatch_queue (record_id,status,queued_at,updated_at,attempts,next_attempt_at,last_sent_at,last_error) SELECT ?,'skipped',?,?,0,?,NULL,? WHERE ${initialGuard} ON CONFLICT(record_id) DO UPDATE SET status='skipped',queued_at=excluded.queued_at,updated_at=excluded.updated_at,attempts=0,next_attempt_at=excluded.next_attempt_at,last_sent_at=NULL,last_error=excluded.last_error`).bind(record.record_id,timestamp,timestamp,timestamp,marker,...initialArgs),
+      env.DB.prepare(`DELETE FROM record_attachments WHERE record_id=? AND ${reserved}`).bind(record.record_id,...reservedArgs),
+      ...attachments.map(attachment=>env.DB.prepare(`INSERT INTO record_attachments (record_id,field_name,file_name,content_type,content_base64,size_bytes,created_at) SELECT ?,?,?,?,?,?,? WHERE ${reserved}`).bind(record.record_id,attachment.fieldName,attachment.fileName,attachment.contentType,attachment.contentBase64,attachment.sizeBytes,timestamp,...reservedArgs)),
+      env.DB.prepare(`UPDATE records SET status='Queued for Accounts',issue='',updated_at=? WHERE record_id=? AND ${reserved}`).bind(timestamp,record.record_id,...reservedArgs),
+      ...(proofStatement ? [proofStatement] : []),
+      ...(attachmentProofStatement ? [attachmentProofStatement] : []),
+      env.DB.prepare(`UPDATE dispatch_queue SET status='queued',last_error=NULL WHERE record_id=? AND status='skipped' AND last_error=? AND ${finalReady}`).bind(record.record_id,marker,...finalReadyArgs)
+    ];
+    return env.DB.batch(statements).then(async results=>{
+      if(Number(results?.at(-1)?.meta?.changes||0)<1){
+        if(bindLocalSource && await env.DB.prepare('SELECT 1 AS held FROM timesheet_import_source_holds WHERE record_id=?').bind(record.record_id).first())throw Object.assign(new Error('This imported timesheet is held for independent source review.'),{status:409});
+        if(bindLocalSource && await env.DB.prepare("SELECT 1 AS held FROM timesheet_import_source_days h WHERE ((h.owner_oid<>'' AND lower(h.owner_oid)=?) OR (h.owner_upn<>'' AND lower(h.owner_upn)=?) OR (h.owner_oid='' AND h.owner_upn='')) AND (h.source_day='*' OR h.source_day BETWEEN ? AND ?) LIMIT 1").bind(String(record.owner_oid||'').toLowerCase(),String(record.owner_upn||'').toLowerCase(),correctionSource.cycleStart,correctionSource.cycleEnd).first())throw Object.assign(new Error('This imported timesheet is held for independent source review.'),{status:409});
+        throw Object.assign(new Error('The timesheet changed or its previous workbook is still being delivered. Refresh and review before queueing.'),{status:409});
+      }
+      return {queued:true,recordId:record.record_id,attachments:attachments.length,queuedAt:timestamp,providerStatus:record.action==='pay_month_correction'?(capability===syntheticQueueCapability?(timesheetDeliveryReady(env)?'queued':'awaiting-provider'):'awaiting-source-review'):'queued'};
+    });
+    };
+    if(record.action!=='pay_month_correction')return queueWithPrior(null);
+    return env.DB.prepare(`SELECT q.status,a.content_base64 AS source_base64 FROM dispatch_queue q
+      LEFT JOIN record_attachments a ON a.record_id=q.record_id AND a.field_name='attachment_record' WHERE q.record_id=?`)
+      .bind(record.record_id).first().then(async prior=>{
+        if(prior?.status==='completed') {
+          try {prior.generation=await correctionGeneration(prior.source_base64);}catch(_){throw Object.assign(new Error('The previous workbook source needs reconciliation.'),{status:409});}
+        }
+        return queueWithPrior(prior);
+      });
+  }
   const statements = [
     env.DB.prepare('DELETE FROM record_attachments WHERE record_id = ?').bind(record.record_id),
     ...attachments.map((attachment) => env.DB.prepare(`INSERT INTO record_attachments (record_id, field_name, file_name, content_type, content_base64, size_bytes, created_at)
@@ -3510,7 +4813,14 @@ function queueRecordAttachments(env, record, body) {
         last_sent_at = NULL, last_error = NULL`).bind(record.record_id, timestamp, timestamp, timestamp),
     env.DB.prepare("UPDATE records SET status = 'Queued for Accounts', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, record.record_id)
   ];
-  return env.DB.batch(statements).then(() => ({ queued: true, recordId: record.record_id, attachments: attachments.length, queuedAt: timestamp }));
+  return env.DB.batch(statements).then(() => ({ queued: true, recordId: record.record_id, attachments: attachments.length, queuedAt: timestamp, providerStatus:record.action==='pay_month_correction'?'awaiting-source-review':'queued' }));
+}
+
+function timesheetDeliveryReady(env){
+  const key=String(env.TIMESHEET_DELIVERY_CALLBACK_KEY||'');
+  return env.PAY_MONTH_REPLAY_READY==='true' && env.PRIVATE_TIMESHEET_DESTINATION_VERIFIED==='true' &&
+    env.TIMESHEET_PRIVATE_ROUTE_RESOLVER_ENABLED==='true' && env.TIMESHEET_WORKBOOK_PROVISIONING_ENABLED==='true' &&
+    key.length>=32 && key.length<=500;
 }
 
 function dispatchEndpoint(env) {
@@ -3529,6 +4839,15 @@ function decodeBase64(value) {
   const candidate = String(value || '');
   const binary = atob(candidate);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export async function correctionGeneration(encoded) {
+  const source = String(encoded || '');
+  if (!source || source.length > 300_000) throw Object.assign(new Error('Correction source attachment is unavailable'), { status: 409 });
+  let bytes;
+  try { bytes = decodeBase64(source); } catch (_) { throw Object.assign(new Error('Correction source attachment is invalid'), { status: 409 }); }
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, value => value.toString(16).padStart(2, '0')).join('');
 }
 
 function dispatchForm(record, attachments, payPeriods = defaultPayPeriods()) {
@@ -3632,9 +4951,28 @@ function rateLimitRetryAt(timestamp, retryAfter) {
   return new Date(start + Math.max(5 * 60 * 1000, Math.min(delay, 24 * 60 * 60 * 1000))).toISOString();
 }
 
+function queuedAttachmentGuard(recordReference) {
+  return `EXISTS (SELECT 1 FROM timesheet_queue_attachment_guards guard WHERE guard.record_id=${recordReference}
+    AND json_valid(guard.manifest_json) AND json_type(guard.manifest_json)='array'
+    AND json_array_length(guard.manifest_json)>=3
+    AND json_array_length(guard.manifest_json)=(SELECT count(*) FROM record_attachments a WHERE a.record_id=guard.record_id)
+    AND json_array_length(guard.manifest_json)=(SELECT count(DISTINCT json_extract(item.value,'$.fieldName')) FROM json_each(guard.manifest_json) item)
+    AND NOT EXISTS (SELECT 1 FROM json_each(guard.manifest_json) item WHERE NOT EXISTS
+      (SELECT 1 FROM record_attachments a WHERE a.record_id=guard.record_id
+       AND a.field_name=json_extract(item.value,'$.fieldName') AND a.file_name=json_extract(item.value,'$.fileName')
+       AND a.content_type=json_extract(item.value,'$.contentType') AND a.content_base64=json_extract(item.value,'$.contentBase64')
+       AND a.size_bytes=json_extract(item.value,'$.sizeBytes'))))`;
+}
+
 async function dispatchQueued(env, options = {}) {
   const endpoint = dispatchEndpoint(env);
   if (!endpoint) return { status: 'not-configured', sent: 0, failed: 0, skipped: 0 };
+  // An object-identity capability keeps the existing local race harness usable.
+  // It is not supplied by any production HTTP or scheduled entry point and is
+  // confined to an unresolvable fixture endpoint with injected test functions.
+  const fixtureOnly = options.fixtureDispatchCapability === syntheticQueueCapability &&
+    endpoint === 'https://example.test' && typeof options.fetchImpl === 'function' &&
+    typeof options.privateDestinationCheck === 'function';
   const payPeriods = await loadPayPeriods(env);
   const timestamp = options.now || now();
   const limit = Math.min(Math.max(Number(options.limit || MAX_QUEUE_BATCH), 1), MAX_QUEUE_BATCH);
@@ -3653,40 +4991,134 @@ async function dispatchQueued(env, options = {}) {
     // A successful email handoff is not a successful workbook replay. Keep
     // pay-month snapshots queued until the receiving flow, script and target
     // workbook have passed an end-to-end read-back.
-    if (row.action === 'pay_month_correction' && env.PAY_MONTH_REPLAY_READY !== 'true') {
+    if (row.action === 'pay_month_correction' && !timesheetDeliveryReady(env)) {
       summary.status = 'awaiting-provider';
       summary.deferred = (summary.deferred || 0) + 1;
       summary.records.push({ recordId: row.record_id, status: 'awaiting-provider' });
       continue;
     }
     if (options.dryRun) {
-      summary.records.push({ recordId: row.record_id, status: syntheticRecord(row, payload) ? 'skipped-dry-run' : 'dry-run' });
+      if (row.action === 'pay_month_correction' && !fixtureOnly && !syntheticRecord(row,payload)) {
+        summary.status='awaiting-source-review';summary.deferred=(summary.deferred||0)+1;
+        summary.records.push({recordId:row.record_id,status:'awaiting-source-review'});
+      } else summary.records.push({ recordId: row.record_id, status: syntheticRecord(row, payload) ? 'skipped-dry-run' : 'dry-run' });
       continue;
     }
     if (syntheticRecord(row, payload)) {
-      await env.DB.prepare("UPDATE dispatch_queue SET status = 'skipped', updated_at = ?, last_error = ? WHERE record_id = ?").bind(timestamp, timestamp, 'Synthetic test record was not dispatched').run();
-      await env.DB.prepare("UPDATE records SET status = 'Test - not sent', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, row.record_id).run();
+      const results=await env.DB.batch([
+        env.DB.prepare(`UPDATE dispatch_queue SET status='skipped',updated_at=?,last_error=?
+          WHERE record_id=? AND status IN ('queued','failed') AND next_attempt_at<=?
+            AND EXISTS (SELECT 1 FROM records r WHERE r.record_id=dispatch_queue.record_id AND r.status IS ? AND r.payload_json IS ?
+              AND r.owner_oid IS ? AND r.owner_upn IS ? AND r.employee_name IS ? AND r.kind IS ? AND r.action IS ? AND r.updated_at IS ?)
+            AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=dispatch_queue.record_id)`)
+          .bind(timestamp,'Synthetic test record was not dispatched',row.record_id,timestamp,row.status,row.payload_json,row.owner_oid,row.owner_upn,row.employee_name,row.kind,row.action,row.updated_at),
+        env.DB.prepare("UPDATE records SET status='Test - not sent',issue='',updated_at=? WHERE record_id=? AND changes()=1").bind(timestamp,row.record_id)
+      ]);
+      const skippedChanges=results?.[0]?.meta?.changes;
+      if (typeof skippedChanges!=='number' || !Number.isSafeInteger(skippedChanges) || skippedChanges<0) {
+        summary.status='skip-unverified';summary.deferred=(summary.deferred||0)+1;summary.records.push({recordId:row.record_id,status:'skip-unverified'});continue;
+      }
+      if (skippedChanges<1) continue;
       summary.skipped += 1;
       summary.records.push({ recordId: row.record_id, status: 'skipped' });
       continue;
     }
-    const claim = await env.DB.prepare(`UPDATE dispatch_queue SET status = 'sending', attempts = attempts + 1, updated_at = ?
-      WHERE record_id = ? AND status IN ('queued', 'failed') AND next_attempt_at <= ?`).bind(timestamp, row.record_id, timestamp).run();
-    if (Number(claim?.meta?.changes ?? 1) < 1) continue;
+    // A local-history match is not evidence that external and historical
+    // sources are complete. Until an authenticated, generation-bound source
+    // review is implemented at the send boundary, never send a real pay-month
+    // correction merely because readiness switches are enabled. This applies
+    // to older schema versions as well as newer imported-source records.
+    if (row.action === 'pay_month_correction' && !fixtureOnly) {
+      if(summary.status==='complete')summary.status='awaiting-source-review';
+      summary.deferred=(summary.deferred||0)+1;
+      summary.records.push({recordId:row.record_id,status:'awaiting-source-review'});
+      continue;
+    }
+    let localDispatchRevision, localDispatchSource, localDispatchPeriod;
+    if(row.action==='pay_month_correction'){
+      try {const held=await env.DB.prepare('SELECT 1 AS held FROM timesheet_import_source_holds WHERE record_id=?').bind(row.record_id).first();if(held)throw new Error('Imported source awaits independent review');}
+      catch(_){if(summary.status==='complete')summary.status='awaiting-source-review';summary.deferred=(summary.deferred||0)+1;summary.records.push({recordId:row.record_id,status:'awaiting-source-review'});continue;}
+      try {await (options.privateDestinationCheck || verifyPrivateTimesheetDestination)(env,row);}
+      catch(_){summary.status='awaiting-provider';summary.deferred=(summary.deferred||0)+1;summary.records.push({recordId:row.record_id,status:'awaiting-private-destination'});continue;}
+      try {
+        const month=String(payload.payMonth||'');
+        const period=/^\d{4}-(0[1-9]|1[0-2])$/.test(month) && payPeriods.periodForMonth(month);
+        if (!period) throw new Error('Invalid pay month');
+        localDispatchPeriod=period;
+        const snapshot=await readLocalPayMonthSnapshot(env,{oid:row.owner_oid,upn:row.owner_upn},period,row.record_id);
+        const source=await env.DB.prepare("SELECT content_base64 FROM record_attachments WHERE record_id=? AND field_name='attachment_record'").bind(row.record_id).first();
+        localDispatchSource=source?.content_base64;
+        const checkedSource=validateCompletePayMonthSource(row,snapshot.rows,[{fieldName:'attachment_record',contentBase64:localDispatchSource}],period);
+        // A receiver-readiness switch is not evidence that the original file
+        // or the interpretation of its rate columns was independently
+        // reviewed. Keep real deliveries held until the source-review and
+        // current private-file verification path is implemented end to end.
+        if(checkedSource.schemaVersion===3) throw new Error('Source rate delivery awaits independent original review');
+        localDispatchRevision=snapshot.revision;
+      } catch (_) {
+        if (summary.status==='complete') summary.status='awaiting-source-review';summary.deferred=(summary.deferred||0)+1;
+        summary.records.push({recordId:row.record_id,status:'awaiting-source-review'});continue;
+      }
+    }
+    // A failed row with any recorded workbook route is already protected by
+    // the routed-write hold. Its outcome needs reconciliation, not a resend.
+    // This deliberately also holds a later failed generation sharing a record
+    // with an older route until generation-aware recovery is available.
+    const claim = row.action==='pay_month_correction'
+      ? await env.DB.prepare(`UPDATE dispatch_queue SET status='sending',attempts=attempts+1,updated_at=? WHERE record_id=? AND status IN ('queued','failed') AND next_attempt_at<=? AND (status<>'failed' OR NOT EXISTS (SELECT 1 FROM timesheet_delivery_routes route WHERE route.record_id=dispatch_queue.record_id)) AND NOT EXISTS (SELECT 1 FROM timesheet_import_source_holds source_hold WHERE source_hold.record_id=dispatch_queue.record_id) AND EXISTS (SELECT 1 FROM records r WHERE r.record_id=? AND r.payload_json IS ? AND r.owner_oid IS ? AND r.owner_upn IS ? AND r.employee_name IS ? AND r.kind IS ? AND r.action IS ? AND r.status IS ? AND r.status<>'Deleted' AND ${unambiguousLocalTimesheetSubject('r')} AND r.start_date IS ? AND r.end_date IS ? AND r.record_date IS ? AND r.submitted_at IS ? AND r.updated_at IS ? AND r.issue IS ?) AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=dispatch_queue.record_id) AND NOT EXISTS (SELECT 1 FROM dispatch_queue other JOIN records r ON r.record_id=other.record_id WHERE lower(r.owner_upn)=? AND r.kind='timesheets' AND r.action='pay_month_correction' AND r.record_id<>? AND other.status IN ('sending','sent','failed','uncertain')) AND COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0)=? AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records source ON source.record_id=review.record_id WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?) AND NOT EXISTS (SELECT 1 FROM timesheet_import_source_days h WHERE ((h.owner_oid<>'' AND lower(h.owner_oid)=?) OR (h.owner_upn<>'' AND lower(h.owner_upn)=?) OR (h.owner_oid='' AND h.owner_upn='')) AND (h.source_day='*' OR h.source_day BETWEEN ? AND ?)) AND EXISTS (SELECT 1 FROM timesheet_queue_source_guards proof JOIN record_attachments a ON a.record_id=proof.record_id AND a.field_name='attachment_record' AND a.content_base64=proof.source_base64 WHERE proof.record_id=dispatch_queue.record_id AND proof.owner_upn=? AND proof.owner_revision=? AND a.content_base64=?) AND ${queuedAttachmentGuard('dispatch_queue.record_id')}`).bind(timestamp,row.record_id,timestamp,row.record_id,row.payload_json,row.owner_oid,row.owner_upn,row.employee_name,row.kind,row.action,row.status,row.start_date??null,row.end_date??null,row.record_date??null,row.submitted_at,row.updated_at,row.issue??null,String(row.owner_upn||'').toLowerCase(),row.record_id,String(row.owner_upn||'').toLowerCase(),localDispatchRevision,String(row.owner_oid||'').toLowerCase(),String(row.owner_upn||'').toLowerCase(),String(row.owner_oid||'').toLowerCase(),String(row.owner_upn||'').toLowerCase(),localDispatchPeriod.start,localDispatchPeriod.cycleEnd,String(row.owner_upn||'').toLowerCase(),localDispatchRevision,localDispatchSource).run()
+      : await env.DB.prepare(`UPDATE dispatch_queue SET status = 'sending', attempts = attempts + 1, updated_at = ?
+      WHERE record_id = ? AND status IN ('queued', 'failed') AND next_attempt_at <= ?
+        AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=dispatch_queue.record_id)`).bind(timestamp, row.record_id, timestamp).run();
+    const claimChanges=claim?.meta?.changes;
+    if (typeof claimChanges!=='number' || !Number.isSafeInteger(claimChanges) || claimChanges<0) {
+      // The claim may have landed even if its result is malformed. Never send
+      // or reset it for retry without an independent reconciliation.
+      summary.status='claim-unverified';
+      summary.deferred=(summary.deferred||0)+1;
+      summary.records.push({recordId:row.record_id,status:'claim-unverified'});
+      continue;
+    }
+    if (claimChanges < 1) {
+      if (row.action==='pay_month_correction') {if (summary.status==='complete') summary.status='awaiting-source-review';summary.deferred=(summary.deferred||0)+1;summary.records.push({recordId:row.record_id,status:'queue-changed-or-unverified'});}
+      continue;
+    }
+    let deliveredSource = '', deliveredGeneration = '', requestStarted = false;
     try {
-      const attachmentsResult = await env.DB.prepare(`SELECT field_name, file_name, content_type, content_base64, size_bytes
-        FROM record_attachments WHERE record_id = ? ORDER BY field_name`).bind(row.record_id).all();
+      const attachmentQuery = row.action==='pay_month_correction'
+        ? env.DB.prepare(`SELECT field_name, file_name, content_type, content_base64, size_bytes FROM record_attachments
+          WHERE record_id=? AND ${queuedAttachmentGuard('record_attachments.record_id')}
+          AND COALESCE((SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?),0)=?
+          AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records source ON source.record_id=review.record_id
+            WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?) ORDER BY field_name`)
+          .bind(row.record_id,String(row.owner_upn||'').toLowerCase(),localDispatchRevision,String(row.owner_oid||'').toLowerCase(),String(row.owner_upn||'').toLowerCase())
+        : env.DB.prepare(`SELECT field_name, file_name, content_type, content_base64, size_bytes FROM record_attachments WHERE record_id=? ORDER BY field_name`).bind(row.record_id);
+      const attachmentsResult = await attachmentQuery.all();
       const attachments = attachmentsResult.results || [];
+      if (row.action==='pay_month_correction' && !attachments.length) {
+        throw new Error('The queued source or attachments changed and need review.');
+      }
       if (!attachments.some((attachment) => attachment.field_name === 'attachment') || !attachments.some((attachment) => attachment.field_name === 'attachment_csv')) {
         throw new Error('Queued correction attachments are incomplete');
       }
       if (row.action === 'pay_month_correction' && !attachments.some((attachment) => attachment.field_name === 'attachment_record')) {
         throw new Error('Queued pay-month correction is missing the dated JSON record attachment');
       }
+      const form = dispatchForm(row, attachments, payPeriods);
+      if (row.action === 'pay_month_correction') {
+        deliveredSource = attachments.find(item => item.field_name === 'attachment_record')?.content_base64 || '';
+        deliveredGeneration = await correctionGeneration(deliveredSource);
+        form.set('gmt_delivery_generation', deliveredGeneration);
+        // The receiving flow can obtain the exact generation without parsing
+        // a provider-formatted email body. The stored attachment is untouched.
+        form.set('attachment_record', new Blob([decodeBase64(deliveredSource)], {type:'application/json'}),
+          `GMT Timesheet Record - generation-${deliveredGeneration}.json`);
+      }
+      requestStarted = true;
       const response = await (options.fetchImpl || fetch)(endpoint, {
         method: 'POST',
-        body: dispatchForm(row, attachments, payPeriods),
-        headers: { Accept: 'application/json' }
+        body: form,
+        headers: { Accept: 'application/json' },
+        ...(row.action==='pay_month_correction' ? {signal:AbortSignal.timeout(60_000)} : {})
       });
       const responseText = await response.text();
       let body = null;
@@ -3699,16 +5131,59 @@ async function dispatchQueued(env, options = {}) {
       if (!response.ok || (body && (body.success === false || body.success === 'false'))) {
         throw new Error(`FormSubmit rejected the correction (${response.status})`);
       }
-      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'sent', updated_at = ?, last_sent_at = ?, last_error = NULL WHERE record_id = ?`).bind(timestamp, timestamp, row.record_id).run();
-      await env.DB.prepare("UPDATE records SET status = 'Sent to Accounts', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, row.record_id).run();
+      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'sent', updated_at = ?, last_sent_at = ?, last_error = NULL WHERE record_id = ? AND status = 'sending'`).bind(timestamp, timestamp, row.record_id).run();
+      await env.DB.prepare("UPDATE records SET status = 'Sent to Accounts', issue = '', updated_at = ? WHERE record_id = ? AND payload_json = ? AND EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=records.record_id AND q.status IN ('sent','completed'))").bind(timestamp, row.record_id, row.payload_json).run();
+      let releasePending = false;
+      if (deliveredGeneration) {
+        try { await releaseCompletedTimesheetDelivery(env,row.record_id,deliveredSource,deliveredGeneration); }
+        catch (_) {
+          // The provider has accepted the message. Keep the queue locked and
+          // report reconciliation separately instead of implying a resend is safe.
+          releasePending = true;
+          summary.status = 'awaiting-reconciliation';
+          summary.reconciliationPending = (summary.reconciliationPending || 0) + 1;
+        }
+      }
       summary.sent += 1;
-      summary.records.push({ recordId: row.record_id, status: 'sent' });
+      summary.records.push({ recordId: row.record_id, status: releasePending ? 'sent-awaiting-reconciliation' : 'sent' });
     } catch (error) {
+      if (row.action === 'pay_month_correction' && requestStarted) {
+        // Once a request starts, an error or lost response cannot prove that
+        // the provider did not hand it off. Hold this generation until a
+        // matching receipt or an operator reconciles it; do not resend it.
+        const message = 'Email handoff outcome is uncertain; reconcile before retrying.';
+        await env.DB.prepare(`UPDATE dispatch_queue SET status='uncertain',updated_at=?,last_error=? WHERE record_id=? AND status IN ('sending','sent')`).bind(timestamp,message,row.record_id).run();
+        await env.DB.prepare("UPDATE records SET status='Delivery needs review', issue=?, updated_at=? WHERE record_id=? AND payload_json=? AND EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=records.record_id AND q.status='uncertain')").bind(message,timestamp,row.record_id,row.payload_json).run();
+        if (deliveredGeneration) {
+          try { await releaseCompletedTimesheetDelivery(env,row.record_id,deliveredSource,deliveredGeneration); } catch (_) { /* Leave the generation held. */ }
+        }
+        summary.status = 'awaiting-reconciliation';
+        summary.reconciliationPending = (summary.reconciliationPending || 0) + 1;
+        summary.records.push({recordId:row.record_id,status:'uncertain'});
+        if (error?.rateLimitedUntil) {
+          summary.retryAt = error.rateLimitedUntil;
+          summary.deferred = 0;
+          for (const remaining of rows.slice(index + 1)) {
+            const delayed = await env.DB.prepare("UPDATE dispatch_queue SET updated_at = ?, next_attempt_at = ? WHERE record_id = ? AND status IN ('queued', 'failed')")
+              .bind(timestamp, error.rateLimitedUntil, remaining.record_id).run();
+            if (Number(delayed?.meta?.changes || 0) > 0) summary.deferred += 1;
+          }
+          break;
+        }
+        continue;
+      }
       const attempts = Number(row.attempts || 0) + 1;
       const message = text(error?.message, 'Correction dispatch failed', 1000);
       const nextAttempt = error?.rateLimitedUntil || retryAt(timestamp, attempts);
-      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'failed', updated_at = ?, next_attempt_at = ?, last_error = ? WHERE record_id = ?`).bind(timestamp, nextAttempt, message, row.record_id).run();
-      await env.DB.prepare("UPDATE records SET status = 'Delivery failed', issue = ?, updated_at = ? WHERE record_id = ?").bind(message, timestamp, row.record_id).run();
+      await env.DB.prepare(`UPDATE dispatch_queue SET status = 'failed', updated_at = ?, next_attempt_at = ?, last_error = ? WHERE record_id = ? AND status = 'sending'`).bind(timestamp, nextAttempt, message, row.record_id).run();
+      await env.DB.prepare("UPDATE records SET status = 'Delivery failed', issue = ?, updated_at = ? WHERE record_id = ? AND payload_json = ? AND EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=records.record_id AND q.status='failed')").bind(message, timestamp, row.record_id, row.payload_json).run();
+      if (deliveredGeneration) {
+        try { await releaseCompletedTimesheetDelivery(env,row.record_id,deliveredSource,deliveredGeneration); }
+        catch (_) {
+          summary.status = 'awaiting-reconciliation';
+          summary.reconciliationPending = (summary.reconciliationPending || 0) + 1;
+        }
+      }
       summary.failed += 1;
       summary.records.push({ recordId: row.record_id, status: 'failed', error: message });
       if (error?.rateLimitedUntil) {
@@ -3770,19 +5245,50 @@ function safeReceiptError(value) {
     .slice(0, 600);
 }
 
+function sourceRateValues(row, errorStatus) {
+  const values = {};
+  for (const key of SOURCE_RATE_FIELDS) {
+    const value = row[key];
+    if (!Object.hasOwn(row, key) || !(value === null || (Number.isInteger(value) && value >= 0 && value <= 1440))) {
+      throw Object.assign(new Error('Invalid or missing source rate evidence'), {status:errorStatus});
+    }
+    values[key] = value;
+  }
+  return values;
+}
 function parseTimesheetReceipt(body) {
+  // Some connector designers do not preserve typed array tokens. Accept a
+  // serialized pair as an alternative transport, then apply the identical
+  // row, count, generation and protected-source validation below.
+  const serialized = Object.hasOwn(body, 'verifiedRowsJson') || Object.hasOwn(body, 'verifiedRecordIdsJson');
+  if (serialized) {
+    if (body.event !== 'workbook_verified' || Object.hasOwn(body, 'verifiedRows') || Object.hasOwn(body, 'verifiedRecordIds') ||
+        typeof body.verifiedRowsJson !== 'string' || typeof body.verifiedRecordIdsJson !== 'string') {
+      throw Object.assign(new Error('Invalid serialized workbook evidence'), {status:400});
+    }
+    let verifiedRows, verifiedRecordIds;
+    try {
+      verifiedRows = JSON.parse(body.verifiedRowsJson);
+      verifiedRecordIds = JSON.parse(body.verifiedRecordIdsJson);
+    } catch (_) { throw Object.assign(new Error('Invalid serialized workbook evidence'), {status:400}); }
+    body = {...body, verifiedRows, verifiedRecordIds};
+    delete body.verifiedRowsJson;
+    delete body.verifiedRecordIdsJson;
+  }
   const allowed = new Set([
-    'recordId', 'flowRunId', 'runStartedAt', 'event', 'stage', 'safeError',
-    'created', 'updated', 'unchanged', 'verifiedRows', 'verifiedRecordIds'
+    'recordId', 'flowRunId', 'runStartedAt', 'event', 'generation', 'stage', 'safeError',
+    'created', 'updated', 'unchanged', 'verifiedRows', 'verifiedRecordIds', 'workbookId'
   ]);
   if (Object.keys(body).some((key) => !allowed.has(key))) {
     throw Object.assign(new Error('Unsupported receipt fields'), { status: 400 });
   }
   const recordId = receiptString(body.recordId, 'record ID', MAX_RECORD_ID, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+  const generation = receiptString(body.generation, 'delivery generation', 64, /^[0-9a-f]{64}$/);
   const flowRunId = receiptString(body.flowRunId, 'Power Automate run ID', 240, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
   const runStartedAt = receiptTimestamp(body.runStartedAt);
   const event = receiptString(body.event, 'receipt event', 40);
   if (!TIMESHEET_RECEIPT_EVENTS.has(event)) throw Object.assign(new Error('Unsupported receipt event'), { status: 400 });
+  if(event!=='workbook_verified'&&Object.hasOwn(body,'workbookId'))throw Object.assign(new Error('Unsupported workbook identity'),{status:400});
 
   let evidence = {};
   if (event === 'flow_failed') {
@@ -3794,6 +5300,7 @@ function parseTimesheetReceipt(body) {
     evidence = { stage, safeError: safeReceiptError(body.safeError) };
   } else if (event === 'workbook_verified') {
     if (Object.hasOwn(body, 'stage') || Object.hasOwn(body, 'safeError')) throw Object.assign(new Error('Unsupported workbook evidence'), { status: 400 });
+    const workbookId=receiptString(body.workbookId,'workbook ID',256,/^[A-Za-z0-9!_-]+$/);
     const counts = {};
     ['created', 'updated', 'unchanged'].forEach((key) => {
       if (!Number.isSafeInteger(body[key]) || body[key] < 0 || body[key] > 62) {
@@ -3806,7 +5313,10 @@ function parseTimesheetReceipt(body) {
       throw Object.assign(new Error('Invalid verified workbook rows'), { status: 400 });
     }
     const verifiedRows = body.verifiedRows.map((row) => {
-      if (!row || typeof row !== 'object' || Array.isArray(row) || Object.keys(row).some((key) => !['recordId', 'date'].includes(key))) {
+      if (!row || typeof row !== 'object' || Array.isArray(row) || Object.keys(row).some((key) => !['recordId', 'date', 'start', 'finish', 'breakMinutes', 'absence', 'totalMinutes', 'notes', ...SOURCE_RATE_FIELDS].includes(key)) ||
+          typeof row.notes !== 'string' || row.notes.length > 5000 || typeof row.absence !== 'string' || row.absence.length > 100 ||
+          ![row.start,row.finish].every(clock => typeof clock === 'string' && (clock === '' || /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(clock))) ||
+          ![row.breakMinutes,row.totalMinutes].every(minutes => minutes === null || (Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440))) {
         throw Object.assign(new Error('Invalid verified workbook row'), { status: 400 });
       }
       const verifiedRecordId = receiptString(row.recordId, 'verified source row ID', 240, /^[A-Za-z0-9][A-Za-z0-9._:|-]*$/);
@@ -3815,7 +5325,8 @@ function parseTimesheetReceipt(body) {
       if (!Number.isFinite(dateMilliseconds) || new Date(dateMilliseconds).toISOString().slice(0, 10) !== date) {
         throw Object.assign(new Error('Invalid verified row date'), { status: 400 });
       }
-      return { recordId: verifiedRecordId, date };
+      const rateEvidence=SOURCE_RATE_FIELDS.some(key=>Object.hasOwn(row,key)) ? sourceRateValues(row,400) : {};
+      return { recordId: verifiedRecordId, date, start:row.start, finish:row.finish, breakMinutes:row.breakMinutes, absence:row.absence, totalMinutes:row.totalMinutes, notes:row.notes, ...rateEvidence };
     });
     const ids = body.verifiedRecordIds.map((value) => receiptString(value, 'verified source row ID', 240, /^[A-Za-z0-9][A-Za-z0-9._:|-]*$/));
     const rowKeys = verifiedRows.map((row) => `${row.recordId}\0${row.date}`);
@@ -3827,17 +5338,51 @@ function parseTimesheetReceipt(body) {
         counts.created + counts.updated + counts.unchanged !== verifiedRows.length) {
       throw Object.assign(new Error('Workbook verification evidence is inconsistent'), { status: 400 });
     }
-    evidence = { ...counts, verifiedRows };
+    evidence = { ...counts, verifiedRows, workbookId };
   } else if (Object.keys(body).some((key) => ['stage', 'safeError', 'created', 'updated', 'unchanged', 'verifiedRows', 'verifiedRecordIds'].includes(key))) {
     throw Object.assign(new Error('Unsupported receipt evidence'), { status: 400 });
   }
-  return { recordId, flowRunId, runStartedAt, event, evidence };
+  return { recordId, generation, flowRunId, runStartedAt, event, evidence: { ...evidence, generation } };
 }
 
 function validReceiptDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
     Number.isFinite(Date.parse(`${value}T00:00:00Z`)) &&
     new Date(Date.parse(`${value}T00:00:00Z`)).toISOString().slice(0, 10) === value;
+}
+
+// Independently derive the values expected from the protected source. Unsupported
+// values fail closed; the receipt must describe what was read from the workbook.
+function expectedReceiptValues(entry, notes) {
+  const first = keys => { for (const key of keys) if (entry[key] !== undefined && entry[key] !== null) return entry[key]; return ''; };
+  const clock = input => {
+    const raw = String(input).trim();
+    if (!raw) return '';
+    const match = /^(\d{1,2}):(\d{2})$/.exec(raw);
+    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) throw Object.assign(new Error('Invalid correction source time'), {status:409});
+    return `${match[1].padStart(2,'0')}:${match[2]}`;
+  };
+  const start=clock(first(['startTime','start','Start'])), finish=clock(first(['finishTime','finish','Finish']));
+  const rawBreak=first(['breakMinutes','Break','lunchMinutes']);
+  let pause=rawBreak === '' ? null : Number(rawBreak);
+  if (pause === null) {
+    if (/\bBreak:\s*(?:No break|0\s*(?:minute|min))/i.test(notes)) pause=0;
+    else { const match=/\bBreak:\s*(\d+)\s*(?:minute|min)/i.exec(notes); if (match) pause=Number(match[1]); }
+  }
+  const rawTotal=entry.totalMinutes;
+  const supplied=rawTotal === undefined || rawTotal === null || rawTotal === '' ? null : Number(rawTotal);
+  if (![pause,supplied].every(n => n === null || (Number.isInteger(n) && n>=0 && n<=1440))) throw Object.assign(new Error('Invalid correction source minutes'),{status:409});
+  const absence=String(first(['absenceReason','absenceStatus','absence','Absence'])).trim() || 'NA';
+  const minutes = time => { const [hour,minute]=time.split(':').map(Number); return hour*60+minute; };
+  let total=null;
+  if (absence !== 'NA') total=supplied === null ? 0 : supplied;
+  else if (start && finish && pause !== null) {
+    const from=minutes(start), to=minutes(finish), elapsed=to>=from ? to-from : to+1440-from;
+    if (elapsed<=0 || pause>elapsed) throw Object.assign(new Error('Invalid correction source hours'),{status:409});
+    total=elapsed-pause;
+  } else if (supplied !== null) total=supplied;
+  if (supplied !== null && total !== null && supplied !== total) throw Object.assign(new Error('Correction source total differs from hours'),{status:409});
+  return {start,finish,breakMinutes:pause,absence,totalMinutes:total};
 }
 
 async function expectedCorrectionRows(env, recordId) {
@@ -3860,6 +5405,7 @@ async function expectedCorrectionRows(env, recordId) {
       !Array.isArray(envelope.rows) || envelope.rows.length > 62) {
     throw Object.assign(new Error('Correction source rows are invalid'), { status: 409 });
   }
+  const expectedValues = new Map();
   const expectedRows = envelope.rows.map((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !validReceiptDate(entry.date)) {
       throw Object.assign(new Error('Correction source rows are invalid'), { status: 409 });
@@ -3868,12 +5414,138 @@ async function expectedCorrectionRows(env, recordId) {
     const expectedRecordId = `${recordId}|${date}`;
     const entryRecordId = String(entry.recordId || entry.record_id || expectedRecordId);
     if (entryRecordId !== expectedRecordId) throw Object.assign(new Error('Correction source row identity is invalid'), { status: 409 });
+    const noteValues = ['note', 'notes', 'Notes', 'description'].map(key => String(entry[key] ?? '').trim()).filter(Boolean);
+    if (new Set(noteValues).size > 1) throw Object.assign(new Error('Correction source notes conflict'), {status:409});
+    const notes = [noteValues[0] || '', String(entry.changeNote ?? '').trim()].filter(Boolean).join(' | ');
+    if (notes.length > 5000) throw Object.assign(new Error('Correction source notes are too long'), {status:409});
+    const rateEvidence=envelope.schemaVersion===3 ? sourceRateValues(entry,409) : {};
+    if(envelope.schemaVersion!==3 && SOURCE_RATE_FIELDS.some(key=>Object.hasOwn(entry,key))) throw Object.assign(new Error('Unexpected source rate evidence'),{status:409});
+    expectedValues.set(expectedRecordId, {...expectedReceiptValues(entry, noteValues[0] || ''), notes, ...rateEvidence});
     return { recordId: expectedRecordId, date };
   }).sort((left, right) => left.date.localeCompare(right.date));
   if (new Set(expectedRows.map((entry) => entry.date)).size !== expectedRows.length) {
     throw Object.assign(new Error('Correction source dates are not unique'), { status: 409 });
   }
-  return expectedRows;
+  return { rows: expectedRows, expectedValues, encoded, envelope };
+}
+
+function isolatedSyntheticDelivery(env,recordId) {
+  return env.SYNTHETIC_TEST_SERVICE_ENABLED==='true' && env.SYNTHETIC_TEST_READ_ONLY_DESTINATION==='true' &&
+    env.DISPATCH_ENABLED==='false' && env.PAY_MONTH_REPLAY_READY==='false' && recordId===syntheticFixture.recordId;
+}
+
+// r, q and a are the protected record, queue entry and dated JSON attachment.
+function dispatchedSourceGuard(isolatedSynthetic) {
+  if (isolatedSynthetic) return "json_extract(r.payload_json,'$.testMode')=1";
+  return `EXISTS (SELECT 1 FROM timesheet_queue_source_guards proof JOIN timesheet_owner_revisions version ON version.owner_upn=proof.owner_upn
+      WHERE proof.record_id=r.record_id AND proof.owner_upn=lower(r.owner_upn) AND proof.source_base64=a.content_base64 AND (
+        (q.status='sending' AND r.status='Queued for Accounts' AND version.revision=proof.owner_revision) OR
+        (version.revision=proof.owner_revision+1 AND r.updated_at=q.updated_at AND (
+          (q.status='sent' AND r.status='Sent to Accounts') OR (q.status='failed' AND r.status='Delivery failed') OR
+          (q.status='uncertain' AND r.status='Delivery needs review')))))
+    AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records original ON original.record_id=review.record_id
+      WHERE lower(review.subject_oid)=lower(r.owner_oid) OR lower(original.owner_upn)=lower(r.owner_upn))
+    AND ${unambiguousLocalTimesheetSubject('r')}
+    AND ${queuedAttachmentGuard('r.record_id')}`;
+}
+
+// Resolve only from the protected queued source and the app-verified folder.
+// This is a building block; no receiving flow currently consumes its result.
+export async function resolvePrivateTimesheetRoute(env, request, options = {}) {
+  const conflict = () => Object.assign(new Error('The current dispatched correction could not be verified'), {status:409});
+  const recordId=receiptString(request?.recordId,'record ID',MAX_RECORD_ID,/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+  const generation=receiptString(request?.generation,'delivery generation',64,/^[0-9a-f]{64}$/);
+  const flowRunId=receiptString(request?.flowRunId,'Power Automate run ID',240,/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+  const runStartedAt=receiptTimestamp(request?.runStartedAt);
+  const sourceGuard=dispatchedSourceGuard(isolatedSyntheticDelivery(env,recordId));
+  const lookup = () => env.DB.prepare(`SELECT r.*, q.status AS dispatch_status, q.attempts, a.content_base64 AS source_attachment,
+      CASE WHEN ${sourceGuard} THEN 1 ELSE 0 END AS source_guard_verified
+    FROM records r JOIN dispatch_queue q ON q.record_id = r.record_id
+    JOIN record_attachments a ON a.record_id = r.record_id AND a.field_name = 'attachment_record'
+    WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND r.status <> 'Deleted'`).bind(recordId).first();
+  const active = row => row && row.source_guard_verified===1 && ['sending','sent','failed','uncertain'].includes(row.dispatch_status) && Number(row.attempts) >= 1;
+  const row = await lookup();
+  if (!active(row) || await correctionGeneration(row.source_attachment) !== generation) throw conflict();
+  const existing=await env.DB.prepare(`SELECT flow_run_id,run_started_at,generation FROM timesheet_delivery_routes
+    WHERE record_id=? AND (flow_run_id=? OR generation=?)`).bind(recordId,flowRunId,generation).all();
+  if((existing.results||[]).some(item=>item.flow_run_id!==flowRunId||item.run_started_at!==runStartedAt||item.generation!==generation))throw conflict();
+  const writtenOrTerminal=async()=>env.DB.prepare(`SELECT receipt_id FROM timesheet_delivery_receipts WHERE record_id=? AND flow_run_id=?
+    AND event_type IN ('workbook_verified','flow_completed','flow_failed') LIMIT 1`).bind(recordId,flowRunId).first();
+  if(await writtenOrTerminal())throw conflict();
+  validatePayMonthAttachmentVersion(row, [{fieldName:'attachment_record',contentBase64:row.source_attachment}]);
+  const source = await expectedCorrectionRows(env,recordId), payload = payloadObject(row);
+  const month = payload.payMonth;
+  const periods = await loadPayPeriods(env);
+  const period = periods.periodForMonth(month);
+  if (source.encoded !== row.source_attachment || !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || '')) ||
+      !period || source.envelope.cycleStart !== period.start || source.envelope.cycleEnd !== period.cycleEnd ||
+      String(source.envelope.employeeName||'').trim().toLowerCase() !== String(row.employee_name||'').trim().toLowerCase() ||
+      !source.rows.length || source.rows.some(day => payCycleKeyForDate(day.date,periods) !== month)) throw conflict();
+  const folder = await (options.privateDestinationCheck || verifyPrivateTimesheetDestination)(env,row);
+  if (!folder || typeof folder.id !== 'string' || !/^[A-Za-z0-9!_-]{1,256}$/.test(folder.id)) throw conflict();
+  const workbook=await (options.workbookCheck || verifyPrivateWorkbookDestination)(env,folder,row,month);
+  if(!workbook||typeof workbook.folderId!=='string'||typeof workbook.workbookId!=='string'||
+     !/^[A-Za-z0-9!_-]{1,256}$/.test(workbook.folderId)||!/^[A-Za-z0-9!_-]{1,256}$/.test(workbook.workbookId))throw conflict();
+  if (env.SYNTHETIC_TEST_READ_ONLY_DESTINATION==='true' &&
+      (folder.id!==env.SYNTHETIC_TEST_EMPLOYEE_FOLDER_ID || workbook.folderId!==env.SYNTHETIC_TEST_MONTH_FOLDER_ID ||
+       workbook.workbookId!==env.SYNTHETIC_TEST_WORKBOOK_ID)) throw conflict();
+  const current = await lookup();
+  const currentPeriods = await loadPayPeriods(env);
+  const currentPeriod = currentPeriods.periodForMonth(month);
+  if (!active(current) || current.source_attachment !== row.source_attachment || current.payload_json !== row.payload_json ||
+      current.owner_upn !== row.owner_upn || current.employee_name !== row.employee_name ||
+      !currentPeriod || currentPeriod.start !== period.start || currentPeriod.cycleEnd !== period.cycleEnd ||
+      source.rows.some(day => payCycleKeyForDate(day.date,currentPeriods) !== month)) throw conflict();
+  try { await env.DB.prepare(`INSERT INTO timesheet_delivery_routes
+    (record_id,flow_run_id,run_started_at,generation,employee_folder_id,month_folder_id,workbook_id,created_at)
+    SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (
+      SELECT 1 FROM records r JOIN dispatch_queue q ON q.record_id=r.record_id
+      JOIN record_attachments a ON a.record_id=r.record_id AND a.field_name='attachment_record'
+      WHERE r.record_id=? AND r.kind='timesheets' AND r.action='pay_month_correction' AND r.status<>'Deleted'
+        AND r.owner_upn=? AND r.employee_name=? AND r.payload_json=? AND a.content_base64=?
+        AND q.status IN ('sending','sent','failed','uncertain') AND q.attempts>=1 AND ${sourceGuard}
+    ) AND NOT EXISTS (SELECT 1 FROM timesheet_delivery_receipts WHERE record_id=? AND flow_run_id=?
+      AND event_type IN ('workbook_verified','flow_completed','flow_failed'))
+    ON CONFLICT DO NOTHING`).bind(recordId,flowRunId,runStartedAt,generation,folder.id,workbook.folderId,workbook.workbookId,now(),recordId,row.owner_upn,row.employee_name,row.payload_json,row.source_attachment,recordId,flowRunId).run();
+  } catch(error) {
+    if (/old writer cannot route publication candidate/i.test(String(error?.message||''))) throw conflict();
+    throw error;
+  }
+  const saved=await env.DB.prepare(`SELECT run_started_at,generation,employee_folder_id,month_folder_id,workbook_id
+    FROM timesheet_delivery_routes WHERE record_id=? AND flow_run_id=?`).bind(recordId,flowRunId).first();
+  const final=await lookup();
+  const finalPeriods=await loadPayPeriods(env),finalPeriod=finalPeriods.periodForMonth(month);
+  if(!saved||saved.run_started_at!==runStartedAt||saved.generation!==generation||saved.employee_folder_id!==folder.id||
+     saved.month_folder_id!==workbook.folderId||saved.workbook_id!==workbook.workbookId||!active(final)||
+     final.source_attachment!==row.source_attachment||final.payload_json!==row.payload_json||final.owner_oid!==row.owner_oid||
+     final.owner_upn!==row.owner_upn||final.employee_name!==row.employee_name||!finalPeriod||finalPeriod.start!==period.start||
+     finalPeriod.cycleEnd!==period.cycleEnd||source.rows.some(day=>payCycleKeyForDate(day.date,finalPeriods)!==month)||await writtenOrTerminal())throw conflict();
+  // The receiver must write the protected source checked above, not an email
+  // attachment that merely claims the same generation and dated row IDs.
+  return {employeeFolderId:folder.id,folderId:workbook.folderId,workbookId:workbook.workbookId,payMonth:month,generation,sourceBase64:source.encoded};
+}
+
+async function privateTimesheetRouteEndpoint(request, env, origin = '') {
+  if (env.TIMESHEET_PRIVATE_ROUTE_RESOLVER_ENABLED !== 'true' || !env.DB) {
+    throw Object.assign(new Error('Private route is unavailable'), {status:503});
+  }
+  const configuredKey = String(env.TIMESHEET_DELIVERY_CALLBACK_KEY || '');
+  if (configuredKey.length < 32 || configuredKey.length > 500) throw Object.assign(new Error('Private route is unavailable'), {status:503});
+  const suppliedKey = request.headers.get('X-GMT-Delivery-Key') || '';
+  if (suppliedKey.length > 500 || !constantTimeEqual(suppliedKey,configuredKey)) throw Object.assign(new Error('Not authorised'), {status:401});
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) throw Object.assign(new Error('JSON content type required'), {status:415});
+  const body = await readBoundedJson(request,4096);
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key=>!['recordId','generation','flowRunId','runStartedAt'].includes(key))) {
+    throw Object.assign(new Error('Invalid private route request'), {status:400});
+  }
+  // Real source reconciliation and stale-writer fencing are not yet proven.
+  // A previously started or replayed flow must not bypass the dispatch hold
+  // by asking the public resolver directly for an employee workbook. The only
+  // exception is the fixed fictional fixture with provisioning switched off.
+  if (!isolatedSyntheticDelivery(env,body.recordId) || env.TIMESHEET_WORKBOOK_PROVISIONING_ENABLED!=='false') {
+    throw Object.assign(new Error('Private workbook routing is held for review'), {status:503});
+  }
+  return json(await resolvePrivateTimesheetRoute(env,body),200,origin);
 }
 
 async function timesheetDeliveryReceiptEndpoint(request, env, origin = '') {
@@ -3890,33 +5562,70 @@ async function timesheetDeliveryReceiptEndpoint(request, env, origin = '') {
     throw Object.assign(new Error('JSON content type required'), { status: 415 });
   }
   const body = parseTimesheetReceipt(await readBoundedJson(request, MAX_TIMESHEET_RECEIPT_BYTES));
-  const target = await env.DB.prepare(`SELECT r.record_id FROM records r
+  const target = await env.DB.prepare(`SELECT r.record_id, q.status AS dispatch_status, q.attempts FROM records r
     JOIN dispatch_queue q ON q.record_id = r.record_id
     WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction'
       AND r.status <> 'Deleted'`).bind(body.recordId).first();
   if (!target) throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+  // A provider callback is evidence of an attempted delivery, not evidence
+  // that a correction still waiting in the queue has been sent. A failed
+  // attempt can nevertheless have reached the provider before timing out.
+  if (!['sending', 'sent', 'failed', 'completed', 'uncertain'].includes(target.dispatch_status) || Number(target.attempts) < 1) {
+    throw Object.assign(new Error('Timesheet correction has not been dispatched'), { status: 409 });
+  }
 
+  const source = await expectedCorrectionRows(env, body.recordId);
+  if (await correctionGeneration(source.encoded) !== body.generation) {
+    throw Object.assign(new Error('Receipt does not match the current correction generation'), { status: 409 });
+  }
+  const route=await env.DB.prepare(`SELECT flow_run_id,run_started_at,generation,workbook_id FROM timesheet_delivery_routes
+    WHERE record_id=? AND (flow_run_id=? OR generation=?)`).bind(body.recordId,body.flowRunId,body.generation).all();
+  const routes=route.results||[], matched=routes.find(item=>item.flow_run_id===body.flowRunId);
+  if(routes.some(item=>item.flow_run_id!==body.flowRunId||item.run_started_at!==body.runStartedAt||item.generation!==body.generation)) {
+    throw Object.assign(new Error('Receipt does not match the approved workbook route'),{status:409});
+  }
+  if(!matched && (body.event!=='flow_failed'||!['source_validation','workbook_routing'].includes(body.evidence.stage))) {
+    throw Object.assign(new Error('Receipt requires an approved workbook route'),{status:409});
+  }
+  if(body.event==='workbook_verified'&&body.evidence.workbookId!==matched?.workbook_id) {
+    throw Object.assign(new Error('Workbook verification names a different destination'),{status:409});
+  }
+
+  const priorEvents = await env.DB.prepare(`SELECT event_type, evidence_json FROM timesheet_delivery_receipts
+    WHERE record_id = ? AND flow_run_id = ?`).bind(body.recordId, body.flowRunId).all();
+  for (const prior of priorEvents.results || []) {
+    let evidence;
+    try { evidence = JSON.parse(String(prior.evidence_json || '{}')); } catch (_) { evidence = {}; }
+    if (evidence.generation !== body.generation) throw Object.assign(new Error('Receipt run generation conflict'), { status: 409 });
+  }
   if (body.event === 'workbook_verified' || body.event === 'flow_completed') {
-    const priorEvents = await env.DB.prepare(`SELECT event_type FROM timesheet_delivery_receipts
-      WHERE record_id = ? AND flow_run_id = ? AND event_type IN ('flow_started', 'workbook_verified')`)
-      .bind(body.recordId, body.flowRunId).all();
     const eventTypes = new Set((priorEvents.results || []).map((row) => row.event_type));
     if (!eventTypes.has('flow_started') || (body.event === 'flow_completed' && !eventTypes.has('workbook_verified'))) {
       throw Object.assign(new Error('Receipt events are out of order'), { status: 409 });
     }
+    if (body.event === 'flow_completed' && !(priorEvents.results || []).some((row) => {
+      if (row.event_type !== 'workbook_verified') return false;
+      try { return JSON.parse(String(row.evidence_json || '{}')).sourceRowVerification === (source.envelope.schemaVersion===3?'source-row-v2':'source-row-v1'); }
+      catch (_) { return false; }
+    })) throw Object.assign(new Error('Workbook receipt requires source-row verification'), {status:409});
   }
 
   if (body.event === 'workbook_verified') {
-    const expectedRows = await expectedCorrectionRows(env, body.recordId);
+    const expectedRows = source.rows;
     const actualRows = body.evidence.verifiedRows;
     const expectedKeys = expectedRows.map((entry) => `${entry.recordId}\0${entry.date}`).sort();
     const actualKeys = actualRows.map((entry) => `${entry.recordId}\0${entry.date}`).sort();
     if (!expectedRows.length || expectedKeys.length !== actualKeys.length ||
         expectedKeys.some((key, index) => key !== actualKeys[index]) ||
+        actualRows.some((row) => {
+          const expected=source.expectedValues.get(row.recordId);
+          return !expected || ['start','finish','breakMinutes','absence','totalMinutes','notes',...SOURCE_RATE_FIELDS].some(key => Object.hasOwn(row,key)!==Object.hasOwn(expected,key) || row[key] !== expected[key]);
+        }) ||
         body.evidence.created + body.evidence.updated + body.evidence.unchanged !== expectedRows.length) {
       throw Object.assign(new Error('Workbook verification does not match the correction source'), { status: 409 });
     }
     body.evidence.verifiedRows = expectedRows;
+    body.evidence.sourceRowVerification = source.envelope.schemaVersion===3?'source-row-v2':'source-row-v1';
   }
 
   const evidenceJson = JSON.stringify(body.evidence);
@@ -3941,6 +5650,7 @@ async function timesheetDeliveryReceiptEndpoint(request, env, origin = '') {
     if (existing.run_started_at !== body.runStartedAt || existing.evidence_json !== evidenceJson) {
       throw Object.assign(new Error('Conflicting duplicate receipt'), { status: 409 });
     }
+    if (body.event === 'flow_completed') await releaseCompletedTimesheetDelivery(env, body.recordId, source.encoded, body.generation);
     return json({ accepted: true }, 200, origin);
   }
 
@@ -3956,10 +5666,17 @@ async function timesheetDeliveryReceiptEndpoint(request, env, origin = '') {
       SELECT ?, ?, ?, ?, ?, ?
       WHERE EXISTS (
         SELECT 1 FROM records r JOIN dispatch_queue q ON q.record_id = r.record_id
-        WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND r.status <> 'Deleted'
+        JOIN record_attachments a ON a.record_id = r.record_id AND a.field_name = 'attachment_record'
+        WHERE r.record_id = ? AND r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND r.status <> 'Deleted' AND a.content_base64 = ?
+          AND q.status IN ('sending', 'sent', 'failed', 'uncertain') AND q.attempts >= 1
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM timesheet_delivery_receipts prior
+        WHERE prior.record_id = ? AND prior.flow_run_id = ?
+          AND COALESCE(json_extract(prior.evidence_json, '$.generation'), '') <> ?
       )
       ON CONFLICT(record_id, flow_run_id, event_type) DO NOTHING`)
-      .bind(body.recordId, body.flowRunId, body.runStartedAt, body.event, receivedAt, evidenceJson, body.recordId).run();
+      .bind(body.recordId, body.flowRunId, body.runStartedAt, body.event, receivedAt, evidenceJson, body.recordId, source.encoded, body.recordId, body.flowRunId, body.generation).run();
   } catch (error) {
     if (/timesheet receipt (?:run start time|terminal event) conflict/i.test(String(error && error.message || ''))) {
       throw Object.assign(new Error('Conflicting receipt event'), { status: 409 });
@@ -3969,24 +5686,102 @@ async function timesheetDeliveryReceiptEndpoint(request, env, origin = '') {
   const stored = await env.DB.prepare(`SELECT run_started_at, evidence_json FROM timesheet_delivery_receipts
     WHERE record_id = ? AND flow_run_id = ? AND event_type = ? LIMIT 1`)
     .bind(body.recordId, body.flowRunId, body.event).first();
-  if (!stored) throw Object.assign(new Error('Timesheet correction not found'), { status: 404 });
+  if (!stored) throw Object.assign(new Error('Correction source or receipt generation changed'), { status: 409 });
   if (stored.run_started_at !== body.runStartedAt || stored.evidence_json !== evidenceJson) {
     throw Object.assign(new Error('Conflicting duplicate receipt'), { status: 409 });
   }
+  if (body.event === 'flow_completed') await releaseCompletedTimesheetDelivery(env, body.recordId, source.encoded, body.generation);
   return json({ accepted: true }, 200, origin);
+}
+
+// A callback can arrive before FormSubmit has returned. Keep the slot locked
+// while the sender is still running; that sender also calls this after its
+// final queue update. The source and approved route bind release to the exact
+// generation, and duplicate calls are harmless.
+export async function releaseCompletedTimesheetDelivery(env, recordId, source, generation) {
+  let sourceVersion;
+  try { sourceVersion=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(decodeBase64(source))).schemaVersion; }
+  catch (_) { throw Object.assign(new Error('Correction source attachment is invalid'),{status:409}); }
+  const requiredVerification=sourceVersion===3?'source-row-v2':'source-row-v1';
+  const isolatedSynthetic=isolatedSyntheticDelivery(env,recordId);
+  const localGuard=isolatedSynthetic ? "json_extract(r.payload_json,'$.testMode')=1" : `
+        EXISTS (SELECT 1 FROM timesheet_queue_source_guards proof JOIN timesheet_owner_revisions version ON version.owner_upn=proof.owner_upn
+          WHERE proof.record_id=r.record_id AND proof.owner_upn=lower(r.owner_upn) AND proof.source_base64=?
+            AND version.revision=proof.owner_revision+1)
+        AND r.updated_at=dispatch_queue.updated_at
+        AND ((dispatch_queue.status='sent' AND r.status='Sent to Accounts') OR
+          (dispatch_queue.status='failed' AND r.status='Delivery failed') OR
+          (dispatch_queue.status='uncertain' AND r.status='Delivery needs review'))
+        AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records original ON original.record_id=review.record_id
+          WHERE lower(review.subject_oid)=lower(r.owner_oid) OR lower(original.owner_upn)=lower(r.owner_upn))
+        AND ${queuedAttachmentGuard('r.record_id')}`;
+  await env.DB.prepare(`UPDATE dispatch_queue SET status='completed', updated_at=?
+    WHERE record_id=? AND status IN ('sent','failed','uncertain') AND EXISTS (
+      SELECT 1 FROM record_attachments a JOIN timesheet_delivery_routes route ON route.record_id=a.record_id
+      JOIN timesheet_delivery_receipts receipt ON receipt.record_id=route.record_id
+        AND receipt.flow_run_id=route.flow_run_id AND receipt.run_started_at=route.run_started_at
+      WHERE a.record_id=? AND a.field_name='attachment_record' AND a.content_base64=?
+        AND route.generation=? AND receipt.event_type='flow_completed'
+        AND json_extract(receipt.evidence_json,'$.generation')=route.generation
+        AND EXISTS (SELECT 1 FROM timesheet_delivery_receipts verified
+          WHERE verified.record_id=receipt.record_id AND verified.flow_run_id=receipt.flow_run_id
+            AND verified.run_started_at=receipt.run_started_at AND verified.event_type='workbook_verified'
+            AND json_extract(verified.evidence_json,'$.generation')=route.generation
+            AND json_extract(verified.evidence_json,'$.sourceRowVerification')=?)
+    ) AND EXISTS (SELECT 1 FROM records r WHERE r.record_id=dispatch_queue.record_id AND ${localGuard})`)
+    .bind(now(),recordId,recordId,source,generation,requiredVerification,...(isolatedSynthetic?[]:[source])).run();
 }
 
 async function adminQueueStatus(env, identity) {
   if (!identity?.isAdmin) throw Object.assign(new Error('Correction queue status is restricted to Accounts'), { status: 403 });
-  const result = await env.DB.prepare('SELECT q.record_id, q.status, q.attempts, q.queued_at, q.last_sent_at AS sent_at, q.updated_at, q.last_error AS error, r.employee_name, r.owner_upn, r.record_date, r.payload_json FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id WHERE r.status <> \'Deleted\' ORDER BY q.updated_at DESC, q.record_id ASC LIMIT 200').all();
+  const result = await env.DB.prepare("SELECT q.record_id, q.status, q.attempts, q.queued_at, q.last_sent_at AS sent_at, q.updated_at, q.last_error AS error, r.kind, r.action, r.employee_name, r.owner_upn, r.record_date, r.payload_json, a.content_base64 AS current_generation_source, CASE WHEN r.kind='timesheets' AND r.action='pay_month_correction' AND q.status IN ('sending','sent','failed','uncertain') AND EXISTS(SELECT 1 FROM timesheet_delivery_routes route WHERE route.record_id=q.record_id) THEN 1 ELSE 0 END AS workbook_write_hold FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id LEFT JOIN record_attachments a ON a.record_id = r.record_id AND a.field_name = 'attachment_record' WHERE r.status <> 'Deleted' ORDER BY q.updated_at DESC, q.record_id ASC LIMIT 200").all();
   const rows = result.results || [];
+  const currentGenerations = new Map();
+  const currentVerifications = new Map();
+  await Promise.all(rows.map(async (row) => {
+    try {
+      const source=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(decodeBase64(row.current_generation_source)));
+      currentGenerations.set(row.record_id, await correctionGeneration(row.current_generation_source));
+      currentVerifications.set(row.record_id, source.schemaVersion===3?'source-row-v2':'source-row-v1');
+    }
+    catch (_) { /* Missing source cannot establish a current receipt. */ }
+  }));
+  const generationSnapshot = JSON.stringify([...currentGenerations].map(([recordId, generation]) => ({recordId, generation, verification:currentVerifications.get(recordId)})));
+  // A route can exist before the flow has delivered even its first receipt.
+  // Keep its exact run and workbook visible to Accounts for investigation.
+  const routeResult=await env.DB.prepare(`SELECT route.record_id,route.flow_run_id,route.run_started_at,route.generation,route.workbook_id
+    FROM timesheet_delivery_routes route JOIN json_each(?) current
+      ON route.record_id=json_extract(current.value,'$.recordId') AND route.generation=json_extract(current.value,'$.generation')`).bind(generationSnapshot).all();
   const receiptResult = await env.DB.prepare(`WITH queued_records AS (
       SELECT q.record_id FROM dispatch_queue q JOIN records r ON r.record_id = q.record_id
       WHERE r.status <> 'Deleted' ORDER BY q.updated_at DESC, q.record_id ASC LIMIT 200
+    ), current_generations AS (
+      SELECT json_extract(value,'$.recordId') AS record_id, json_extract(value,'$.generation') AS generation, json_extract(value,'$.verification') AS verification
+      FROM json_each(?)
+    ), eligible_receipts AS (
+      SELECT receipt.* FROM timesheet_delivery_receipts receipt
+      JOIN current_generations current ON current.record_id=receipt.record_id
+        AND current.generation=json_extract(receipt.evidence_json,'$.generation')
+      LEFT JOIN timesheet_delivery_routes approved ON approved.record_id=receipt.record_id
+        AND approved.flow_run_id=receipt.flow_run_id AND approved.run_started_at=receipt.run_started_at
+        AND approved.generation=json_extract(receipt.evidence_json,'$.generation')
+      WHERE (approved.workbook_id IS NOT NULL AND (receipt.event_type<>'workbook_verified'
+          OR (json_extract(receipt.evidence_json,'$.workbookId')=approved.workbook_id
+              AND json_extract(receipt.evidence_json,'$.sourceRowVerification')=current.verification))
+          AND (receipt.event_type<>'flow_completed' OR EXISTS (
+            SELECT 1 FROM timesheet_delivery_receipts verified
+            WHERE verified.record_id=receipt.record_id AND verified.flow_run_id=receipt.flow_run_id
+              AND verified.run_started_at=receipt.run_started_at AND verified.event_type='workbook_verified'
+              AND json_extract(verified.evidence_json,'$.generation')=approved.generation
+              AND json_extract(verified.evidence_json,'$.sourceRowVerification')=current.verification)))
+        OR (receipt.event_type='flow_failed' AND approved.workbook_id IS NULL
+          AND json_extract(receipt.evidence_json,'$.stage') IN ('source_validation','workbook_routing')
+          AND NOT EXISTS (SELECT 1 FROM timesheet_delivery_routes other
+            WHERE other.record_id=receipt.record_id AND other.generation=json_extract(receipt.evidence_json,'$.generation')))
     ), run_candidates AS (
       SELECT receipt.record_id, receipt.flow_run_id, receipt.run_started_at,
         MAX(receipt.received_at) AS last_received_at
-      FROM timesheet_delivery_receipts receipt
+      FROM eligible_receipts receipt
       JOIN queued_records queued ON queued.record_id = receipt.record_id
       GROUP BY receipt.record_id, receipt.flow_run_id, receipt.run_started_at
     ), ranked_runs AS (
@@ -3997,24 +5792,21 @@ async function adminQueueStatus(env, identity) {
     )
     SELECT receipt.record_id, receipt.flow_run_id, receipt.run_started_at,
       receipt.event_type, receipt.received_at, receipt.evidence_json
-    FROM timesheet_delivery_receipts receipt
+    FROM eligible_receipts receipt
     JOIN ranked_runs latest ON latest.record_id = receipt.record_id
       AND latest.flow_run_id = receipt.flow_run_id
       AND latest.run_started_at = receipt.run_started_at
     WHERE latest.run_rank = 1
-    ORDER BY receipt.record_id, receipt.received_at, receipt.receipt_id`).all();
+    ORDER BY receipt.record_id, receipt.received_at, receipt.receipt_id`).bind(generationSnapshot).all();
   const latestRuns = new Map();
   (receiptResult.results || []).forEach((receipt) => {
+    let evidence = {};
+    try { evidence = JSON.parse(String(receipt.evidence_json || '{}')); } catch (_) { return; }
+    if (!currentGenerations.has(receipt.record_id) || evidence.generation !== currentGenerations.get(receipt.record_id)) return;
     let run = latestRuns.get(receipt.record_id);
     if (!run) {
       run = { flowRunId: text(receipt.flow_run_id, '', 240), runStartedAt: text(receipt.run_started_at, '', 40), events: {} };
       latestRuns.set(receipt.record_id, run);
-    }
-    let evidence = {};
-    try {
-      evidence = JSON.parse(String(receipt.evidence_json || '{}'));
-    } catch (_) {
-      evidence = {};
     }
     const event = text(receipt.event_type, '', 40);
     const receivedAt = text(receipt.received_at, '', 80);
@@ -4036,9 +5828,22 @@ async function adminQueueStatus(env, identity) {
       };
     }
   });
-  const counts = { queued: 0, sending: 0, failed: 0, sent: 0, skipped: 0 };
+  (routeResult.results || []).forEach(route=>{
+    let run=latestRuns.get(route.record_id);
+    if(run && (run.flowRunId!==route.flow_run_id || run.runStartedAt!==route.run_started_at))return;
+    if(!run){run={flowRunId:text(route.flow_run_id,'',240),runStartedAt:text(route.run_started_at,'',40),events:{}};latestRuns.set(route.record_id,run);}
+    run.workbookId=text(route.workbook_id,'',256);
+    run.generation=text(route.generation,'',64);
+  });
+  const counts = { queued: 0, sending: 0, failed: 0, sent: 0, skipped: 0, completed: 0, uncertain: 0 };
   const records = rows.map((row) => {
-    const state = text(row.status, 'unknown', 40).toLowerCase();
+    const recordedState = text(row.status, 'unknown', 40).toLowerCase();
+    const receipt = latestRuns.get(row.record_id) || null;
+    const legacyCompletion = row.kind === 'timesheets' && row.action === 'pay_month_correction' && recordedState === 'completed' &&
+      !(receipt?.events?.workbook_verified && receipt?.events?.flow_completed);
+    const pendingReconciliation = row.kind === 'timesheets' && row.action === 'pay_month_correction' &&
+      recordedState !== 'completed' && recordedState !== 'sending' && Boolean(receipt?.events?.flow_completed);
+    const state = legacyCompletion || pendingReconciliation ? 'uncertain' : recordedState;
     if (Object.hasOwn(counts, state)) counts[state] += 1;
     const payload = payloadObject(row);
     const dates = Array.isArray(payload.rows) ? payload.rows.map((entry) => text(entry?.date, '', 10)).filter(Boolean) : [];
@@ -4053,13 +5858,15 @@ async function adminQueueStatus(env, identity) {
       queuedAt: text(row.queued_at, '', 80),
       sentAt: text(row.sent_at, '', 80),
       updatedAt: text(row.updated_at, '', 80),
-      error: text(row.error, '', 1000),
-      deliveryReceipt: latestRuns.get(row.record_id) || null
+      workbookWriteHold: row.workbook_write_hold===1,
+      error: legacyCompletion ? 'A prior delivery receipt needs source-row reconciliation.' :
+        pendingReconciliation ? 'The workbook receipt was received, but delivery still needs reconciliation.' : text(row.error, '', 1000),
+      deliveryReceipt: receipt
     };
   });
   const endpointConfigured = Boolean(dispatchEndpoint(env));
   return {
-    providerStatus: !endpointConfigured ? 'not-configured' : (env.PAY_MONTH_REPLAY_READY === 'true' ? 'ready' : 'awaiting-workbook-route'),
+    providerStatus: !endpointConfigured ? 'not-configured' : (timesheetDeliveryReady(env) ? 'awaiting-source-review' : 'awaiting-workbook-route'),
     counts,
     records,
     truncated: rows.length === 200
@@ -4542,7 +6349,8 @@ async function lookupXeroInvoice(env, tenantId, invoiceNumber) {
   let body = null;
   try { body = responseText ? JSON.parse(responseText) : null; } catch (_) {}
   if (!response.ok) throw Object.assign(new Error(xeroErrorMessage(body, `Xero invoice lookup failed (${response.status})`)), { status: 502 });
-  const invoices = Array.isArray(body?.Invoices) ? body.Invoices : [];
+  if (!Array.isArray(body?.Invoices)) throw Object.assign(new Error('Xero invoice lookup returned an invalid response'), { status: 502 });
+  const invoices = body.Invoices;
   return {
     tenant: { tenant_id: connection.tenant_id, tenant_name: connection.tenant_name },
     invoice: invoices[0] ? xeroInvoiceProjection(invoices[0]) : null,
@@ -5146,13 +6954,48 @@ async function syncXeroJobCard(request, env, identity, origin, recordId) {
   return json({ ok: true, record: projectRow(updated, true, env), invoice }, 200, origin || '');
 }
 
+async function visibleTimesheetRevisions(env,identity) {
+  try {
+    const all=identity.isTimesheetViewer===true||identity.isSubmissionAdmin===true;
+    const query=all?env.DB.prepare('SELECT owner_upn,revision FROM timesheet_owner_revisions ORDER BY owner_upn'):env.DB.prepare('SELECT owner_upn,revision FROM timesheet_owner_revisions WHERE owner_upn=? ORDER BY owner_upn').bind(String(identity.upn||'').toLowerCase());
+    const result=await query.all(),map={};for(const row of result?.results||[])map[String(row.owner_upn).toLowerCase()]=Number(row.revision);return map;
+  }catch(_){return null;}
+}
+async function holdOverlappingUpstreamTimesheets(env,identity,rows) {
+  if (canViewAllRecords(identity,'timesheets')) return {rows,identityHold:false};
+  const ids=[...new Set(rows.map(row=>String(row.source_record_id||'').trim().toLowerCase()).filter(Boolean))];
+  // A review establishes a separate boundary for all of that person's
+  // upstream timesheets, including copies without a matching source ID.
+  // A local record also holds a copy with the same ID for other identities.
+  const result=await env.DB.prepare(`SELECT NULL AS record_id, 1 AS identity_hold WHERE EXISTS (
+      SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records r ON r.record_id=review.record_id
+      WHERE lower(review.subject_oid)=lower(?) OR lower(r.owner_upn)=lower(?)
+    )
+    UNION SELECT lower(record_id) AS record_id, 0 AS identity_hold FROM records
+      WHERE kind='timesheets' AND lower(record_id) IN (SELECT value FROM json_each(?))
+    UNION SELECT lower(record_id) AS record_id, 0 AS identity_hold FROM timesheet_ownership_reviews
+      WHERE lower(record_id) IN (SELECT value FROM json_each(?))`).bind(String(identity.oid||''),String(identity.upn||''),JSON.stringify(ids),JSON.stringify(ids)).all();
+  if (!Array.isArray(result?.results)) throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
+  const identityHold=result.results.some(row=>Number(row.identity_hold)===1);
+  const held=new Set(result.results.map(row=>String(row.record_id||'').toLowerCase()));
+  return {rows:rows.filter(row=>!(identityHold && canonicalKind(row.kind||row.action)==='timesheets') && !held.has(String(row.source_record_id||'').trim().toLowerCase())),identityHold};
+}
 async function listRecords(request, env, identity, payPeriods = defaultPayPeriods()) {
+  const revisionsBefore=await visibleTimesheetRevisions(env,identity);
   const url = new URL(request.url);
   const sourceProbe = url.searchParams.get('source') === 'sharepoint-check';
   if (sourceProbe && identity.isSubmissionAdmin !== true) throw Object.assign(new Error('History source diagnostics require submission admin access'), { status: 403 });
   const requestedKind = url.searchParams.get('kind') || 'all';
   const kind = requestedKind === 'all' ? '' : canonicalKind(requestedKind);
   if (kind && !ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
+  let timesheetIdentityReviewRequired=false;
+  if ((!kind || kind === 'timesheets' || kind === 'clock') && !canViewAllRecords(identity,'timesheets')) {
+    try { await assertNoHistoricalOwnerConflict(identity,env.DB); }
+    catch (error) {
+      if (error?.status!==409 || kind==='clock') throw error;
+      timesheetIdentityReviewRequired=true;
+    }
+  }
   const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 1000);
   const offset = Math.min(Math.max(Number(url.searchParams.get('offset') || 0), 0), 1000000);
   const payMonth = String(url.searchParams.get('payMonth') || '').trim();
@@ -5163,7 +7006,8 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   if (payMonth && !monthPeriod) throw Object.assign(new Error('Pay month is not available'), { status: 400 });
   const projection = `SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
       q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
-      q.last_error AS dispatch_last_error
+      q.last_error AS dispatch_last_error,
+      EXISTS (SELECT 1 FROM timesheet_ownership_reviews reviewed WHERE reviewed.record_id=r.record_id) AS has_ownership_review
     FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
   const viewAll = Boolean(kind) && canViewAllRecords(identity, kind);
   const isTimesheetViewer = identity.isTimesheetViewer === true;
@@ -5172,7 +7016,18 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
   const hrAdminAcrossKinds = !kind && identity.isHrAdmin && !identity.isAdmin && !identity.isOperationsAdmin;
   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
-  const ownRecords = "(r.owner_oid = ? OR (r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND lower(r.owner_upn) = ?))";
+  // ?1 and ?2 are the signed-in OID and UPN wherever the own-record
+  // predicate is used. Reuse them throughout the same SQL snapshot.
+  const ownRecords = `((r.kind<>'timesheets' AND r.owner_oid=?1) OR (r.kind='timesheets' AND (
+    EXISTS (SELECT 1 FROM timesheet_ownership_reviews review JOIN timesheet_review_record_revisions v
+      ON v.record_id=review.record_id AND v.revision=review.record_revision
+      WHERE review.record_id=r.record_id AND lower(review.subject_oid)=lower(?1) AND NOT EXISTS (
+        SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated')))
+    OR (NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=r.record_id)
+      AND lower(r.owner_oid)=lower(?1) AND (r.action<>'pay_month_correction' OR lower(r.owner_upn)=?2)
+      AND NOT EXISTS (SELECT 1 FROM profile_settings p WHERE lower(p.owner_upn)=?2 AND p.owner_oid<>'' AND lower(p.owner_oid)<>lower(?1))
+      AND NOT EXISTS (SELECT 1 FROM records old WHERE lower(old.owner_upn)=?2 AND old.action<>'pay_month_correction'
+        AND NOT (old.action='email_archive' AND old.owner_oid='shared-estimate-archive') AND old.owner_oid<>'' AND lower(old.owner_oid)<>lower(?1))))))`;
   const sharedRecordKinds = "r.kind IN ('job-cards')";
   const sql = !kind && isSubmissionAdmin
     ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
@@ -5214,6 +7069,11 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
         : (kind ? (viewAll ? [kind, limit] : [identity.oid, identity.upn, kind, limit]) : [identity.oid, identity.upn, limit]);
   let pagedSql = sql.replace(/ORDER BY r\.updated_at DESC LIMIT \?/g, 'ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?');
   const queryBindings = bindings.slice(0, -1);
+  if (timesheetIdentityReviewRequired) {
+    const orderIndex=pagedSql.indexOf(' ORDER BY');
+    if(orderIndex<0)throw new Error('History ordering is unavailable');
+    pagedSql=pagedSql.slice(0,orderIndex)+" AND r.kind <> 'clock'"+pagedSql.slice(orderIndex);
+  }
   if (monthPeriod) {
     const cycleStart = String(monthPeriod.start || '');
     const cycleEnd = String(monthPeriod.cycleEnd || monthPeriod.end || '');
@@ -5226,6 +7086,7 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   const result = await env.DB.prepare(pagedSql).bind(...queryBindings).all();
   const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
   const pageRows = result.results || [];
+  const reviewedIds = canViewAllRecords(identity,'timesheets') ? new Set() : new Set(pageRows.filter(row=>row.has_ownership_review).map(row=>row.record_id));
   const hasMoreLocalRecords = pageRows.length > limit;
   const projectedLocalRecords = pageRows.slice(0, limit).map((row) => projectRow(row, true, env, payPeriods));
   const syntheticRecordCount = projectedLocalRecords.filter((row) => row.synthetic).length;
@@ -5236,8 +7097,10 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   let upstreamSourceRowCount = 0;
   let upstreamNormalisedRecordCount = 0;
   let upstreamEmployeeMatchedRecordCount = 0;
+  let releasedUpstreamRecords = [];
+  let timesheetHistoryHeld = false;
   const upstreamUrl = text(env.HISTORY_UPSTREAM_URL, '', 2000);
-  const upstreamEnabledForKind = !kind || kind === 'timesheets' || kind === 'clock';
+  const upstreamEnabledForKind = !timesheetIdentityReviewRequired && (!kind || kind === 'timesheets' || kind === 'clock');
   const useSecureHistory = text(env.HISTORY_SOURCE, '', 40).toLowerCase() === 'sharepoint';
   if ((sourceProbe || useSecureHistory) && upstreamEnabledForKind) {
     let result;
@@ -5260,7 +7123,11 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       upstreamSourceRowCount = result.records.length;
       upstreamNormalisedRecordCount = result.records.length;
       upstreamEmployeeMatchedRecordCount = result.records.length;
-      const upstreamRecords = result.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+      const upstreamCandidates=result.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
+      const upstreamHold = await holdOverlappingUpstreamTimesheets(env,identity,upstreamCandidates);
+      const upstreamRecords=upstreamHold.rows;
+      timesheetHistoryHeld=upstreamHold.identityHold||upstreamRecords.length!==upstreamCandidates.length;
+      releasedUpstreamRecords = upstreamRecords;
       upstreamRecordCount = upstreamRecords.length;
       const merged = deduplicateProviderRecords([...records, ...upstreamRecords]);
       const fingerprints = new Set();
@@ -5292,12 +7159,22 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
                 : null;
           if (sourceRows) {
             upstreamSourceRowCount = sourceRows.length;
-            const normalisedRows = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env));
-            upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
-            const employeeMatchedRows = normalisedRows.filter((row) => canReadHistoryRecord(identity, row));
+            const normalisedRows = sourceRows.map((source) => ({ source, row: normaliseUpstreamRecord(source, identity, env) }));
+            upstreamNormalisedRecordCount = normalisedRows.filter(({ row }) => Boolean(row)).length;
+            const mayViewAll = identity.isSubmissionAdmin === true || identity.isTimesheetViewer === true;
+            const employeeMatchedRows = normalisedRows.filter(({ source, row }) => canReadHistoryRecord(identity, row)
+              && (mayViewAll || upstreamEmployeeClaimsAgree(source, row)))
+              .map(({ row }) => {
+                if (!mayViewAll && row.payload) row.payload = { rows: row.payload.rows || [] };
+                return row;
+              });
             upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
             const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
-            const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
+            const upstreamCandidates=includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
+            const upstreamHold = await holdOverlappingUpstreamTimesheets(env,identity,upstreamCandidates);
+            const visibleUpstreamRecords=upstreamHold.rows;
+            timesheetHistoryHeld=upstreamHold.identityHold||visibleUpstreamRecords.length!==upstreamCandidates.length;
+            releasedUpstreamRecords = visibleUpstreamRecords;
             upstreamRecordCount = visibleUpstreamRecords.length;
             // Merge corrected copies that share a source ID. A later partial
             // correction must not erase valid days from an earlier copy.
@@ -5320,6 +7197,10 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   } else if (upstreamUrl && !upstreamEnabledForKind) {
     upstream = 'not-requested-for-category';
   }
+  if (upstream!=='ok' && !timesheetIdentityReviewRequired && !canViewAllRecords(identity,'timesheets') && (!kind || kind==='timesheets' || kind==='clock')) {
+    const reviewHold=await holdOverlappingUpstreamTimesheets(env,identity,[]);
+    timesheetHistoryHeld=timesheetHistoryHeld||reviewHold.identityHold;
+  }
   if (monthPeriod) {
     const start = String(monthPeriod.start || '');
     const end = String(monthPeriod.cycleEnd || monthPeriod.end || '');
@@ -5341,19 +7222,34 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   const canViewAllTimesheets = identity.isTimesheetViewer === true || identity.isSubmissionAdmin === true;
   records = records.map((record) => ({
     ...record,
-    can_edit_record: canEditRecord(identity, record, new Date(), payPeriods),
+    can_edit_record: reviewedIds.has(record.source_record_id) ? false : canEditRecord(identity, record, new Date(), payPeriods),
     can_edit: ['timesheets', 'clock'].includes(canonicalKind(record.kind || record.action))
-      ? canEditRecord(identity, record, new Date(), payPeriods)
+      ? (reviewedIds.has(record.source_record_id) ? false : canEditRecord(identity, record, new Date(), payPeriods))
       : record.can_edit === true
   }));
   const completion = canViewAllTimesheets && (!kind || kind === 'timesheets')
     ? completionSummary(records, env)
     : null;
   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
+  const revisionsAfter=await visibleTimesheetRevisions(env,identity);
+  const revisionsConsistent=!timesheetIdentityReviewRequired&&!!revisionsBefore&&!!revisionsAfter&&JSON.stringify(revisionsBefore)===JSON.stringify(revisionsAfter);
+  // The external history fetch cannot share the local ownership transaction.
+  // If a conflicting identity appeared during that fetch, do not return its
+  // rows; a fresh request will instead use the normal review-required path.
+  if (upstream==='ok' && !timesheetIdentityReviewRequired && !canViewAllRecords(identity,'timesheets') && (!kind || kind==='timesheets' || kind==='clock')) {
+    await assertNoHistoricalOwnerConflict(identity,env.DB);
+    const stillVisible=await holdOverlappingUpstreamTimesheets(env,identity,releasedUpstreamRecords);
+    if (stillVisible.rows.length!==releasedUpstreamRecords.length) throw Object.assign(new Error('Timesheet history changed during review. Refresh and try again.'),{status:409});
+    timesheetHistoryHeld=timesheetHistoryHeld||stillVisible.identityHold;
+  }
   return {
     records,
     meta: {
       upstream,
+      timesheet_history_held:timesheetHistoryHeld,
+      timesheet_identity_review_required:timesheetIdentityReviewRequired,
+      timesheet_owner_revisions:revisionsConsistent?revisionsAfter:null,
+      timesheet_revision_consistent:revisionsConsistent,
       local_record_count: localRecordCount,
       upstream_record_count: upstreamRecordCount,
       upstream_source_row_count: upstreamSourceRowCount,
@@ -5378,7 +7274,9 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
       is_job_card_admin: identity.isJobCardAdmin,
       editable_pay_months: identity.isAdmin ? editablePayCycleKeys(new Date(), 'Europe/London', payPeriods) : currentPayCycleKeys(new Date(), 'Europe/London', payPeriods),
       self_editable_pay_months: currentPayCycleKeys(new Date(), 'Europe/London', payPeriods),
-      visible_scope: isSubmissionAdmin
+      visible_scope: timesheetIdentityReviewRequired
+        ? 'other authorised submissions; timesheets held for an Accounts identity check'
+        : isSubmissionAdmin
         ? 'all submissions and all employee timesheets and clock records; My Submissions edit access'
         : identity.isTimesheetViewer
         ? 'all employee timesheets and clock records'
@@ -5396,16 +7294,343 @@ async function listRecords(request, env, identity, payPeriods = defaultPayPeriod
   };
 }
 
+async function assertNoUnresolvedImportHistory(env,owner) {
+  const result=await env.DB.prepare(`SELECT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review
+    LEFT JOIN records source ON source.record_id=review.record_id
+    WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?) AS held`)
+    .bind(String(owner.oid||'').toLowerCase(),String(owner.upn||'').toLowerCase()).first();
+  if (!result || ![0,1].includes(result.held) || result.held===1) {
+    throw Object.assign(new Error('Complete timesheet history is unavailable; check existing days before importing.'),{status:503,publicMessage:'Complete timesheet history is unavailable; check existing days before importing.'});
+  }
+}
+
+async function documentTimesheetTarget(request,env,identity,body) {
+    const dates=body.dates;
+    if(!Array.isArray(dates)||!dates.length||dates.length>80||dates.some(date=>typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)) throw Object.assign(new Error('Choose valid timesheet dates'),{status:400});
+    const payPeriods=await loadPayPeriods(env),month=payCycleKeyForDate(dates[0],payPeriods);
+    if(!month||dates.some(date=>payCycleKeyForDate(date,payPeriods)!==month))throw Object.assign(new Error('Select one pay month at a time'),{status:400});
+    const roster=documentImportRoster(env),owner=await documentImportOwner(identity,body,roster,env);
+    await assertNoUnresolvedImportHistory(env,owner);
+    const readRevision=async()=>Number((await env.DB.prepare('SELECT revision FROM timesheet_owner_revisions WHERE owner_upn=?').bind(owner.upn.toLowerCase()).first())?.revision||0);
+    const readReviewWatermark=async()=>Number((await env.DB.prepare(`SELECT COALESCE(MAX(e.event_id),0) AS watermark FROM timesheet_ownership_review_events e JOIN timesheet_ownership_reviews review ON review.review_id=e.review_id WHERE lower(review.subject_oid)=?`).bind(String(owner.oid).toLowerCase()).first())?.watermark||0);
+    const revisionBefore=await readRevision();
+    const reviewBefore=await readReviewWatermark();
+    const projected={kind:'timesheets',owner_oid:owner.oid,owner_upn:owner.upn,payload:{rows:dates.map(date=>({date}))}};
+    if(!canEditRecord(identity,projected,new Date(),payPeriods))throw Object.assign(new Error('This employee or pay month is not editable for your account'),{status:403});
+    const historyUrl=new URL('/api/history?kind=all&limit=1000',request.url),history=await listRecords(new Request(historyUrl,{headers:request.headers}),env,identity,payPeriods);
+    if(history.meta?.timesheet_revision_consistent!==true||history.meta?.timesheet_history_held===true||history.meta?.history_pagination?.has_more||((env.HISTORY_UPSTREAM_URL||String(env.HISTORY_SOURCE||'').toLowerCase()==='sharepoint')&&history.meta?.upstream!=='ok'))throw Object.assign(new Error('Complete timesheet history is unavailable; check existing days before importing.'),{status:503,publicMessage:'Complete timesheet history is unavailable; check existing days before importing.'});
+    const conflicts=dates.filter(day=>(history.records||[]).some(record=>{
+      if(!['timesheets','clock'].includes(canonicalKind(record.kind||record.action))||!timesheetRecordMayBelongTo(record,{...owner,name:owner.name||(owner.oid===identity.oid?identity.name:'')},roster))return false;
+      const data=record.payload&&typeof record.payload==='object'?record.payload:{};
+      return [data.rows,data.dailyRows,data.daily_rows,data.gmtDailyRows].some(rows=>Array.isArray(rows)&&rows.some(row=>String(row?.date||row?.recordDate||row?.record_date||'').slice(0,10)===day))||(canonicalKind(record.kind||record.action)==='clock'&&String(record.record_date||'').slice(0,10)===day);
+    }));
+    const snapshot=(history.records||[]).filter(record=>['timesheets','clock'].includes(canonicalKind(record.kind||record.action))&&timesheetRecordMayBelongTo(record,{...owner,name:owner.name||(owner.oid===identity.oid?identity.name:'')},roster)).map(record=>{
+      const data=record.payload&&typeof record.payload==='object'?record.payload:{};
+      const rows=[data.rows,data.dailyRows,data.daily_rows,data.gmtDailyRows].filter(Array.isArray).flat().filter(row=>payCycleKeyForDate(String(row?.date||row?.recordDate||row?.record_date||'').slice(0,10),payPeriods)===month);
+      const deleted=(Array.isArray(data.deletedDays)?data.deletedDays:[]).filter(date=>payCycleKeyForDate(date,payPeriods)===month);
+      const clock=canonicalKind(record.kind||record.action)==='clock'&&payCycleKeyForDate(record.record_date,payPeriods)===month;
+      return rows.length||deleted.length||clock ? {id:record.source_record_id||record.record_id||'',kind:record.kind,action:record.action,date:record.record_date||'',rows,deleted} : null;
+    }).filter(Boolean).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const reviewEventWatermark=await readReviewWatermark();
+    const historyFingerprint=await sha256Base64Url(JSON.stringify({snapshot,reviewEventWatermark}));
+    const localRevision=await readRevision();
+    if(localRevision!==revisionBefore || reviewEventWatermark!==reviewBefore)throw Object.assign(new Error('Timesheet history changed while loading; try again.'),{status:409});
+    return {employeeUpn:owner.upn,employeeName:owner.name||(owner.oid===identity.oid?identity.name:owner.upn),ownerOid:owner.oid,payMonth:month,canEdit:true,conflicts,historyFingerprint,localRevision,reviewEventWatermark};
+}
+
+// A filing intent is a short-lived, snapshot-bound permission to submit one
+// original for private storage. It neither uploads a file nor approves its
+// contents for payroll or delivery. Disabled until the full filing path and
+// its private provider location have been separately verified.
+async function privateTimesheetOriginalIntentEndpoint(request,env,identity,origin) {
+  if (env.PRIVATE_TIMESHEET_ORIGINALS_ENABLED !== 'true') return json({error:'Private original filing is not available'},503,origin);
+  const body=await readJson(request);
+  const recordId=typeof body.recordId==='string' ? body.recordId : '';
+  if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,179}$/.test(recordId)) return json({error:'Invalid correction reference'},400,origin);
+  const record=await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first();
+  const periods=await loadPayPeriods(env);
+  if(!record || record.status==='Deleted' || record.kind!=='timesheets' || record.action!=='pay_month_correction' || !canEditRecord(identity,record,new Date(),periods)) return json({error:'Correction access is not permitted'},403,origin);
+  // The employee and caller are resolved on the server, never taken from the
+  // browser's claimed owner or actor. The store repeats all revision guards.
+  const owner=await documentImportOwner(identity,{employeeEmail:record.owner_upn},documentImportRoster(env),env);
+  if(String(owner.oid||'').toLowerCase()!==String(record.owner_oid||'').toLowerCase() || String(owner.upn||'').toLowerCase()!==String(record.owner_upn||'').toLowerCase()) return json({error:'Employee identity needs reconciliation'},409,origin);
+  const actor=String(identity.oid||'').toLowerCase(), employee=String(owner.oid||'').toLowerCase(), upn=String(owner.upn||'').toLowerCase();
+  const result=await createPrivateOriginalIntent(env.DB,{recordId,employeeOid:employee,ownerUpn:upn,actorOid:actor,sourceSha256:body.sourceSha256,dates:body.dates,ownerRevision:body.ownerRevision,recordPayload:record.payload_json},
+    async details=>String(details.actorOid||'').toLowerCase()===actor && String(details.employeeOid||'').toLowerCase()===employee && String(details.ownerUpn||'').toLowerCase()===upn && details.recordId===recordId && canEditRecord(identity,record,new Date(),periods));
+  if(!result)return json({error:'The correction or its source changed; review it again before filing'},409,origin);
+  return json({intentId:result.reviewId,reviewState:'pending'},201,origin);
+}
+
+async function privateTimesheetOriginalUploadEndpoint(request,env,identity,intentId,origin) {
+  // This administrative assertion must only be set after owner-level proof
+  // of full permission visibility for the actual service identity and vault.
+  if(env.PRIVATE_TIMESHEET_ORIGINALS_ENABLED!=='true' || env.PRIVATE_TIMESHEET_ORIGINAL_PERMISSION_VISIBILITY_VERIFIED!=='true') return json({error:'Private original filing is not available'},503,origin);
+  const extension=String(request.headers.get('x-gmt-original-extension')||'').toLowerCase();
+  if(!/^(?:pdf|doc|docx|docm|xls|xlsx|csv|txt|json|png|jpg|jpeg)$/.test(extension))return json({error:'The original file type is invalid'},400,origin);
+  const periods=await loadPayPeriods(env);
+  const authorise=async details=>{
+    const row=await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(details.recordId).first();
+    if(!row||row.status==='Deleted'||!canEditRecord(identity,row,new Date(),periods)||String(row.owner_oid||'').toLowerCase()!==String(details.employeeOid||'').toLowerCase()||String(row.owner_upn||'').toLowerCase()!==String(details.ownerUpn||'').toLowerCase())return false;
+    const owner=await documentImportOwner(identity,{employeeEmail:row.owner_upn},documentImportRoster(env),env);
+    return String(owner.oid||'').toLowerCase()===String(details.employeeOid||'').toLowerCase()&&String(owner.upn||'').toLowerCase()===String(details.ownerUpn||'').toLowerCase();
+  };
+  const current=await readPrivateOriginalIntent(env.DB,intentId,authorise);
+  if(!current)return json({error:'This filing request is no longer authorised or current'},409,origin);
+  const bytes=await readDocumentBytes(request);
+  const siteHost=String(env.SHAREPOINT_SITE_ID||'').split(',')[0];
+  const graph=createPrivateOriginalGraphIo({siteHost,graphRequest:(path,init)=>graphSharePointRequest(env,path,init),uploadRequest:(url,init)=>fetch(url,init)});
+  let authorisedPayload='',authorisedIntent=null;
+  const io={...graph,authorize:async details=>{
+    const fresh=await readPrivateOriginalIntent(env.DB,intentId,authorise);
+    if(!fresh||fresh.recordId!==details.recordId||fresh.employeeOid.toLowerCase()!==details.employeeOid||fresh.sourceSha256!==details.sourceSha256)return null;
+    authorisedPayload=fresh.recordPayload;authorisedIntent=fresh;return fresh;
+  },createExclusive:async(parent,name,content)=>{
+    if(!authorisedIntent || parent!==String(env.PRIVATE_TIMESHEET_SOURCE_VAULT_ID||'') || !await reservePrivateOriginalCreate(env.DB,authorisedIntent,parent,name))throw Object.assign(new Error('This original has an earlier filing attempt that needs reconciliation.'),{status:409});
+    return graph.createExclusive(parent,name,content);
+  },bind:proof=>bindPrivateOriginalProof(env.DB,proof,authorisedPayload)};
+  await filePrivateTimesheetOriginal({parentId:env.PRIVATE_TIMESHEET_SOURCE_PARENT_ID,vaultId:env.PRIVATE_TIMESHEET_SOURCE_VAULT_ID,adminGroupId:env.PRIVATE_TIMESHEET_ADMIN_GROUP_ID,siteOwnerGroupId:env.PRIVATE_TIMESHEET_SITE_OWNER_GROUP_ID},
+    {recordId:current.recordId,employeeOid:current.employeeOid,sourceSha256:current.sourceSha256,fileName:'original.'+extension,bytes},io);
+  return json({reviewState:'pending'},201,origin);
+}
+
+function privateOriginalReviewProvider(env){
+  if(env.PRIVATE_TIMESHEET_ORIGINALS_ENABLED!=='true'||env.PRIVATE_TIMESHEET_ORIGINAL_REVIEW_ENABLED!=='true'||env.PRIVATE_TIMESHEET_ORIGINAL_PERMISSION_VISIBILITY_VERIFIED!=='true')throw Object.assign(new Error('Private original review is not available'),{status:503});
+  const context={parentId:env.PRIVATE_TIMESHEET_SOURCE_PARENT_ID,vaultId:env.PRIVATE_TIMESHEET_SOURCE_VAULT_ID,adminGroupId:env.PRIVATE_TIMESHEET_ADMIN_GROUP_ID,siteOwnerGroupId:env.PRIVATE_TIMESHEET_SITE_OWNER_GROUP_ID};
+  const io=createPrivateOriginalGraphIo({siteHost:String(env.SHAREPOINT_SITE_ID||'').split(',')[0],graphRequest:(path,init)=>graphSharePointRequest(env,path,init),uploadRequest:(url,init)=>fetch(url,init)});
+  return {context,io};
+}
+function sameOriginalReviewSnapshot(a,b){
+  return Boolean(a&&b&&a.intentId===b.intentId&&a.recordId===b.recordId&&a.employeeOid===b.employeeOid&&a.ownerUpn===b.ownerUpn&&a.ownerRevision===b.ownerRevision&&a.payloadSha256===b.payloadSha256&&a.recordPayload===b.recordPayload&&a.eventId===b.eventId&&a.original.itemId===b.original.itemId&&a.original.eTag===b.original.eTag&&a.original.vaultId===b.original.vaultId&&a.sourceSha256===b.sourceSha256&&JSON.stringify(a.dates)===JSON.stringify(b.dates));
+}
+async function privateOriginalReviewInventory(request,env,identity,origin){
+  requireTimesheetOwnershipReviewer(identity);privateOriginalReviewProvider(env);
+  const offset=Number(new URL(request.url).searchParams.get('offset')||0);
+  if(!Number.isSafeInteger(offset)||offset<0||offset>5000)throw Object.assign(new Error('Review list position is invalid'),{status:400});
+  const result=await env.DB.prepare(`SELECT i.intent_id,i.record_id,i.owner_upn,r.employee_name,p.filed_at,
+    (SELECT review.review_id FROM timesheet_private_original_reviews review WHERE review.intent_id=i.intent_id AND NOT EXISTS(SELECT 1 FROM timesheet_private_original_review_events e WHERE e.review_id=review.review_id AND e.event_type='revoked') ORDER BY review.reviewed_at DESC LIMIT 1) AS active_review_id
+    FROM timesheet_original_filing_intents i JOIN timesheet_private_originals p ON p.intent_id=i.intent_id JOIN records r ON r.record_id=i.record_id
+    ORDER BY p.filed_at DESC,i.intent_id LIMIT 51 OFFSET ?`).bind(offset).all();
+  if(!Array.isArray(result?.results))throw Object.assign(new Error('Private source reviews are unavailable'),{status:503});
+  const rows=result.results.slice(0,50),snapshots=await Promise.all(rows.map(row=>getPrivateOriginalReviewSnapshot(env.DB,row.intent_id)));
+  return json({items:rows.map((row,index)=>({intentId:row.intent_id,recordId:row.record_id,employeeName:text(row.employee_name,'',240),employeeUpn:text(row.owner_upn,'',320),filedAt:row.filed_at,
+    dates:snapshots[index]?.dates||[],status:snapshots[index]?(row.active_review_id?'recorded':'awaiting-review'):'needs-attention',...(snapshots[index]&&row.active_review_id?{reviewId:row.active_review_id}:{})})),hasMore:result.results.length>50,nextOffset:offset+rows.length},200,origin);
+}
+// An informational check of this correction only. It neither covers upstream
+// records nor authorises the queue, and never changes an imported-source hold.
+async function privateOriginalCorrectionCoverage(request,env,identity,origin,internal=false){
+  requireTimesheetOwnershipReviewer(identity);
+  const {context,io}=privateOriginalReviewProvider(env);
+  const recordId=String(new URL(request.url).searchParams.get('recordId')||'');
+  if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,179}$/.test(recordId))throw Object.assign(new Error('The correction identifier is invalid'),{status:400});
+  const readState=async()=>{
+    const record=await env.DB.prepare(`SELECT r.record_id,r.owner_oid,r.owner_upn,r.payload_json,v.revision
+      FROM records r LEFT JOIN timesheet_owner_revisions v ON lower(v.owner_upn)=lower(r.owner_upn)
+      WHERE r.record_id=? AND r.kind='timesheets' AND r.action='pay_month_correction' AND r.status<>'Deleted'`).bind(recordId).first();
+    if(!record || typeof record.payload_json!=='string' || record.payload_json.length>1000000 || !Number.isSafeInteger(record.revision))throw Object.assign(new Error('The correction is unavailable for source review'),{status:409});
+    const versions=await env.DB.prepare('SELECT version_id,payload_json FROM record_versions WHERE record_id=? ORDER BY version_id LIMIT 1001').bind(recordId).all();
+    const reviews=await env.DB.prepare(`SELECT review.review_id,review.intent_id,review.employee_oid,review.owner_upn,review.owner_revision,review.payload_sha256,review.source_sha256,review.dates_json,review.vault_id,review.item_id,review.item_etag,review.file_name
+      FROM timesheet_private_original_reviews review WHERE review.record_id=? AND NOT EXISTS
+      (SELECT 1 FROM timesheet_private_original_review_events e WHERE e.review_id=review.review_id AND e.event_type='revoked')
+      ORDER BY review.review_id LIMIT 201`).bind(recordId).all();
+    const settings=await env.DB.prepare('SELECT json_group_array(json_array(month_key,start_date)) AS value FROM (SELECT month_key,start_date FROM pay_month_start_settings ORDER BY month_key)').first();
+    if(!Array.isArray(versions?.results)||versions.results.length>1000||!Array.isArray(reviews?.results)||reviews.results.length>200||typeof settings?.value!=='string')throw Object.assign(new Error('The source review is too large to check'),{status:409});
+    return {record,versions:versions.results,reviews:reviews.results,settings:settings.value};
+  };
+  const before=await readState(),oid=String(before.record.owner_oid||'').toLowerCase(),upn=String(before.record.owner_upn||'').toLowerCase();
+  await assertCurrentSourceReviewSubject(env,oid,upn);
+  function pairs(payload){
+    if(!payload||!Array.isArray(payload.rows)||payload.rows.length>62)throw Object.assign(new Error('The saved source needs review'),{status:409});
+    const result=new Set(),dates=new Set();let unreferencedDays=0;
+    for(const row of payload.rows){
+      if(!row||typeof row!=='object'||!validReceiptDate(row.date)||dates.has(row.date))throw Object.assign(new Error('The saved source needs review'),{status:409});
+      dates.add(row.date);
+      const source=row.sourceEvidence?.sourceId;
+      if(source===undefined||source===null||source===''){unreferencedDays++;continue;}
+      if(typeof source!=='string'||!/^[a-f0-9]{64}$/.test(source))throw Object.assign(new Error('The saved source needs review'),{status:409});
+      result.add(row.date+'|'+source);
+    }
+    const deleted=payload.deletedDays===undefined?[]:payload.deletedDays;
+    if(!Array.isArray(deleted)||deleted.length>62||deleted.some(date=>!validReceiptDate(date)||dates.has(date))||new Set(deleted).size!==deleted.length)throw Object.assign(new Error('The saved source needs review'),{status:409});
+    return {pairs:result,unreferencedDays,deletedDays:deleted.length,dates:[...dates,...deleted]};
+  }
+  let current,payMonth;
+  try {const payload=JSON.parse(before.record.payload_json);current=pairs(payload);payMonth=payload.payMonth;if(typeof payMonth!=='string'||!/^\d{4}-(0[1-9]|1[0-2])$/.test(payMonth))throw new Error('Invalid month');} catch(error) {throw Object.assign(new Error('The saved source needs review'),{status:409});}
+  const period=(await loadPayPeriods(env)).periodForMonth(payMonth);
+  if(!period||!validReceiptDate(period.start)||!validReceiptDate(period.cycleEnd)||period.start>period.cycleEnd||current.dates.some(date=>date<period.start||date>period.cycleEnd))throw Object.assign(new Error('The saved pay period needs review'),{status:409});
+  let earlierUncovered=false;
+  for(const version of before.versions){
+    let historic;try{historic=pairs(JSON.parse(version.payload_json).payload);}catch(_){throw Object.assign(new Error('Earlier correction history needs review'),{status:409});}
+    if(historic.unreferencedDays||historic.deletedDays||historic.dates.some(date=>date<period.start||date>period.cycleEnd)||[...historic.pairs].some(pair=>!current.pairs.has(pair)))earlierUncovered=true;
+  }
+  const matched=new Set(),snapshots=[];
+  for(const review of before.reviews){
+    const snapshot=await getPrivateOriginalReviewSnapshot(env.DB,review.intent_id);
+    if(!snapshot || snapshot.recordId!==recordId || snapshot.employeeOid!==oid || snapshot.ownerUpn!==upn ||
+      review.employee_oid!==snapshot.employeeOid || review.owner_upn!==snapshot.ownerUpn || review.owner_revision!==snapshot.ownerRevision ||
+      review.payload_sha256!==snapshot.payloadSha256 || review.source_sha256!==snapshot.sourceSha256 || review.dates_json!==JSON.stringify(snapshot.dates) ||
+      review.vault_id!==snapshot.original.vaultId || review.item_id!==snapshot.original.itemId || review.item_etag!==snapshot.original.eTag || review.file_name!==snapshot.original.fileName)continue;
+    await verifyPrivateTimesheetOriginal(context,snapshot.original,io);
+    for(const date of snapshot.dates){const key=date+'|'+snapshot.sourceSha256;if(current.pairs.has(key))matched.add(key);}
+    snapshots.push(snapshot);
+  }
+  const after=await readState();
+  if(JSON.stringify(before)!==JSON.stringify(after))throw Object.assign(new Error('The source review changed while it was checked'),{status:409});
+  for(const snapshot of snapshots)if(!sameOriginalReviewSnapshot(snapshot,await getPrivateOriginalReviewSnapshot(env.DB,snapshot.intentId)))throw Object.assign(new Error('The source review changed while it was checked'),{status:409});
+  await assertCurrentSourceReviewSubject(env,oid,upn);
+  const finalPeriod=(await loadPayPeriods(env)).periodForMonth(payMonth);
+  if(!finalPeriod||finalPeriod.start!==period.start||finalPeriod.cycleEnd!==period.cycleEnd)throw Object.assign(new Error('The pay period changed while it was checked'),{status:409});
+  const coverage={recordId,payMonth,cycleStart:period.start,cycleEnd:period.cycleEnd,employeeUpn:upn,status:current.pairs.size>0&&!earlierUncovered&&!current.unreferencedDays&&!current.deletedDays&&matched.size===current.pairs.size?'covered':'incomplete',importedDays:current.pairs.size,reviewedDays:matched.size,unreferencedDays:current.unreferencedDays,deletedDays:current.deletedDays,earlierSourceNeedsReview:earlierUncovered,scope:'current-correction-only',deliveryReleased:false};
+  return internal?{coverage,state:before}:json(coverage,200,origin);
+}
+
+// Stage only: no source proof or dispatch authority is created here. The
+// immutable imported-source hold continues to block the production sender.
+async function prepareReviewedOriginalQueue(request,env,identity,origin){
+  requireTimesheetOwnershipReviewer(identity);
+  const body=await readBoundedJson(request,MAX_BODY_BYTES);
+  if(!body||Object.keys(body).some(key=>!['recordId','attachments'].includes(key))||typeof body.recordId!=='string'||!Array.isArray(body.attachments))throw Object.assign(new Error('Invalid preparation request'),{status:400});
+  const recordId=body.recordId;
+  if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,179}$/.test(recordId))throw Object.assign(new Error('Invalid correction identifier'),{status:400});
+  const coverageRequest=new Request('https://internal.invalid/?recordId='+encodeURIComponent(recordId));
+  const {coverage,state}=await privateOriginalCorrectionCoverage(coverageRequest,env,identity,'',true);
+  if(coverage.status!=='covered')throw Object.assign(new Error('The correction source review is incomplete'),{status:409});
+  const attachments=parseQueuedAttachments(body),record=state.record;
+  if(!attachments.some(a=>a.fieldName==='attachment_record'))throw Object.assign(new Error('The dated correction attachment is required'),{status:400});
+  const source=validatePayMonthAttachmentVersion(record,attachments);
+  if(source.schemaVersion!==3||source.cycleStart!==coverage.cycleStart||source.cycleEnd!==coverage.cycleEnd||source.rows.some(row=>row.date<coverage.cycleStart||row.date>coverage.cycleEnd))throw Object.assign(new Error('The saved correction or pay period changed'),{status:409});
+  try {
+    await verifyPreparedAttachments(source,{
+      xlsx:decodeBase64(attachments.find(a=>a.fieldName==='attachment').contentBase64),
+      csv:decodeBase64(attachments.find(a=>a.fieldName==='attachment_csv').contentBase64)
+    });
+  } catch (_) { throw Object.assign(new Error('The prepared workbook or CSV does not match the reviewed source'),{status:409}); }
+  await stageReviewedOriginalQueue(env,recordId,state,attachments);
+  return json({recordId,status:'held',deliveryReleased:false},202,origin);
+}
+
+// Trusted internal transaction; callers must first verify review coverage and
+// attachment semantics. Exported for a disposable local D1 runtime fixture.
+export async function stageReviewedOriginalQueue(env,recordId,state,attachments){
+  const record=state.record;
+  let guard=`EXISTS (SELECT 1 FROM records r JOIN timesheet_owner_revisions v ON lower(v.owner_upn)=lower(r.owner_upn)
+    WHERE r.record_id=? AND r.kind='timesheets' AND r.action='pay_month_correction' AND r.status<>'Deleted' AND r.owner_oid IS ? AND r.owner_upn IS ? AND r.payload_json IS ? AND v.revision=?)
+    AND (SELECT json_group_array(json_array(month_key,start_date)) FROM (SELECT month_key,start_date FROM pay_month_start_settings ORDER BY month_key))=?
+    AND (SELECT count(*) FROM record_versions WHERE record_id=?)=json_array_length(?)
+    AND NOT EXISTS (SELECT 1 FROM json_each(?) entry WHERE NOT EXISTS
+      (SELECT 1 FROM record_versions version WHERE version.record_id=? AND version.version_id=json_extract(entry.value,'$.version_id') AND version.payload_json IS json_extract(entry.value,'$.payload_json')))
+    AND (SELECT count(*) FROM timesheet_private_original_reviews review WHERE review.record_id=? AND NOT EXISTS
+      (SELECT 1 FROM timesheet_private_original_review_events event WHERE event.review_id=review.review_id AND event.event_type='revoked'))=json_array_length(?)
+    AND NOT EXISTS (SELECT 1 FROM json_each(?) entry WHERE NOT EXISTS (SELECT 1 FROM timesheet_private_original_reviews review WHERE review.review_id=json_extract(entry.value,'$.review_id') AND review.intent_id=json_extract(entry.value,'$.intent_id') AND review.record_id=?
+      AND NOT EXISTS (SELECT 1 FROM timesheet_private_original_review_events event WHERE event.review_id=review.review_id AND event.event_type='revoked')
+      AND NOT EXISTS (SELECT 1 FROM timesheet_original_filing_revocations revoked WHERE revoked.intent_id=review.intent_id)))`;
+  const versionsJson=JSON.stringify(state.versions),reviewsJson=JSON.stringify(state.reviews.map(({review_id,intent_id})=>({review_id,intent_id})));
+  if(versionsJson.length>2000000)throw Object.assign(new Error('The source history is too large to prepare'),{status:409});
+  const args=[recordId,record.owner_oid,record.owner_upn,record.payload_json,record.revision,state.settings,recordId,versionsJson,versionsJson,recordId,recordId,reviewsJson,reviewsJson,recordId];
+  const at=now(),marker='reviewed-preparation:'+randomBase64Url(18),heldPrefix='Awaiting complete source and provider verification. reviewed-preparation:',held=heldPrefix+marker.slice('reviewed-preparation:'.length);
+  const reserved=`EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=? AND q.status='skipped' AND q.last_error=?)`,reserveArgs=[recordId,marker];
+  const statements=[env.DB.prepare(`INSERT INTO dispatch_queue(record_id,status,queued_at,updated_at,attempts,next_attempt_at,last_sent_at,last_error)
+    SELECT ?,'skipped',?,?,0,?,NULL,? WHERE ${guard} AND (
+      (NOT EXISTS (SELECT 1 FROM dispatch_queue WHERE record_id=?) AND NOT EXISTS (SELECT 1 FROM record_attachments WHERE record_id=?)) OR
+      EXISTS (SELECT 1 FROM dispatch_queue prior WHERE prior.record_id=? AND prior.status='skipped' AND substr(prior.last_error,1,length(?))=?))
+    ON CONFLICT(record_id) DO UPDATE SET updated_at=excluded.updated_at,last_error=excluded.last_error
+      WHERE dispatch_queue.status='skipped' AND substr(dispatch_queue.last_error,1,length(?))=?`)
+    .bind(recordId,at,at,at,marker,...args,recordId,recordId,recordId,heldPrefix,heldPrefix,heldPrefix,heldPrefix),
+   env.DB.prepare(`DELETE FROM record_attachments WHERE record_id=? AND ${reserved}`).bind(recordId,...reserveArgs),
+   ...attachments.map(a=>env.DB.prepare(`INSERT INTO record_attachments(record_id,field_name,file_name,content_type,content_base64,size_bytes,created_at)
+    SELECT ?,?,?,?,?,?,? WHERE ${reserved}`).bind(recordId,a.fieldName,a.fileName,a.contentType,a.contentBase64,a.sizeBytes,at,...reserveArgs))];
+  let final=`${guard} AND ${reserved} AND (SELECT count(*) FROM record_attachments WHERE record_id=?)=?`;
+  const finalArgs=[...args,...reserveArgs,recordId,attachments.length];
+  for(const a of attachments){final+=' AND EXISTS (SELECT 1 FROM record_attachments WHERE record_id=? AND field_name=? AND file_name=? AND content_type=? AND content_base64=? AND size_bytes=?)';finalArgs.push(recordId,a.fieldName,a.fileName,a.contentType,a.contentBase64,a.sizeBytes);}
+  statements.push(env.DB.prepare(`UPDATE dispatch_queue SET last_error=? WHERE ${reserved} AND ${final}`).bind(held,...reserveArgs,...finalArgs));
+  // Force the transactional batch to roll back if any precondition or final
+  // attachment check failed; a partial staged entry must not be left behind.
+  statements.push(env.DB.prepare(`SELECT CASE WHEN EXISTS (SELECT 1 FROM dispatch_queue WHERE record_id=? AND status='skipped' AND last_error=?) THEN 1 ELSE json_extract('invalid-json','$') END AS verified`).bind(recordId,held));
+  try{await env.DB.batch(statements);}catch(_){throw Object.assign(new Error('The correction or review changed before preparation'),{status:409});}
+}
+async function privateOriginalReviewEndpoint(request,env,identity,intentId,origin,mode='review'){
+  requireTimesheetOwnershipReviewer(identity);
+  if(mode==='revoke'){
+    const body=await readJson(request);
+    if(!await revokePrivateOriginalReview(env.DB,{intentId,reviewId:body.reviewId,actorOid:identity.oid}))return json({error:'The review is no longer active'},409,origin);
+    return json({revoked:true},200,origin);
+  }
+  const {context,io}=privateOriginalReviewProvider(env);
+  const snapshot=await getPrivateOriginalReviewSnapshot(env.DB,intentId);
+  if(!snapshot)return json({error:'This source is no longer available for review'},409,origin);
+  await assertCurrentSourceReviewSubject(env,snapshot.employeeOid,snapshot.ownerUpn);
+  if(request.method==='POST'){
+    const body=await readJson(request);
+    const result=await recordPrivateOriginalReview(env.DB,{intentId,reviewerOid:identity.oid,expectedPayloadSha256:body.expectedPayloadSha256,expectedFileEtag:body.expectedFileEtag,expectedEventId:body.expectedEventId,confirmed:body.confirmed},async proof=>{await verifyPrivateTimesheetOriginal(context,proof,io);return true;});
+    if(!result)return json({error:'The source or review changed. Open it again before confirming.'},409,origin);
+    return json({reviewId:result.reviewId,reviewState:'recorded',deliveryReleased:false},201,origin);
+  }
+  await verifyPrivateTimesheetOriginal(context,snapshot.original,io);
+  if(mode==='content'){
+    const bytes=await io.read(snapshot.original.itemId);
+    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),value=>value.toString(16).padStart(2,'0')).join('');
+    if(hash!==snapshot.sourceSha256)throw Object.assign(new Error('The original changed during review'),{status:409});
+    await verifyPrivateTimesheetOriginal(context,snapshot.original,io);
+    if(!sameOriginalReviewSnapshot(snapshot,await getPrivateOriginalReviewSnapshot(env.DB,intentId)))throw Object.assign(new Error('The source changed during review'),{status:409});
+    const extension=snapshot.original.fileName.split('.').pop();
+    const headers={'content-type':'application/octet-stream','content-disposition':`attachment; filename="timesheet-original.${extension}"`,'cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'",vary:'Origin'};
+    if(origin){headers['access-control-allow-origin']=origin;headers['access-control-allow-credentials']='true';}
+    return new Response(bytes,{status:200,headers});
+  }
+  if(!sameOriginalReviewSnapshot(snapshot,await getPrivateOriginalReviewSnapshot(env.DB,intentId)))throw Object.assign(new Error('The source changed during review'),{status:409});
+  const rows=JSON.parse(snapshot.recordPayload).rows.filter(row=>snapshot.dates.includes(row.date));
+  return json({employeeOid:snapshot.employeeOid,employeeUpn:snapshot.ownerUpn,recordId:snapshot.recordId,dates:snapshot.dates,rows,payloadSha256:snapshot.payloadSha256,sourceSha256:snapshot.sourceSha256,fileEtag:snapshot.original.eTag,fileExtension:snapshot.original.fileName.split('.').pop(),eventId:snapshot.eventId,deliveryReleased:false},200,origin);
+}
+
+// These links were explicitly filed for organisation-wide viewing. The index
+// exposes only the original's filename, category, date and tenant link; it
+// never exposes a timesheet, a deleted record, or protected record payloads.
+export async function listSharedImportedOriginals(env,identity,options={}) {
+  if(!identity?.oid||!identity?.upn)throw Object.assign(new Error('Sign-in is required'),{status:401});
+  const host=String(env.SHAREPOINT_SITE_ID||'').split(',')[0].toLowerCase();
+  if(!/^[a-z0-9-]+\.sharepoint\.com$/.test(host))throw Object.assign(new Error('Shared document storage is unavailable'),{status:503});
+  const limit=Math.min(100,Math.max(1,Number.parseInt(options.limit,10)||50));
+  const offset=Math.min(10000,Math.max(0,Number.parseInt(options.offset,10)||0));
+  const result=await env.DB.prepare(`SELECT f.kind,f.file_name,f.sharing_url,f.filed_at
+    FROM document_import_files f
+    LEFT JOIN records r ON r.record_id=f.record_id AND r.kind=f.kind AND r.status<>'Deleted'
+    LEFT JOIN imported_invoice_records i ON i.record_id=f.record_id AND f.kind='invoices'
+    WHERE f.kind IN ('job-cards','tasks','calendar','enquiries','estimates','invoices')
+      AND (r.record_id IS NOT NULL OR i.record_id IS NOT NULL)
+    ORDER BY f.filed_at DESC,f.record_id ASC LIMIT ? OFFSET ?`).bind(limit+1,offset).all();
+  const rows=result.results||[],documents=[];
+  for(const row of rows.slice(0,limit)){
+    let url;try{url=new URL(String(row.sharing_url||''));}catch(_){continue;}
+    if(url.protocol!=='https:'||url.hostname.toLowerCase()!==host||url.username||url.password)continue;
+    documents.push({kind:row.kind,fileName:text(row.file_name,'Document',240),url:url.href,filedAt:text(row.filed_at,'',80)});
+  }
+  return {documents,hasMore:rows.length>limit,nextOffset:offset+Math.min(rows.length,limit)};
+}
+
 async function handle(request, env, ctx) {
+  const url = new URL(request.url);
+  // Power Automate's connector test forwards its own Origin header. Permit
+  // that explicitly configured origin only on the two key-protected machine
+  // endpoints, without granting it browser CORS access to the portal.
+  const connectorOrigin = String(env.TIMESHEET_CONNECTOR_ORIGIN || '').trim();
+  const isConnectorPost = request.method === 'POST' && connectorOrigin === 'https://make.powerautomate.com'
+    && request.headers.get('Origin') === connectorOrigin;
+  if (isConnectorPost && url.pathname === '/api/integrations/timesheet-delivery-receipts') {
+    return timesheetDeliveryReceiptEndpoint(request, env, '');
+  }
+  if (isConnectorPost && url.pathname === '/api/integrations/private-timesheet-route') {
+    return privateTimesheetRouteEndpoint(request, env, '');
+  }
   const origin = allowedOrigin(request, env);
   if (origin === null) return json({ error: 'Origin is not allowed' }, 403);
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(origin || '') });
   }
-  const url = new URL(request.url);
   if (url.pathname === '/api/health' && request.method === 'GET') return json({ ok: true, service: 'gmt-portal-api', version: 1 }, 200, origin || '');
   if (url.pathname === '/api/integrations/timesheet-delivery-receipts' && request.method === 'POST') {
     return timesheetDeliveryReceiptEndpoint(request, env, origin || '');
+  }
+  if (url.pathname === '/api/integrations/private-timesheet-route' && request.method === 'POST') {
+    return privateTimesheetRouteEndpoint(request, env, origin || '');
   }
   if (url.pathname === '/api/xero/callback' && request.method === 'GET') {
     if (!env.DB) return xeroRedirectResponse(xeroSettings(env).returnUrl, 'error', 'storage-not-configured');
@@ -5417,8 +7642,42 @@ async function handle(request, env, ctx) {
   const identity = await authenticate(request, env);
   if (!env.DB) throw Object.assign(new Error('Protected storage is not configured'), { status: 503 });
 
+  if(url.pathname==='/api/timesheet-original-intents' && request.method==='POST') return privateTimesheetOriginalIntentEndpoint(request,env,identity,origin || '');
+  const privateOriginalContent=url.pathname.match(/^\/api\/timesheet-original-intents\/([0-9a-f-]{36})\/content$/i);
+  if(privateOriginalContent && request.method==='PUT')return privateTimesheetOriginalUploadEndpoint(request,env,identity,privateOriginalContent[1],origin || '');
+  if(url.pathname==='/api/admin/private-timesheet-original-review' && request.method==='GET')return privateOriginalReviewInventory(request,env,identity,origin || '');
+  if(url.pathname==='/api/admin/private-timesheet-original-review/coverage' && request.method==='GET')return privateOriginalCorrectionCoverage(request,env,identity,origin || '');
+  if(url.pathname==='/api/admin/private-timesheet-original-review/prepare-queue' && request.method==='POST')return prepareReviewedOriginalQueue(request,env,identity,origin || '');
+  const privateOriginalReview=url.pathname.match(/^\/api\/admin\/private-timesheet-original-review\/([0-9a-f-]{36})(?:\/(content|revoke))?$/i);
+  if(privateOriginalReview && ((!privateOriginalReview[2]&&['GET','POST'].includes(request.method))||(privateOriginalReview[2]==='content'&&request.method==='GET')||(privateOriginalReview[2]==='revoke'&&request.method==='POST')))return privateOriginalReviewEndpoint(request,env,identity,privateOriginalReview[1],origin || '',privateOriginalReview[2]||'review');
+
+  const ownershipLocalPreviewMatch=url.pathname.match(/^\/api\/admin\/timesheet-ownership-review\/([^/]+)\/local-history$/);
+  if(ownershipLocalPreviewMatch && request.method==='GET')return ownershipLocalHistoryPreview(request,env,identity,decodeURIComponent(ownershipLocalPreviewMatch[1]),origin || '');
+  const ownershipReviewMatch = url.pathname.match(/^\/api\/admin\/timesheet-ownership-review\/([^/]+)(\/revoke)?$/);
+  if (ownershipReviewMatch && ((!ownershipReviewMatch[2] && ['GET','POST'].includes(request.method)) || (ownershipReviewMatch[2] && request.method === 'POST'))) {
+    return timesheetOwnershipReviewEndpoint(request,env,identity,decodeURIComponent(ownershipReviewMatch[1]),origin || '',Boolean(ownershipReviewMatch[2]));
+  }
+  if(url.pathname==='/api/admin/timesheet-source-review' && request.method==='GET') {
+    return timesheetSourceReviewInventory(env,identity,origin || '');
+  }
+  if(url.pathname==='/api/admin/timesheet-review-subject' && request.method==='GET') {
+    return timesheetReviewSubjectLookup(request,env,identity,origin || '');
+  }
+  const sourceVersionsMatch=url.pathname.match(/^\/api\/admin\/timesheet-source-review\/([^/]+)\/versions$/);
+  if(sourceVersionsMatch && request.method==='GET')return timesheetSourceVersions(request,env,identity,decodeURIComponent(sourceVersionsMatch[1]),origin || '');
+  const sourceVersionReviewMatch=url.pathname.match(/^\/api\/admin\/timesheet-source-review\/([^/]+)\/versions\/([^/]+)\/review(\/revoke)?$/);
+  if(sourceVersionReviewMatch && request.method==='POST')return timesheetSourceVersionReviewEndpoint(request,env,identity,decodeURIComponent(sourceVersionReviewMatch[1]),decodeURIComponent(sourceVersionReviewMatch[2]),origin || '',Boolean(sourceVersionReviewMatch[3]));
+  const sourceExclusionMatch=url.pathname.match(/^\/api\/admin\/timesheet-source-review\/([^/]+)\/not-timesheet(\/revoke)?$/);
+  if(sourceExclusionMatch && request.method==='POST')return timesheetSourceExclusionEndpoint(request,env,identity,decodeURIComponent(sourceExclusionMatch[1]),origin || '',Boolean(sourceExclusionMatch[2]));
+  const sourceReviewMatch=url.pathname.match(/^\/api\/admin\/timesheet-source-review\/([^/]+)(\/revoke)?$/);
+  if (sourceReviewMatch && ((!sourceReviewMatch[2] && ['GET','POST'].includes(request.method)) || (sourceReviewMatch[2] && request.method==='POST'))) {
+    return timesheetSourceReviewEndpoint(request,env,identity,decodeURIComponent(sourceReviewMatch[1]),origin || '',Boolean(sourceReviewMatch[2]));
+  }
+
   if (url.pathname === '/api/access' && request.method === 'GET') {
     return json({ isAdmin: identity.isAdmin, isHrAdmin: identity.isHrAdmin, isXeroAdmin: identity.isXeroAdmin,
+      canReviewTimesheetOwnership: identity.isAdmin===true && identity.isTimesheetViewer===true && Boolean(identity.oid),
+      canReviewPrivateTimesheetOriginals: identity.isAdmin===true && identity.isTimesheetViewer===true && Boolean(identity.oid) && env.PRIVATE_TIMESHEET_ORIGINALS_ENABLED==='true' && env.PRIVATE_TIMESHEET_ORIGINAL_REVIEW_ENABLED==='true' && env.PRIVATE_TIMESHEET_ORIGINAL_PERMISSION_VISIBILITY_VERIFIED==='true',
       isOperationsAdmin: identity.isOperationsAdmin, isJobCardAdmin: identity.isJobCardAdmin,
       canManageSubmissions: identity.isSubmissionAdmin === true,
       canReviewOffsite: identity.canReviewOffsite === true,
@@ -5515,19 +7774,216 @@ async function handle(request, env, ctx) {
     return json(await listRecords(request, env, identity, payPeriods), 200, origin || '');
   }
 
+  if (url.pathname === '/api/document-import/invoices' && request.method === 'GET') {
+    return json(await listImportedInvoices(env.DB,identity,{limit:url.searchParams.get('limit'),offset:url.searchParams.get('offset')}),200,origin||'');
+  }
+
+  if (url.pathname === '/api/document-import/shared-originals' && request.method === 'GET') {
+    return json(await listSharedImportedOriginals(env,identity,{limit:url.searchParams.get('limit'),offset:url.searchParams.get('offset')}),200,origin||'');
+  }
+
+  const importedFileMatch=url.pathname.match(/^\/api\/document-import\/([^/]+)\/original$/);
+  if(importedFileMatch && ['GET','PUT'].includes(request.method)) {
+    const recordId=decodeURIComponent(importedFileMatch[1]);
+    if(!/^document-import-[A-Za-z0-9_-]+$/.test(recordId))throw Object.assign(new Error('Imported record not found'),{status:404});
+    let record=await env.DB.prepare('SELECT * FROM records WHERE record_id=?').bind(recordId).first();
+    let sourceId='',fileName='',kind='';
+    if(record){
+      if(record.status==='Deleted'||!canReadHistoryRecord(identity,record)||(request.method==='PUT'&&!canEditRecord(identity,record)))throw Object.assign(new Error('Document access is not permitted'),{status:403});
+      if (['timesheets','clock'].includes(canonicalKind(record.kind)) && !canViewAllRecords(identity,'timesheets')) await assertNoHistoricalOwnerConflict(identity,env.DB);
+      const payload=payloadObject(record);sourceId=String(payload.importSourceId||'');fileName=String(payload.importSourceName||'');kind=canonicalKind(record.kind);
+    }else{
+      if(!identity.isXeroAdmin)throw Object.assign(new Error('Document access is not permitted'),{status:403});
+      record=await env.DB.prepare('SELECT * FROM imported_invoice_records WHERE record_id=?').bind(recordId).first();
+      if(!record)throw Object.assign(new Error('Imported record not found'),{status:404});
+      sourceId=String(record.source_id||'');fileName=String(record.source_name||'');kind='invoices';
+    }
+    if(request.method==='GET'){
+      let stored;
+      if (record && ['timesheets','clock'].includes(kind) && !canViewAllRecords(identity,'timesheets')) {
+        // A decision about a record does not grant access to its separately
+        // filed original. Bind the old-owner check and review hold to the same
+        // query that obtains the sharing link, including changes in between.
+        stored=await env.DB.prepare(`SELECT f.file_name,f.sharing_url,f.filed_at FROM records r
+          LEFT JOIN document_import_files f ON f.record_id=r.record_id
+          WHERE r.record_id=? AND r.status<>'Deleted' AND r.kind IS ? AND r.payload_json IS ?
+            AND lower(r.owner_oid)=? AND lower(r.owner_upn)=?
+            AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=r.record_id)
+            AND NOT EXISTS (SELECT 1 FROM profile_settings p WHERE lower(p.owner_upn)=? AND p.owner_oid<>'' AND lower(p.owner_oid)<>?)
+            AND NOT EXISTS (SELECT 1 FROM records old WHERE lower(old.owner_upn)=? AND old.action<>'pay_month_correction'
+              AND NOT (old.action='email_archive' AND old.owner_oid='shared-estimate-archive') AND old.owner_oid<>'' AND lower(old.owner_oid)<>?)`)
+          .bind(recordId,record.kind,record.payload_json,identity.oid.toLowerCase(),identity.upn.toLowerCase(),identity.upn.toLowerCase(),identity.oid.toLowerCase(),identity.upn.toLowerCase(),identity.oid.toLowerCase()).first();
+        if (!stored) throw Object.assign(new Error('Document access is not permitted'),{status:403});
+        if (!stored.file_name) stored=null;
+      } else {
+        stored=await env.DB.prepare('SELECT file_name,sharing_url,filed_at FROM document_import_files WHERE record_id=?').bind(recordId).first();
+      }
+      if(!stored)return json({filed:false},200,origin||'');
+      return json({filed:true,fileName:stored.file_name,url:stored.sharing_url,filedAt:stored.filed_at},200,origin||'');
+    }
+    // Filing calls SharePoint outside the database transaction. Hold ordinary
+    // employee filing until a separately reviewed original and handoff lock
+    // can protect that operation from a concurrent ownership decision.
+    if(record && ['timesheets','clock'].includes(kind) && !canViewAllRecords(identity,'timesheets')) {
+      throw Object.assign(new Error('Timesheet original requires review'),{status:403});
+    }
+    if(env.DOCUMENT_IMPORT_SHARED_STORAGE_READY!=='true')throw Object.assign(new Error('Shared document filing is not configured yet.'),{status:503,publicMessage:'Shared document filing is not configured yet.'});
+    const result=await fileImportedDocument({recordId,kind,sourceId,fileName,bytes:await readDocumentBytes(request)},documentImportSharePointIo(env));
+    return json({filed:true,fileName:result.fileName,url:result.url},201,origin||'');
+  }
+
+  if (url.pathname === '/api/document-import/timesheet-target' && request.method === 'POST') {
+    const result=await documentTimesheetTarget(request,env,identity,await readJson(request));
+    const {ownerOid,...publicResult}=result;return json(publicResult,200,origin||'');
+  }
+
+  if (url.pathname === '/api/document-import' && request.method === 'POST') {
+    const body=await readJson(request);
+    if (!Array.isArray(body.items) || !body.items.length || body.items.length>100) throw Object.assign(new Error('Select between 1 and 100 reviewed entries'),{status:400});
+    const payPeriods=await loadPayPeriods(env);
+    // Import-only identities do not add contractors to attendance expectations.
+    // Each target must still resolve to a trusted OID in the database or Entra.
+    const roster=documentImportRoster(env);
+    const results=[];
+    let timesheetHistory;
+    for (const candidate of body.items) {
+      try {
+        if (!candidate || typeof candidate!=='object' || !/^[a-f0-9]{64}(?::[^\x00-\x1f]{1,512})?$/i.test(String(candidate.sourceId||'')) || !Number.isInteger(candidate.sourceIndex) || candidate.sourceIndex<0 || candidate.sourceIndex>10000) throw Object.assign(new Error('Document source identity is invalid'),{status:400});
+        if (!['tasks','calendar','timesheets','enquiries','job-cards','estimates','invoices'].includes(candidate.kind)) throw Object.assign(new Error('This document type is not connected to protected import yet'),{status:400});
+        const owner=await documentImportOwner(identity,candidate.data,roster,env);
+        const normalized=normalizeImportCandidate(candidate);
+        // A reviewer can import a few days now and return to the same photo later.
+        // Index positions then depend on review order, whereas the date is stable.
+        const sourceEntryKey=normalized.kind==='timesheets' ? `day:${normalized.recordDate}` : `index:${candidate.sourceIndex}`;
+        const id='document-import-'+await sha256Base64Url(`${owner.upn}\0${candidate.kind}\0${candidate.sourceId}\0${sourceEntryKey}`);
+        if (normalized.kind==='invoices') {
+          const imported=await saveImportedInvoice({db:env.DB,actor:identity,owner:{...owner,name:owner.name || identity.name},candidate,input:{recordId:id,...normalized},lookup:number=>lookupXeroInvoice(env,'',number)});
+          results.push(imported);continue;
+        }
+        const existing=await env.DB.prepare('SELECT record_id FROM records WHERE record_id=?').bind(id).first();
+        if (existing) { results.push({status:'duplicate',record_id:id,message:'This document entry was already imported.'}); continue; }
+        if (normalized.kind==='timesheets') {
+          const projected={kind:'timesheets',owner_oid:owner.oid,owner_upn:owner.upn,payload:normalized.payload};
+          if (!canEditRecord(identity,projected,new Date(),payPeriods)) throw Object.assign(new Error('This employee or pay month is not editable for your account'),{status:403});
+          await assertNoUnresolvedImportHistory(env,owner);
+          const historyUrl=new URL('/api/history?kind=all&limit=1000',request.url);
+          if (!timesheetHistory) timesheetHistory=listRecords(new Request(historyUrl,{headers:request.headers}),env,identity,payPeriods);
+          const history=await timesheetHistory;
+          if (history.meta?.timesheet_revision_consistent!==true || history.meta?.timesheet_history_held===true || history.meta?.history_pagination?.has_more || ((env.HISTORY_UPSTREAM_URL || String(env.HISTORY_SOURCE||'').toLowerCase()==='sharepoint') && history.meta?.upstream!=='ok')) throw Object.assign(new Error('Complete timesheet history is unavailable; check existing days before importing.'),{status:503,publicMessage:'Complete timesheet history is unavailable; check existing days before importing.'});
+          const day=normalized.recordDate;
+          const duplicate=(history.records||[]).some(record => {
+            if (!['timesheets','clock'].includes(canonicalKind(record.kind||record.action))) return false;
+            if (!timesheetRecordMayBelongTo(record,{...owner,name:owner.name || (owner.oid===identity.oid ? identity.name : '')},roster)) return false;
+            const data=record.payload && typeof record.payload==='object' ? record.payload : {};
+            const arrays=[data.rows,data.dailyRows,data.daily_rows,data.gmtDailyRows];
+            return arrays.some(rows=>Array.isArray(rows)&&rows.some(row=>String(row?.date||row?.recordDate||row?.record_date||'').slice(0,10)===day)) || (canonicalKind(record.kind||record.action)==='clock' && String(record.record_date||'').slice(0,10)===day);
+          });
+          if (duplicate) throw Object.assign(new Error('An existing day is already recorded; review it before importing.'),{status:409});
+        }
+        let duplicateCondition='',duplicateValues=[];
+        if (normalized.kind==='tasks' || normalized.kind==='calendar') {
+          duplicateCondition=`r.owner_oid=? AND r.kind=? AND r.status<>'Deleted' AND json_valid(r.payload_json) AND lower(trim(COALESCE(json_extract(r.payload_json,'$.title'),'')))=? AND (?<>'calendar' OR r.record_date=?)`;
+          duplicateValues=[owner.oid,normalized.kind,normalized.payload.title.trim().toLowerCase(),normalized.kind,normalized.recordDate||''];
+        } else if (normalized.kind==='job-cards') {
+          duplicateCondition=`r.kind='job-cards' AND r.status<>'Deleted' AND json_valid(r.payload_json) AND (replace(replace(replace(lower(trim(COALESCE(json_extract(r.payload_json,'$.jobReference'),''))),'-',''),'/',''),' ','')=? OR replace(replace(replace(lower(trim(COALESCE(json_extract(r.payload_json,'$.candidateFields.cardNumber'),''))),'-',''),'/',''),' ','')=? OR EXISTS (SELECT 1 FROM json_each(r.payload_json,'$.candidateFields.cardNumbers') n WHERE n.type='text' AND replace(replace(replace(lower(trim(n.value)),'-',''),'/',''),' ','')=?))`;
+          const reference=normalized.payload.jobReference.trim().toLowerCase().replace(/[\s/-]+/g,'');
+          duplicateValues=[reference,reference,reference];
+        } else if (normalized.kind==='estimates') {
+          duplicateCondition=`r.kind='estimates' AND r.status<>'Deleted' AND json_valid(r.payload_json) AND lower(trim(COALESCE(json_extract(r.payload_json,'$.number'),'')))=?`;
+          duplicateValues=[normalized.payload.number.trim().toLowerCase()];
+        } else if (normalized.kind==='enquiries') {
+          duplicateCondition=`r.owner_oid=? AND r.kind='enquiries' AND r.status<>'Deleted' AND json_valid(r.payload_json) AND lower(trim(COALESCE(json_extract(r.payload_json,'$.customerName'),'')))=? AND lower(trim(COALESCE(json_extract(r.payload_json,'$.message'),'')))=?`;
+          duplicateValues=[owner.oid,normalized.payload.customerName.trim().toLowerCase(),normalized.payload.message.trim().toLowerCase()];
+        }
+        if (duplicateCondition) {
+          const similar=await env.DB.prepare(`SELECT r.record_id FROM records r WHERE ${duplicateCondition} LIMIT 1`).bind(...duplicateValues).first();
+          if (similar) throw Object.assign(new Error('A similar record already exists; review it before importing.'),{status:409});
+        }
+        const payload={...normalized.payload,editedBy:identity.upn,editNote:'Imported from a reviewed document.'};
+        const bodyRecord={recordId:id,...normalized,payload};
+        validatePortalRequestMutation(bodyRecord,null,identity);
+        const ownerIdentity={...identity,oid:owner.oid,upn:owner.upn,name:owner.name||identity.name,isAdmin:false,isSubmissionAdmin:false,isOperationsAdmin:false};
+        const input=normaliseInput(bodyRecord,ownerIdentity,null,env,payPeriods);
+        input.payloadJson=JSON.stringify({...JSON.parse(input.payloadJson),importSourceId:candidate.sourceId,importSourceIndex:candidate.sourceIndex,importSourceName:text(candidate.source,'',240),importedBy:identity.upn});
+        try {
+          const values=[input.recordId,input.ownerOid,input.ownerUpn,input.employeeName,input.kind,input.action,input.status,input.startDate,input.endDate,input.recordDate,input.submittedAt,input.updatedAt,input.issue,input.payloadJson];
+          let statement;
+          if (normalized.kind==='timesheets') {
+            const arrays=['$.rows','$.dailyRows','$.daily_rows','$.gmtDailyRows'].map(path=>`EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(r.payload_json) THEN r.payload_json ELSE '{}' END, '${path}') j WHERE CASE WHEN j.type='object' THEN COALESCE(json_extract(j.value,'$.date'),json_extract(j.value,'$.recordDate'),json_extract(j.value,'$.record_date')) END=?)`).join(' OR ');
+            // The source may still carry an editor's address after a reviewer
+            // identifies a different employee. Check those decisions in the
+            // same statement as the insert, including revoked decisions: a
+            // revoked identity is unresolved, not proof that the day is free.
+            statement=env.DB.prepare(`INSERT INTO records (record_id,owner_oid,owner_upn,employee_name,kind,action,status,start_date,end_date,record_date,submitted_at,updated_at,issue,payload_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?
+              WHERE NOT EXISTS (SELECT 1 FROM records r WHERE (lower(r.owner_upn)=? OR EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=r.record_id AND lower(review.subject_oid)=?)) AND r.kind IN ('timesheets','clock') AND r.status<>'Deleted' AND ((r.kind='clock' AND r.record_date=?) OR ${arrays}))
+              AND NOT EXISTS (SELECT 1 FROM profile_settings p WHERE lower(p.owner_upn)=? AND p.owner_oid<>'' AND lower(p.owner_oid)<>?)
+              AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records source ON source.record_id=review.record_id WHERE lower(review.subject_oid)=? OR lower(source.owner_upn)=?)
+              AND NOT EXISTS (SELECT 1 FROM records old WHERE lower(old.owner_upn)=? AND old.action<>'pay_month_correction' AND NOT (old.action='email_archive' AND old.owner_oid='shared-estimate-archive') AND old.owner_oid<>'' AND lower(old.owner_oid)<>?)`)
+              .bind(...values,owner.upn,String(owner.oid).toLowerCase(),normalized.recordDate,normalized.recordDate,normalized.recordDate,normalized.recordDate,normalized.recordDate,owner.upn,String(owner.oid).toLowerCase(),String(owner.oid).toLowerCase(),owner.upn,owner.upn,String(owner.oid).toLowerCase());
+          } else {
+            const indexGuard=normalized.kind==='estimates' ? ` AND NOT EXISTS (SELECT 1 FROM estimate_index e WHERE lower(trim(e.estimate_number))=? OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(e.number_aliases_json) THEN e.number_aliases_json ELSE '[]' END) a WHERE a.type='text' AND lower(trim(a.value))=?))` : '';
+            const indexValues=normalized.kind==='estimates' ? [normalized.payload.number.trim().toLowerCase(),normalized.payload.number.trim().toLowerCase()] : [];
+            statement=env.DB.prepare(`INSERT INTO records (record_id,owner_oid,owner_upn,employee_name,kind,action,status,start_date,end_date,record_date,submitted_at,updated_at,issue,payload_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM records r WHERE ${duplicateCondition})${indexGuard}`)
+              .bind(...values,...duplicateValues,...indexValues);
+          }
+          const inserted=await statement.run();
+          if (Number(inserted?.meta?.changes || 0)<1) throw Object.assign(new Error('A similar record or existing day was found; review it before importing.'),{status:409});
+        } catch (error) {
+          const raced=await env.DB.prepare('SELECT record_id FROM records WHERE record_id=?').bind(id).first();
+          if (raced) { results.push({status:'duplicate',record_id:id,message:'This document entry was already imported.'}); continue; }
+          throw error;
+        }
+        const deliveryMessage=normalized.kind==='timesheets' ? 'Saved to portal; Accounts workbook filing has not been queued.' : ['tasks','calendar'].includes(normalized.kind) ? 'Saved to portal; the Microsoft 365 request has not been sent.' : normalized.kind==='job-cards' ? 'Saved to portal; job-card delivery has not been sent.' : normalized.kind==='estimates' ? 'Saved to portal; estimate has not been sent or archived.' : 'Saved to portal; the enquiry has not been linked to an inbox.';
+        results.push({status:'saved',record_id:id,message:deliveryMessage});
+      } catch (error) { results.push({status:'rejected',message:error?.publicMessage || (error?.status && error.status<500 ? error.message : 'Entry could not be saved. Check the record and try again.')}); }
+    }
+    return json({results},200,origin||'');
+  }
+
   if (url.pathname === '/api/records' && request.method === 'POST') {
     const payPeriods = await loadPayPeriods(env);
     const body = await readJson(request);
+    const requestedAction=body.action||body.gmtAction||parsePayload(body).action||'';
+    if(requestedAction==='pay_month_correction' && body.action!=='pay_month_correction')throw Object.assign(new Error('Use the pay-month editor to save this correction safely.'),{status:409});
     if (body.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods, identity);
     const recordId = text(body.recordId || body.sourceRecordId || body.source_record_id || body.gmt_record_id, '', MAX_RECORD_ID);
+    if (/^document-import-/i.test(recordId)) throw Object.assign(new Error('Import record IDs are reserved for the document import workflow'),{status:403});
     const existing = recordId ? await env.DB.prepare('SELECT * FROM records WHERE record_id = ?').bind(recordId).first() : null;
     if (existing && existing.status === 'Deleted') throw Object.assign(new Error('This record has been deleted'), { status: 409 });
     if (existing && !canEditRecord(identity, existing, new Date(), payPeriods)) throw Object.assign(new Error('This record is read-only for your account'), { status: 403 });
     if (existing?.action === 'archive_import') throw Object.assign(new Error('Scanned job-card records are managed through Accounts review'), { status: 409 });
     if (existing && existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') throw Object.assign(new Error('A pay-month correction cannot change record type'), { status: 400 });
+    if(body.action==='pay_month_correction'){
+      if(typeof body.baseCorrectionExists!=='boolean'||body.baseCorrectionExists!==Boolean(existing)||!Number.isSafeInteger(body.baseOwnerRevision)||body.baseOwnerRevision<0||(existing && (!body.baseCorrectionUpdatedAt||String(body.baseCorrectionUpdatedAt)!==String(existing.updated_at||''))))throw Object.assign(new Error('This timesheet changed since it was opened. Refresh and review it before saving.'),{status:409});
+    }
     validatePortalRequestMutation(body, existing, identity);
     const input = normaliseInput(body, existing && (identity.isAdmin || identity.isSubmissionAdmin || (identity.isOperationsAdmin && existing.kind !== 'timesheets' && existing.kind !== 'clock') || (existing.kind === 'job-cards' && identity.isJobCardAdmin)) ? { ...identity, name: existing.employee_name } : identity, existing, env, payPeriods);
-    const result = await saveRecord(env, input, identity, existing);
+    if (['timesheets','clock'].includes(canonicalKind(input.kind)) && !canViewAllRecords(identity,'timesheets')) await assertNoHistoricalOwnerConflict(identity,env.DB);
+    let result;
+    if(body.importReview){
+      const review=body.importReview;
+      if(body.kind!=='timesheets'||body.action!=='pay_month_correction'||!Array.isArray(review.dates)||!Number.isSafeInteger(review.localRevision)||!review.historyFingerprint)throw Object.assign(new Error('Reviewed timesheet data is invalid.'),{status:400});
+      const reviewedRows=Array.isArray(body.payload?.rows)?body.payload.rows:[];
+      if(!review.dates.length||new Set(review.dates).size!==review.dates.length||review.dates.some(date=>{const rows=reviewedRows.filter(row=>row?.date===date);return rows.length!==1||!/^[a-f0-9]{64}$/i.test(String(rows[0]?.sourceEvidence?.sourceId||''));}))throw Object.assign(new Error('Each imported day must retain its original source reference.'),{status:400});
+      const target=await documentTimesheetTarget(request,env,identity,{employeeEmail:body.employeeEmail,dates:review.dates});
+      const expectedId='gmt-paymonth-'+target.payMonth+'-'+Array.from(new TextEncoder().encode(target.employeeUpn.toLowerCase()),b=>b.toString(16).padStart(2,'0')).join('');
+      const rowDates=new Set((body.payload?.rows||[]).map(row=>row.date));
+      const matchingExisting=existing&&existing.action==='pay_month_correction'&&String(existing.owner_upn||'').toLowerCase()===target.employeeUpn.toLowerCase()&&recordPayMonthKey(existing,payPeriods)===target.payMonth;
+      if(target.historyFingerprint!==review.historyFingerprint||target.localRevision!==review.localRevision||target.localRevision!==body.baseOwnerRevision||target.conflicts.length||target.payMonth!==body.payload?.payMonth||(existing?!matchingExisting:recordId!==expectedId)||review.dates.some(date=>!rowDates.has(date)))throw Object.assign(new Error('The timesheet changed during review. Refresh and try again.'),{status:409});
+      if (!target.ownerOid || (existing && String(existing.owner_oid||'').toLowerCase()!==String(target.ownerOid).toLowerCase())) {
+        throw Object.assign(new Error('Employee identity needs reconciliation before this correction can be changed.'),{status:409});
+      }
+      if (!existing) input.ownerOid=target.ownerOid;
+      result=await saveReviewedPayMonth(env,input,identity,existing,target);
+    } else if(body.action==='pay_month_correction'){
+      const key=String(input.ownerUpn||'').toLowerCase();
+      const owner=await documentImportOwner(identity,{employeeEmail:key},documentImportRoster(env),env);
+      if (!owner.oid || (existing && String(existing.owner_oid||'').toLowerCase()!==String(owner.oid).toLowerCase())) {
+        throw Object.assign(new Error('Employee identity needs reconciliation before this correction can be changed.'),{status:409});
+      }
+      if (!existing) input.ownerOid=owner.oid;
+      result=await saveReviewedPayMonth(env,input,identity,existing,{employeeUpn:key,localRevision:body.baseOwnerRevision});
+    } else result=await saveRecord(env, input, identity, existing);
     return json({ ok: true, record_id: input.recordId, ...result }, result.created ? 201 : 200, origin || '');
   }
 
@@ -5557,13 +8013,43 @@ async function handle(request, env, ctx) {
     if (request.method !== 'POST') return json({ error: 'Attachments are only available for job cards' }, 400, origin || '');
     const payPeriods = await loadPayPeriods(env);
     if (!canEditRecord(identity, existing, new Date(), payPeriods)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (['timesheets','clock'].includes(canonicalKind(existing.kind)) && !canViewAllRecords(identity,'timesheets')) await assertNoHistoricalOwnerConflict(identity,env.DB);
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (existing.kind !== 'timesheets') return json({ error: 'Only timesheet corrections can be queued' }, 400, origin || '');
+    if (/^document-import-/i.test(existing.record_id)) return json({ error: 'An imported day cannot be queued as a complete pay-month workbook.' }, 409, origin || '');
     const body = await readJson(request);
-    const result = await queueRecordAttachments(env, existing, body);
+    // Only the separate, authenticated synthetic gateway can construct this
+    // internal symbol-bearing context. HTTP inputs cannot supply the symbol.
+    const testGrant = ctx?.[syntheticQueueCapability];
+    const testCapability = testGrant?.capability === syntheticQueueCapability ? syntheticQueueCapability : null;
+    if (testCapability && (typeof testGrant.payloadJson !== 'string' || existing.payload_json !== testGrant.payloadJson ||
+        existing.owner_oid !== testGrant.ownerOid || existing.owner_upn !== testGrant.ownerUpn || existing.employee_name !== testGrant.employeeName ||
+        existing.kind !== testGrant.kind || existing.action !== testGrant.action || existing.status !== testGrant.status)) {
+      return json({ error: 'The verified test correction changed before queueing.' }, 409, origin || '');
+    }
+    let localSnapshotRevision = testCapability ? testGrant.localSnapshotRevision : undefined;
+    if (!testCapability && existing.action === 'pay_month_correction' && !syntheticRecord(existing, payloadObject(existing))) {
+      const month = String(payloadObject(existing).payMonth || '');
+      const period = /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && payPeriods.periodForMonth(month);
+      if (!period) throw Object.assign(new Error('The timesheet history needs review before queueing.'), {status:409});
+      // Until independently reviewed external history can be bound here,
+      // hold any attachment with a day that the server cannot substantiate.
+      // Matching local history is still not proof that external history is
+      // complete; delivery remains subject to the separate release gates.
+      const snapshot = await readLocalPayMonthSnapshot(env,{oid:existing.owner_oid,upn:existing.owner_upn},period,existing.record_id);
+      validateCompletePayMonthSource(existing,snapshot.rows,parseQueuedAttachments(body),period);
+      localSnapshotRevision = snapshot.revision;
+    }
+    const result = await queueRecordAttachments(env, existing, body, testCapability, localSnapshotRevision);
     if (result.skipped) {
       const timestamp = now();
-      await env.DB.prepare("UPDATE records SET status = 'Test - not sent', issue = '', updated_at = ? WHERE record_id = ?").bind(timestamp, recordId).run();
+      const skipped=await env.DB.prepare(`UPDATE records SET status = 'Test - not sent', issue = '', updated_at = ?
+        WHERE record_id=? AND payload_json IS ? AND owner_oid IS ? AND owner_upn IS ? AND employee_name IS ?
+          AND kind IS ? AND action IS ? AND status IS ? AND updated_at IS ? AND issue IS ?
+          AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=records.record_id)
+          AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=records.record_id AND q.status<>'skipped')`)
+        .bind(timestamp,recordId,existing.payload_json,existing.owner_oid,existing.owner_upn,existing.employee_name,existing.kind,existing.action,existing.status,existing.updated_at??null,existing.issue??null).run();
+      if (Number(skipped?.meta?.changes||0)<1) return json({error:'The test record changed or needs review. Refresh and try again.'},409,origin || '');
       return json({ ok: true, record_id: recordId, ...result }, 200, origin || '');
     }
     // Saving a correction should start delivery automatically. Keep this
@@ -5583,7 +8069,38 @@ async function handle(request, env, ctx) {
         q.last_error AS dispatch_last_error
       FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id WHERE r.record_id = ?`).bind(recordId).first();
     if (!existing) return json({ error: 'Record not found' }, 404, origin || '');
+    if (request.method === 'GET' && existing.kind === 'timesheets' && !canViewAllRecords(identity,'timesheets')) {
+      const oid=String(identity.oid || '').trim().toLowerCase(), upn=String(identity.upn || '').trim().toLowerCase();
+      // Resolve the decision and the record in one query. Once a record has
+      // ever had a review, its original editor fields cannot restore access
+      // after revocation or invalidation.
+      const visible = await env.DB.prepare(`SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
+          q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at, q.last_error AS dispatch_last_error,
+          EXISTS (SELECT 1 FROM timesheet_ownership_reviews review
+            JOIN timesheet_review_record_revisions v ON v.record_id=review.record_id AND v.revision=review.record_revision
+            WHERE review.record_id=r.record_id AND lower(review.subject_oid)=? AND NOT EXISTS (
+              SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated'))) AS reviewed_access
+        FROM records r LEFT JOIN dispatch_queue q ON q.record_id=r.record_id
+        WHERE r.record_id=? AND r.kind='timesheets' AND r.status<>'Deleted' AND (
+          EXISTS (SELECT 1 FROM timesheet_ownership_reviews review
+            JOIN timesheet_review_record_revisions v ON v.record_id=review.record_id AND v.revision=review.record_revision
+            WHERE review.record_id=r.record_id AND lower(review.subject_oid)=? AND NOT EXISTS (
+              SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated')))
+          OR (NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=r.record_id)
+            AND lower(r.owner_oid)=? AND (r.action<>'pay_month_correction' OR lower(r.owner_upn)=?)
+            AND NOT EXISTS (SELECT 1 FROM profile_settings p WHERE lower(p.owner_upn)=? AND p.owner_oid<>'' AND lower(p.owner_oid)<>?)
+            AND NOT EXISTS (SELECT 1 FROM records old WHERE lower(old.owner_upn)=? AND old.action<>'pay_month_correction'
+              AND NOT (old.action='email_archive' AND old.owner_oid='shared-estimate-archive') AND old.owner_oid<>'' AND lower(old.owner_oid)<>?)))`)
+        .bind(oid,recordId,oid,oid,upn,upn,oid,upn,oid).first();
+      if (!visible) return json({ error:'Record access is not permitted' },403,origin || '');
+      const payPeriods=await loadPayPeriods(env), reviewed=Boolean(visible.reviewed_access);
+      const record=projectRow(visible,true,env,payPeriods);
+      record.can_edit=reviewed ? false : canEditRecord(identity,visible,new Date(),payPeriods);
+      record.can_edit_record=record.can_edit;
+      return json({ record,payload:payloadObject(visible) },200,origin || '');
+    }
     if (!canAccessRecord(identity, existing)) return json({ error: 'Record access is not permitted' }, 403, origin || '');
+    if (['timesheets','clock'].includes(canonicalKind(existing.kind)) && !canViewAllRecords(identity,'timesheets')) await assertNoHistoricalOwnerConflict(identity,env.DB);
     if (existing.status === 'Deleted') return json({ error: 'Record has been deleted' }, 410, origin || '');
     if (request.method === 'GET') {
       const payPeriods = await loadPayPeriods(env);
@@ -5597,6 +8114,16 @@ async function handle(request, env, ctx) {
       const payPeriods = await loadPayPeriods(env);
       if (!canEditRecord(identity, existing, new Date(), payPeriods)) return json({ error: 'This record is read-only for your account.' }, 403, origin || '');
       const body = await readJson(request);
+      if(existing.action==='pay_month_correction')return json({error:'Open the pay-month editor to save this correction safely.'},409,origin||'');
+      if((body.action||body.gmtAction||parsePayload(body).action)==='pay_month_correction')return json({error:'Open the pay-month editor to save this correction safely.'},409,origin||'');
+      if (/^document-import-/i.test(recordId)) {
+        const fields=parsePayload(body);
+        const requestedPayloadKind=body.payload && typeof body.payload==='object' && !Array.isArray(body.payload) ? body.payload.kind : '';
+        const kind=canonicalKind(body.kind || body.type || fields.kind || existing.kind);
+        const action=text(body.action || body.gmtAction || fields.action || (kind==='clock'?'clock_event':'submission'),'submission',100);
+        if(kind!==canonicalKind(existing.kind) || (requestedPayloadKind && canonicalKind(requestedPayloadKind)!==canonicalKind(existing.kind))) return json({error:'Imported records cannot change category.'},409,origin||'');
+        if(existing.kind==='timesheets' && action!==existing.action) return json({error:'An imported day cannot become a pay-month correction.'},409,origin||'');
+      }
       if (existing.action === 'pay_month_correction' && body.action !== 'pay_month_correction') return json({ error: 'A pay-month correction cannot change record type' }, 400, origin || '');
       if (existing.action === 'pay_month_correction') validatePayMonthCorrection(body, new Date(), payPeriods, identity);
       validatePortalRequestMutation(body, existing, identity);
@@ -5623,6 +8150,12 @@ export default {
     try {
       return await handle(request, env, ctx);
     } catch (error) {
+      if (String(error?.message || '').includes('gmt_timesheet_handoff_in_progress')) {
+        return json({error:'A timesheet delivery is being handed off. Please wait and try again.'},409,allowedOrigin(request,env) || '');
+      }
+      if (String(error?.message || '').includes('gmt_timesheet_delivery_in_progress')) {
+        return json({error:'A timesheet workbook delivery is in progress or needs review. Please try again later or contact Accounts.'},409,allowedOrigin(request,env) || '');
+      }
       const status = Number(error && error.status) || 500;
       const message = error?.publicMessage || (status >= 500 ? 'GMT portal service is temporarily unavailable' : (error.message || 'Request failed'));
       const origin = allowedOrigin(request, env);
@@ -5640,6 +8173,7 @@ export default {
 export {
   adminDispatchQueued,
   adminQueueStatus,
+  verifyPrivateWorkbookDestination,
   normaliseInput,
   validatePortalRequestMutation,
   validatePortalRequestDeletion,
@@ -5668,6 +8202,8 @@ export {
   canAccessRecord,
   canReadHistoryRecord,
   upstreamHistoryScope,
+  authenticateToken,
+  readBoundedJson,
   tokenIdentity,
   profileView,
   getProfileSettings,
@@ -5682,6 +8218,7 @@ export {
   xeroInvoiceMutationPolicy,
   xeroAccountingRequest,
   listXeroInvoices,
+  lookupXeroInvoice,
   canonicalEstimateInput,
   correlateEstimateRecords,
   upsertEstimateIndex,
