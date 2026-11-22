@@ -90,3 +90,25 @@ export function routeRecordAttachment(input, options = {}) {
   if (routes.length !== 1) throw new Error('One attachment spans multiple pay months; process each Date partition separately.');
   return routes[0];
 }
+
+// The caller must obtain this identity from the trusted directory, not from
+// the attachment. This is a reference validator, not a provider write.
+export function routePrivateRecordAttachment(input, verifiedIdentity, options = {}) {
+  const id = field(verifiedIdentity?.id).toLowerCase();
+  const email = field(verifiedIdentity?.email).toLowerCase();
+  const name = field(verifiedIdentity?.displayName);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id) ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !name ||
+      /[\\/<>:"|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name)) {
+    throw new Error('A verified directory identity with a safe display name is required.');
+  }
+  const route = routeRecordAttachment(input, options);
+  if (route.employeeEmail !== email || route.employeeName.toLowerCase() !== name.toLowerCase()) {
+    throw new Error('The attachment identity does not match the verified directory identity.');
+  }
+  return {
+    ...route,
+    employeeName: name,
+    workbookPath: `/Submitted Documents/Timesheets/${id}/${route.payMonth}/GMT Timesheet - ${name} - Pay Month ${route.payMonth}.xlsx`
+  };
+}

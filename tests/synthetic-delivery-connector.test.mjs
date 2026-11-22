@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const spec = JSON.parse(readFileSync(new URL('../power-platform/synthetic-delivery-connector.openapi.json', import.meta.url), 'utf8'));
+assert.equal(spec.swagger, '2.0');
+assert.equal(spec.host, 'gmt-timesheet-synthetic-20261110.raspy-breeze-e230.workers.dev');
+assert.deepEqual(spec.schemes, ['https']);
+assert.deepEqual(spec.securityDefinitions.deliveryKey, {type:'apiKey', name:'X-GMT-Delivery-Key', in:'header'});
+assert.deepEqual(spec.security, [{deliveryKey:[]}]);
+const route = spec.paths['/api/integrations/private-timesheet-route'].post;
+assert.equal(route.operationId, 'ResolvePrivateTimesheet');
+assert.deepEqual(route.parameters[0].schema.required, ['recordId', 'generation', 'flowRunId', 'runStartedAt']);
+assert.ok(route.responses['200'].schema.properties.sourceBase64, 'the flow must receive the verified source');
+assert.ok(route.responses['200'].schema.properties.workbookId, 'the flow must receive the verified workbook');
+assert.equal(spec.paths['/api/integrations/timesheet-delivery-receipts'].post.operationId, 'PostTimesheetReceipt');
+const receiptProperties = spec.paths['/api/integrations/timesheet-delivery-receipts'].post.parameters[0].schema.properties;
+assert.equal(receiptProperties.verifiedRowsJson?.type,'string');
+assert.equal(receiptProperties.verifiedRecordIdsJson?.type,'string');
+assert.ok(!JSON.stringify(spec).includes('synthetic-route-key-only-not-a-production-secret'));
+console.log('PASS: isolated connector requires connection-managed authentication and exposes the verified route and receipts');

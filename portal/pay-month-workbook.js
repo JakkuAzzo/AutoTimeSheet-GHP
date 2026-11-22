@@ -5,6 +5,7 @@
   "use strict";
 
   var dailyColumns = ["Date", "Start", "Finish", "Break", "Absence", "Total hours", "Notes"];
+  var sourceRateColumns = ["Source basic hours", "Source overtime 1.5× hours", "Source overtime 2× hours"];
   var weeklyColumns = ["Week Start", "Week End", "Total hours"];
 
   function field(row, keys) {
@@ -115,7 +116,18 @@
     return Math.floor(rounded / 60) + "h " + String(rounded % 60).padStart(2, "0") + "m";
   }
 
-  function toWorkbookData(sheet, period) {
+  function sourceRates(row) {
+    var evidence = row && row.sourceEvidence;
+    if (!evidence || evidence.rateEvidenceVersion !== 1) return [null, null, null];
+    return ["claimedBasic", "claimedOt15", "claimedOt20"].map(function (key) {
+      var value = evidence[key];
+      if (value === null) return null;
+      if (!Number.isInteger(value) || value < 0 || value > 1440) throw new Error("Invalid source rate evidence: " + key);
+      return value;
+    });
+  }
+
+  function toWorkbookData(sheet, period, options) {
     var items = Array.isArray(sheet && sheet.rows) ? sheet.rows : [];
     var weeks = {};
     var firstWeek = weekBounds(period && period.start);
@@ -149,7 +161,7 @@
         if (bounds) { weeks[bounds.start].minutes += worked; weeks[bounds.start].hasWorked = true; }
         else undatedMinutes += worked;
       }
-      return {
+      var entry = {
         Date: date,
         Start: start,
         Finish: finish,
@@ -158,6 +170,11 @@
         "Total hours": worked === null ? "" : worked,
         Notes: notes
       };
+      if (options && options.includeSourceRates) {
+        var rates = sourceRates(row);
+        sourceRateColumns.forEach(function (column, index) { entry[column] = rates[index] === null ? "" : rates[index]; });
+      }
+      return entry;
     });
     var weeklyTotals = Object.keys(weeks).sort().map(function (start) {
       var week = weeks[start];
@@ -165,13 +182,13 @@
     });
     if (undatedMinutes) weeklyTotals.push({ "Week Start": "Undated", "Week End": "", "Total hours": undatedMinutes });
     weeklyTotals.push({ "Week Start": "Month total", "Week End": "", "Total hours": knownWorkedRows ? totalMinutes : "" });
-    return { columns: dailyColumns, dailyEntries: dailyEntries, weeklyColumns: weeklyColumns, weeklyTotals: weeklyTotals };
+    return { columns: options && options.includeSourceRates ? dailyColumns.concat(sourceRateColumns) : dailyColumns, dailyEntries: dailyEntries, weeklyColumns: weeklyColumns, weeklyTotals: weeklyTotals };
   }
 
-  function toWorkbookMatrices(sheet, period) {
-    var data = toWorkbookData(sheet, period);
+  function toWorkbookMatrices(sheet, period, options) {
+    var data = toWorkbookData(sheet, period, options);
     var dailyMatrix = [data.columns].concat(data.dailyEntries.map(function (row) {
-      return data.columns.map(function (column) { return column === "Total hours" ? hoursLabel(row[column]) : row[column] === undefined ? "" : row[column]; });
+      return data.columns.map(function (column) { return column === "Total hours" || sourceRateColumns.indexOf(column) >= 0 ? hoursLabel(row[column]) : row[column] === undefined ? "" : row[column]; });
     }));
     var weeklyMatrix = [data.weeklyColumns].concat(data.weeklyTotals.map(function (row) {
       return data.weeklyColumns.map(function (column) { return column === "Total hours" ? hoursLabel(row[column]) : row[column] === undefined ? "" : row[column]; });

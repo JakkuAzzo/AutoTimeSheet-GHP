@@ -111,7 +111,9 @@ assert.match(historyFrame, /Editable during the current or previous pay month\./
 assert.match(historyFrame, /editablePayMonthKeys/);
 assert.match(historyFrame, /Only timesheets in the current or previous pay months may be edited\./);
 assert.match(worker, /isCurrentPayMonthRecord/);
-assert.match(worker, /Only the current and previous pay months may be edited\./);
+assert.match(worker, /Only the current pay month can be edited\./);
+assert.match(worker, /identity\?\.isAdmin === true && identity\?\.isTimesheetViewer === true/,
+  'Accounts can use the previous-cycle window; other users use the current cycle');
 assert.match(worker, /import payPeriods from ['"]\.\.\/\.\.\/pay-periods\.js['"]/);
 assert.match(worker, /function defaultPayPeriods\(\)\s*\{\s*return payPeriods;\s*\}/);
 assert.match(calendarActions, /Cycle start:/);

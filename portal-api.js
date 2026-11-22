@@ -61,6 +61,7 @@
       fetchOptions.body = settings.rawBody;
     }
     var response = await fetch(endpoint + (String(path || "").charAt(0) === "/" ? path : "/" + path), fetchOptions);
+    if (response.ok && settings.responseType === 'blob') return response.blob();
     var text = await response.text();
     var body = null;
     try { body = text ? JSON.parse(text) : null; } catch (_) {}
@@ -96,6 +97,15 @@
     return request('/api/pay-month-starts', { method: 'POST', body: body || {} });
   }
 
+  function importedInvoices(offset) {
+    var start=Math.max(0,Math.floor(Number(offset)||0));
+    return request('/api/document-import/invoices?limit=1000&offset='+encodeURIComponent(String(start)),{method:'GET'});
+  }
+
+  function importDocuments(items) {
+    return request('/api/document-import', {method:'POST', body:{items:Array.isArray(items) ? items : []}, upstreamScopes:Array.isArray(config.timesheetHistoryScopes) ? config.timesheetHistoryScopes : []});
+  }
+
   function saveRecord(record) {
     return request("/api/records", { method: "POST", body: record });
   }
@@ -109,6 +119,30 @@
       method: "POST",
       body: { attachments: Array.isArray(attachments) ? attachments : [] }
     });
+  }
+
+  function documentTimesheetTarget(data) {
+    return request('/api/document-import/timesheet-target', { method: 'POST', body: data });
+  }
+  function createTimesheetOriginalIntent(data) {
+    return request('/api/timesheet-original-intents',{method:'POST',body:data});
+  }
+  function uploadTimesheetOriginal(intentId,file) {
+    var extension=String(file?.name||'').split('.').pop().toLowerCase();
+    if(!/^(?:pdf|doc|docx|docm|xls|xlsx|csv|txt|json|png|jpg|jpeg)$/.test(extension)) throw new Error('The original file type is not supported.');
+    return request('/api/timesheet-original-intents/'+encodeURIComponent(intentId)+'/content',{method:'PUT',rawBody:file,contentType:'application/octet-stream',headers:{'X-GMT-Original-Extension':extension}});
+  }
+  function downloadPrivateTimesheetOriginal(intentId) {
+    return request('/api/admin/private-timesheet-original-review/'+encodeURIComponent(intentId)+'/content',{method:'GET',responseType:'blob'});
+  }
+  function fileImportedOriginal(recordId,file) {
+    return request('/api/document-import/'+encodeURIComponent(recordId)+'/original',{method:'PUT',rawBody:file,contentType:file.type||'application/octet-stream'});
+  }
+  function getImportedOriginal(recordId) {
+    return request('/api/document-import/'+encodeURIComponent(recordId)+'/original',{method:'GET'});
+  }
+  function listSharedImportedOriginals(offset) {
+    return request('/api/document-import/shared-originals?offset='+encodeURIComponent(String(offset || 0)),{method:'GET'});
   }
 
   function getRecord(recordId) {
@@ -560,6 +594,15 @@
     updateUserAccess: updateUserAccess,
     payMonthStarts: payMonthStarts,
     setPayMonthStart: setPayMonthStart,
+    importedInvoices: importedInvoices,
+    importDocuments: importDocuments,
+    documentTimesheetTarget: documentTimesheetTarget,
+    createTimesheetOriginalIntent: createTimesheetOriginalIntent,
+    uploadTimesheetOriginal: uploadTimesheetOriginal,
+    downloadPrivateTimesheetOriginal: downloadPrivateTimesheetOriginal,
+    fileImportedOriginal: fileImportedOriginal,
+    getImportedOriginal: getImportedOriginal,
+    listSharedImportedOriginals: listSharedImportedOriginals,
     saveRecord: saveRecord,
     updateRecord: updateRecord,
     queueAttachments: queueAttachments,

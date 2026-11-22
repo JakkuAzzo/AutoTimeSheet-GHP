@@ -1,0 +1,102 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "GMT fictional source-bound delivery",
+    "description": "Build-only contract for the isolated fictional gateway. It is not the live delivery connector or a provider write fence.",
+    "version": "1.0"
+  },
+  "host": "gmt-timesheet-portal-e2e-20261116.raspy-breeze-e230.workers.dev",
+  "basePath": "/",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "deliveryKey": {"type": "apiKey", "name": "X-GMT-Delivery-Key", "in": "header"}
+  },
+  "security": [{"deliveryKey": []}],
+  "paths": {
+    "/api/synthetic-delivery/claim-bound": {
+      "post": {
+        "operationId": "ClaimFictionalGeneration",
+        "summary": "Claim one verified fictional generation",
+        "description": "A lost response is uncertain and must not be retried as a new send. Source holds remain enforced.",
+        "parameters": [{"name": "body", "in": "body", "required": true, "schema": {"type": "object"}}],
+        "responses": {
+          "200": {"description": "Single generation claimed", "schema": {"type": "object", "properties": {
+            "recordId": {"type": "string"}, "generation": {"type": "string"}, "attemptId": {"type": "string", "format": "uuid"}
+          }}},
+          "default": {"description": "Claim rejected or unavailable"}
+        }
+      }
+    },
+    "/api/synthetic-delivery/finish-bound": {
+      "post": {
+        "operationId": "FinishFictionalHandoff",
+        "summary": "Record the handoff outcome for a claimed attempt",
+        "parameters": [{"name": "body", "in": "body", "required": true, "schema": {"$ref": "#/definitions/AttemptOutcome"}}],
+        "responses": {
+          "200": {"description": "Outcome recorded", "schema": {"type": "object", "properties": {"accepted": {"type": "boolean"}, "outcome": {"type": "string"}}}},
+          "default": {"description": "Outcome rejected or unavailable"}
+        }
+      }
+    },
+    "/api/synthetic-delivery/bind-run": {
+      "post": {
+        "operationId": "BindFictionalRun",
+        "summary": "Bind the fictional receiving run to its claimed attempt",
+        "parameters": [{"name": "body", "in": "body", "required": true, "schema": {"$ref": "#/definitions/AttemptRun"}}],
+        "responses": {
+          "200": {"description": "Run bound", "schema": {"type": "object", "properties": {"bound": {"type": "boolean"}}}},
+          "default": {"description": "Run rejected or unavailable"}
+        }
+      }
+    },
+    "/api/synthetic-delivery/verify-bound": {
+      "post": {
+        "operationId": "VerifyFictionalBoundWorkbook",
+        "summary": "Read and compare the pinned fictional workbook",
+        "description": "Read-only verification. This does not establish effective access, exclude a writer or release publication.",
+        "parameters": [{"name": "body", "in": "body", "required": true, "schema": {"$ref": "#/definitions/AttemptRun"}}],
+        "responses": {
+          "200": {"description": "Bound fictional workbook checked", "schema": {"type": "object", "properties": {
+            "verified": {"type": "boolean"}, "attemptId": {"type": "string"}, "flowRunId": {"type": "string"}, "generation": {"type": "string"},
+            "workbookId": {"type": "string"}, "eTag": {"type": "string"}, "contentSha256": {"type": "string"}, "verificationDigest": {"type": "string"},
+            "effectiveAccess": {"type": "string"}, "stagingWriterExclusion": {"type": "string"}, "publicationReleased": {"type": "boolean"}
+          }}},
+          "default": {"description": "Workbook rejected or unavailable"}
+        }
+      }
+    },
+    "/api/synthetic-delivery/read-source": {
+      "post": {
+        "operationId": "ReadFictionalBoundSource",
+        "summary": "Read the bound fictional source",
+        "description": "Use secure inputs and outputs. This response does not authorize or identify a workbook destination.",
+        "parameters": [{"name": "body", "in": "body", "required": true, "schema": {"$ref": "#/definitions/AttemptRun"}}],
+        "responses": {
+          "200": {"description": "Exact fictional source", "schema": {"type": "object", "properties": {
+            "recordId": {"type": "string"}, "payMonth": {"type": "string"},
+            "generation": {"type": "string"}, "sourceBase64": {"type": "string"}
+          }}},
+          "default": {"description": "Source rejected or unavailable"}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "AttemptOutcome": {
+      "type": "object",
+      "required": ["attemptId", "generation", "outcome"],
+      "properties": {"attemptId": {"type": "string", "format": "uuid"}, "generation": {"type": "string"}, "outcome": {"type": "string", "enum": ["sent", "uncertain"]}}
+    },
+    "AttemptRun": {
+      "type": "object",
+      "required": ["attemptId", "generation", "flowRunId"],
+      "properties": {
+        "attemptId": {"type": "string", "format": "uuid"},
+        "generation": {"type": "string"},
+        "flowRunId": {"type": "string"}
+      }
+    }
+  }
+}

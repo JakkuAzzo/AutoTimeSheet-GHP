@@ -88,20 +88,67 @@ legacy and correction attachment shapes against Date-column pay months.
 
 ### Timesheet correction delivery receipts
 
+The local Worker also contains a disabled private-folder resolver at
+`POST /api/integrations/private-timesheet-route`. It uses the same protected
+delivery-key header and accepts exactly `recordId`, `generation`, `flowRunId`
+and `runStartedAt`. It checks
+the saved source and pay cycle, requires a delivery attempt, verifies the
+employee folder's current permissions, checks the exact month folder and
+workbook's ancestry and permissions, and returns their IDs, the pay month and
+the exact generation-verified source as `sourceBase64`. The response contains
+timesheet data and must use secure outputs; pass its decoded source to the
+Office Script rather than trusting the incoming message's attachment.
+The first verified directory lookup binds the employee address to its Entra
+object ID. A later address reuse or account rename is held for explicit
+reconciliation rather than silently granting another identity access. The
+initial binding relies on the directory and the authorised employee selection;
+it does not prove the historical identity of a previously reused address.
+An additional disabled switch can create a missing blank workbook after an
+exclusive reservation; an uncertain attempt remains held for review. The
+parent must already be private to Admin and the site owners. The resolver
+rechecks the saved source, queue and pay period after verification, but cannot
+prevent changes after the response or prove that the receiving flow used the
+returned file. Do not enable the resolver, provisioning or delivery switches
+until those gaps and the live private workbook and receipt tests are resolved.
+The resolver records the selected workbook against one run for each source
+generation. Another run cannot obtain that generation's route, and a run
+cannot resolve it again after a workbook verification or terminal receipt.
+An interrupted run or ambiguous outcome therefore remains held until it is
+reconciled; never start another workbook write automatically.
+
 The portal can show end-to-end correction stages only after the Power Automate
 flow posts authenticated receipts to the Cloudflare Worker. The local target
 contract is documented in
 [`timesheet-monthly-upsert-flow-spec.json`](timesheet-monthly-upsert-flow-spec.json);
 it is **not configured in the live flow yet**.
 
-For each existing protected correction, the flow must use the same provider
-run name and RFC 3339 start timestamp for all events. Post `flow_started` after
-source validation and routing, before the workbook write. The Office Script
-returns `verifiedRecordIds`, `verifiedRows` and `unverifiedRecordIds` only after
-re-reading `Timesheet Events` and comparing source ID, date, action, status,
-absence, clock and payroll-hour cells. Post `workbook_verified` only when every
+For each existing protected correction, the flow must carry the exact
+`gmt_delivery_generation` value from the dispatched message into every receipt.
+It is the lowercase SHA-256 digest of the exact JSON attachment bytes; the
+Worker checks it against the currently queued attachment. A missing or stale
+generation cannot verify a later correction, even when its dates are the same.
+An unsent, queued correction cannot receive delivery evidence. A failed
+attempt may have reached the provider before a timeout, so its callback can
+still be accepted as evidence; it does not automatically release the queue.
+The flow must use the same provider run name and RFC 3339 start timestamp for
+all events. Require an accepted `flow_started` receipt after source validation
+and routing and before the workbook write. The Office Script returns
+`verifiedRecordIds`, `verifiedRecordIdsJson`, `verifiedRowsJson` and
+`unverifiedRecordIds` only after
+re-reading `Daily Entries` and `Weekly Totals` and comparing the dated rows,
+payroll cells and totals. The two JSON text fields carry the original array
+values, including null for an unknown break or total; send both fields to the
+receipt endpoint without mixing them with the corresponding array fields.
+Recreate the Excel Run script action after changing the return type, and verify
+its mappings again. Post `workbook_verified` only when every
 source row is present and verified, and the created/updated/unchanged counts
-match the verified row count. In the normal path, record that receipt before
+match the verified row count. The local private-route contract requires each
+verified row's read-back start, finish, break, absence, total and notes; the
+Worker compares these to the protected source and retains only row identities
+in the receipt. Secure inputs and outputs on every action that handles those
+values, including the script, parsing and callback actions. The older
+`upsert-monthly-timesheet-row.ts` returns IDs and dates only and cannot satisfy
+this stronger contract. In the normal path, record that receipt before
 updating the history index. Post `flow_completed` after all required
 downstream actions succeed, or `flow_failed` with one of the contract's
 allowed stages and a sanitised, single-line error.
@@ -112,17 +159,20 @@ secret as the Cloudflare Worker secret `TIMESHEET_DELIVERY_CALLBACK_KEY` and a
 secured Power Automate environment variable or approved secret store. Do not
 put secret values in this repository, flow exports, workbook content, browser
 code or ordinary action logs; enable secure inputs and outputs for callback
-actions. The callback accepts only the protected correction record ID and
-receipt evidence: it does not accept a workbook path, employee, SharePoint
-item, or tenant from the caller. The flow remains responsible for resolving
-the workbook from validated source data and the established routing rules.
+actions. A `workbook_verified` callback includes the exact `workbookId` returned
+by the resolver. The Worker compares it with the saved run route; it cannot be
+used to choose another workbook. The flow must use that same ID in its Excel
+action and retain the action inputs and workbook read-back for audit. A callback
+alone is not independent proof that Power Automate used the claimed file.
 
-Callback identity is `(recordId, flowRunId, event)`. Retry a failed callback
-action with the original identity, timestamp and identical body; matching
-retries are idempotent. A callback outage must not stop the existing payroll
-work or trigger a repeat workbook write. Keep processing the workbook and
-history, then retry any pending callbacks in event order with the same evidence
-when service returns. A missing receipt remains “Not reported” in the portal;
+Callback identity is `(recordId, flowRunId, event)` with the same required
+`generation` in each event. Retry a failed callback action with the original
+identity, timestamp and identical body; matching retries are idempotent. If the
+start receipt is not confirmed, hold before the workbook write. If the
+verification receipt is not confirmed, hold before the history update and do
+not repeat the workbook write. Preserve the evidence and reconcile an
+unresolved outcome before retrying any later stage. A missing receipt remains
+“Not reported” in the portal;
 email acceptance alone does not prove a flow run or workbook update. Live flow
 configuration, Worker secret provisioning and a controlled synthetic
 end-to-end run still require an authorised Power Platform operator.

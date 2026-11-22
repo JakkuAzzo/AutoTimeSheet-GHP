@@ -106,7 +106,16 @@
 
   function requestedPath() {
     var candidate = sessionStorage.getItem(postSignInKey) || "";
-    return candidate.indexOf(portalRootPath()) === 0 ? candidate : "";
+    if (candidate.charAt(0) !== "/" || candidate.indexOf("//") === 0 || /[\\\u0000-\u001f\u007f]/.test(candidate)) return "";
+    var rawPath = candidate.split(/[?#]/, 1)[0];
+    if (/%2f|%5c/i.test(rawPath)) return "";
+    try {
+      var target = new URL(candidate, window.location.origin);
+      if (target.origin !== window.location.origin || target.pathname.indexOf(portalRootPath()) !== 0) return "";
+      return target.pathname + target.search + target.hash;
+    } catch (_) {
+      return "";
+    }
   }
 
   function recordIdentity(account) {

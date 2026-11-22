@@ -26,7 +26,10 @@ try {
       history: async () => ({
         meta: {
           is_admin: true,
+          can_view_all_timesheets: true,
           editable_pay_months: ['2026-09'],
+          timesheet_revision_consistent: true,
+          timesheet_owner_revisions: { 'ainsley@gmt-services.co.uk': 0 },
           completion: { employees: [{ employee_name: 'Ainsley', employee_upn: 'ainsley@gmt-services.co.uk', schedule_weekdays: [1, 2, 3, 4, 5] }] }
         },
         records: [{

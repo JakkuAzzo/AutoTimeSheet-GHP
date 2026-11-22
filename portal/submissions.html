@@ -8,7 +8,7 @@
 <title>Submitted documents | GMT Staff Portal</title>
 <link rel="stylesheet" href="../styles.css?v=portal-responsive-layout-20261016-v4">
 <link rel="stylesheet" href="../portal.css?v=team-paymonth-downloads-20261028">
-  <link rel="stylesheet" href="../tools/estimates.css?v=paymonth-weekend-removal-20261013">
+  <link rel="stylesheet" href="../tools/estimates.css?v=document-upload-20261102">
 <script src="../config.js?v=umami-gmt-20261028"></script>
 <script defer src="../analytics.js?v=umami-20260819"></script>
 <script defer src="../viewport-effects.js?v=viewport-shell-20261016-v1"></script>
@@ -23,6 +23,9 @@
 </header>
 <main class="app-main estimate-main" hidden>
   <section class="estimate-intro card submissions-intro" data-scroll-reveal><div><p class="portal-card-kicker">Identity-filtered workspace</p><h2>Shared work history</h2><p>Choose a pay month or record type below. Access and edit actions follow your signed-in GMT permissions.</p></div><span class="estimate-status-chip">Protected history</span></section>
+  <section id="ownership-review" class="card estimate-history-panel" aria-label="Confirmed timesheet ownership review" hidden></section>
+  <section id="source-review" class="card estimate-history-panel" aria-label="Timesheet source ownership review" hidden></section>
+  <section id="private-original-review" class="card estimate-history-panel" aria-label="Private timesheet original review" hidden></section>
   <section class="card estimate-history-panel pay-month-workspace" data-scroll-reveal aria-labelledby="submissions-title">
     <div class="estimate-preview-toolbar"><div><p class="portal-card-kicker">Pay month workspace</p><h2 id="submissions-title">Timesheets and records</h2></div><div class="submissions-toolbar-actions"><button type="button" id="submissions-delivery-trigger" class="secondary" aria-haspopup="dialog" aria-controls="submissions-delivery-dialog" hidden>Correction delivery status</button><button type="button" id="submissions-refresh" class="secondary">Refresh</button></div></div>
     <div class="portal-history-toolbar"><p id="submissions-status" class="small-text" role="status">Loading authorised records…</p></div>
@@ -36,7 +39,9 @@
       <button type="button" role="tab" aria-selected="false" data-submission-tab="estimates">Estimates</button>
       <button type="button" role="tab" aria-selected="false" data-submission-tab="invoices">Invoices</button>
       <button type="button" role="tab" aria-selected="false" data-submission-tab="calendar">Calendar requests</button>
+      <button type="button" role="tab" aria-selected="false" data-submission-tab="upload">Upload</button>
     </div>
+    <section id="submission-upload-panel" hidden aria-label="Upload documents"></section>
     <div class="pay-month-filters" aria-label="Pay month and staff filters">
       <label class="portal-history-filter">Pay month <select id="submissions-pay-month" aria-label="Filter by pay month"><option value="">All pay months</option></select></label>
       <label id="submissions-employee-filter" class="portal-history-filter">Staff member <select id="submissions-employee" aria-label="Filter by staff member"><option value="">All staff</option></select></label>
@@ -64,13 +69,22 @@
   <div class="submissions-delivery-dialog-heading"><div><p class="portal-card-kicker">Accounts delivery status</p><h2 id="submissions-delivery-title">Correction delivery details</h2></div><button type="button" class="secondary" data-delivery-close aria-label="Close delivery status">Close</button></div>
   <div id="submissions-delivery-details"></div>
 </dialog>
-<script defer src="../portal-api.js?v=pay-month-start-20261016"></script>
+<script defer src="../portal-api.js?v=document-upload-20261102"></script>
+<script defer src="timesheet-ownership-review.js?v=ownership-review-20261118-rates"></script>
+<script defer src="timesheet-source-review.js?v=source-review-20261116"></script>
+<script defer src="private-timesheet-original-review.js?v=private-original-review-20261117"></script>
 <script defer src="../pay-periods.js?v=weekly-timesheet-cycle-labels-20261017"></script>
 <script defer src="../timesheet-coverage.js?v=pay-month-start-20261016"></script>
 <script defer src="../lazy-xlsx.js?v=excel-generator-20260922a"></script>
 <script defer src="pay-month-workbook.js?v=holiday-total-20261120"></script>
 <script defer src="zip-store.js?v=paymonth-bulk-download-20260928"></script>
-<script defer src="submissions.js?v=team-paymonth-save-progress-20261028"></script>
+<script defer src="document-ocr.js?v=document-upload-20261102"></script>
+<script defer src="job-card-import-attachment.js?v=document-upload-20261102"></script>
+<script defer src="submission-upload-stage.js?v=document-upload-20261102"></script>
+<script defer src="document-reader.js?v=document-upload-20261120-archive-check"></script>
+<script defer src="submission-upload-review.js?v=document-upload-20261102"></script>
+<script defer src="submission-upload-ui.js?v=document-upload-20261102"></script>
+<script defer src="submissions.js?v=document-upload-20261102"></script>
 <script defer src="calendar-data.js?v=complete-history-20261028-v2"></script>
 <script defer src="calendar-actions.js?v=calendar-request-quick-edit-weekly-timesheet-cycle-labels-20261023"></script>
 </body>

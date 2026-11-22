@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": ["created", "updated", "unchanged", "removed", "rows", "monthTotalMinutes", "verifiedRecordIds", "verifiedRecordIdsJson", "verifiedRowsJson", "unverifiedRecordIds"],
+  "properties": {
+    "created": {"type": "integer", "minimum": 0},
+    "updated": {"type": "integer", "minimum": 0},
+    "unchanged": {"type": "integer", "minimum": 0},
+    "removed": {"type": "integer", "minimum": 0},
+    "rows": {"type": "integer", "minimum": 0},
+    "monthTotalMinutes": {"type": "integer", "minimum": 0},
+    "verifiedRecordIds": {"type": "array", "items": {"type": "string"}},
+    "verifiedRecordIdsJson": {"type": "string"},
+    "verifiedRowsJson": {"type": "string"},
+    "unverifiedRecordIds": {"type": "array", "items": {"type": "string"}}
+  }
+}
