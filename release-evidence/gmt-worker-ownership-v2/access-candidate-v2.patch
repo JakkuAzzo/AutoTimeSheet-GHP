@@ -1,0 +1,707 @@
+--- a/index.mjs
++++ b/index.mjs
+@@ -2368,13 +2368,21 @@
+   return Boolean(identity.isAdmin || category === "job-cards" && !identity.isHrAdmin || identity.isHrAdmin && category === "calendar" || identity.isOperationsAdmin && category !== "timesheets" && category !== "clock" || category === "job-cards" && identity.isJobCardAdmin);
+ }
+ __name(canViewAllRecords, "canViewAllRecords");
++function isCorrectionOwner(identity,row) {
++  const oid=String(identity?.oid||'').trim().toLowerCase(),upn=String(identity?.upn||'').trim().toLowerCase();
++  return Boolean(oid && upn && oid===String(row?.owner_oid||'').trim().toLowerCase() &&
++    upn===String(row?.owner_upn||'').trim().toLowerCase());
++}
++
+ function canAccessRecord(identity, row) {
+   if (!identity || !row) return false;
+   if (identity.isSubmissionAdmin === true) return true;
+   const category = canonicalKind(row.kind);
+-  const ownRecord = row.owner_oid === identity.oid || category === "timesheets" && row.action === "pay_month_correction" && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase();
+-  if (category === "timesheets" || category === "clock") return Boolean(ownRecord || identity.isAdmin && identity.isTimesheetViewer === true);
+-  return Boolean(ownRecord || identity.isAdmin || identity.isOperationsAdmin && category !== "timesheets" && category !== "clock" || category === "job-cards" && identity.isJobCardAdmin);
++  const ownRecord = category === 'timesheets' && row.action === 'pay_month_correction'
++    ? isCorrectionOwner(identity,row)
++    : row.owner_oid === identity.oid;
++  if (category === 'timesheets' || category === 'clock') return Boolean(ownRecord || (identity.isAdmin && identity.isTimesheetViewer === true));
++  return Boolean(ownRecord || identity.isAdmin || (identity.isOperationsAdmin && category !== 'timesheets' && category !== 'clock') || (category === 'job-cards' && identity.isJobCardAdmin));
+ }
+ __name(canAccessRecord, "canAccessRecord");
+ function recordPayMonthKey(row, payPeriods2 = defaultPayPeriods()) {
+@@ -2389,7 +2397,13 @@
+ function isOwnerRecord(identity, row) {
+   if (!identity || !row) return false;
+   const category = canonicalKind(row.kind);
+-  return row.owner_oid === identity.oid || text2(row.employee_upn || row.employee_email || "", "", 320).toLowerCase() === identity.upn?.toLowerCase() || category === "timesheets" && row.action === "pay_month_correction" && row.owner_upn?.toLowerCase() === identity.upn?.toLowerCase();
++  // Legacy on-behalf corrections may retain the editor's OID. Hold them for
++  // ownership review instead of allowing mutations based on an address alone.
++  if (category === 'timesheets' && row.action === 'pay_month_correction') {
++    return isCorrectionOwner(identity,row);
++  }
++  return row.owner_oid === identity.oid
++    || text2(row.employee_upn || row.employee_email || '', '', 320).toLowerCase() === identity.upn?.toLowerCase();
+ }
+ __name(isOwnerRecord, "isOwnerRecord");
+ function canEditRecord(identity, row, nowDate = /* @__PURE__ */ new Date(), payPeriods2 = defaultPayPeriods()) {
+@@ -5271,6 +5285,7 @@
+         }
+         const mapped = normaliseUpstreamRecord(fields, identity, env);
+         if (!mapped || mapped.synthetic || !canReadHistoryRecord(identity, mapped)) continue;
++        if (!mayViewAll && !upstreamEmployeeClaimsAgree(fields, mapped)) continue;
+         if (!mayViewAll && mapped.payload) mapped.payload = { rows: mapped.payload.rows || [] };
+         records.push(mapped);
+       }
+@@ -5635,56 +5650,103 @@
+ __name(sameRecord, "sameRecord");
+ async function saveRecord(env, input, identity, existing = null) {
+   const changed = existing && !sameRecord(existing, input);
+-  const writeVersion = /* @__PURE__ */ __name(async () => env.DB.prepare("INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)").bind(existing.record_id, existing.owner_oid, JSON.stringify({
+-    employee_name: existing.employee_name,
+-    kind: existing.kind,
+-    action: existing.action,
+-    status: existing.status,
+-    start_date: existing.start_date,
+-    end_date: existing.end_date,
+-    record_date: existing.record_date,
+-    submitted_at: existing.submitted_at,
+-    updated_at: existing.updated_at,
+-    issue: existing.issue,
+-    payload: payloadObject(existing)
+-  }), now(), identity.oid).run(), "writeVersion");
++  const writeVersion = async () => env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
++    .bind(existing.record_id, existing.owner_oid, JSON.stringify({
++        employee_name: existing.employee_name,
++        kind: existing.kind,
++        action: existing.action,
++        status: existing.status,
++        start_date: existing.start_date,
++        end_date: existing.end_date,
++        record_date: existing.record_date,
++        submitted_at: existing.submitted_at,
++        updated_at: existing.updated_at,
++        issue: existing.issue,
++        payload: payloadObject(existing)
++      }), now(), identity.oid).run();
+   if (!existing) {
+-    await env.DB.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name, kind, action, status, start_date, end_date, record_date, submitted_at, updated_at, issue, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(input.recordId, input.ownerOid, input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson).run();
++    await env.DB.prepare(`INSERT INTO records (record_id, owner_oid, owner_upn, employee_name, kind, action, status, start_date, end_date, record_date, submitted_at, updated_at, issue, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
++      .bind(input.recordId, input.ownerOid, input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson).run();
+     return { created: true, changed: false };
+   }
+-  if (["calendar", "tasks"].includes(canonicalKind(existing.kind))) {
+-    const result = await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ? AND owner_oid = ? AND status = ?`).bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId, existing.owner_oid, existing.status).run();
++  if (['calendar', 'tasks'].includes(canonicalKind(existing.kind))) {
++    const result = await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ? AND owner_oid = ? AND status = ?`)
++      .bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId, existing.owner_oid, existing.status).run();
+     if (Number(result?.meta?.changes ?? 0) < 1) {
+-      throw Object.assign(new Error("The request changed while it was being saved. Refresh the calendar and try again."), { status: 409 });
++      throw Object.assign(new Error('The request changed while it was being saved. Refresh the calendar and try again.'), { status: 409 });
+     }
+     if (changed) await writeVersion();
+     return { created: false, changed };
++  }
++  if (existing.kind === 'timesheets') {
++    const update=env.DB.prepare(`UPDATE records SET owner_upn=?,employee_name=?,kind=?,action=?,status=?,start_date=?,end_date=?,record_date=?,submitted_at=?,updated_at=?,issue=?,payload_json=?
++      WHERE record_id=? AND owner_oid IS ? AND owner_upn IS ? AND employee_name IS ? AND kind IS ? AND action IS ? AND status IS ?
++        AND start_date IS ? AND end_date IS ? AND record_date IS ? AND submitted_at IS ? AND updated_at IS ? AND issue IS ? AND payload_json IS ?
++        AND (?=1 OR NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=records.record_id))`)
++      .bind(input.ownerUpn,input.employeeName,input.kind,input.action,input.status,input.startDate,input.endDate,input.recordDate,input.submittedAt,input.updatedAt,input.issue,input.payloadJson,
++        input.recordId,existing.owner_oid,existing.owner_upn,existing.employee_name,existing.kind,existing.action,existing.status,existing.start_date??null,existing.end_date??null,
++        existing.record_date??null,existing.submitted_at,existing.updated_at,existing.issue??null,existing.payload_json,
++        identity.isSubmissionAdmin === true || (identity.isAdmin === true && identity.isTimesheetViewer === true) ? 1 : 0);
++    const statements=[update];
++    if (changed) {
++      const prior=JSON.stringify({employee_name:existing.employee_name,kind:existing.kind,action:existing.action,status:existing.status,
++        start_date:existing.start_date,end_date:existing.end_date,record_date:existing.record_date,submitted_at:existing.submitted_at,
++        updated_at:existing.updated_at,issue:existing.issue,payload:payloadObject(existing)});
++      statements.push(env.DB.prepare('INSERT INTO record_versions (record_id,owner_oid,payload_json,changed_at,changed_by_oid) SELECT ?,?,?,?,? WHERE changes()=1')
++        .bind(existing.record_id,existing.owner_oid,prior,now(),identity.oid));
++    }
++    const result=await env.DB.batch(statements);
++    if (Number(result?.[0]?.meta?.changes || 0)<1) throw Object.assign(new Error('The timesheet changed or needs ownership review. Refresh before editing.'),{status:409});
++    return {created:false,changed};
+   }
+   if (changed) await writeVersion();
+-  await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ?`).bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId).run();
++  await env.DB.prepare(`UPDATE records SET owner_upn = ?, employee_name = ?, kind = ?, action = ?, status = ?, start_date = ?, end_date = ?, record_date = ?, submitted_at = ?, updated_at = ?, issue = ?, payload_json = ? WHERE record_id = ?`)
++    .bind(input.ownerUpn, input.employeeName, input.kind, input.action, input.status, input.startDate, input.endDate, input.recordDate, input.submittedAt, input.updatedAt, input.issue, input.payloadJson, input.recordId).run();
+   return { created: false, changed };
+ }
+-__name(saveRecord, "saveRecord");
++
+ async function deleteRecord(env, existing, identity) {
+   validatePortalRequestDeletion(existing);
+-  const deletableStatuses = /* @__PURE__ */ new Set(["draft", "pending delivery", "delivery failed"]);
+-  if (!identity.isAdmin && !deletableStatuses.has(String(existing.status || "").toLowerCase())) {
+-    throw Object.assign(new Error("Submitted records cannot be deleted"), { status: 409 });
++  const deletableStatuses = new Set(['draft', 'pending delivery', 'delivery failed']);
++  if (!identity.isAdmin && !deletableStatuses.has(String(existing.status || '').toLowerCase())) {
++    throw Object.assign(new Error('Submitted records cannot be deleted'), { status: 409 });
+   }
+-  await env.DB.prepare("INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)").bind(existing.record_id, existing.owner_oid, JSON.stringify({
+-    employee_name: existing.employee_name,
+-    kind: existing.kind,
+-    action: existing.action,
+-    status: existing.status,
+-    start_date: existing.start_date,
+-    end_date: existing.end_date,
+-    record_date: existing.record_date,
+-    submitted_at: existing.submitted_at,
+-    updated_at: existing.updated_at,
+-    issue: existing.issue,
+-    payload: payloadObject(existing)
+-  }), now(), identity.oid).run();
+-  await env.DB.prepare("UPDATE records SET status = 'Deleted', issue = ?, payload_json = ?, updated_at = ? WHERE record_id = ?").bind("Deleted by " + identity.upn, "{}", now(), existing.record_id).run();
++  const previousVersion = JSON.stringify({
++      employee_name: existing.employee_name,
++      kind: existing.kind,
++      action: existing.action,
++      status: existing.status,
++      start_date: existing.start_date,
++      end_date: existing.end_date,
++      record_date: existing.record_date,
++      submitted_at: existing.submitted_at,
++      updated_at: existing.updated_at,
++      issue: existing.issue,
++      payload: payloadObject(existing)
++    });
++  if (existing.kind === 'timesheets') {
++    // A delivery may be claimed after the route read this record. Keep the
++    // source, its prior version and the queue transition in one transaction.
++    const timestamp = now();
++    const update = env.DB.prepare(`UPDATE records SET status='Deleted',issue=?,payload_json='{}',updated_at=?
++      WHERE record_id=? AND owner_oid IS ? AND owner_upn IS ? AND employee_name IS ? AND kind IS ? AND action IS ?
++        AND status IS ? AND start_date IS ? AND end_date IS ? AND record_date IS ? AND submitted_at IS ?
++        AND updated_at IS ? AND issue IS ? AND payload_json IS ?
++        AND (?=1 OR NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=records.record_id))
++        AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=records.record_id AND q.status NOT IN ('queued','skipped'))`)
++      .bind('Deleted by ' + identity.upn,timestamp,existing.record_id,existing.owner_oid,existing.owner_upn,existing.employee_name,existing.kind,existing.action,existing.status,existing.start_date??null,existing.end_date??null,existing.record_date??null,existing.submitted_at,existing.updated_at,existing.issue??null,existing.payload_json,identity.isSubmissionAdmin === true || (identity.isAdmin === true && identity.isTimesheetViewer === true) ? 1 : 0);
++    const version = env.DB.prepare('INSERT INTO record_versions (record_id,owner_oid,payload_json,changed_at,changed_by_oid) SELECT ?,?,?,?,? WHERE changes()=1')
++      .bind(existing.record_id,existing.owner_oid,previousVersion,timestamp,identity.oid);
++    const retire = env.DB.prepare("UPDATE dispatch_queue SET status='skipped',updated_at=?,last_error='Correction deleted before delivery.' WHERE record_id=? AND status='queued' AND changes()=1")
++      .bind(timestamp,existing.record_id);
++    const result = await env.DB.batch([update,version,retire]);
++    if (Number(result?.[0]?.meta?.changes || 0) < 1) throw Object.assign(new Error('The timesheet changed or its workbook delivery needs review. Refresh and check its status before deleting.'), { status: 409 });
++    return { deleted: true, soft_deleted: true };
++  }
++  await env.DB.prepare('INSERT INTO record_versions (record_id, owner_oid, payload_json, changed_at, changed_by_oid) VALUES (?, ?, ?, ?, ?)')
++    .bind(existing.record_id, existing.owner_oid, previousVersion, now(), identity.oid).run();
++  await env.DB.prepare("UPDATE records SET status = 'Deleted', issue = ?, payload_json = ?, updated_at = ? WHERE record_id = ?")
++    .bind('Deleted by ' + identity.upn, '{}', now(), existing.record_id).run();
+   return { deleted: true, soft_deleted: true };
+ }
+ __name(deleteRecord, "deleteRecord");
+@@ -5774,6 +5836,24 @@
+     throw Object.assign(new Error("Pay-month corrections require a dated JSON record attachment for workbook filing"), { status: 400 });
+   }
+   const timestamp = now();
++  if (record.kind === "timesheets") {
++    return (async () => {
++      const guard = `EXISTS (SELECT 1 FROM records r WHERE r.record_id=? AND r.payload_json IS ? AND r.owner_oid IS ? AND r.owner_upn IS ? AND r.employee_name IS ? AND r.action IS ? AND r.start_date IS ? AND r.end_date IS ? AND r.record_date IS ? AND r.submitted_at IS ? AND r.issue IS ? AND r.updated_at IS ? AND r.status IS ? AND r.kind='timesheets')
++        AND NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=?)
++        AND NOT EXISTS (SELECT 1 FROM dispatch_queue q WHERE q.record_id=? AND (q.status <> 'queued' OR q.attempts<>0 OR q.last_sent_at IS NOT NULL))`;
++      const args = [record.record_id,record.payload_json,record.owner_oid,record.owner_upn,record.employee_name??null,record.action??null,record.start_date??null,record.end_date??null,record.record_date??null,record.submitted_at??null,record.issue??null,record.updated_at,record.status,record.record_id,record.record_id];
++      const stmts=[env.DB.prepare(`DELETE FROM record_attachments WHERE record_id=? AND ${guard}`).bind(record.record_id,...args),
++        ...attachments.map(a=>env.DB.prepare(`INSERT INTO record_attachments(record_id,field_name,file_name,content_type,content_base64,size_bytes,created_at)
++          SELECT ?,?,?,?,?,?,? WHERE ${guard}`).bind(record.record_id,a.fieldName,a.fileName,a.contentType,a.contentBase64,a.sizeBytes,timestamp,...args)),
++        env.DB.prepare(`INSERT INTO dispatch_queue(record_id,status,queued_at,updated_at,attempts,next_attempt_at,last_sent_at,last_error)
++          SELECT ?,'queued',?,?,0,?,NULL,NULL WHERE ${guard}
++          ON CONFLICT(record_id) DO UPDATE SET status='queued',queued_at=excluded.queued_at,updated_at=excluded.updated_at,attempts=0,next_attempt_at=excluded.next_attempt_at,last_sent_at=NULL,last_error=NULL`).bind(record.record_id,timestamp,timestamp,timestamp,...args),
++        env.DB.prepare(`UPDATE records SET status='Queued for Accounts',issue='',updated_at=? WHERE record_id=? AND ${guard}`).bind(timestamp,record.record_id,...args)];
++      const result=await env.DB.batch(stmts);
++      if(Number(result?.[result.length-1]?.meta?.changes||0)<1) throw Object.assign(new Error('The timesheet changed or needs ownership review.'),{status:409});
++      return {queued:true,recordId:record.record_id,attachments:attachments.length,queuedAt:timestamp};
++    })();
++  }
+   const statements = [
+     env.DB.prepare("DELETE FROM record_attachments WHERE record_id = ?").bind(record.record_id),
+     ...attachments.map((attachment) => env.DB.prepare(`INSERT INTO record_attachments (record_id, field_name, file_name, content_type, content_base64, size_bytes, created_at)
+@@ -7391,22 +7471,109 @@
+   return json({ ok: true, record: projectRow(updated, true, env), invoice }, 200, origin || "");
+ }
+ __name(syncXeroJobCard, "syncXeroJobCard");
+-async function listRecords(request, env, identity, payPeriods2 = defaultPayPeriods()) {
++async function knownOwnerIds(db, upn) {
++  const result=await db.prepare(`SELECT owner_oid AS oid, lower(owner_upn) AS upn FROM profile_settings WHERE lower(owner_upn) = ?
++    UNION SELECT owner_oid AS oid, lower(owner_upn) AS upn FROM records WHERE lower(owner_upn) = ? AND action <> 'pay_month_correction'
++      AND NOT (action = 'email_archive' AND owner_oid = 'shared-estimate-archive')`).bind(upn,upn).all();
++  return new Set((result?.results || []).filter(row=>row?.oid && String(row.upn||'').toLowerCase()===upn).map(row=>String(row.oid).toLowerCase()));
++}
++
++async function assertNoHistoricalOwnerConflict(identity, db) {
++  const upn=String(identity?.upn||'').trim().toLowerCase(), oid=String(identity?.oid||'').trim().toLowerCase();
++  if (!upn || !oid) throw Object.assign(new Error('Employee identity not found'),{status:400});
++  const known=await knownOwnerIds(db,upn);
++  if ([...known].some(savedOid=>savedOid!==oid)) throw Object.assign(new Error('Employee identity needs reconciliation'),{status:409});
++}
++function flattenUpstreamRecord(row) {
++  if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
++  // SharePoint Get items sometimes wraps the actual columns in `fields` (and
++  // a few older flow versions used `item`/`properties`). Flatten those
++  // envelopes before looking for the canonical column names. Keep top-level
++  // values authoritative when both shapes are present.
++  const nested = ['fields', 'Fields', 'item', 'Item', 'properties', 'Properties']
++    .map((key) => row[key])
++    .filter((value) => value && typeof value === 'object' && !Array.isArray(value))
++    .reduce((merged, value) => Object.assign(merged, value), {});
++  return Object.keys(nested).length ? { ...nested, ...row } : row;
++}
++
++// Do not release a multi-person attachment just because its outer header
++// names the requesting employee. All explicit employee claims must agree.
++function upstreamEmployeeClaimsAgree(sourceRow, mapped) {
++  const row = flattenUpstreamRecord(sourceRow);
++  if (!row || !mapped?.employee_upn) return false;
++  const { payload } = upstreamPayloadAndRows(row);
++  const headerName = text2(upstreamValue(row, ['employee_name', 'employeeName', 'EmployeeName', 'Employee Name', 'employee', 'Employee', 'gmt_employee']) || mapped.employee_name, '', 240).toLowerCase();
++  const objects = [row, payload, ...collectUpstreamDailyRows(payload)].filter((value) => value && typeof value === 'object' && !Array.isArray(value));
++  const emailKeys = new Set(['employeeupn', 'employeeemail', 'gmtemployeeupn']);
++  const nameKeys = new Set(['employeename', 'gmtemployee']);
++  let hasExplicitOwner=false;
++  for (const object of objects) {
++    for (const [key, value] of Object.entries(object)) {
++      const normalizedKey = key.toLowerCase().replace(/_x0020_/g, '').replace(/[_\s]/g, '');
++      if ((emailKeys.has(normalizedKey) || (object===row && normalizedKey==='email')) && text2(value, '', 320)) {
++        if (text2(value, '', 320).toLowerCase() !== mapped.employee_upn.toLowerCase()) return false;
++        hasExplicitOwner=true;
++      }
++      if (object !== row && nameKeys.has(normalizedKey) && text2(value, '', 240) && headerName && text2(value, '', 240).toLowerCase() !== headerName) return false;
++    }
++  }
++  return hasExplicitOwner;
++}
++async function visibleTimesheetRevisions(env,identity) {
++  try {
++    const all=identity.isTimesheetViewer===true||identity.isSubmissionAdmin===true;
++    const query=all?env.DB.prepare('SELECT owner_upn,revision FROM timesheet_owner_revisions ORDER BY owner_upn'):env.DB.prepare('SELECT owner_upn,revision FROM timesheet_owner_revisions WHERE owner_upn=? ORDER BY owner_upn').bind(String(identity.upn||'').toLowerCase());
++    const result=await query.all(),map={};for(const row of result?.results||[])map[String(row.owner_upn).toLowerCase()]=Number(row.revision);return map;
++  }catch(_){return null;}
++}
++async function holdOverlappingUpstreamTimesheets(env,identity,rows) {
++  if (canViewAllRecords(identity,'timesheets')) return {rows,identityHold:false};
++  const ids=[...new Set(rows.map(row=>String(row.source_record_id||'').trim().toLowerCase()).filter(Boolean))];
++  // A review establishes a separate boundary for all of that person's
++  // upstream timesheets, including copies without a matching source ID.
++  // A local record also holds a copy with the same ID for other identities.
++  const result=await env.DB.prepare(`SELECT NULL AS record_id, 1 AS identity_hold WHERE EXISTS (
++      SELECT 1 FROM timesheet_ownership_reviews review LEFT JOIN records r ON r.record_id=review.record_id
++      WHERE lower(review.subject_oid)=lower(?) OR lower(r.owner_upn)=lower(?)
++    )
++    UNION SELECT lower(record_id) AS record_id, 0 AS identity_hold FROM records
++      WHERE kind='timesheets' AND lower(record_id) IN (SELECT value FROM json_each(?))
++    UNION SELECT lower(record_id) AS record_id, 0 AS identity_hold FROM timesheet_ownership_reviews
++      WHERE lower(record_id) IN (SELECT value FROM json_each(?))`).bind(String(identity.oid||''),String(identity.upn||''),JSON.stringify(ids),JSON.stringify(ids)).all();
++  if (!Array.isArray(result?.results)) throw Object.assign(new Error('Timesheet source review is unavailable'),{status:503});
++  const identityHold=result.results.some(row=>Number(row.identity_hold)===1);
++  const held=new Set(result.results.map(row=>String(row.record_id||'').toLowerCase()));
++  return {rows:rows.filter(row=>!(identityHold && canonicalKind(row.kind||row.action)==='timesheets') && !held.has(String(row.source_record_id||'').trim().toLowerCase())),identityHold};
++}
++async function listRecords(request, env, identity, payPeriods = defaultPayPeriods()) {
++  const revisionsBefore=await visibleTimesheetRevisions(env,identity);
+   const url = new URL(request.url);
+-  const sourceProbe = url.searchParams.get("source") === "sharepoint-check";
+-  if (sourceProbe && identity.isSubmissionAdmin !== true) throw Object.assign(new Error("History source diagnostics require submission admin access"), { status: 403 });
+-  const requestedKind = url.searchParams.get("kind") || "all";
+-  const kind = requestedKind === "all" ? "" : canonicalKind(requestedKind);
+-  if (kind && !ALLOWED_KINDS.has(kind)) throw Object.assign(new Error("Record category is not supported"), { status: 400 });
+-  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 200), 1), 1e3);
+-  const offset = Math.min(Math.max(Number(url.searchParams.get("offset") || 0), 0), 1e6);
+-  const payMonth = String(url.searchParams.get("payMonth") || "").trim();
+-  if (payMonth && !/^\d{4}-(0[1-9]|1[0-2])$/.test(payMonth)) throw Object.assign(new Error("Pay month must use YYYY-MM format"), { status: 400 });
+-  const monthPeriod = payMonth && payPeriods2 && typeof payPeriods2.periodForMonth === "function" ? payPeriods2.periodForMonth(payMonth) : null;
+-  if (payMonth && !monthPeriod) throw Object.assign(new Error("Pay month is not available"), { status: 400 });
++  const sourceProbe = url.searchParams.get('source') === 'sharepoint-check';
++  if (sourceProbe && identity.isSubmissionAdmin !== true) throw Object.assign(new Error('History source diagnostics require submission admin access'), { status: 403 });
++  const requestedKind = url.searchParams.get('kind') || 'all';
++  const kind = requestedKind === 'all' ? '' : canonicalKind(requestedKind);
++  if (kind && !ALLOWED_KINDS.has(kind)) throw Object.assign(new Error('Record category is not supported'), { status: 400 });
++  let timesheetIdentityReviewRequired=false;
++  if ((!kind || kind === 'timesheets' || kind === 'clock') && !canViewAllRecords(identity,'timesheets')) {
++    try { await assertNoHistoricalOwnerConflict(identity,env.DB); }
++    catch (error) {
++      if (error?.status!==409 || kind==='clock') throw error;
++      timesheetIdentityReviewRequired=true;
++    }
++  }
++  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 1000);
++  const offset = Math.min(Math.max(Number(url.searchParams.get('offset') || 0), 0), 1000000);
++  const payMonth = String(url.searchParams.get('payMonth') || '').trim();
++  if (payMonth && !/^\d{4}-(0[1-9]|1[0-2])$/.test(payMonth)) throw Object.assign(new Error('Pay month must use YYYY-MM format'), { status: 400 });
++  const monthPeriod = payMonth && payPeriods && typeof payPeriods.periodForMonth === 'function'
++    ? payPeriods.periodForMonth(payMonth)
++    : null;
++  if (payMonth && !monthPeriod) throw Object.assign(new Error('Pay month is not available'), { status: 400 });
+   const projection = `SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
+       q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at,
+-      q.last_error AS dispatch_last_error
++      q.last_error AS dispatch_last_error,
++      EXISTS (SELECT 1 FROM timesheet_ownership_reviews reviewed WHERE reviewed.record_id=r.record_id) AS has_ownership_review
+     FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id`;
+   const viewAll = Boolean(kind) && canViewAllRecords(identity, kind);
+   const isTimesheetViewer = identity.isTimesheetViewer === true;
+@@ -7415,69 +7582,128 @@
+   const operationsAdminAcrossKinds = !kind && identity.isOperationsAdmin && !identity.isAdmin;
+   const hrAdminAcrossKinds = !kind && identity.isHrAdmin && !identity.isAdmin && !identity.isOperationsAdmin;
+   const jobCardAdminAcrossKinds = !kind && identity.isJobCardAdmin && !identity.isAdmin;
+-  const ownRecords = "(r.owner_oid = ? OR (r.kind = 'timesheets' AND r.action = 'pay_month_correction' AND lower(r.owner_upn) = ?))";
++  // ?1 and ?2 are the signed-in OID and UPN wherever the own-record
++  // predicate is used. Reuse them throughout the same SQL snapshot.
++  const ownRecords = `((r.kind<>'timesheets' AND r.owner_oid=?1) OR (r.kind='timesheets' AND (
++    EXISTS (SELECT 1 FROM timesheet_ownership_reviews review JOIN timesheet_review_record_revisions v
++      ON v.record_id=review.record_id AND v.revision=review.record_revision
++      WHERE review.record_id=r.record_id AND lower(review.subject_oid)=lower(?1) AND NOT EXISTS (
++        SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated')))
++    OR (NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=r.record_id)
++      AND lower(r.owner_oid)=lower(?1) AND (r.action<>'pay_month_correction' OR lower(r.owner_upn)=?2)
++      AND NOT EXISTS (SELECT 1 FROM profile_settings p WHERE lower(p.owner_upn)=?2 AND p.owner_oid<>'' AND lower(p.owner_oid)<>lower(?1))
++      AND NOT EXISTS (SELECT 1 FROM records old WHERE lower(old.owner_upn)=?2 AND old.action<>'pay_month_correction'
++        AND NOT (old.action='email_archive' AND old.owner_oid='shared-estimate-archive') AND old.owner_oid<>'' AND lower(old.owner_oid)<>lower(?1))))))`;
+   const sharedRecordKinds = "r.kind IN ('job-cards')";
+-  const sql = !kind && isSubmissionAdmin ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?` : !kind && identity.isAdmin ? isTimesheetViewer ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?` : timesheetViewerAcrossKinds ? identity.isOperationsAdmin ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?` : identity.isHrAdmin ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock', 'calendar') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock') OR ${ownRecords} OR ${sharedRecordKinds}) ORDER BY r.updated_at DESC LIMIT ?` : operationsAdminAcrossKinds ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?` : hrAdminAcrossKinds ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind = 'calendar' OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?` : viewAll ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : jobCardAdminAcrossKinds ? `${projection} WHERE r.status <> 'Deleted' AND (${ownRecords} OR ${sharedRecordKinds}) ORDER BY r.updated_at DESC LIMIT ?` : kind ? viewAll ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE (${ownRecords} OR ${sharedRecordKinds}) AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`;
+-  const bindings = !kind && isSubmissionAdmin ? [limit] : !kind && identity.isAdmin ? isTimesheetViewer ? [limit] : [identity.oid, identity.upn, limit] : timesheetViewerAcrossKinds ? identity.isOperationsAdmin ? [limit] : [identity.oid, identity.upn, limit] : operationsAdminAcrossKinds ? [identity.oid, identity.upn, limit] : hrAdminAcrossKinds ? [identity.oid, identity.upn, limit] : viewAll ? [kind || "job-cards", limit] : jobCardAdminAcrossKinds ? [identity.oid, identity.upn, limit] : kind ? viewAll ? [kind, limit] : [identity.oid, identity.upn, kind, limit] : [identity.oid, identity.upn, limit];
+-  let pagedSql = sql.replace(/ORDER BY r\.updated_at DESC LIMIT \?/g, "ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?");
++  const sql = !kind && isSubmissionAdmin
++    ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
++    : !kind && identity.isAdmin
++    ? (isTimesheetViewer
++      ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
++      : `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`)
++    : timesheetViewerAcrossKinds
++      ? (identity.isOperationsAdmin
++        ? `${projection} WHERE r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`
++        : identity.isHrAdmin
++          ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock', 'calendar') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
++          : `${projection} WHERE r.status <> 'Deleted' AND (r.kind IN ('timesheets', 'clock') OR ${ownRecords} OR ${sharedRecordKinds}) ORDER BY r.updated_at DESC LIMIT ?`)
++    : operationsAdminAcrossKinds
++      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind NOT IN ('timesheets', 'clock') OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
++    : hrAdminAcrossKinds
++      ? `${projection} WHERE r.status <> 'Deleted' AND (r.kind = 'calendar' OR ${ownRecords}) ORDER BY r.updated_at DESC LIMIT ?`
++    : viewAll
++      ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`
++    : jobCardAdminAcrossKinds
++        ? `${projection} WHERE r.status <> 'Deleted' AND (${ownRecords} OR ${sharedRecordKinds}) ORDER BY r.updated_at DESC LIMIT ?`
++        : (kind
++          ? (viewAll ? `${projection} WHERE r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?` : `${projection} WHERE ${ownRecords} AND r.status <> 'Deleted' AND r.kind = ? ORDER BY r.updated_at DESC LIMIT ?`)
++          : `${projection} WHERE (${ownRecords} OR ${sharedRecordKinds}) AND r.status <> 'Deleted' ORDER BY r.updated_at DESC LIMIT ?`);
++  const bindings = !kind && isSubmissionAdmin
++    ? [limit]
++    : !kind && identity.isAdmin
++    ? (isTimesheetViewer ? [limit] : [identity.oid, identity.upn, limit])
++    : timesheetViewerAcrossKinds
++      ? (identity.isOperationsAdmin ? [limit] : [identity.oid, identity.upn, limit])
++    : operationsAdminAcrossKinds
++      ? [identity.oid, identity.upn, limit]
++    : hrAdminAcrossKinds
++      ? [identity.oid, identity.upn, limit]
++    : viewAll
++      ? [kind || 'job-cards', limit]
++      : jobCardAdminAcrossKinds
++        ? [identity.oid, identity.upn, limit]
++        : (kind ? (viewAll ? [kind, limit] : [identity.oid, identity.upn, kind, limit]) : [identity.oid, identity.upn, limit]);
++  let pagedSql = sql.replace(/ORDER BY r\.updated_at DESC LIMIT \?/g, 'ORDER BY r.updated_at DESC, r.record_id ASC LIMIT ? OFFSET ?');
+   const queryBindings = bindings.slice(0, -1);
++  if (timesheetIdentityReviewRequired) {
++    const orderIndex=pagedSql.indexOf(' ORDER BY');
++    if(orderIndex<0)throw new Error('History ordering is unavailable');
++    pagedSql=pagedSql.slice(0,orderIndex)+" AND r.kind <> 'clock'"+pagedSql.slice(orderIndex);
++  }
+   if (monthPeriod) {
+-    const cycleStart = String(monthPeriod.start || "");
+-    const cycleEnd = String(monthPeriod.cycleEnd || monthPeriod.end || "");
+-    const orderIndex = pagedSql.indexOf(" ORDER BY");
+-    if (orderIndex < 0 || !cycleStart || !cycleEnd) throw Object.assign(new Error("Pay-month history range is unavailable"), { status: 400 });
+-    pagedSql = pagedSql.slice(0, orderIndex) + " AND ((r.record_date >= ? AND r.record_date <= ?) OR (r.start_date <= ? AND r.end_date >= ?))" + pagedSql.slice(orderIndex);
++    const cycleStart = String(monthPeriod.start || '');
++    const cycleEnd = String(monthPeriod.cycleEnd || monthPeriod.end || '');
++    const orderIndex = pagedSql.indexOf(' ORDER BY');
++    if (orderIndex < 0 || !cycleStart || !cycleEnd) throw Object.assign(new Error('Pay-month history range is unavailable'), { status: 400 });
++    pagedSql = pagedSql.slice(0, orderIndex) + ' AND ((r.record_date >= ? AND r.record_date <= ?) OR (r.start_date <= ? AND r.end_date >= ?))' + pagedSql.slice(orderIndex);
+     queryBindings.push(cycleStart, cycleEnd, cycleEnd, cycleStart);
+   }
+   queryBindings.push(limit + 1, offset);
+   const result = await env.DB.prepare(pagedSql).bind(...queryBindings).all();
+-  const includeSynthetic = identity.isAdmin && url.searchParams.get("includeSynthetic") === "1";
++  const includeSynthetic = identity.isAdmin && url.searchParams.get('includeSynthetic') === '1';
+   const pageRows = result.results || [];
++  const reviewedIds = canViewAllRecords(identity,'timesheets') ? new Set() : new Set(pageRows.filter(row=>row.has_ownership_review).map(row=>row.record_id));
+   const hasMoreLocalRecords = pageRows.length > limit;
+-  const projectedLocalRecords = pageRows.slice(0, limit).map((row) => projectRow(row, true, env, payPeriods2));
++  const projectedLocalRecords = pageRows.slice(0, limit).map((row) => projectRow(row, true, env, payPeriods));
+   const syntheticRecordCount = projectedLocalRecords.filter((row) => row.synthetic).length;
+   let records = includeSynthetic ? projectedLocalRecords : projectedLocalRecords.filter((row) => !row.synthetic);
+   const localRecordCount = records.length;
+-  let upstream = "not-configured";
++  let upstream = 'not-configured';
+   let upstreamRecordCount = 0;
+   let upstreamSourceRowCount = 0;
+   let upstreamNormalisedRecordCount = 0;
+   let upstreamEmployeeMatchedRecordCount = 0;
+-  const upstreamUrl = text2(env.HISTORY_UPSTREAM_URL, "", 2e3);
+-  const upstreamEnabledForKind = !kind || kind === "timesheets" || kind === "clock";
+-  const useSecureHistory = text2(env.HISTORY_SOURCE, "", 40).toLowerCase() === "sharepoint";
++  let releasedUpstreamRecords = [];
++  let timesheetHistoryHeld = false;
++  const upstreamUrl = text2(env.HISTORY_UPSTREAM_URL, '', 2000);
++  const upstreamEnabledForKind = !timesheetIdentityReviewRequired && (!kind || kind === 'timesheets' || kind === 'clock');
++  const useSecureHistory = text2(env.HISTORY_SOURCE, '', 40).toLowerCase() === 'sharepoint';
+   if ((sourceProbe || useSecureHistory) && upstreamEnabledForKind) {
+-    let result2;
++    let result;
+     try {
+-      result2 = await readSharePointHistory(env, identity);
++      result = await readSharePointHistory(env, identity);
+     } catch (error) {
+       if (!sourceProbe) {
+-        upstream = "sharepoint-unavailable";
++        upstream = 'sharepoint-unavailable';
+       } else {
+-        const known = ["Shared archive content access is not configured", "Shared archive content authentication failed", "SharePoint history is not configured", "SharePoint history pagination is incomplete", "Invalid SharePoint history continuation", "Invalid SharePoint history response"];
+-        const safeStage = ["authentication", "continuation", "request", "response", "mapping"].includes(error?.historyStage) ? error.historyStage : "unknown";
+-        const safeName = ["Error", "TypeError", "RangeError", "SyntaxError", "URIError"].includes(error?.name) ? error.name : "Error";
+-        const errorText = String(error?.message || "");
+-        const safeReason = /redirect/i.test(errorText) ? ", redirect" : /fetch|network|dns|connect|socket/i.test(errorText) ? ", network" : "";
++        const known = ['Shared archive content access is not configured', 'Shared archive content authentication failed', 'SharePoint history is not configured', 'SharePoint history pagination is incomplete', 'Invalid SharePoint history continuation', 'Invalid SharePoint history response'];
++        const safeStage = ['authentication', 'continuation', 'request', 'response', 'mapping'].includes(error?.historyStage) ? error.historyStage : 'unknown';
++        const safeName = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'URIError'].includes(error?.name) ? error.name : 'Error';
++        const errorText = String(error?.message || '');
++        const safeReason = /redirect/i.test(errorText) ? ', redirect' : (/fetch|network|dns|connect|socket/i.test(errorText) ? ', network' : '');
+         const detail = error?.publicMessage || (known.includes(error?.message) ? error.message : `History source processing failed at ${safeStage} (${safeName}${safeReason})`);
+         throw Object.assign(new Error(detail), { status: 503, publicMessage: detail });
+       }
+     }
+-    if (result2) {
+-      upstreamSourceRowCount = result2.records.length;
+-      upstreamNormalisedRecordCount = result2.records.length;
+-      upstreamEmployeeMatchedRecordCount = result2.records.length;
+-      const upstreamRecords = result2.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || kind === "timesheets" && canonicalKind(row.action) === "submission");
++    if (result) {
++      upstreamSourceRowCount = result.records.length;
++      upstreamNormalisedRecordCount = result.records.length;
++      upstreamEmployeeMatchedRecordCount = result.records.length;
++      const upstreamCandidates=result.records.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
++      const upstreamHold = await holdOverlappingUpstreamTimesheets(env,identity,upstreamCandidates);
++      const upstreamRecords=upstreamHold.rows;
++      timesheetHistoryHeld=upstreamHold.identityHold||upstreamRecords.length!==upstreamCandidates.length;
++      releasedUpstreamRecords = upstreamRecords;
+       upstreamRecordCount = upstreamRecords.length;
+-      const merged2 = deduplicateProviderRecords([...records, ...upstreamRecords]);
+-      const fingerprints = /* @__PURE__ */ new Set();
+-      records = removeStaleAbsenceRows(merged2.filter((row) => {
++      const merged = deduplicateProviderRecords([...records, ...upstreamRecords]);
++      const fingerprints = new Set();
++      records = removeStaleAbsenceRows(merged.filter((row) => {
+         const fingerprint = historyRecordFingerprint(row);
+         if (!fingerprint || fingerprints.has(fingerprint)) return false;
+         fingerprints.add(fingerprint);
+         return true;
+       }));
+-      upstream = "ok";
++      upstream = 'ok';
+     }
+   } else if (upstreamUrl && upstreamEnabledForKind) {
+     const upstreamAuth = await verifiedUpstreamToken(request, env, identity);
+@@ -7488,64 +7714,108 @@
+         const upstreamResponse = await fetchUpstreamHistory(upstreamUrl, upstreamAuth.token, kind, identity);
+         if (upstreamResponse.ok) {
+           const body = await upstreamResponse.json();
+-          const sourceRows = Array.isArray(body) ? body : body && Array.isArray(body.records) ? body.records : body && Array.isArray(body.value) ? body.value : body && Array.isArray(body.data) ? body.data : null;
++          const sourceRows = Array.isArray(body)
++            ? body
++            : body && Array.isArray(body.records)
++              ? body.records
++            : body && Array.isArray(body.value)
++              ? body.value
++              : body && Array.isArray(body.data)
++                ? body.data
++                : null;
+           if (sourceRows) {
+             upstreamSourceRowCount = sourceRows.length;
+-            const normalisedRows = sourceRows.map((row) => normaliseUpstreamRecord(row, identity, env));
+-            upstreamNormalisedRecordCount = normalisedRows.filter(Boolean).length;
+-            const employeeMatchedRows = normalisedRows.filter((row) => canReadHistoryRecord(identity, row));
+-            upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
+-            const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || kind === "timesheets" && canonicalKind(row.action) === "submission");
+-            const visibleUpstreamRecords = includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
++            const normalisedRows = sourceRows.map((source) => ({ source, row: normaliseUpstreamRecord(source, identity, env) }));
++            upstreamNormalisedRecordCount = normalisedRows.filter(({ row }) => Boolean(row)).length;
++            const mayViewAll = identity.isSubmissionAdmin === true || identity.isTimesheetViewer === true;
++            const employeeMatchedRows = normalisedRows.filter(({ source, row }) => canReadHistoryRecord(identity, row)
++              && (mayViewAll || upstreamEmployeeClaimsAgree(source, row)))
++              .map(({ row }) => {
++                if (!mayViewAll && row.payload) row.payload = { rows: row.payload.rows || [] };
++                return row;
++              });
++            upstreamEmployeeMatchedRecordCount = employeeMatchedRows.length;
++            const upstreamRecords = employeeMatchedRows.filter((row) => !kind || canonicalKind(row.kind || row.action) === kind || (kind === 'timesheets' && canonicalKind(row.action) === 'submission'));
++            const upstreamCandidates=includeSynthetic ? upstreamRecords : upstreamRecords.filter((row) => !row.synthetic);
++            const upstreamHold = await holdOverlappingUpstreamTimesheets(env,identity,upstreamCandidates);
++            const visibleUpstreamRecords=upstreamHold.rows;
++            timesheetHistoryHeld=upstreamHold.identityHold||visibleUpstreamRecords.length!==upstreamCandidates.length;
++            releasedUpstreamRecords = visibleUpstreamRecords;
+             upstreamRecordCount = visibleUpstreamRecords.length;
+-            const merged2 = deduplicateProviderRecords([...records, ...visibleUpstreamRecords]).sort((left, right) => String(right.updated_at || right.submitted_at || "").localeCompare(String(left.updated_at || left.submitted_at || "")));
+-            const fingerprints = /* @__PURE__ */ new Set();
+-            records = removeStaleAbsenceRows(merged2.filter((row) => {
++            // Merge corrected copies that share a source ID. A later partial
++            // correction must not erase valid days from an earlier copy.
++            const merged = deduplicateProviderRecords([...records, ...visibleUpstreamRecords])
++              .sort((left, right) => String(right.updated_at || right.submitted_at || '').localeCompare(String(left.updated_at || left.submitted_at || '')));
++            const fingerprints = new Set();
++            records = removeStaleAbsenceRows(merged.filter((row) => {
+               const fingerprint = historyRecordFingerprint(row);
+               if (!fingerprint || fingerprints.has(fingerprint)) return false;
+               fingerprints.add(fingerprint);
+               return true;
+             }));
+-            upstream = "ok";
+-          } else upstream = "invalid-response";
++            upstream = 'ok';
++          } else upstream = 'invalid-response';
+         } else upstream = `http-${upstreamResponse.status}`;
+       } catch (_) {
+-        upstream = "unavailable";
++        upstream = 'unavailable';
+       }
+     }
+   } else if (upstreamUrl && !upstreamEnabledForKind) {
+-    upstream = "not-requested-for-category";
++    upstream = 'not-requested-for-category';
+   }
++  if (upstream!=='ok' && !timesheetIdentityReviewRequired && !canViewAllRecords(identity,'timesheets') && (!kind || kind==='timesheets' || kind==='clock')) {
++    const reviewHold=await holdOverlappingUpstreamTimesheets(env,identity,[]);
++    timesheetHistoryHeld=timesheetHistoryHeld||reviewHold.identityHold;
++  }
+   if (monthPeriod) {
+-    const start = String(monthPeriod.start || "");
+-    const end = String(monthPeriod.cycleEnd || monthPeriod.end || "");
+-    const intersectsMonth = /* @__PURE__ */ __name((record) => {
+-      const payload = record && record.payload && typeof record.payload === "object" ? record.payload : {};
++    const start = String(monthPeriod.start || '');
++    const end = String(monthPeriod.cycleEnd || monthPeriod.end || '');
++    const intersectsMonth = (record) => {
++      const payload = record && record.payload && typeof record.payload === 'object' ? record.payload : {};
+       const rows = payload.rows || payload.dailyRows || payload.daily_rows || record.rows || record.daily_rows || record.dailyRows;
+       if (Array.isArray(rows) && rows.some((row) => {
+-        const date = String(row && (row.date || row.record_date || row.recordDate || row.workDate || row.Date) || "").slice(0, 10);
++        const date = String(row && (row.date || row.record_date || row.recordDate || row.workDate || row.Date) || '').slice(0, 10);
+         return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= start && date <= end;
+       })) return true;
+-      const recordDate = String(record && (record.record_date || record.recordDate || record.event_date || record.completed_at || record.completedAt || record.created_at || record.submitted_at || record.updated_at) || payload.recordDate || payload.record_date || payload.date || payload.completedAt || payload.completed_at || payload.createdAt || payload.submittedAt || "").slice(0, 10);
++      const recordDate = String(record && (record.record_date || record.recordDate || record.event_date || record.completed_at || record.completedAt || record.created_at || record.submitted_at || record.updated_at) || payload.recordDate || payload.record_date || payload.date || payload.completedAt || payload.completed_at || payload.createdAt || payload.submittedAt || '').slice(0, 10);
+       if (/^\d{4}-\d{2}-\d{2}$/.test(recordDate) && recordDate >= start && recordDate <= end) return true;
+-      const rangeStart = String(record && (record.start_date || record.startDate) || payload.startDate || payload.start_date || "").slice(0, 10);
+-      const rangeEnd = String(record && (record.end_date || record.endDate) || payload.endDate || payload.end_date || "").slice(0, 10);
++      const rangeStart = String(record && (record.start_date || record.startDate) || payload.startDate || payload.start_date || '').slice(0, 10);
++      const rangeEnd = String(record && (record.end_date || record.endDate) || payload.endDate || payload.end_date || '').slice(0, 10);
+       return /^\d{4}-\d{2}-\d{2}$/.test(rangeStart) && /^\d{4}-\d{2}-\d{2}$/.test(rangeEnd) && rangeStart <= end && rangeEnd >= start;
+-    }, "intersectsMonth");
++    };
+     records = records.filter(intersectsMonth);
+   }
+   const canViewAllTimesheets = identity.isTimesheetViewer === true || identity.isSubmissionAdmin === true;
+   records = records.map((record) => ({
+     ...record,
+-    can_edit_record: canEditRecord(identity, record, /* @__PURE__ */ new Date(), payPeriods2),
+-    can_edit: ["timesheets", "clock"].includes(canonicalKind(record.kind || record.action)) ? canEditRecord(identity, record, /* @__PURE__ */ new Date(), payPeriods2) : record.can_edit === true
++    can_edit_record: reviewedIds.has(record.source_record_id) ? false : canEditRecord(identity, record, new Date(), payPeriods),
++    can_edit: ['timesheets', 'clock'].includes(canonicalKind(record.kind || record.action))
++      ? (reviewedIds.has(record.source_record_id) ? false : canEditRecord(identity, record, new Date(), payPeriods))
++      : record.can_edit === true
+   }));
+-  const completion = canViewAllTimesheets && (!kind || kind === "timesheets") ? completionSummary(records, env) : null;
++  const completion = canViewAllTimesheets && (!kind || kind === 'timesheets')
++    ? completionSummary(records, env)
++    : null;
+   records.sort((a, b) => String(b.updated_at || b.submitted_at).localeCompare(String(a.updated_at || a.submitted_at)));
++  const revisionsAfter=await visibleTimesheetRevisions(env,identity);
++  const revisionsConsistent=!timesheetIdentityReviewRequired&&!!revisionsBefore&&!!revisionsAfter&&JSON.stringify(revisionsBefore)===JSON.stringify(revisionsAfter);
++  // The external history fetch cannot share the local ownership transaction.
++  // If a conflicting identity appeared during that fetch, do not return its
++  // rows; a fresh request will instead use the normal review-required path.
++  if (upstream==='ok' && !timesheetIdentityReviewRequired && !canViewAllRecords(identity,'timesheets') && (!kind || kind==='timesheets' || kind==='clock')) {
++    await assertNoHistoricalOwnerConflict(identity,env.DB);
++    const stillVisible=await holdOverlappingUpstreamTimesheets(env,identity,releasedUpstreamRecords);
++    if (stillVisible.rows.length!==releasedUpstreamRecords.length) throw Object.assign(new Error('Timesheet history changed during review. Refresh and try again.'),{status:409});
++    timesheetHistoryHeld=timesheetHistoryHeld||stillVisible.identityHold;
++  }
+   return {
+     records,
+     meta: {
+       upstream,
++      timesheet_history_held:timesheetHistoryHeld,
++      timesheet_identity_review_required:timesheetIdentityReviewRequired,
++      timesheet_owner_revisions:revisionsConsistent?revisionsAfter:null,
++      timesheet_revision_consistent:revisionsConsistent,
+       local_record_count: localRecordCount,
+       upstream_record_count: upstreamRecordCount,
+       upstream_source_row_count: upstreamSourceRowCount,
+@@ -7560,7 +7830,7 @@
+         next_offset: hasMoreLocalRecords ? offset + limit : null,
+         pay_month: payMonth || null
+       },
+-      role: identity.isAdmin ? "accounts-admin" : identity.isSubmissionAdmin ? "submissions-manager" : identity.isHrAdmin ? "accounts-hr" : identity.isOperationsAdmin ? "operations-admin" : identity.isJobCardAdmin ? "job-card-admin" : "employee",
++      role: identity.isAdmin ? 'accounts-admin' : (identity.isSubmissionAdmin ? 'submissions-manager' : (identity.isHrAdmin ? 'accounts-hr' : (identity.isOperationsAdmin ? 'operations-admin' : (identity.isJobCardAdmin ? 'job-card-admin' : 'employee')))),
+       is_admin: identity.isAdmin,
+       is_hr_admin: identity.isHrAdmin,
+       is_submission_admin: isSubmissionAdmin,
+@@ -7568,9 +7838,23 @@
+       is_xero_admin: identity.isXeroAdmin,
+       is_operations_admin: identity.isOperationsAdmin,
+       is_job_card_admin: identity.isJobCardAdmin,
+-      editable_pay_months: identity.isAdmin ? editablePayCycleKeys(/* @__PURE__ */ new Date(), "Europe/London", payPeriods2) : currentPayCycleKeys(/* @__PURE__ */ new Date(), "Europe/London", payPeriods2),
+-      self_editable_pay_months: currentPayCycleKeys(/* @__PURE__ */ new Date(), "Europe/London", payPeriods2),
+-      visible_scope: isSubmissionAdmin ? "all submissions and all employee timesheets and clock records; My Submissions edit access" : identity.isTimesheetViewer ? "all employee timesheets and clock records" : identity.isAdmin ? "all non-timesheet submissions; this account timesheets and clock records" : identity.isHrAdmin ? "shared calendar requests and this account submissions" : identity.isOperationsAdmin ? "all non-timesheet submissions; this account timesheets and clock records" : identity.isJobCardAdmin ? "all job cards; this account submissions for other categories" : "this account submissions",
++      editable_pay_months: identity.isAdmin ? editablePayCycleKeys(new Date(), 'Europe/London', payPeriods) : currentPayCycleKeys(new Date(), 'Europe/London', payPeriods),
++      self_editable_pay_months: currentPayCycleKeys(new Date(), 'Europe/London', payPeriods),
++      visible_scope: timesheetIdentityReviewRequired
++        ? 'other authorised submissions; timesheets held for an Accounts identity check'
++        : isSubmissionAdmin
++        ? 'all submissions and all employee timesheets and clock records; My Submissions edit access'
++        : identity.isTimesheetViewer
++        ? 'all employee timesheets and clock records'
++        : identity.isAdmin
++          ? 'all non-timesheet submissions; this account timesheets and clock records'
++          : identity.isHrAdmin
++            ? 'shared calendar requests and this account submissions'
++            : identity.isOperationsAdmin
++              ? 'all non-timesheet submissions; this account timesheets and clock records'
++              : identity.isJobCardAdmin
++                ? 'all job cards; this account submissions for other categories'
++                : 'this account submissions',
+       completion
+     }
+   };
+@@ -7767,6 +8051,36 @@
+         q.last_error AS dispatch_last_error
+       FROM records r LEFT JOIN dispatch_queue q ON q.record_id = r.record_id WHERE r.record_id = ?`).bind(recordId).first();
+     if (!existing) return json({ error: "Record not found" }, 404, origin || "");
++    if (request.method === 'GET' && existing.kind === 'timesheets' && !canViewAllRecords(identity,'timesheets')) {
++      const oid=String(identity.oid || '').trim().toLowerCase(), upn=String(identity.upn || '').trim().toLowerCase();
++      // Resolve the decision and the record in one query. Once a record has
++      // ever had a review, its original editor fields cannot restore access
++      // after revocation or invalidation.
++      const visible = await env.DB.prepare(`SELECT r.*, q.status AS dispatch_status, q.attempts AS dispatch_attempts,
++          q.queued_at AS dispatch_queued_at, q.last_sent_at AS dispatch_last_sent_at, q.last_error AS dispatch_last_error,
++          EXISTS (SELECT 1 FROM timesheet_ownership_reviews review
++            JOIN timesheet_review_record_revisions v ON v.record_id=review.record_id AND v.revision=review.record_revision
++            WHERE review.record_id=r.record_id AND lower(review.subject_oid)=? AND NOT EXISTS (
++              SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated'))) AS reviewed_access
++        FROM records r LEFT JOIN dispatch_queue q ON q.record_id=r.record_id
++        WHERE r.record_id=? AND r.kind='timesheets' AND r.status<>'Deleted' AND (
++          EXISTS (SELECT 1 FROM timesheet_ownership_reviews review
++            JOIN timesheet_review_record_revisions v ON v.record_id=review.record_id AND v.revision=review.record_revision
++            WHERE review.record_id=r.record_id AND lower(review.subject_oid)=? AND NOT EXISTS (
++              SELECT 1 FROM timesheet_ownership_review_events e WHERE e.review_id=review.review_id AND e.event_type IN ('revoked','invalidated')))
++          OR (NOT EXISTS (SELECT 1 FROM timesheet_ownership_reviews review WHERE review.record_id=r.record_id)
++            AND lower(r.owner_oid)=? AND (r.action<>'pay_month_correction' OR lower(r.owner_upn)=?)
++            AND NOT EXISTS (SELECT 1 FROM profile_settings p WHERE lower(p.owner_upn)=? AND p.owner_oid<>'' AND lower(p.owner_oid)<>?)
++            AND NOT EXISTS (SELECT 1 FROM records old WHERE lower(old.owner_upn)=? AND old.action<>'pay_month_correction'
++              AND NOT (old.action='email_archive' AND old.owner_oid='shared-estimate-archive') AND old.owner_oid<>'' AND lower(old.owner_oid)<>?)))`)
++        .bind(oid,recordId,oid,oid,upn,upn,oid,upn,oid).first();
++      if (!visible) return json({ error:'Record access is not permitted' },403,origin || '');
++      const payPeriods=await loadPayPeriods(env), reviewed=Boolean(visible.reviewed_access);
++      const record=projectRow(visible,true,env,payPeriods);
++      record.can_edit=reviewed ? false : canEditRecord(identity,visible,new Date(),payPeriods);
++      record.can_edit_record=record.can_edit;
++      return json({ record,payload:payloadObject(visible) },200,origin || '');
++    }
+     if (!canAccessRecord(identity, existing)) return json({ error: "Record access is not permitted" }, 403, origin || "");
+     if (existing.status === "Deleted") return json({ error: "Record has been deleted" }, 410, origin || "");
+     if (request.method === "GET") {
